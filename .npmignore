@@ -1,0 +1,51 @@
+# Development files
+node_modules/
+src/
+webpack.config.js
+.babelrc
+.claude/
+
+# Configuration examples
+config-examples/
+
+# Git files
+.git/
+.gitignore
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts
+dist/
+build/
+coverage/
+
+# Testing
+test/
+tests/
+*.test.js
+*.spec.js
+
+# Linting
+.eslintrc*
+.prettierrc*
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
