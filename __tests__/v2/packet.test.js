@@ -427,6 +427,124 @@ describe("getTypeName", () => {
   });
 });
 
+describe("ACK/NAK Parsing Integration", () => {
+  test("parses ACK with cumulative sequence", () => {
+    const builder = new PacketBuilder();
+    const parser = new PacketParser();
+
+    const ackPacket = builder.buildACKPacket(100);
+    const parsed = parser.parseHeader(ackPacket);
+    const ackedSeq = parser.parseACKPayload(parsed.payload);
+
+    expect(parsed.type).toBe(PacketType.ACK);
+    expect(parsed.typeName).toBe("ACK");
+    expect(ackedSeq).toBe(100);
+  });
+
+  test("parses ACK for sequence 0", () => {
+    const builder = new PacketBuilder();
+    const parser = new PacketParser();
+
+    const ackPacket = builder.buildACKPacket(0);
+    const parsed = parser.parseHeader(ackPacket);
+    const ackedSeq = parser.parseACKPayload(parsed.payload);
+
+    expect(ackedSeq).toBe(0);
+  });
+
+  test("parses ACK for large sequence number", () => {
+    const builder = new PacketBuilder();
+    const parser = new PacketParser();
+
+    const ackPacket = builder.buildACKPacket(MAX_SEQUENCE);
+    const parsed = parser.parseHeader(ackPacket);
+    const ackedSeq = parser.parseACKPayload(parsed.payload);
+
+    expect(ackedSeq).toBe(MAX_SEQUENCE);
+  });
+
+  test("parses NAK with multiple missing sequences", () => {
+    const builder = new PacketBuilder();
+    const parser = new PacketParser();
+
+    const missing = [50, 52, 54];
+    const nakPacket = builder.buildNAKPacket(missing);
+    const parsed = parser.parseHeader(nakPacket);
+    const nakMissing = parser.parseNAKPayload(parsed.payload);
+
+    expect(parsed.type).toBe(PacketType.NAK);
+    expect(parsed.typeName).toBe("NAK");
+    expect(nakMissing).toEqual(missing);
+  });
+
+  test("parses NAK with single missing sequence", () => {
+    const builder = new PacketBuilder();
+    const parser = new PacketParser();
+
+    const nakPacket = builder.buildNAKPacket([42]);
+    const parsed = parser.parseHeader(nakPacket);
+    const nakMissing = parser.parseNAKPayload(parsed.payload);
+
+    expect(nakMissing).toEqual([42]);
+  });
+
+  test("parses NAK with many missing sequences", () => {
+    const builder = new PacketBuilder();
+    const parser = new PacketParser();
+
+    const missing = Array.from({ length: 50 }, (_, i) => i * 2);
+    const nakPacket = builder.buildNAKPacket(missing);
+    const parsed = parser.parseHeader(nakPacket);
+    const nakMissing = parser.parseNAKPayload(parsed.payload);
+
+    expect(nakMissing).toEqual(missing);
+    expect(nakMissing).toHaveLength(50);
+  });
+
+  test("ACK does not advance builder sequence", () => {
+    const builder = new PacketBuilder();
+
+    builder.buildDataPacket(Buffer.from("data")); // seq 0 -> 1
+    builder.buildACKPacket(100);
+
+    expect(builder.getCurrentSequence()).toBe(1);
+  });
+
+  test("NAK does not advance builder sequence", () => {
+    const builder = new PacketBuilder();
+
+    builder.buildDataPacket(Buffer.from("data")); // seq 0 -> 1
+    builder.buildNAKPacket([5, 10]);
+
+    expect(builder.getCurrentSequence()).toBe(1);
+  });
+
+  test("ACK and NAK packets have valid CRC", () => {
+    const builder = new PacketBuilder();
+    const parser = new PacketParser();
+
+    // These should not throw (CRC validation happens in parseHeader)
+    expect(() => {
+      parser.parseHeader(builder.buildACKPacket(42));
+    }).not.toThrow();
+
+    expect(() => {
+      parser.parseHeader(builder.buildNAKPacket([1, 2, 3]));
+    }).not.toThrow();
+  });
+
+  test("corrupted ACK packet throws CRC error", () => {
+    const builder = new PacketBuilder();
+    const parser = new PacketParser();
+
+    const ackPacket = builder.buildACKPacket(100);
+    // Corrupt a header byte
+    ackPacket[4] = 0xff;
+
+    expect(() => parser.parseHeader(ackPacket)).toThrow("CRC mismatch");
+  });
+});
+
 describe("Integration scenarios", () => {
   test("round-trip: build and parse DATA packet", () => {
     const builder = new PacketBuilder();
