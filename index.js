@@ -10,6 +10,7 @@ const Monitor = require("ping-monitor");
 const createMetrics = require("./lib/metrics");
 const createPipeline = require("./lib/pipeline");
 const createRoutes = require("./lib/routes");
+const pkg = require("./package.json");
 const {
   DEFAULT_DELTA_TIMER,
   PING_TIMEOUT_BUFFER,
@@ -24,10 +25,9 @@ const {
 
 module.exports = function createPlugin(app) {
   const plugin = {};
-  plugin.id = "signalk-edge-link";
+  plugin.id = pkg.name;
   plugin.name = "Signal K Edge Link";
-  plugin.description =
-    "Server & client solution for encrypted compressed UDP data transfer between Signal K units";
+  plugin.description = pkg.description;
 
   // eslint-disable-next-line no-unused-vars
   const setStatus = app.setPluginStatus || app.setProviderStatus;
