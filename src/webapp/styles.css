@@ -851,6 +851,63 @@ body {
   border-radius: 8px;
 }
 
+/* Network Quality Dashboard Styles */
+.network-quality-dashboard {
+  padding: 1rem 0;
+}
+
+.nq-hero {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.nq-gauge-container {
+  text-align: center;
+  width: 160px;
+}
+
+.quality-gauge {
+  width: 160px;
+  height: 90px;
+}
+
+.nq-gauge-label {
+  font-size: 0.85rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 0.25rem;
+}
+
+.nq-key-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+}
+
+.nq-key-metrics .metric-item {
+  text-align: center;
+}
+
+.nq-key-metrics .metric-item.warning {
+  border-color: var(--warning-color);
+  background: rgba(255, 193, 7, 0.1);
+}
+
+.nq-details {
+  background: var(--metric-bg);
+  padding: 1.5rem;
+  border-radius: 8px;
+}
+
+.nq-details h5 {
+  margin: 0 0 1rem 0;
+  color: var(--primary-color);
+}
+
 /* Responsive adjustments for bandwidth and path analytics */
 @media (max-width: 768px) {
   .hero-value {
@@ -883,5 +940,14 @@ body {
   .percentage-bar {
     width: 100% !important;
     max-width: 100px;
+  }
+
+  .nq-hero {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .nq-key-metrics {
+    grid-template-columns: 1fr 1fr;
   }
 }
