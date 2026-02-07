@@ -18,6 +18,29 @@ Phase 3 adds comprehensive network quality monitoring:
 
 ---
 
+## Important: NAT/Cellular Keepalive Requirement
+
+Phase 2 introduced bidirectional ACK/NAK over UDP. On cellular networks (and any
+NAT'd environment), the client has no publicly routable IP. The server sends
+ACK/NAK to `rinfo.address:rinfo.port` (the NAT's external endpoint), which works
+because the client's outbound DATA packets create a NAT mapping.
+
+**Problem**: Cellular NATs (CGNAT) typically expire UDP mappings after 30-120s of
+inactivity. If the client stops sending data, the mapping dies and ACK/NAK packets
+from the server are silently dropped.
+
+**Required**: Wire `PacketBuilder.buildHeartbeatPacket()` into a periodic client-side
+keepalive timer (e.g. every 25s). This should be added as part of Phase 3 since it
+directly affects the reliability metrics (false packet loss spikes when NAT drops).
+
+**Also consider**:
+- Symmetric NAT: some CGNATs assign different external ports per destination. Our
+  design is safe because server replies via the same socket that received data.
+- NAT rebinding: external port can change; server picks up new address from next rinfo.
+- RTT measurement accuracy depends on the NAT mapping being alive.
+
+---
+
 ## Week 9: Metrics Publisher Implementation
 
 ### STEP 9.1: Create Metrics Publisher Specification
