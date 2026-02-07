@@ -58,6 +58,7 @@ Signal K Edge Link is a Signal K Node Server plugin that enables real-time data 
 | Path dictionary | 170+ Signal K paths mapped to numeric IDs (10–20% savings) |
 | MessagePack | Optional binary serialization (15–25% additional savings) |
 | Smart batching | Adaptive packet sizing that prevents UDP fragmentation |
+| v2 protocol (alpha) | Binary packet headers with sequence tracking for loss detection |
 | Sentence filtering | Exclude NMEA sentences (GSV, GSA, etc.) to reduce bandwidth |
 | Network monitoring | TCP ping with RTT measurement published to Signal K |
 | Web dashboard | Real-time bandwidth, compression, and path analytics |
@@ -381,7 +382,12 @@ The plugin core is decomposed into focused modules:
 | `lib/crypto.js` | AES-256-GCM encryption and decryption |
 | `lib/metrics.js` | Bandwidth tracking, path analytics, error recording |
 | `lib/pathDictionary.js` | Signal K path encoding (170+ paths) |
-| `lib/pipeline.js` | Compress → encrypt → send / receive → decrypt → decompress |
+| `lib/pipeline.js` | v1: compress → encrypt → send / receive → decrypt → decompress |
+| `lib/packet.js` | v2: binary packet protocol (headers, CRC16, types) |
+| `lib/sequence.js` | v2: sequence tracking and loss detection |
+| `lib/pipeline-factory.js` | v2: pipeline version selector |
+| `lib/pipeline-v2-client.js` | v2: client pipeline with packet building |
+| `lib/pipeline-v2-server.js` | v2: server pipeline with packet parsing |
 | `lib/routes.js` | HTTP route handlers, rate limiting, config file I/O |
 
 Modules are wired together via factory functions that receive a shared `state` object by reference, enabling cross-module state access without globals.
@@ -397,7 +403,12 @@ signalk-edge-link/
 │   ├── crypto.js               # AES-256-GCM encryption module
 │   ├── metrics.js              # Metrics, bandwidth, path analytics
 │   ├── pathDictionary.js       # Signal K path encoding (170+ paths)
-│   ├── pipeline.js             # Pack/unpack pipeline (compress, encrypt, UDP)
+│   ├── pipeline.js             # v1 pack/unpack pipeline
+│   ├── packet.js               # v2 binary packet protocol
+│   ├── sequence.js             # v2 sequence tracking
+│   ├── pipeline-factory.js     # v2 pipeline version selector
+│   ├── pipeline-v2-client.js   # v2 client pipeline
+│   ├── pipeline-v2-server.js   # v2 server pipeline
 │   └── routes.js               # HTTP routes and rate limiting
 ├── src/
 │   ├── webapp/
@@ -405,7 +416,7 @@ signalk-edge-link/
 │   │   └── styles.css
 │   └── components/
 │       └── PluginConfigurationPanel.jsx  # React config panel
-├── __tests__/                  # 209 tests across 9 files
+├── __tests__/                  # 355 tests across 11 files
 │   ├── crypto.test.js
 │   ├── pathDictionary.test.js
 │   ├── compression.test.js
@@ -414,7 +425,18 @@ signalk-edge-link/
 │   ├── config.test.js
 │   ├── index.test.js
 │   ├── webapp.test.js
-│   └── integration-pipe.test.js
+│   ├── integration-pipe.test.js
+│   └── v2/                     # v2 protocol tests
+│       ├── packet.test.js
+│       └── sequence.test.js
+├── test/
+│   └── integration/            # v2 integration tests
+│       ├── packet-sequence.test.js
+│       └── pipeline-v2-e2e.test.js
+├── docs/                       # Documentation
+│   ├── protocol-v2-spec.md     # v2 protocol specification
+│   └── migration/
+│       └── v1-to-v2.md         # Migration guide
 └── public/                     # Built UI files (generated)
 ```
 
@@ -423,17 +445,19 @@ signalk-edge-link/
 ```bash
 npm run dev            # Development build with watch mode
 npm run build          # Production build
-npm test               # Run all 209 tests
+npm test               # Run all tests
 npm run test:watch     # Run tests in watch mode
 npm run test:coverage  # Generate coverage report
 npm run lint           # Check code style
 npm run lint:fix       # Auto-fix linting issues
 npm run format         # Format code with Prettier
+npm run test:v2        # Run v2 protocol tests only
+npm run test:integration  # Run integration tests only
 ```
 
 ### Testing
 
-The test suite covers all critical paths with 209 tests across 9 files:
+The test suite covers all critical paths with 355 tests across 13 files:
 
 | Test file | Scope |
 |-----------|-------|
@@ -446,6 +470,10 @@ The test suite covers all critical paths with 209 tests across 9 files:
 | `index.test.js` | Plugin lifecycle, schema validation |
 | `webapp.test.js` | Web UI metrics and API endpoints |
 | `integration-pipe.test.js` | Full input → backend → frontend data flow |
+| `v2/packet.test.js` | v2 packet building, parsing, CRC16, all types |
+| `v2/sequence.test.js` | Sequence tracking, gap detection, NAK scheduling |
+| `integration/packet-sequence.test.js` | Packet + sequence integration |
+| `integration/pipeline-v2-e2e.test.js` | v2 pipeline end-to-end round-trips |
 
 Run a specific test suite:
 
@@ -457,12 +485,21 @@ npm test -- --coverage
 
 ### Technical Reference
 
-**Packet format:**
+**v1 Packet format:**
 
 ```
 [IV (12 bytes)][Encrypted Data][Auth Tag (16 bytes)]
 Total overhead: 28 bytes per packet
 ```
+
+**v2 Packet format (alpha):**
+
+```
+[Magic 2B][Ver 1B][Type 1B][Flags 1B][Seq 4B][Len 4B][CRC16 2B][Payload...]
+Total header: 15 bytes + 28 bytes encryption overhead = 43 bytes per packet
+```
+
+See [Protocol v2 Specification](docs/protocol-v2-spec.md) for details.
 
 **Compression pipeline (detailed):**
 
@@ -515,7 +552,7 @@ Server side:
 7. Submit a pull request
 
 **Requirements for all contributions:**
-- All 209 tests pass
+- All tests pass
 - No ESLint errors or warnings
 - Code formatted with Prettier
 - Test coverage for new features
