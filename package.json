@@ -19,6 +19,8 @@
     "build": "webpack --mode production",
     "dev": "webpack --mode development --watch",
     "test": "jest",
+    "test:v2": "jest __tests__/v2/",
+    "test:integration": "jest test/integration/",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "lint": "eslint .",
@@ -58,6 +60,7 @@
     "coverageDirectory": "coverage",
     "collectCoverageFrom": [
       "*.js",
+      "lib/**/*.js",
       "!webpack.config.js",
       "!.eslintrc.js"
     ],
