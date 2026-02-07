@@ -338,6 +338,9 @@ class DataConnectorConfig {
   }
 
   updateMetricsDisplay(metrics) {
+    // Update network quality display
+    this.updateNetworkQualityDisplay(metrics);
+
     // Update bandwidth display
     this.updateBandwidthDisplay(metrics);
 
@@ -430,6 +433,104 @@ class DataConnectorConfig {
     }
 
     metricsDiv.innerHTML = metricsHtml;
+  }
+
+  updateNetworkQualityDisplay(metrics) {
+    const nqDiv = document.getElementById("networkQuality");
+    if (!nqDiv || !metrics.networkQuality) {
+      return;
+    }
+
+    const nq = metrics.networkQuality;
+    const isClient = metrics.mode === "client";
+
+    // Determine quality level and color
+    let qualityLabel = "N/A";
+    let qualityColor = "#9E9E9E";
+    if (nq.linkQuality !== undefined) {
+      if (nq.linkQuality >= 90) {
+        qualityLabel = "Excellent";
+        qualityColor = "#4CAF50";
+      } else if (nq.linkQuality >= 70) {
+        qualityLabel = "Good";
+        qualityColor = "#FFC107";
+      } else if (nq.linkQuality >= 50) {
+        qualityLabel = "Fair";
+        qualityColor = "#FF9800";
+      } else {
+        qualityLabel = "Poor";
+        qualityColor = "#F44336";
+      }
+    }
+
+    // Build the quality gauge using SVG half-doughnut
+    const qualityPct = nq.linkQuality !== undefined ? nq.linkQuality : 0;
+    const gaugeAngle = (qualityPct / 100) * 180;
+    const radStart = Math.PI;
+    const radEnd = radStart + (gaugeAngle * Math.PI / 180);
+    const cx = 50, cy = 50, r = 40;
+    const x1 = cx + r * Math.cos(radStart);
+    const y1 = cy + r * Math.sin(radStart);
+    const x2 = cx + r * Math.cos(radEnd);
+    const y2 = cy + r * Math.sin(radEnd);
+    const largeArc = gaugeAngle > 180 ? 1 : 0;
+
+    const gaugeSvg = `
+      <svg viewBox="0 0 100 55" class="quality-gauge" preserveAspectRatio="xMidYMid meet">
+        <path d="M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}"
+              fill="none" stroke="#E0E0E0" stroke-width="8" stroke-linecap="round"/>
+        ${qualityPct > 0 ? `<path d="M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}"
+              fill="none" stroke="${qualityColor}" stroke-width="8" stroke-linecap="round"/>` : ""}
+        <text x="${cx}" y="${cy - 5}" text-anchor="middle" font-size="16" font-weight="bold" fill="${qualityColor}">
+          ${qualityPct}
+        </text>
+        <text x="${cx}" y="${cy + 8}" text-anchor="middle" font-size="7" fill="#666">
+          ${qualityLabel}
+        </text>
+      </svg>
+    `;
+
+    // Build RTT and jitter stats
+    const rttDisplay = nq.rtt !== undefined ? nq.rtt + " ms" : "N/A";
+    const jitterDisplay = nq.jitter !== undefined ? nq.jitter + " ms" : "N/A";
+
+    let nqHtml = `
+      <div class="network-quality-dashboard">
+        <div class="nq-hero">
+          <div class="nq-gauge-container">
+            ${gaugeSvg}
+            <div class="nq-gauge-label">Link Quality</div>
+          </div>
+          <div class="nq-key-metrics">
+            ${renderMetricItem("RTT", rttDisplay, nq.rtt > 500 ? "error" : nq.rtt > 200 ? "warning" : "")}
+            ${renderMetricItem("Jitter", jitterDisplay, nq.jitter > 100 ? "error" : nq.jitter > 50 ? "warning" : "")}
+          </div>
+        </div>
+
+        <div class="nq-details">
+          <h5>Reliability Statistics</h5>
+          <div class="stats-grid">
+    `;
+
+    if (isClient) {
+      nqHtml += `
+            ${renderStatItem("Retransmissions", (nq.retransmissions || 0).toLocaleString(), nq.retransmissions > 0)}
+            ${renderStatItem("Queue Depth", (nq.queueDepth || 0).toLocaleString(), nq.queueDepth > 100)}
+      `;
+    } else {
+      nqHtml += `
+            ${renderStatItem("ACKs Sent", (nq.acksSent || 0).toLocaleString())}
+            ${renderStatItem("NAKs Sent", (nq.naksSent || 0).toLocaleString(), nq.naksSent > 0)}
+      `;
+    }
+
+    nqHtml += `
+          </div>
+        </div>
+      </div>
+    `;
+
+    nqDiv.innerHTML = nqHtml;
   }
 
   updateBandwidthDisplay(metrics) {
@@ -738,6 +839,7 @@ class DataConnectorConfig {
 
     container.innerHTML =
       serverModeCard +
+      renderCard("Network Quality", "Link quality score and network health indicators", "networkQuality") +
       renderCard("Bandwidth Monitor", "Network reception statistics", "bandwidth") +
       renderCard("Path Analytics", "Incoming data volume by SignalK path", "pathAnalytics") +
       renderCard("Performance Metrics", "Real-time reception statistics (auto-refreshes every 15 seconds)", "metrics");
