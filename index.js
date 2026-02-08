@@ -629,6 +629,43 @@ module.exports = function createPlugin(app) {
                 default: 1,
                 minimum: 0.1,
                 maximum: 60
+              },
+              congestionControl: {
+                type: "object",
+                title: "Dynamic Congestion Control",
+                description: "AIMD algorithm to dynamically adjust send rate based on network conditions",
+                properties: {
+                  enabled: {
+                    type: "boolean",
+                    title: "Enable Congestion Control",
+                    description: "Automatically adjust delta timer based on RTT and packet loss",
+                    default: false
+                  },
+                  targetRTT: {
+                    type: "number",
+                    title: "Target RTT (ms)",
+                    description: "RTT threshold above which send rate is reduced",
+                    default: 200,
+                    minimum: 50,
+                    maximum: 2000
+                  },
+                  minDeltaTimer: {
+                    type: "number",
+                    title: "Minimum Delta Timer (ms)",
+                    description: "Fastest allowed send interval",
+                    default: 100,
+                    minimum: 50,
+                    maximum: 1000
+                  },
+                  maxDeltaTimer: {
+                    type: "number",
+                    title: "Maximum Delta Timer (ms)",
+                    description: "Slowest allowed send interval",
+                    default: 5000,
+                    minimum: 1000,
+                    maximum: 30000
+                  }
+                }
               }
             },
             required: ["udpAddress", "testAddress", "testPort"]

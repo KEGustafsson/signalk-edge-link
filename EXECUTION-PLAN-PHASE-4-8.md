@@ -2,11 +2,11 @@
 
 ---
 
-## Phase 4: Dynamic Congestion Control (Apr 26 - May 9, 2026)
+## Phase 4: Dynamic Congestion Control (Apr 26 - May 9, 2026) ✅ COMPLETE
 
 ### Week 12: Algorithm Implementation
 
-**STEP 12.1: Implement lib/congestion.js**
+**STEP 12.1: Implement lib/congestion.js** ✅
 
 ```javascript
 /**
@@ -86,12 +86,12 @@ class CongestionControl {
 module.exports = { CongestionControl };
 ```
 
-**Tests**: 25+ covering adjustment logic, limits, smoothing, manual override  
+**Tests**: 40 unit tests covering adjustment logic, limits, smoothing, manual override
 **Git**: `feat(congestion): implement AIMD congestion control algorithm`
 
 ---
 
-**STEP 12.2: Integrate into Client Pipeline**
+**STEP 12.2: Integrate into Client Pipeline** ✅
 
 ```javascript
 // lib/pipeline-v2-client.js
@@ -128,7 +128,7 @@ async receiveACK(packet) {
 
 ### Week 13: Testing & Validation
 
-**STEP 13.1: Network Transition Tests**
+**STEP 13.1: Network Transition Tests** ✅
 
 ```javascript
 describe('Congestion Control - Network Transitions', () => {
@@ -159,12 +159,12 @@ describe('Congestion Control - Network Transitions', () => {
 });
 ```
 
-**40+ tests** for various scenarios  
+**25 network transition tests** for various scenarios
 **Git**: `test(congestion): add network transition tests`
 
 ---
 
-**STEP 13.2: Manual Override Support**
+**STEP 13.2: Manual Override Support** ✅
 
 ```javascript
 // API endpoint for manual control
@@ -185,6 +185,15 @@ app.post('/plugins/signalk-edge-link/delta-timer', (req, res) => {
 **Git**: `feat(api): add manual delta timer override endpoint`
 
 ---
+
+**Phase 4 Results**:
+- `lib/congestion.js`: CongestionControl class with full AIMD algorithm
+- `lib/constants.js`: 11 new congestion control constants
+- `lib/pipeline-v2-client.js`: Integrated congestion control with adjustment timer
+- `lib/routes.js`: GET /congestion state endpoint + POST /delta-timer manual override
+- `index.js`: Congestion control config in plugin schema
+- **65 new tests** (40 unit + 25 network transition), all passing
+- **417 total tests** passing across the project
 
 **Tag**: `v2.0.0-alpha.4`
 
