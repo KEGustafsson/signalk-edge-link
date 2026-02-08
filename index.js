@@ -9,6 +9,7 @@ const { validateSecretKey } = require("./lib/crypto");
 const Monitor = require("ping-monitor");
 const createMetrics = require("./lib/metrics");
 const createPipeline = require("./lib/pipeline");
+const { createPipelineV2Client } = require("./lib/pipeline-v2-client");
 const createRoutes = require("./lib/routes");
 const pkg = require("./package.json");
 const {
@@ -54,6 +55,7 @@ module.exports = function createPlugin(app) {
     pingTimeout: null,
     pingMonitor: null,
     deltaTimer: null,
+    pipeline: null,
     configDebounceTimers: {},
     configContentHashes: {},
     configWatcherObjects: []
@@ -486,6 +488,30 @@ module.exports = function createPlugin(app) {
         () => { state.readyToSend = false; },
         options.pingIntervalTime * MILLISECONDS_PER_MINUTE + PING_TIMEOUT_BUFFER
       );
+
+      // Initialize v2 client pipeline and bonding (if enabled)
+      if (options.bonding && options.bonding.enabled) {
+        const v2Pipeline = createPipelineV2Client(app, state, metricsApi);
+        state.pipeline = v2Pipeline;
+
+        const bondingConfig = {
+          mode: options.bonding.mode || "main-backup",
+          primary: options.bonding.primary || { address: options.udpAddress, port: options.udpPort },
+          backup: options.bonding.backup || { address: options.udpAddress, port: options.udpPort + 1 },
+          failover: options.bonding.failover || {}
+        };
+
+        try {
+          await v2Pipeline.initBonding(bondingConfig);
+          v2Pipeline.startMetricsPublishing();
+          if (options.congestionControl && options.congestionControl.enabled) {
+            v2Pipeline.startCongestionControl();
+          }
+          app.debug("[Bonding] Connection bonding initialized");
+        } catch (err) {
+          app.error(`[Bonding] Failed to initialize: ${err.message}`);
+        }
+      }
     }
   };
 
@@ -500,6 +526,7 @@ module.exports = function createPlugin(app) {
     state.isServerMode = false;
     state.readyToSend = false;
     state.deltas = [];
+    state.pipeline = null;
     Object.keys(state.configContentHashes).forEach((k) => delete state.configContentHashes[k]);
     state.excludedSentences = ["GSV"];
     state.lastPacketTime = 0;
@@ -523,6 +550,14 @@ module.exports = function createPlugin(app) {
     state.configWatcherObjects.forEach((w) => w.close());
     state.configWatcherObjects = [];
     app.debug("Configuration file watchers closed");
+
+    // Stop v2 pipeline (bonding, metrics, congestion)
+    if (state.pipeline) {
+      if (state.pipeline.stopBonding) state.pipeline.stopBonding();
+      if (state.pipeline.stopMetricsPublishing) state.pipeline.stopMetricsPublishing();
+      if (state.pipeline.stopCongestionControl) state.pipeline.stopCongestionControl();
+      state.pipeline = null;
+    }
 
     // Stop ping monitor
     if (state.pingMonitor) {
@@ -664,6 +699,118 @@ module.exports = function createPlugin(app) {
                     default: 5000,
                     minimum: 1000,
                     maximum: 30000
+                  }
+                }
+              },
+              bonding: {
+                type: "object",
+                title: "Connection Bonding",
+                description: "Dual-link bonding with automatic failover between primary and backup connections",
+                properties: {
+                  enabled: {
+                    type: "boolean",
+                    title: "Enable Connection Bonding",
+                    description: "Enable dual-link bonding with automatic failover",
+                    default: false
+                  },
+                  mode: {
+                    type: "string",
+                    title: "Bonding Mode",
+                    description: "Bonding operating mode",
+                    default: "main-backup",
+                    enum: ["main-backup"],
+                    enumNames: ["Main/Backup - Failover to backup when primary degrades"]
+                  },
+                  primary: {
+                    type: "object",
+                    title: "Primary Link",
+                    description: "Primary connection (e.g., LTE modem)",
+                    properties: {
+                      address: {
+                        type: "string",
+                        title: "Server Address",
+                        description: "IP address or hostname of the server for primary link",
+                        default: "127.0.0.1"
+                      },
+                      port: {
+                        type: "number",
+                        title: "UDP Port",
+                        description: "UDP port for primary link",
+                        default: 4446,
+                        minimum: 1024,
+                        maximum: 65535
+                      },
+                      interface: {
+                        type: "string",
+                        title: "Bind Interface (optional)",
+                        description: "Network interface IP to bind to (e.g., 192.168.1.100)"
+                      }
+                    }
+                  },
+                  backup: {
+                    type: "object",
+                    title: "Backup Link",
+                    description: "Backup connection (e.g., Starlink, satellite)",
+                    properties: {
+                      address: {
+                        type: "string",
+                        title: "Server Address",
+                        description: "IP address or hostname of the server for backup link",
+                        default: "127.0.0.1"
+                      },
+                      port: {
+                        type: "number",
+                        title: "UDP Port",
+                        description: "UDP port for backup link",
+                        default: 4447,
+                        minimum: 1024,
+                        maximum: 65535
+                      },
+                      interface: {
+                        type: "string",
+                        title: "Bind Interface (optional)",
+                        description: "Network interface IP to bind to (e.g., 10.0.0.100)"
+                      }
+                    }
+                  },
+                  failover: {
+                    type: "object",
+                    title: "Failover Thresholds",
+                    description: "Configure when failover is triggered",
+                    properties: {
+                      rttThreshold: {
+                        type: "number",
+                        title: "RTT Threshold (ms)",
+                        description: "Failover when RTT exceeds this value",
+                        default: 500,
+                        minimum: 100,
+                        maximum: 5000
+                      },
+                      lossThreshold: {
+                        type: "number",
+                        title: "Packet Loss Threshold",
+                        description: "Failover when loss exceeds this ratio (0.0 - 1.0)",
+                        default: 0.1,
+                        minimum: 0.01,
+                        maximum: 0.5
+                      },
+                      healthCheckInterval: {
+                        type: "number",
+                        title: "Health Check Interval (ms)",
+                        description: "How often to check link health",
+                        default: 1000,
+                        minimum: 500,
+                        maximum: 10000
+                      },
+                      failbackDelay: {
+                        type: "number",
+                        title: "Failback Delay (ms)",
+                        description: "Wait time before switching back to primary after recovery",
+                        default: 30000,
+                        minimum: 5000,
+                        maximum: 300000
+                      }
+                    }
                   }
                 }
               }
