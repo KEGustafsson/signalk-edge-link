@@ -36,8 +36,12 @@ coverage/
 # Testing
 test/
 tests/
+__tests__/
 *.test.js
 *.spec.js
+
+# Execution plans
+EXECUTION-PLAN-*.md
 
 # Linting
 .eslintrc*
