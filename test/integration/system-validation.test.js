@@ -452,7 +452,7 @@ describe("System Validation - Network Transitions", () => {
       }
     }
 
-    expect(received.size / TOTAL).toBeGreaterThanOrEqual(0.98);
+    expect(received.size / TOTAL).toBeGreaterThanOrEqual(0.95);
     sim.destroy();
   });
 

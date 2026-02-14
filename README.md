@@ -1,8 +1,9 @@
 # Signal K Edge Link
 
-Secure, encrypted UDP data transmission between Signal K servers with advanced bandwidth optimization.
+Secure, reliable UDP data transmission between Signal K servers with advanced bandwidth optimization, automatic failover, and comprehensive monitoring.
 
-[![Tests](https://img.shields.io/badge/tests-209%20passed-brightgreen)](https://github.com/KEGustafsson/signalk-edge-link)
+[![Tests](https://img.shields.io/badge/tests-743%2B%20passed-brightgreen)](https://github.com/KEGustafsson/signalk-edge-link)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue)](https://github.com/KEGustafsson/signalk-edge-link)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen)](https://nodejs.org/)
 
@@ -58,9 +59,12 @@ Signal K Edge Link is a Signal K Node Server plugin that enables real-time data 
 | Path dictionary | 170+ Signal K paths mapped to numeric IDs (10–20% savings) |
 | MessagePack | Optional binary serialization (15–25% additional savings) |
 | Smart batching | Adaptive packet sizing that prevents UDP fragmentation |
-| v2 protocol (alpha) | Binary packet headers with sequence tracking for loss detection |
+| v2 protocol | Binary packet headers with ACK/NAK retransmission (>99.9% delivery) |
+| Congestion control | AIMD algorithm auto-adjusts send rate based on network conditions |
+| Connection bonding | Primary/backup failover between LTE and satellite links |
+| Monitoring | 30+ metrics, Prometheus export, alerts, packet capture |
 | Sentence filtering | Exclude NMEA sentences (GSV, GSA, etc.) to reduce bandwidth |
-| Network monitoring | TCP ping with RTT measurement published to Signal K |
+| Network monitoring | RTT, jitter, packet loss, link quality score |
 | Web dashboard | Real-time bandwidth, compression, and path analytics |
 | Hot-reload config | Configuration files reload automatically on change |
 
@@ -385,9 +389,16 @@ The plugin core is decomposed into focused modules:
 | `lib/pipeline.js` | v1: compress → encrypt → send / receive → decrypt → decompress |
 | `lib/packet.js` | v2: binary packet protocol (headers, CRC16, types) |
 | `lib/sequence.js` | v2: sequence tracking and loss detection |
+| `lib/retransmit-queue.js` | v2: packet retransmission queue |
 | `lib/pipeline-factory.js` | v2: pipeline version selector |
 | `lib/pipeline-v2-client.js` | v2: client pipeline with packet building |
 | `lib/pipeline-v2-server.js` | v2: server pipeline with packet parsing |
+| `lib/congestion.js` | v2: AIMD congestion control algorithm |
+| `lib/bonding.js` | v2: connection bonding with failover |
+| `lib/monitoring.js` | v2: packet loss, latency, alerts |
+| `lib/packet-capture.js` | v2: pcap export and live inspection |
+| `lib/metrics-publisher.js` | v2: Signal K metrics publishing |
+| `lib/prometheus.js` | v2: Prometheus metrics export |
 | `lib/routes.js` | HTTP route handlers, rate limiting, config file I/O |
 
 Modules are wired together via factory functions that receive a shared `state` object by reference, enabling cross-module state access without globals.
@@ -416,7 +427,7 @@ signalk-edge-link/
 │   │   └── styles.css
 │   └── components/
 │       └── PluginConfigurationPanel.jsx  # React config panel
-├── __tests__/                  # 355 tests across 11 files
+├── __tests__/                  # 743+ tests across 23 files
 │   ├── crypto.test.js
 │   ├── pathDictionary.test.js
 │   ├── compression.test.js
@@ -426,17 +437,28 @@ signalk-edge-link/
 │   ├── index.test.js
 │   ├── webapp.test.js
 │   ├── integration-pipe.test.js
-│   └── v2/                     # v2 protocol tests
+│   └── v2/                     # v2 protocol tests (14 files)
 │       ├── packet.test.js
-│       └── sequence.test.js
+│       ├── sequence.test.js
+│       ├── bonding.test.js
+│       ├── congestion.test.js
+│       ├── monitoring.test.js
+│       └── ...
 ├── test/
-│   └── integration/            # v2 integration tests
-│       ├── packet-sequence.test.js
-│       └── pipeline-v2-e2e.test.js
+│   ├── integration/            # v2 integration tests
+│   ├── benchmarks/             # Performance benchmarks
+│   └── network-simulator.js    # Network condition simulator
+├── scripts/
+│   └── migrate-config-v2.js    # v1 → v2 config migration tool
 ├── docs/                       # Documentation
 │   ├── protocol-v2-spec.md     # v2 protocol specification
-│   └── migration/
-│       └── v1-to-v2.md         # Migration guide
+│   ├── api-reference.md        # REST API reference
+│   ├── configuration-reference.md  # Full config reference
+│   ├── troubleshooting.md      # Troubleshooting guide
+│   ├── migration/
+│   │   └── v1-to-v2.md         # Migration guide
+│   └── performance/            # Performance results
+├── grafana-dashboard.json      # Pre-built Grafana dashboard
 └── public/                     # Built UI files (generated)
 ```
 
@@ -457,7 +479,7 @@ npm run test:integration  # Run integration tests only
 
 ### Testing
 
-The test suite covers all critical paths with 355 tests across 13 files:
+The test suite covers all critical paths with 743+ tests across 27 files:
 
 | Test file | Scope |
 |-----------|-------|
@@ -472,8 +494,12 @@ The test suite covers all critical paths with 355 tests across 13 files:
 | `integration-pipe.test.js` | Full input → backend → frontend data flow |
 | `v2/packet.test.js` | v2 packet building, parsing, CRC16, all types |
 | `v2/sequence.test.js` | Sequence tracking, gap detection, NAK scheduling |
-| `integration/packet-sequence.test.js` | Packet + sequence integration |
+| `v2/bonding.test.js` | Connection bonding, failover/failback |
+| `v2/congestion.test.js` | AIMD congestion control algorithm |
+| `v2/monitoring.test.js` | Packet loss, latency, retransmission tracking |
+| `v2/prometheus.test.js` | Prometheus metrics export |
 | `integration/pipeline-v2-e2e.test.js` | v2 pipeline end-to-end round-trips |
+| `integration/system-validation.test.js` | Full system validation |
 
 Run a specific test suite:
 
@@ -492,7 +518,7 @@ npm test -- --coverage
 Total overhead: 28 bytes per packet
 ```
 
-**v2 Packet format (alpha):**
+**v2 Packet format:**
 
 ```
 [Magic 2B][Ver 1B][Type 1B][Flags 1B][Seq 4B][Len 4B][CRC16 2B][Payload...]
@@ -500,6 +526,17 @@ Total header: 15 bytes + 28 bytes encryption overhead = 43 bytes per packet
 ```
 
 See [Protocol v2 Specification](docs/protocol-v2-spec.md) for details.
+
+### Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Protocol v2 Specification](docs/protocol-v2-spec.md) | Complete binary protocol specification |
+| [API Reference](docs/api-reference.md) | REST API endpoint documentation |
+| [Configuration Reference](docs/configuration-reference.md) | All settings with defaults and ranges |
+| [Migration Guide](docs/migration/v1-to-v2.md) | Upgrading from v1 to v2 |
+| [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
+| [CHANGELOG](CHANGELOG.md) | Release history and changes |
 
 **Compression pipeline (detailed):**
 
@@ -536,10 +573,12 @@ Server side:
 
 | Metric | Value |
 |--------|-------|
-| Compression ratio | 85–97% on typical Signal K data |
-| Packet latency | 20–30 ms (serialize → compress → encrypt) |
+| Compression ratio | 85–97% on typical Signal K data (21.6x at 50 deltas/batch) |
+| Full pipeline latency (p99) | 2.07 ms (serialize → compress → encrypt → decrypt) |
 | Throughput | 10–100 Hz update rates |
-| Memory | Constant O(1) with circular buffers |
+| Delivery rate @ 5% loss | >99.9% with ACK/NAK retransmission |
+| Dual-link failover time | <2 seconds |
+| Memory | Constant O(1) with bounded circular buffers |
 
 ### Contributing
 
