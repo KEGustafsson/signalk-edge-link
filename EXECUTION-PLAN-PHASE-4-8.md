@@ -470,32 +470,57 @@ describe('Connection Bonding - Failover', () => {
 
 ---
 
-## Phase 6: Enhanced Monitoring (Jun 21 - Jul 11, 2026)
+## Phase 6: Enhanced Monitoring (Jun 21 - Jul 11, 2026) ✅ COMPLETE
 
 ### Deliverables
 
-**STEP 20.1**: Packet loss heatmap visualization  
-**STEP 20.2**: Per-path latency tracking  
-**STEP 20.3**: Retransmission rate chart  
+**STEP 20.1**: Packet loss heatmap visualization ✅
+- `lib/monitoring.js` → `PacketLossTracker` class with time-bucketed loss tracking
+- REST endpoint: `GET /monitoring/packet-loss` returns heatmap data + summary with trend analysis
 
-**STEP 21.1**: Packet capture export (`.pcap` format)
-```javascript
-function exportPacketCapture(packets) {
-  // Convert to pcap format using pcap-writer
-  const writer = new PcapWriter();
-  for (const pkt of packets) {
-    writer.writePacket(pkt.timestamp, pkt.data);
-  }
-  return writer.toBuffer();
-}
-```
+**STEP 20.2**: Per-path latency tracking ✅
+- `lib/monitoring.js` → `PathLatencyTracker` class with per-path sliding window stats
+- REST endpoint: `GET /monitoring/path-latency` returns avg/min/max/p50/p95/p99 per path
 
-**STEP 21.2**: Live packet inspector via WebSocket  
-**STEP 21.3**: Network simulation mode for testing  
+**STEP 20.3**: Retransmission rate chart ✅
+- `lib/monitoring.js` → `RetransmissionTracker` class with time-series rate snapshots
+- REST endpoint: `GET /monitoring/retransmissions` returns chart data + summary
 
-**STEP 22.1**: Alert thresholds UI  
-**STEP 22.2**: Pre-built Grafana dashboard JSON  
-**STEP 22.3**: Prometheus scrape validation  
+**STEP 21.1**: Packet capture export (`.pcap` format) ✅
+- `lib/packet-capture.js` → `PacketCapture` class with circular buffer
+- libpcap global header + per-packet records with DLT_USER0 link type
+- REST endpoints: `POST /capture/start`, `POST /capture/stop`, `GET /capture/export`
+
+**STEP 21.2**: Live packet inspector via WebSocket ✅
+- `lib/packet-capture.js` → `PacketInspector` class with WebSocket broadcasting
+- Parses v2 headers, broadcasts JSON summaries with hex preview
+- REST endpoint: `GET /monitoring/inspector` for stats
+
+**STEP 21.3**: Network simulation mode for testing ✅
+- Enhanced `test/network-simulator.js` with bandwidth throttling, link down, link flapping
+- Dynamic condition updates via `updateConditions()` / `getConditions()`
+- REST endpoint: `GET /monitoring/simulation` for simulation state
+
+**STEP 22.1**: Alert thresholds system ✅
+- `lib/monitoring.js` → `AlertManager` class with configurable thresholds
+- Warning/critical levels with cooldown, Signal K notifications
+- REST endpoints: `GET /monitoring/alerts`, `POST /monitoring/alerts`
+
+**STEP 22.2**: Pre-built Grafana dashboard JSON ✅
+- `grafana-dashboard.json` with 15+ panels covering all metrics
+- Sections: Overview gauges, Network Quality, Bandwidth, Packets & Deltas, Connection Bonding, Errors
+
+**STEP 22.3**: Prometheus scrape endpoint ✅
+- `lib/prometheus.js` → `formatPrometheusMetrics()` with proper HELP/TYPE annotations
+- 30+ metrics exported with labels (mode, link)
+- REST endpoint: `GET /prometheus` (text/plain; version=0.0.4)
+- `validatePrometheusFormat()` for format validation
+
+### Tests: 139 new tests across 4 test files (all passing)
+- `__tests__/v2/monitoring.test.js` (PacketLossTracker, PathLatencyTracker, RetransmissionTracker, AlertManager)
+- `__tests__/v2/packet-capture.test.js` (PacketCapture, PacketInspector)
+- `__tests__/v2/prometheus.test.js` (formatPrometheusMetrics, formatLabels, validatePrometheusFormat)
+- `__tests__/v2/network-simulator-enhanced.test.js` (bandwidth throttling, link down, flapping)
 
 ---
 

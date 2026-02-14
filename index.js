@@ -11,6 +11,8 @@ const createMetrics = require("./lib/metrics");
 const createPipeline = require("./lib/pipeline");
 const { createPipelineV2Client } = require("./lib/pipeline-v2-client");
 const createRoutes = require("./lib/routes");
+const { PacketLossTracker, PathLatencyTracker, RetransmissionTracker, AlertManager } = require("./lib/monitoring");
+const { PacketCapture, PacketInspector } = require("./lib/packet-capture");
 const pkg = require("./package.json");
 const {
   DEFAULT_DELTA_TIMER,
@@ -56,6 +58,8 @@ module.exports = function createPlugin(app) {
     pingMonitor: null,
     deltaTimer: null,
     pipeline: null,
+    monitoring: null,
+    networkSimulator: null,
     configDebounceTimers: {},
     configContentHashes: {},
     configWatcherObjects: []
@@ -489,10 +493,24 @@ module.exports = function createPlugin(app) {
         options.pingIntervalTime * MILLISECONDS_PER_MINUTE + PING_TIMEOUT_BUFFER
       );
 
+      // Initialize enhanced monitoring
+      state.monitoring = {
+        packetLossTracker: new PacketLossTracker(),
+        pathLatencyTracker: new PathLatencyTracker(),
+        retransmissionTracker: new RetransmissionTracker(),
+        alertManager: new AlertManager(app, options.alertThresholds || {}),
+        packetCapture: new PacketCapture(),
+        packetInspector: new PacketInspector()
+      };
+      app.debug("[Monitoring] Enhanced monitoring initialized");
+
       // Initialize v2 client pipeline and bonding (if enabled)
       if (options.bonding && options.bonding.enabled) {
         const v2Pipeline = createPipelineV2Client(app, state, metricsApi);
         state.pipeline = v2Pipeline;
+
+        // Connect monitoring hooks to pipeline
+        v2Pipeline.setMonitoring(state.monitoring);
 
         const bondingConfig = {
           mode: options.bonding.mode || "main-backup",
@@ -558,6 +576,15 @@ module.exports = function createPlugin(app) {
       if (state.pipeline.stopCongestionControl) state.pipeline.stopCongestionControl();
       state.pipeline = null;
     }
+
+    // Clean up enhanced monitoring
+    if (state.monitoring) {
+      if (state.monitoring.packetCapture) state.monitoring.packetCapture.reset();
+      if (state.monitoring.packetInspector) state.monitoring.packetInspector.reset();
+      if (state.monitoring.alertManager) state.monitoring.alertManager.reset();
+      state.monitoring = null;
+    }
+    state.networkSimulator = null;
 
     // Stop ping monitor
     if (state.pingMonitor) {
