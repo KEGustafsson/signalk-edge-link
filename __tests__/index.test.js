@@ -46,7 +46,7 @@ describe("SignalK Data Connector Plugin", () => {
     });
 
     test("should have description", () => {
-      expect(plugin.description).toContain("encrypted compressed UDP");
+      expect(plugin.description).toContain("Secure UDP link");
     });
 
     test("should have schema object", () => {
