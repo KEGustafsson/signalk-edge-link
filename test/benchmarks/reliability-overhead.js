@@ -15,8 +15,8 @@ const { RetransmitQueue } = require("../../lib/retransmit-queue");
 const { NetworkSimulator } = require("../network-simulator");
 
 function formatBytes(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {return `${bytes} B`;}
+  if (bytes < 1048576) {return `${(bytes / 1024).toFixed(1)} KB`;}
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
@@ -176,12 +176,12 @@ function benchLossRecovery() {
       rounds++;
       const missing = [];
       for (let i = 0; i < numPackets; i++) {
-        if (!received.has(i)) missing.push(i);
+        if (!received.has(i)) {missing.push(i);}
       }
-      if (missing.length === 0) break;
+      if (missing.length === 0) {break;}
 
       const retransmitted = queue.retransmit(missing);
-      for (const { packet, sequence } of retransmitted) {
+      for (const { packet } of retransmitted) {
         sim.send(packet, (pkt) => {
           const parsed = parser.parseHeader(pkt);
           received.add(parsed.sequence);

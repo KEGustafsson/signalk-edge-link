@@ -95,10 +95,10 @@ module.exports = (env, argv) => {
 
       ...(isProduction
         ? [
-            new MiniCssExtractPlugin({
-              filename: "[name].[contenthash].css"
-            })
-          ]
+          new MiniCssExtractPlugin({
+            filename: "[name].[contenthash].css"
+          })
+        ]
         : [])
     ],
 

@@ -487,7 +487,7 @@ describe("SequenceTracker", () => {
       // Directly set up state to simulate lost packets
       tracker.expectedSeq = 10;
       for (let i = 0; i < 10; i++) {
-        if (i !== 3 && i !== 7) tracker.receivedSeqs.add(i);
+        if (i !== 3 && i !== 7) {tracker.receivedSeqs.add(i);}
       }
       const missing = tracker.getMissingSequences();
       expect(missing).toContain(3);

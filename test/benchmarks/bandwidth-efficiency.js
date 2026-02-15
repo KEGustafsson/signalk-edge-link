@@ -23,8 +23,8 @@ const brotliCompressAsync = promisify(zlib.brotliCompress);
 const SECRET_KEY = "12345678901234567890123456789012";
 
 function formatBytes(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {return `${bytes} B`;}
+  if (bytes < 1048576) {return `${(bytes / 1024).toFixed(1)} KB`;}
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
@@ -129,7 +129,7 @@ async function benchCompressionRatios() {
 }
 
 // ── Benchmark 2: Protocol Overhead ──
-async function benchProtocolOverhead() {
+function benchProtocolOverhead() {
   console.log("=== Protocol Overhead at Various Send Rates ===\n");
 
   const builder = new PacketBuilder();
@@ -159,7 +159,7 @@ async function benchProtocolOverhead() {
 }
 
 // ── Benchmark 3: Congestion Control Response ──
-async function benchCongestionResponse() {
+function benchCongestionResponse() {
   console.log("=== Congestion Control Response Time ===\n");
 
   const scenarios = [
@@ -177,8 +177,8 @@ async function benchCongestionResponse() {
     });
 
     console.log(`  Scenario: ${scenario.name}`);
-    console.log(`  Step | RTT   | Loss   | Delta Timer | Change`);
-    console.log(`  -----|-------|--------|-------------|-------`);
+    console.log("  Step | RTT   | Loss   | Delta Timer | Change");
+    console.log("  -----|-------|--------|-------------|-------");
 
     let prevTimer = 1000;
     for (let i = 0; i < scenario.rttSequence.length; i++) {
@@ -199,7 +199,6 @@ async function benchMTUUtilization() {
   console.log("=== MTU Utilization Analysis ===\n");
 
   const MTU = 1400;
-  const builder = new PacketBuilder();
 
   console.log("  Batch Size | Packet Size | MTU Usage | Fits MTU | Wasted Space");
   console.log("  -----------|-------------|-----------|----------|-------------");

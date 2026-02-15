@@ -66,7 +66,7 @@ async function benchPerStageLatency() {
   const serialized = Buffer.from(JSON.stringify({ 0: delta }), "utf8");
   const builder = new PacketBuilder();
   const parser = new PacketParser();
-  const tracker = new SequenceTracker();
+  new SequenceTracker();
 
   // Serialization
   const serializeLatencies = [];
@@ -293,7 +293,7 @@ async function benchNetworkLatencyImpact() {
 
     for (let i = 0; i < total; i++) {
       const start = Date.now();
-      const result = sim.send(Buffer.alloc(500), () => {
+      sim.send(Buffer.alloc(500), () => {
         deliveryTimes.push(Date.now() - start);
         delivered++;
       });

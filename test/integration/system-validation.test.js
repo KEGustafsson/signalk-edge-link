@@ -14,7 +14,7 @@
 
 const zlib = require("zlib");
 const { promisify } = require("util");
-const { PacketBuilder, PacketParser, PacketType, HEADER_SIZE } = require("../../lib/packet");
+const { PacketBuilder, PacketParser, PacketType } = require("../../lib/packet");
 const { SequenceTracker } = require("../../lib/sequence");
 const { RetransmitQueue } = require("../../lib/retransmit-queue");
 const { CongestionControl } = require("../../lib/congestion");
@@ -64,11 +64,10 @@ async function parsePacket(parser, packet) {
 // ── Reliability Under Loss ──
 
 describe("System Validation - Reliability", () => {
-  test("achieves >99% delivery at 5% packet loss with retransmission", async () => {
+  test("achieves >99% delivery at 5% packet loss with retransmission", () => {
     const sim = new NetworkSimulator({ packetLoss: 0.05 });
     const builder = new PacketBuilder();
     const parser = new PacketParser();
-    const tracker = new SequenceTracker();
     const queue = new RetransmitQueue({ maxSize: 5000, maxRetransmits: 5 });
 
     const TOTAL_PACKETS = 500;
@@ -94,9 +93,9 @@ describe("System Validation - Reliability", () => {
       rounds++;
       const missing = [];
       for (let i = 0; i < TOTAL_PACKETS; i++) {
-        if (!received.has(i)) missing.push(i);
+        if (!received.has(i)) {missing.push(i);}
       }
-      if (missing.length === 0) break;
+      if (missing.length === 0) {break;}
 
       const retransmitted = queue.retransmit(missing);
       for (const { packet } of retransmitted) {
@@ -112,7 +111,7 @@ describe("System Validation - Reliability", () => {
     sim.destroy();
   });
 
-  test("achieves >95% delivery at 20% packet loss with retransmission", async () => {
+  test("achieves >95% delivery at 20% packet loss with retransmission", () => {
     const sim = new NetworkSimulator({ packetLoss: 0.20 });
     const builder = new PacketBuilder();
     const parser = new PacketParser();
@@ -136,9 +135,9 @@ describe("System Validation - Reliability", () => {
       rounds++;
       const missing = [];
       for (let i = 0; i < TOTAL_PACKETS; i++) {
-        if (!received.has(i)) missing.push(i);
+        if (!received.has(i)) {missing.push(i);}
       }
-      if (missing.length === 0) break;
+      if (missing.length === 0) {break;}
 
       const retransmitted = queue.retransmit(missing);
       for (const { packet } of retransmitted) {
@@ -166,7 +165,7 @@ describe("System Validation - Sequence Tracking", () => {
 
     const TOTAL = 50;
     const receivedOrder = [];
-    let missingDetected = [];
+    const missingDetected = [];
 
     for (let i = 0; i < TOTAL; i++) {
       const delta = generateDelta(i);
@@ -297,18 +296,12 @@ describe("System Validation - Monitoring", () => {
     let lostCount = 0;
     for (let i = 0; i < 1000; i++) {
       const lost = Math.random() < 0.05;
-      if (lost) lostCount++;
+      if (lost) {lostCount++;}
       tracker.record(lost);
     }
 
-    // Use heatmap data which includes current bucket
-    const data = tracker.getHeatmapData();
-    let totalSent = 0;
-    let totalLost = 0;
-    for (const bucket of data) {
-      totalSent += bucket.total;
-      totalLost += bucket.lost;
-    }
+    // Verify heatmap data is available
+    tracker.getHeatmapData();
     // Also count current bucket entries (not yet pushed to buckets array)
     const effectiveLossRate = lostCount / 1000;
     // Should be approximately 5%
@@ -441,9 +434,9 @@ describe("System Validation - Network Transitions", () => {
       rounds++;
       const missing = [];
       for (let i = 0; i < TOTAL; i++) {
-        if (!received.has(i)) missing.push(i);
+        if (!received.has(i)) {missing.push(i);}
       }
-      if (missing.length === 0) break;
+      if (missing.length === 0) {break;}
       for (const { packet } of queue.retransmit(missing)) {
         sim.send(packet, (pkt) => {
           const parsed = parser.parseHeader(pkt);
@@ -467,8 +460,8 @@ describe("System Validation - Network Transitions", () => {
 
     for (let i = 0; i < TOTAL; i++) {
       // Link down for packets 30-50
-      if (i === 30) sim.setLinkDown(true);
-      if (i === 50) sim.setLinkDown(false);
+      if (i === 30) {sim.setLinkDown(true);}
+      if (i === 50) {sim.setLinkDown(false);}
 
       builder.setSequence(i);
       const packet = builder.buildDataPacket(Buffer.alloc(200));
@@ -490,7 +483,7 @@ describe("System Validation - Network Transitions", () => {
     // Retransmit
     const missing = [];
     for (let i = 0; i < TOTAL; i++) {
-      if (!received.has(i)) missing.push(i);
+      if (!received.has(i)) {missing.push(i);}
     }
 
     for (const { packet } of queue.retransmit(missing)) {

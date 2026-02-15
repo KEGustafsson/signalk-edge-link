@@ -7,10 +7,7 @@ const {
   BONDING_LOSS_THRESHOLD,
   BONDING_FAILBACK_DELAY,
   BONDING_HEARTBEAT_TIMEOUT,
-  BONDING_FAILBACK_RTT_HYSTERESIS,
-  BONDING_FAILBACK_LOSS_HYSTERESIS,
-  BONDING_HEALTH_WINDOW_SIZE,
-  BONDING_RTT_EMA_ALPHA
+  BONDING_HEALTH_WINDOW_SIZE
 } = require("../../lib/constants");
 
 // Mock dgram with proper event emitter behavior
@@ -18,11 +15,11 @@ jest.mock("dgram", () => {
   const createMockSocket = () => {
     const listeners = {};
     const socket = {
-      send: jest.fn((msg, port, address, cb) => { if (cb) cb(null); }),
-      bind: jest.fn((opts, cb) => { if (cb) cb(null); }),
+      send: jest.fn((msg, port, address, cb) => { if (cb) {cb(null);} }),
+      bind: jest.fn((opts, cb) => { if (cb) {cb(null);} }),
       close: jest.fn(),
       on: jest.fn((event, handler) => {
-        if (!listeners[event]) listeners[event] = [];
+        if (!listeners[event]) {listeners[event] = [];}
         listeners[event].push(handler);
       }),
       emit: (event, ...args) => {

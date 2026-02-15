@@ -25,7 +25,7 @@ describe("NetworkSimulator - Phase 7 Enhancements", () => {
       const interval = setInterval(() => {
         sendCount++;
         const result = sim.send(Buffer.alloc(100), (p) => delivered.push(p));
-        if (!result) dropped.push(sendCount);
+        if (!result) {dropped.push(sendCount);}
       }, 10);
 
       setTimeout(() => {

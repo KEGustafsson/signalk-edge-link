@@ -148,7 +148,7 @@ describe("PacketCapture", () => {
       // First packet starts at offset 24 (after global header)
       // Record header is 16 bytes, then direction byte
       const firstDirByte = pcap[24 + 16]; // 0 = send
-      const secondDirByte = pcap[24 + 16 + 6 + 16]; // After first packet + next record header
+      pcap[24 + 16 + 6 + 16]; // After first packet + next record header
       expect(firstDirByte).toBe(0); // send
     });
 
@@ -221,8 +221,8 @@ describe("PacketInspector", () => {
       send: jest.fn((msg) => { ws.messages.push(msg); }),
       close: jest.fn(() => { ws.closed = true; ws.readyState = 3; }),
       on: jest.fn((event, handler) => {
-        if (!ws._handlers) ws._handlers = {};
-        if (!ws._handlers[event]) ws._handlers[event] = [];
+        if (!ws._handlers) {ws._handlers = {};}
+        if (!ws._handlers[event]) {ws._handlers[event] = [];}
         ws._handlers[event].push(handler);
       }),
       _emit(event) {

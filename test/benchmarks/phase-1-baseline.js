@@ -17,10 +17,10 @@ const PAYLOAD_SIZES = [100, 500, 1000, 1400];
 
 function benchmark(name, fn, iterations = ITERATIONS) {
   // Warmup
-  for (let i = 0; i < 1000; i++) fn();
+  for (let i = 0; i < 1000; i++) {fn();}
 
   const start = process.hrtime.bigint();
-  for (let i = 0; i < iterations; i++) fn();
+  for (let i = 0; i < iterations; i++) {fn();}
   const end = process.hrtime.bigint();
 
   const totalMs = Number(end - start) / 1e6;
@@ -136,7 +136,7 @@ const fastest = results.reduce((a, b) => a.opsPerSec > b.opsPerSec ? a : b);
 const slowest = results.reduce((a, b) => a.opsPerSec < b.opsPerSec ? a : b);
 console.log(`  Fastest: ${fastest.name} (${fastest.opsPerSec.toLocaleString()} ops/sec)`);
 console.log(`  Slowest: ${slowest.name} (${slowest.opsPerSec.toLocaleString()} ops/sec)`);
-console.log(`  Full cycle 1KB: overhead per packet is negligible vs compression/encryption`);
+console.log("  Full cycle 1KB: overhead per packet is negligible vs compression/encryption");
 console.log();
 console.log("Note: These benchmarks measure only the v2 protocol layer overhead.");
 console.log("Compression and encryption dominate actual packet processing time.");

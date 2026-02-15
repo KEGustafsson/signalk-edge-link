@@ -1,7 +1,7 @@
 "use strict";
 
 const { NetworkSimulator, createSimulatedSockets } = require("../network-simulator");
-const { PacketBuilder, PacketParser, PacketType, HEADER_SIZE } = require("../../lib/packet");
+const { PacketBuilder, PacketParser, PacketType } = require("../../lib/packet");
 const { RetransmitQueue } = require("../../lib/retransmit-queue");
 const { SequenceTracker } = require("../../lib/sequence");
 
@@ -128,7 +128,7 @@ describe("createSimulatedSockets", () => {
     const s2c = new NetworkSimulator({ packetLoss: 0 });
     const { clientSocket, serverSocket } = createSimulatedSockets(c2s, s2c);
 
-    clientSocket.on("message", (msg, rinfo) => {
+    clientSocket.on("message", (msg, _rinfo) => {
       expect(msg.toString()).toBe("hello client");
       c2s.destroy();
       s2c.destroy();
@@ -569,8 +569,8 @@ describe("Reliability Under Simulated Network Loss", () => {
 
     // Retransmit missing (through perfect network for simplicity)
     const retransmitted = queue.retransmit(missing);
-    for (const { packet, sequence } of retransmitted) {
-      received.add(sequence);
+    for (const entry of retransmitted) {
+      received.add(entry.sequence);
     }
 
     // With retransmission, should have very high delivery
@@ -604,12 +604,12 @@ describe("Reliability Under Simulated Network Loss", () => {
     for (let round = 0; round < 3; round++) {
       const missing = [];
       for (let i = 0; i < numPackets; i++) {
-        if (!received.has(i)) missing.push(i);
+        if (!received.has(i)) {missing.push(i);}
       }
-      if (missing.length === 0) break;
+      if (missing.length === 0) {break;}
 
       const retransmitted = queue.retransmit(missing);
-      for (const { packet, sequence } of retransmitted) {
+      for (const { packet } of retransmitted) {
         sim.send(packet, (pkt) => {
           const parsed = parser.parseHeader(pkt);
           received.add(parsed.sequence);
