@@ -457,7 +457,9 @@ module.exports = function createPlugin(app) {
       state.helloMessageSender = setInterval(async () => {
         const timeSinceLastPacket = Date.now() - state.lastPacketTime;
 
-        if (timeSinceLastPacket >= helloInterval) {
+        if (!state.readyToSend) {
+          app.debug("Skipping hello message (not ready to send)");
+        } else if (timeSinceLastPacket >= helloInterval) {
           const fixedDelta = {
             context: "vessels.urn:mrn:imo:mmsi:" + app.getSelfPath("mmsi"),
             updates: [{ timestamp: new Date(), values: [] }]
