@@ -281,7 +281,8 @@ module.exports = function createPlugin(app) {
             watcherObj.watcher.close();
             watcherObj.watcher = null;
           }
-          setTimeout(() => {
+          watcherObj.recoveryTimer = setTimeout(() => {
+            watcherObj.recoveryTimer = null;
             app.debug(`Attempting to recreate ${name} watcher...`);
             createWatcher();
             if (watcherObj.watcher) {
@@ -302,6 +303,10 @@ module.exports = function createPlugin(app) {
     return {
       get watcher() { return watcherObj.watcher; },
       close() {
+        if (watcherObj.recoveryTimer) {
+          clearTimeout(watcherObj.recoveryTimer);
+          watcherObj.recoveryTimer = null;
+        }
         if (watcherObj.watcher) {
           watcherObj.watcher.close();
           watcherObj.watcher = null;
