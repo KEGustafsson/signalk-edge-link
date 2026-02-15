@@ -435,6 +435,7 @@ module.exports = function createPlugin(app) {
         state.socketUdp.on("message", (delta) => {
           pipeline.unpackDecrypt(delta, options.secretKey);
         });
+        app.debug("[v1] Server pipeline initialized (standard encrypted UDP)");
       }
 
       state.socketUdp.bind(options.udpPort, (err) => {
@@ -521,20 +522,21 @@ module.exports = function createPlugin(app) {
         options.pingIntervalTime * MILLISECONDS_PER_MINUTE + PING_TIMEOUT_BUFFER
       );
 
-      // Initialize enhanced monitoring
-      state.monitoring = {
-        packetLossTracker: new PacketLossTracker(),
-        pathLatencyTracker: new PathLatencyTracker(),
-        retransmissionTracker: new RetransmissionTracker(),
-        alertManager: new AlertManager(app, options.alertThresholds || {}),
-        packetCapture: new PacketCapture(),
-        packetInspector: new PacketInspector()
-      };
-      app.debug("[Monitoring] Enhanced monitoring initialized");
-
       // Initialize v2 client pipeline when protocolVersion is 2
       const useV2 = options.protocolVersion === 2;
+
       if (useV2) {
+        // Initialize enhanced monitoring (v2 only)
+        state.monitoring = {
+          packetLossTracker: new PacketLossTracker(),
+          pathLatencyTracker: new PathLatencyTracker(),
+          retransmissionTracker: new RetransmissionTracker(),
+          alertManager: new AlertManager(app, options.alertThresholds || {}),
+          packetCapture: new PacketCapture(),
+          packetInspector: new PacketInspector()
+        };
+        app.debug("[v2] Enhanced monitoring initialized");
+
         const v2Pipeline = createPipelineV2Client(app, state, metricsApi);
         state.pipeline = v2Pipeline;
 
@@ -575,6 +577,15 @@ module.exports = function createPlugin(app) {
         }
 
         app.debug("[v2] Protocol v2 client pipeline initialized");
+      } else {
+        // v1 mode - warn if v2-only features are configured
+        if (options.congestionControl && options.congestionControl.enabled) {
+          app.error("[v1] Congestion control requires Protocol v2 - ignoring congestionControl setting");
+        }
+        if (options.bonding && options.bonding.enabled) {
+          app.error("[v1] Connection bonding requires Protocol v2 - ignoring bonding setting");
+        }
+        app.debug("[v1] Client pipeline initialized (standard encrypted UDP)");
       }
     }
   };
@@ -706,10 +717,10 @@ module.exports = function createPlugin(app) {
       protocolVersion: {
         type: "number",
         title: "Protocol Version",
-        description: "Protocol version (1 = standard, 2 = v2 with reliability, congestion control, and metrics). Must match on both ends.",
+        description: "v1: encrypted UDP transmission. v2 adds: packet reliability (sequence tracking, ACK/NAK, retransmission), congestion control, connection bonding with failover, metrics/monitoring, and NAT keepalive. Must match on both ends.",
         default: 1,
         enum: [1, 2],
-        enumNames: ["v1 - Standard", "v2 - Reliability + Congestion Control"]
+        enumNames: ["v1 - Standard encrypted UDP", "v2 - Reliability, congestion control, bonding, metrics"]
       }
     },
     dependencies: {
@@ -761,8 +772,8 @@ module.exports = function createPlugin(app) {
               },
               congestionControl: {
                 type: "object",
-                title: "Dynamic Congestion Control",
-                description: "AIMD algorithm to dynamically adjust send rate based on network conditions",
+                title: "Dynamic Congestion Control (v2 only)",
+                description: "Requires Protocol v2. AIMD algorithm to dynamically adjust send rate based on network conditions",
                 properties: {
                   enabled: {
                     type: "boolean",
@@ -798,8 +809,8 @@ module.exports = function createPlugin(app) {
               },
               bonding: {
                 type: "object",
-                title: "Connection Bonding",
-                description: "Dual-link bonding with automatic failover between primary and backup connections",
+                title: "Connection Bonding (v2 only)",
+                description: "Requires Protocol v2. Dual-link bonding with automatic failover between primary and backup connections",
                 properties: {
                   enabled: {
                     type: "boolean",
