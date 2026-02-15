@@ -52,6 +52,7 @@ class DataConnectorConfig {
     this.subscriptionConfig = null;
     this.sentenceFilterConfig = null;
     this.isServerMode = false;
+    this.protocolVersion = 1;
     this.metricsInterval = null;
     this.syncTimeout = null;
     this.init();
@@ -319,10 +320,64 @@ class DataConnectorConfig {
       const response = await fetch(`${API_BASE_PATH}/metrics`);
       if (response.ok) {
         const metrics = await response.json();
+        this.protocolVersion = metrics.protocolVersion || 1;
         this.updateMetricsDisplay(metrics);
+
+        // Fetch v2-specific endpoints when protocol v2 is active
+        if (this.protocolVersion === 2) {
+          this.loadV2Data();
+        }
       }
     } catch (error) {
       console.error("Error loading metrics:", error.message);
+    }
+  }
+
+  async loadV2Data() {
+    const isClient = !this.isServerMode;
+
+    // Fetch v2 endpoints in parallel
+    const fetches = [
+      fetch(`${API_BASE_PATH}/monitoring/alerts`).catch(() => null),
+      fetch(`${API_BASE_PATH}/monitoring/packet-loss`).catch(() => null),
+      fetch(`${API_BASE_PATH}/monitoring/retransmissions`).catch(() => null)
+    ];
+
+    if (isClient) {
+      fetches.push(
+        fetch(`${API_BASE_PATH}/congestion`).catch(() => null),
+        fetch(`${API_BASE_PATH}/bonding`).catch(() => null)
+      );
+    }
+
+    const results = await Promise.all(fetches);
+
+    // Parse responses
+    const [alertsRes, packetLossRes, retransmissionsRes, congestionRes, bondingRes] = results;
+
+    // Monitoring & Alerts
+    const monitoringData = {};
+    if (alertsRes && alertsRes.ok) {
+      monitoringData.alerts = await alertsRes.json();
+    }
+    if (packetLossRes && packetLossRes.ok) {
+      monitoringData.packetLoss = await packetLossRes.json();
+    }
+    if (retransmissionsRes && retransmissionsRes.ok) {
+      monitoringData.retransmissions = await retransmissionsRes.json();
+    }
+    this.updateMonitoringDisplay(monitoringData);
+
+    // Congestion control (client only)
+    if (isClient && congestionRes && congestionRes.ok) {
+      const congestionData = await congestionRes.json();
+      this.updateCongestionDisplay(congestionData);
+    }
+
+    // Bonding (client only)
+    if (isClient && bondingRes && bondingRes.ok) {
+      const bondingData = await bondingRes.json();
+      this.updateBondingDisplay(bondingData);
     }
   }
 
@@ -362,10 +417,14 @@ class DataConnectorConfig {
       stats.encryptionErrors > 0 ||
       stats.subscriptionErrors > 0;
 
+    const protocolVersion = metrics.protocolVersion || 1;
+    const protocolLabel = protocolVersion === 2 ? "v2" : "v1";
+
     // Build metrics grid items
     const metricsGridItems = [
       renderMetricItem("Uptime", uptime.formatted),
       renderMetricItem("Mode", isClient ? "📱 Client" : "🖥️ Server"),
+      renderMetricItem("Protocol", `<span class="protocol-badge protocol-${protocolLabel}">${protocolLabel.toUpperCase()}</span>`),
       renderMetricItem("Status", status.readyToSend ? "✓ Ready" : "✗ Not Ready", status.readyToSend ? "success" : "error"),
       isClient ? renderMetricItem("Buffered Deltas", status.deltasBuffered) : ""
     ].join("");
@@ -379,7 +438,8 @@ class DataConnectorConfig {
       isClient ? renderStatItem("UDP Retries", stats.udpRetries) : "",
       renderStatItem("Compression Errors", stats.compressionErrors, stats.compressionErrors > 0),
       renderStatItem("Encryption Errors", stats.encryptionErrors, stats.encryptionErrors > 0),
-      isClient ? renderStatItem("Subscription Errors", stats.subscriptionErrors, stats.subscriptionErrors > 0) : ""
+      isClient ? renderStatItem("Subscription Errors", stats.subscriptionErrors, stats.subscriptionErrors > 0) : "",
+      !isClient && stats.duplicatePackets > 0 ? renderStatItem("Duplicate Packets", stats.duplicatePackets.toLocaleString()) : ""
     ].join("");
 
     let metricsHtml = `
@@ -718,6 +778,187 @@ class DataConnectorConfig {
     pathDiv.innerHTML = pathHtml;
   }
 
+  updateCongestionDisplay(data) {
+    const section = document.getElementById("congestionSection");
+    const div = document.getElementById("congestionControl");
+    if (!section || !div) {return;}
+
+    section.style.display = "";
+
+    const stateLabel = (data.state || "unknown").replace(/-/g, " ");
+    const stateClass = data.state === "slow-start" ? "warning" : data.state === "congestion-avoidance" ? "success" : "";
+    const modeLabel = data.mode === "auto" ? "Automatic" : "Manual Override";
+
+    let html = `
+      <div class="v2-dashboard">
+        <div class="metrics-grid">
+          ${renderMetricItem("State", `<span class="congestion-state ${stateClass}">${stateLabel}</span>`)}
+          ${renderMetricItem("Mode", modeLabel)}
+          ${renderMetricItem("Window Size", data.windowSize || 0)}
+          ${renderMetricItem("Delta Timer", (data.currentDeltaTimer || data.deltaTimer || 0) + " ms")}
+        </div>
+        <div class="metrics-stats">
+          <h5>Congestion Details</h5>
+          <div class="stats-grid">
+            ${renderStatItem("Min Delta Timer", (data.minDeltaTimer || 0) + " ms")}
+            ${renderStatItem("Max Delta Timer", (data.maxDeltaTimer || 0) + " ms")}
+            ${renderStatItem("Avg RTT", (data.avgRTT !== undefined ? Math.round(data.avgRTT) : 0) + " ms")}
+            ${renderStatItem("Avg Packet Loss", (data.avgLoss !== undefined ? (data.avgLoss * 100).toFixed(1) : 0) + "%", data.avgLoss > 0.05)}
+          </div>
+        </div>
+      </div>
+    `;
+
+    div.innerHTML = html;
+  }
+
+  updateBondingDisplay(data) {
+    const section = document.getElementById("bondingSection");
+    const div = document.getElementById("bondingStatus");
+    if (!section || !div) {return;}
+
+    if (!data.enabled) {
+      section.style.display = "none";
+      return;
+    }
+
+    section.style.display = "";
+
+    const modeLabel = (data.mode || "active-backup").replace(/-/g, " ");
+    const activeLink = data.activeLink || "primary";
+
+    let linksHtml = "";
+    if (data.links) {
+      const linkEntries = Object.entries(data.links);
+      linksHtml = linkEntries.map(([name, link]) => {
+        const isActive = name === activeLink;
+        const aliveClass = link.alive ? "success" : "error";
+        return `
+          <div class="bonding-link ${isActive ? "active" : ""}">
+            <div class="link-header">
+              <span class="link-name">${this.escapeHtml(name)}</span>
+              ${isActive ? '<span class="link-badge active-badge">ACTIVE</span>' : ""}
+              <span class="link-badge ${aliveClass}">${link.alive ? "UP" : "DOWN"}</span>
+            </div>
+            <div class="link-stats">
+              ${renderStatItem("RTT", (link.rtt || 0) + " ms")}
+              ${renderStatItem("Packet Loss", ((link.packetLoss || 0) * 100).toFixed(1) + "%")}
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    let html = `
+      <div class="v2-dashboard">
+        <div class="metrics-grid">
+          ${renderMetricItem("Mode", modeLabel)}
+          ${renderMetricItem("Active Link", activeLink)}
+        </div>
+        <div class="bonding-links">${linksHtml}</div>
+        <div style="margin-top: 1rem;">
+          <button id="failoverBtn" class="btn btn-secondary">Force Failover</button>
+        </div>
+      </div>
+    `;
+
+    div.innerHTML = html;
+
+    // Attach failover button listener
+    const failoverBtn = document.getElementById("failoverBtn");
+    if (failoverBtn) {
+      failoverBtn.addEventListener("click", () => this.triggerFailover());
+    }
+  }
+
+  async triggerFailover() {
+    try {
+      const response = await fetch(`${API_BASE_PATH}/bonding/failover`, { method: "POST" });
+      if (response.ok) {
+        const result = await response.json();
+        this.showNotification(`Failover complete. Active link: ${result.activeLink}`, "success");
+        this.loadMetrics();
+      } else {
+        const err = await response.json();
+        this.showNotification("Failover failed: " + (err.error || "Unknown error"), "error");
+      }
+    } catch (error) {
+      this.showNotification("Failover failed: " + error.message, "error");
+    }
+  }
+
+  updateMonitoringDisplay(data) {
+    const section = document.getElementById("monitoringSection");
+    const div = document.getElementById("monitoringAlerts");
+    if (!section || !div) {return;}
+
+    // Show section if we have any monitoring data
+    const hasData = data.alerts || data.packetLoss || data.retransmissions;
+    if (!hasData) {
+      section.style.display = "none";
+      return;
+    }
+
+    section.style.display = "";
+
+    let html = '<div class="v2-dashboard">';
+
+    // Alerts section
+    if (data.alerts) {
+      const activeAlerts = data.alerts.activeAlerts || {};
+      const alertEntries = Object.entries(activeAlerts);
+      const alertCount = alertEntries.filter(([, level]) => level !== "ok").length;
+
+      html += `
+        <div class="monitoring-subsection">
+          <h5>Active Alerts</h5>
+          ${alertCount === 0
+            ? '<div class="metrics-success"><div class="success-message">No active alerts</div></div>'
+            : `<div class="stats-grid">
+                ${alertEntries.map(([metric, level]) => {
+                  const levelClass = level === "critical" ? "error" : level === "warning" ? "" : "";
+                  return renderStatItem(metric, `<span class="alert-level alert-${level}">${level.toUpperCase()}</span>`, level === "critical");
+                }).join("")}
+              </div>`
+          }
+        </div>
+      `;
+    }
+
+    // Packet Loss section
+    if (data.packetLoss && data.packetLoss.summary) {
+      const summary = data.packetLoss.summary;
+      html += `
+        <div class="monitoring-subsection">
+          <h5>Packet Loss</h5>
+          <div class="stats-grid">
+            ${renderStatItem("Overall Loss Rate", (summary.overallLossRate * 100).toFixed(2) + "%", summary.overallLossRate > 0.05)}
+            ${renderStatItem("Max Loss Rate", (summary.maxLossRate * 100).toFixed(2) + "%", summary.maxLossRate > 0.1)}
+            ${renderStatItem("Trend", summary.trend || "stable")}
+          </div>
+        </div>
+      `;
+    }
+
+    // Retransmissions section
+    if (data.retransmissions && data.retransmissions.summary) {
+      const summary = data.retransmissions.summary;
+      html += `
+        <div class="monitoring-subsection">
+          <h5>Retransmission Rates</h5>
+          <div class="stats-grid">
+            ${renderStatItem("Current Rate", (summary.currentRate * 100).toFixed(2) + "%", summary.currentRate > 0.05)}
+            ${renderStatItem("Average Rate", (summary.avgRate * 100).toFixed(2) + "%")}
+            ${renderStatItem("Max Rate", (summary.maxRate * 100).toFixed(2) + "%", summary.maxRate > 0.1)}
+          </div>
+        </div>
+      `;
+    }
+
+    html += "</div>";
+    div.innerHTML = html;
+  }
+
   formatBytes(bytes) {
     if (!bytes || bytes <= 0) {
       return "0 B";
@@ -842,7 +1083,10 @@ class DataConnectorConfig {
       renderCard("Network Quality", "Link quality score and network health indicators", "networkQuality") +
       renderCard("Bandwidth Monitor", "Network reception statistics", "bandwidth") +
       renderCard("Path Analytics", "Incoming data volume by SignalK path", "pathAnalytics") +
-      renderCard("Performance Metrics", "Real-time reception statistics (auto-refreshes every 15 seconds)", "metrics");
+      renderCard("Performance Metrics", "Real-time reception statistics (auto-refreshes every 15 seconds)", "metrics") +
+      `<div id="monitoringSection" style="display:none;">` +
+        renderCard("Monitoring & Alerts", "Packet loss, retransmission tracking, and alert thresholds", "monitoringAlerts") +
+      `</div>`;
   }
 
   showNotification(message, type = "success") {
