@@ -11,8 +11,10 @@ const baseProperties = {
     title: "Operation Mode",
     description: "Select Server to receive data, or Client to send data",
     default: "client",
-    enum: ["server", "client"],
-    enumNames: ["Server Mode - Receive Data", "Client Mode - Send Data"]
+    oneOf: [
+      { const: "server", title: "Server Mode - Receive Data" },
+      { const: "client", title: "Client Mode - Send Data" }
+    ]
   },
   udpPort: {
     type: "number",
@@ -40,6 +42,16 @@ const baseProperties = {
     title: "Use Path Dictionary",
     description: "Encode paths as numeric IDs for bandwidth savings (must match on both ends)",
     default: false
+  },
+  protocolVersion: {
+    type: "number",
+    title: "Protocol Version",
+    description: "v1: encrypted UDP transmission. v2 adds: packet reliability (sequence tracking, ACK/NAK, retransmission), congestion control, connection bonding with failover, metrics/monitoring, and NAT keepalive. Must match on both ends.",
+    default: 1,
+    oneOf: [
+      { const: 1, title: "v1 - Standard encrypted UDP" },
+      { const: 2, title: "v2 - Reliability, congestion control, bonding, metrics" }
+    ]
   }
 };
 
@@ -80,6 +92,156 @@ const clientProperties = {
     default: 1,
     minimum: 0.1,
     maximum: 60
+  },
+  congestionControl: {
+    type: "object",
+    title: "Dynamic Congestion Control (v2 only)",
+    description: "Requires Protocol v2. AIMD algorithm to dynamically adjust send rate based on network conditions",
+    properties: {
+      enabled: {
+        type: "boolean",
+        title: "Enable Congestion Control",
+        description: "Automatically adjust delta timer based on RTT and packet loss",
+        default: false
+      },
+      targetRTT: {
+        type: "number",
+        title: "Target RTT (ms)",
+        description: "RTT threshold above which send rate is reduced",
+        default: 200,
+        minimum: 50,
+        maximum: 2000
+      },
+      minDeltaTimer: {
+        type: "number",
+        title: "Minimum Delta Timer (ms)",
+        description: "Fastest allowed send interval",
+        default: 100,
+        minimum: 50,
+        maximum: 1000
+      },
+      maxDeltaTimer: {
+        type: "number",
+        title: "Maximum Delta Timer (ms)",
+        description: "Slowest allowed send interval",
+        default: 5000,
+        minimum: 1000,
+        maximum: 30000
+      }
+    }
+  },
+  bonding: {
+    type: "object",
+    title: "Connection Bonding (v2 only)",
+    description: "Requires Protocol v2. Dual-link bonding with automatic failover between primary and backup connections",
+    properties: {
+      enabled: {
+        type: "boolean",
+        title: "Enable Connection Bonding",
+        description: "Enable dual-link bonding with automatic failover",
+        default: false
+      },
+      mode: {
+        type: "string",
+        title: "Bonding Mode",
+        description: "Bonding operating mode",
+        default: "main-backup",
+        oneOf: [
+          { const: "main-backup", title: "Main/Backup - Failover to backup when primary degrades" }
+        ]
+      },
+      primary: {
+        type: "object",
+        title: "Primary Link",
+        description: "Primary connection (e.g., LTE modem)",
+        properties: {
+          address: {
+            type: "string",
+            title: "Server Address",
+            description: "IP address or hostname of the server for primary link",
+            default: "127.0.0.1"
+          },
+          port: {
+            type: "number",
+            title: "UDP Port",
+            description: "UDP port for primary link",
+            default: 4446,
+            minimum: 1024,
+            maximum: 65535
+          },
+          interface: {
+            type: "string",
+            title: "Bind Interface (optional)",
+            description: "Network interface IP to bind to (e.g., 192.168.1.100)"
+          }
+        }
+      },
+      backup: {
+        type: "object",
+        title: "Backup Link",
+        description: "Backup connection (e.g., Starlink, satellite)",
+        properties: {
+          address: {
+            type: "string",
+            title: "Server Address",
+            description: "IP address or hostname of the server for backup link",
+            default: "127.0.0.1"
+          },
+          port: {
+            type: "number",
+            title: "UDP Port",
+            description: "UDP port for backup link",
+            default: 4447,
+            minimum: 1024,
+            maximum: 65535
+          },
+          interface: {
+            type: "string",
+            title: "Bind Interface (optional)",
+            description: "Network interface IP to bind to (e.g., 10.0.0.100)"
+          }
+        }
+      },
+      failover: {
+        type: "object",
+        title: "Failover Thresholds",
+        description: "Configure when failover is triggered",
+        properties: {
+          rttThreshold: {
+            type: "number",
+            title: "RTT Threshold (ms)",
+            description: "Failover when RTT exceeds this value",
+            default: 500,
+            minimum: 100,
+            maximum: 5000
+          },
+          lossThreshold: {
+            type: "number",
+            title: "Packet Loss Threshold",
+            description: "Failover when loss exceeds this ratio (0.0 - 1.0)",
+            default: 0.1,
+            minimum: 0.01,
+            maximum: 0.5
+          },
+          healthCheckInterval: {
+            type: "number",
+            title: "Health Check Interval (ms)",
+            description: "How often to check link health",
+            default: 1000,
+            minimum: 500,
+            maximum: 10000
+          },
+          failbackDelay: {
+            type: "number",
+            title: "Failback Delay (ms)",
+            description: "Wait time before switching back to primary after recovery",
+            default: 30000,
+            minimum: 5000,
+            maximum: 300000
+          }
+        }
+      }
+    }
   }
 };
 
@@ -110,11 +272,14 @@ const uiSchema = {
     "secretKey",
     "useMsgpack",
     "usePathDictionary",
+    "protocolVersion",
     "udpAddress",
     "helloMessageSender",
     "testAddress",
     "testPort",
-    "pingIntervalTime"
+    "pingIntervalTime",
+    "congestionControl",
+    "bonding"
   ],
   secretKey: {
     "ui:widget": "password",
@@ -180,6 +345,8 @@ function PluginConfigurationPanel(props) {
       delete cleanedData.testAddress;
       delete cleanedData.testPort;
       delete cleanedData.pingIntervalTime;
+      delete cleanedData.congestionControl;
+      delete cleanedData.bonding;
     }
 
     try {

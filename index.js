@@ -686,8 +686,10 @@ module.exports = function createPlugin(app) {
         title: "Operation Mode",
         description: "Select Server to receive data, or Client to send data",
         default: "client",
-        enum: ["server", "client"],
-        enumNames: ["Server Mode - Receive Data", "Client Mode - Send Data"]
+        oneOf: [
+          { const: "server", title: "Server Mode - Receive Data" },
+          { const: "client", title: "Client Mode - Send Data" }
+        ]
       },
       udpPort: {
         type: "number",
@@ -721,8 +723,10 @@ module.exports = function createPlugin(app) {
         title: "Protocol Version",
         description: "v1: encrypted UDP transmission. v2 adds: packet reliability (sequence tracking, ACK/NAK, retransmission), congestion control, connection bonding with failover, metrics/monitoring, and NAT keepalive. Must match on both ends.",
         default: 1,
-        enum: [1, 2],
-        enumNames: ["v1 - Standard encrypted UDP", "v2 - Reliability, congestion control, bonding, metrics"]
+        oneOf: [
+          { const: 1, title: "v1 - Standard encrypted UDP" },
+          { const: 2, title: "v2 - Reliability, congestion control, bonding, metrics" }
+        ]
       }
     },
     dependencies: {
@@ -825,8 +829,9 @@ module.exports = function createPlugin(app) {
                     title: "Bonding Mode",
                     description: "Bonding operating mode",
                     default: "main-backup",
-                    enum: ["main-backup"],
-                    enumNames: ["Main/Backup - Failover to backup when primary degrades"]
+                    oneOf: [
+                      { const: "main-backup", title: "Main/Backup - Failover to backup when primary degrades" }
+                    ]
                   },
                   primary: {
                     type: "object",

@@ -65,7 +65,10 @@ describe("SignalK Data Connector Plugin", () => {
 
     test("should have serverType options", () => {
       const serverType = plugin.schema.properties.serverType;
-      expect(serverType.enum).toEqual(["server", "client"]);
+      expect(serverType.oneOf).toEqual([
+        { const: "server", title: "Server Mode - Receive Data" },
+        { const: "client", title: "Client Mode - Send Data" }
+      ]);
     });
 
     test("should validate udpPort range", () => {
