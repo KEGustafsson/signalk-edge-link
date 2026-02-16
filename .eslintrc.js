@@ -12,6 +12,12 @@ module.exports = {
       env: {
         jest: true
       }
+    },
+    {
+      files: ["**/*.jsx"],
+      parserOptions: {
+        ecmaFeatures: { jsx: true }
+      }
     }
   ],
   ignorePatterns: ["public/**", "node_modules/**", "coverage/**"],
