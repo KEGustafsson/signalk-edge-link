@@ -29,7 +29,7 @@
     "@msgpack/msgpack": "^3.0.0",
     "@rjsf/core": "^5.18.4",
     "@rjsf/utils": "^5.18.4",
-    "@rjsf/validator-ajv8": "^5.18.4",
+    "@rjsf/validator-ajv8": "^6.3.1",
     "@signalk/server-admin-ui-dependencies": "1.0.1",
     "ping-monitor": "^0.8.2"
   },
