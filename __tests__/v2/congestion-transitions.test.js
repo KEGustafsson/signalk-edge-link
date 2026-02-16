@@ -190,7 +190,7 @@ describe("Congestion Control - Network Transitions", () => {
     test("WiFi → Cellular transition (good → moderate)", () => {
       // WiFi: low RTT, no loss
       runCycles(cc, 20, 0, 10);
-      const wifiTimer = cc.getCurrentDeltaTimer();
+      cc.getCurrentDeltaTimer();
 
       // Cellular: higher RTT, some loss
       runCycles(cc, 150, 0.03, 10);

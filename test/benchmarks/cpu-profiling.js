@@ -147,7 +147,7 @@ async function benchCompression() {
 
   // Batched compression
   const batch = {};
-  for (let i = 0; i < 10; i++) batch[i] = generateDelta(i);
+  for (let i = 0; i < 10; i++) {batch[i] = generateDelta(i);}
   const batchPayload = Buffer.from(JSON.stringify(batch), "utf8");
 
   printResult("Brotli compress (10-delta batch)", await measureCPUAsync(
@@ -265,7 +265,7 @@ function benchCongestionControl() {
   const cc = new CongestionControl({ enabled: true, adjustInterval: 0 });
 
   printResult("updateMetrics", measureCPU(
-    (i) => cc.updateMetrics({ rtt: 50 + Math.random() * 100, packetLoss: Math.random() * 0.05 }),
+    (_i) => cc.updateMetrics({ rtt: 50 + Math.random() * 100, packetLoss: Math.random() * 0.05 }),
     ITERATIONS
   ));
 

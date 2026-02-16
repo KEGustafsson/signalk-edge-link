@@ -14,11 +14,11 @@ jest.mock("dgram", () => {
   const createMockSocket = () => {
     const listeners = {};
     return {
-      send: jest.fn((msg, port, address, cb) => { if (cb) cb(null); }),
-      bind: jest.fn((opts, cb) => { if (cb) cb(null); }),
+      send: jest.fn((msg, port, address, cb) => { if (cb) {cb(null);} }),
+      bind: jest.fn((opts, cb) => { if (cb) {cb(null);} }),
       close: jest.fn(),
       on: jest.fn((event, handler) => {
-        if (!listeners[event]) listeners[event] = [];
+        if (!listeners[event]) {listeners[event] = [];}
         listeners[event].push(handler);
       }),
       emit: (event, ...args) => {
@@ -74,7 +74,7 @@ describe("Bonding Failover Scenarios", () => {
   });
 
   afterEach(() => {
-    if (bm && bm._initialized) bm.stop();
+    if (bm && bm._initialized) {bm.stop();}
     jest.useRealTimers();
   });
 

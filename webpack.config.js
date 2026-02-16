@@ -68,11 +68,11 @@ module.exports = (env, argv) => {
         shared: {
           react: {
             singleton: true,
-            requiredVersion: packageJson.dependencies.react
+            requiredVersion: false
           },
           "react-dom": {
             singleton: true,
-            requiredVersion: packageJson.dependencies["react-dom"]
+            requiredVersion: false
           }
         }
       }),
@@ -95,10 +95,10 @@ module.exports = (env, argv) => {
 
       ...(isProduction
         ? [
-            new MiniCssExtractPlugin({
-              filename: "[name].[contenthash].css"
-            })
-          ]
+          new MiniCssExtractPlugin({
+            filename: "[name].[contenthash].css"
+          })
+        ]
         : [])
     ],
 

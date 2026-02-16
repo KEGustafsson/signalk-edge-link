@@ -7,7 +7,6 @@ const {
   PacketFlags,
   HEADER_SIZE,
   PROTOCOL_VERSION,
-  MAGIC,
   MAX_SEQUENCE,
   crc16,
   getTypeName
@@ -630,7 +629,7 @@ describe("Integration scenarios", () => {
 
     // Create binary payload with all byte values
     const payload = Buffer.alloc(256);
-    for (let i = 0; i < 256; i++) payload[i] = i;
+    for (let i = 0; i < 256; i++) {payload[i] = i;}
 
     const packet = builder.buildDataPacket(payload);
     const parsed = parser.parseHeader(packet);

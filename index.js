@@ -10,6 +10,7 @@ const Monitor = require("ping-monitor");
 const createMetrics = require("./lib/metrics");
 const createPipeline = require("./lib/pipeline");
 const { createPipelineV2Client } = require("./lib/pipeline-v2-client");
+const { createPipelineV2Server } = require("./lib/pipeline-v2-server");
 const createRoutes = require("./lib/routes");
 const { PacketLossTracker, PathLatencyTracker, RetransmissionTracker, AlertManager } = require("./lib/monitoring");
 const { PacketCapture, PacketInspector } = require("./lib/packet-capture");
@@ -40,6 +41,7 @@ module.exports = function createPlugin(app) {
     options: null,
     socketUdp: null,
     readyToSend: false,
+    stopped: false,
     isServerMode: false,
     deltas: [],
     timer: false,
@@ -58,6 +60,8 @@ module.exports = function createPlugin(app) {
     pingMonitor: null,
     deltaTimer: null,
     pipeline: null,
+    pipelineServer: null,
+    heartbeatHandle: null,
     monitoring: null,
     networkSimulator: null,
     configDebounceTimers: {},
@@ -220,7 +224,11 @@ module.exports = function createPlugin(app) {
                 } else {
                   metrics.smartBatching.timerSends++;
                 }
-                pipeline.packCrypt(state.deltas, state.options.secretKey, state.options.udpAddress, state.options.udpPort);
+                if (state.pipeline) {
+                  state.pipeline.sendDelta(state.deltas, state.options.secretKey, state.options.udpAddress, state.options.udpPort);
+                } else {
+                  pipeline.packCrypt(state.deltas, state.options.secretKey, state.options.udpAddress, state.options.udpPort);
+                }
                 state.deltas = [];
                 state.timer = false;
               }
@@ -274,7 +282,8 @@ module.exports = function createPlugin(app) {
             watcherObj.watcher.close();
             watcherObj.watcher = null;
           }
-          setTimeout(() => {
+          watcherObj.recoveryTimer = setTimeout(() => {
+            watcherObj.recoveryTimer = null;
             app.debug(`Attempting to recreate ${name} watcher...`);
             createWatcher();
             if (watcherObj.watcher) {
@@ -295,6 +304,10 @@ module.exports = function createPlugin(app) {
     return {
       get watcher() { return watcherObj.watcher; },
       close() {
+        if (watcherObj.recoveryTimer) {
+          clearTimeout(watcherObj.recoveryTimer);
+          watcherObj.recoveryTimer = null;
+        }
         if (watcherObj.watcher) {
           watcherObj.watcher.close();
           watcherObj.watcher = null;
@@ -359,6 +372,7 @@ module.exports = function createPlugin(app) {
   // ── Plugin lifecycle ──
 
   plugin.start = async function (options, restartPlugin) {
+    state.stopped = false;
     state.options = options;
     state.restartPlugin = restartPlugin;
 
@@ -409,9 +423,27 @@ module.exports = function createPlugin(app) {
         state.readyToSend = true;
       });
 
-      state.socketUdp.on("message", (delta) => {
-        pipeline.unpackDecrypt(delta, options.secretKey);
-      });
+      const useV2Server = options.protocolVersion === 2;
+      if (useV2Server) {
+        const v2Server = createPipelineV2Server(app, state, metricsApi);
+        state.pipelineServer = v2Server;
+
+        state.socketUdp.on("message", (packet, rinfo) => {
+          v2Server.receivePacket(packet, options.secretKey, rinfo);
+        });
+
+        // Start ACK timer and metrics publishing after binding
+        state.socketUdp.on("listening", () => {
+          v2Server.startACKTimer();
+          v2Server.startMetricsPublishing();
+          app.debug("[v2] Server pipeline with ACK/NAK initialized");
+        });
+      } else {
+        state.socketUdp.on("message", (delta) => {
+          pipeline.unpackDecrypt(delta, options.secretKey);
+        });
+        app.debug("[v1] Server pipeline initialized (standard encrypted UDP)");
+      }
 
       state.socketUdp.bind(options.udpPort, (err) => {
         if (err) {
@@ -432,13 +464,20 @@ module.exports = function createPlugin(app) {
       state.helloMessageSender = setInterval(async () => {
         const timeSinceLastPacket = Date.now() - state.lastPacketTime;
 
-        if (timeSinceLastPacket >= helloInterval) {
+        if (!state.readyToSend) {
+          app.debug("Skipping hello message (not ready to send)");
+        } else if (timeSinceLastPacket >= helloInterval) {
+          const mmsi = app.getSelfPath("mmsi") || "000000000";
           const fixedDelta = {
-            context: "vessels.urn:mrn:imo:mmsi:" + app.getSelfPath("mmsi"),
+            context: "vessels.urn:mrn:imo:mmsi:" + mmsi,
             updates: [{ timestamp: new Date(), values: [] }]
           };
           app.debug("Sending hello message (no recent data transmission)");
-          await pipeline.packCrypt([fixedDelta], options.secretKey, options.udpAddress, options.udpPort);
+          if (state.pipeline) {
+            await state.pipeline.sendDelta([fixedDelta], options.secretKey, options.udpAddress, options.udpPort);
+          } else {
+            await pipeline.packCrypt([fixedDelta], options.secretKey, options.udpAddress, options.udpPort);
+          }
         } else {
           app.debug(`Skipping hello message (last packet ${timeSinceLastPacket}ms ago)`);
         }
@@ -448,6 +487,7 @@ module.exports = function createPlugin(app) {
 
       state.socketUdp.on("error", (err) => {
         app.error(`Client UDP socket error: ${err.message}`);
+        state.readyToSend = false;
         setStatus(`UDP socket error: ${err.code || err.message}`);
       });
 
@@ -493,47 +533,77 @@ module.exports = function createPlugin(app) {
         options.pingIntervalTime * MILLISECONDS_PER_MINUTE + PING_TIMEOUT_BUFFER
       );
 
-      // Initialize enhanced monitoring
-      state.monitoring = {
-        packetLossTracker: new PacketLossTracker(),
-        pathLatencyTracker: new PathLatencyTracker(),
-        retransmissionTracker: new RetransmissionTracker(),
-        alertManager: new AlertManager(app, options.alertThresholds || {}),
-        packetCapture: new PacketCapture(),
-        packetInspector: new PacketInspector()
-      };
-      app.debug("[Monitoring] Enhanced monitoring initialized");
+      // Initialize v2 client pipeline when protocolVersion is 2
+      const useV2 = options.protocolVersion === 2;
 
-      // Initialize v2 client pipeline and bonding (if enabled)
-      if (options.bonding && options.bonding.enabled) {
+      if (useV2) {
+        // Initialize enhanced monitoring (v2 only)
+        state.monitoring = {
+          packetLossTracker: new PacketLossTracker(),
+          pathLatencyTracker: new PathLatencyTracker(),
+          retransmissionTracker: new RetransmissionTracker(),
+          alertManager: new AlertManager(app, options.alertThresholds || {}),
+          packetCapture: new PacketCapture(),
+          packetInspector: new PacketInspector()
+        };
+        app.debug("[v2] Enhanced monitoring initialized");
+
         const v2Pipeline = createPipelineV2Client(app, state, metricsApi);
         state.pipeline = v2Pipeline;
 
         // Connect monitoring hooks to pipeline
         v2Pipeline.setMonitoring(state.monitoring);
 
-        const bondingConfig = {
-          mode: options.bonding.mode || "main-backup",
-          primary: options.bonding.primary || { address: options.udpAddress, port: options.udpPort },
-          backup: options.bonding.backup || { address: options.udpAddress, port: options.udpPort + 1 },
-          failover: options.bonding.failover || {}
-        };
+        // Start metrics publishing
+        v2Pipeline.startMetricsPublishing();
 
-        try {
-          await v2Pipeline.initBonding(bondingConfig);
-          v2Pipeline.startMetricsPublishing();
-          if (options.congestionControl && options.congestionControl.enabled) {
-            v2Pipeline.startCongestionControl();
-          }
-          app.debug("[Bonding] Connection bonding initialized");
-        } catch (err) {
-          app.error(`[Bonding] Failed to initialize: ${err.message}`);
+        // Start congestion control if enabled
+        if (options.congestionControl && options.congestionControl.enabled) {
+          v2Pipeline.startCongestionControl();
         }
+
+        // Start NAT keepalive heartbeat
+        state.heartbeatHandle = v2Pipeline.startHeartbeat(options.udpAddress, options.udpPort);
+
+        // Listen for ACK/NAK control packets from server
+        state.socketUdp.on("message", (msg, rinfo) => {
+          v2Pipeline.handleControlPacket(msg, rinfo);
+        });
+
+        // Initialize bonding if enabled
+        if (options.bonding && options.bonding.enabled) {
+          const bondingConfig = {
+            mode: options.bonding.mode || "main-backup",
+            primary: options.bonding.primary || { address: options.udpAddress, port: options.udpPort },
+            backup: options.bonding.backup || { address: options.udpAddress, port: options.udpPort + 1 },
+            failover: options.bonding.failover || {}
+          };
+
+          try {
+            await v2Pipeline.initBonding(bondingConfig);
+            app.debug("[Bonding] Connection bonding initialized");
+          } catch (err) {
+            app.error(`[Bonding] Failed to initialize: ${err.message}`);
+          }
+        }
+
+        app.debug("[v2] Protocol v2 client pipeline initialized");
+      } else {
+        // v1 mode - warn if v2-only features are configured
+        if (options.congestionControl && options.congestionControl.enabled) {
+          app.error("[v1] Congestion control requires Protocol v2 - ignoring congestionControl setting");
+        }
+        if (options.bonding && options.bonding.enabled) {
+          app.error("[v1] Connection bonding requires Protocol v2 - ignoring bonding setting");
+        }
+        app.debug("[v1] Client pipeline initialized (standard encrypted UDP)");
       }
     }
   };
 
   plugin.stop = function stop() {
+    state.stopped = true;
+
     // Unsubscribe from SignalK subscriptions
     state.unsubscribes.forEach((f) => f());
     state.unsubscribes = [];
@@ -544,7 +614,6 @@ module.exports = function createPlugin(app) {
     state.isServerMode = false;
     state.readyToSend = false;
     state.deltas = [];
-    state.pipeline = null;
     Object.keys(state.configContentHashes).forEach((k) => delete state.configContentHashes[k]);
     state.excludedSentences = ["GSV"];
     state.lastPacketTime = 0;
@@ -557,8 +626,11 @@ module.exports = function createPlugin(app) {
 
     // Clear intervals and timeouts
     clearInterval(state.helloMessageSender);
+    state.helloMessageSender = null;
     clearTimeout(state.pingTimeout);
+    state.pingTimeout = null;
     clearTimeout(state.deltaTimer);
+    state.deltaTimer = null;
     Object.keys(state.configDebounceTimers).forEach((k) => {
       clearTimeout(state.configDebounceTimers[k]);
       delete state.configDebounceTimers[k];
@@ -569,19 +641,36 @@ module.exports = function createPlugin(app) {
     state.configWatcherObjects = [];
     app.debug("Configuration file watchers closed");
 
-    // Stop v2 pipeline (bonding, metrics, congestion)
+    // Stop v2 client pipeline (bonding, metrics, congestion, heartbeat)
     if (state.pipeline) {
-      if (state.pipeline.stopBonding) state.pipeline.stopBonding();
-      if (state.pipeline.stopMetricsPublishing) state.pipeline.stopMetricsPublishing();
-      if (state.pipeline.stopCongestionControl) state.pipeline.stopCongestionControl();
+      if (state.pipeline.stopBonding) { state.pipeline.stopBonding(); }
+      if (state.pipeline.stopMetricsPublishing) { state.pipeline.stopMetricsPublishing(); }
+      if (state.pipeline.stopCongestionControl) { state.pipeline.stopCongestionControl(); }
       state.pipeline = null;
+    }
+    if (state.heartbeatHandle) {
+      state.heartbeatHandle.stop();
+      state.heartbeatHandle = null;
+    }
+
+    // Stop v2 server pipeline (ACK timer, metrics, sequence tracker)
+    if (state.pipelineServer) {
+      if (state.pipelineServer.stopACKTimer) { state.pipelineServer.stopACKTimer(); }
+      if (state.pipelineServer.stopMetricsPublishing) { state.pipelineServer.stopMetricsPublishing(); }
+      if (state.pipelineServer.getSequenceTracker) {
+        state.pipelineServer.getSequenceTracker().reset();
+      }
+      state.pipelineServer = null;
     }
 
     // Clean up enhanced monitoring
     if (state.monitoring) {
-      if (state.monitoring.packetCapture) state.monitoring.packetCapture.reset();
-      if (state.monitoring.packetInspector) state.monitoring.packetInspector.reset();
-      if (state.monitoring.alertManager) state.monitoring.alertManager.reset();
+      if (state.monitoring.packetLossTracker) {state.monitoring.packetLossTracker.reset();}
+      if (state.monitoring.pathLatencyTracker) {state.monitoring.pathLatencyTracker.reset();}
+      if (state.monitoring.retransmissionTracker) {state.monitoring.retransmissionTracker.reset();}
+      if (state.monitoring.packetCapture) {state.monitoring.packetCapture.reset();}
+      if (state.monitoring.packetInspector) {state.monitoring.packetInspector.reset();}
+      if (state.monitoring.alertManager) {state.monitoring.alertManager.reset();}
       state.monitoring = null;
     }
     state.networkSimulator = null;
@@ -614,8 +703,10 @@ module.exports = function createPlugin(app) {
         title: "Operation Mode",
         description: "Select Server to receive data, or Client to send data",
         default: "client",
-        enum: ["server", "client"],
-        enumNames: ["Server Mode - Receive Data", "Client Mode - Send Data"]
+        oneOf: [
+          { const: "server", title: "Server Mode - Receive Data" },
+          { const: "client", title: "Client Mode - Send Data" }
+        ]
       },
       udpPort: {
         type: "number",
@@ -643,6 +734,16 @@ module.exports = function createPlugin(app) {
         title: "Use Path Dictionary",
         description: "Encode paths as numeric IDs for bandwidth savings (must match on both ends)",
         default: false
+      },
+      protocolVersion: {
+        type: "number",
+        title: "Protocol Version",
+        description: "v1: encrypted UDP transmission. v2 adds: packet reliability (sequence tracking, ACK/NAK, retransmission), congestion control, connection bonding with failover, metrics/monitoring, and NAT keepalive. Must match on both ends.",
+        default: 1,
+        oneOf: [
+          { const: 1, title: "v1 - Standard encrypted UDP" },
+          { const: 2, title: "v2 - Reliability, congestion control, bonding, metrics" }
+        ]
       }
     },
     dependencies: {
@@ -694,8 +795,8 @@ module.exports = function createPlugin(app) {
               },
               congestionControl: {
                 type: "object",
-                title: "Dynamic Congestion Control",
-                description: "AIMD algorithm to dynamically adjust send rate based on network conditions",
+                title: "Dynamic Congestion Control (v2 only)",
+                description: "Requires Protocol v2. AIMD algorithm to dynamically adjust send rate based on network conditions",
                 properties: {
                   enabled: {
                     type: "boolean",
@@ -731,8 +832,8 @@ module.exports = function createPlugin(app) {
               },
               bonding: {
                 type: "object",
-                title: "Connection Bonding",
-                description: "Dual-link bonding with automatic failover between primary and backup connections",
+                title: "Connection Bonding (v2 only)",
+                description: "Requires Protocol v2. Dual-link bonding with automatic failover between primary and backup connections",
                 properties: {
                   enabled: {
                     type: "boolean",
@@ -745,8 +846,9 @@ module.exports = function createPlugin(app) {
                     title: "Bonding Mode",
                     description: "Bonding operating mode",
                     default: "main-backup",
-                    enum: ["main-backup"],
-                    enumNames: ["Main/Backup - Failover to backup when primary degrades"]
+                    oneOf: [
+                      { const: "main-backup", title: "Main/Backup - Failover to backup when primary degrades" }
+                    ]
                   },
                   primary: {
                     type: "object",

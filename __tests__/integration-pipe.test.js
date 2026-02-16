@@ -559,7 +559,7 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
           status: jest.fn().mockReturnThis()
         };
         let i = 0;
-        const next = () => { i++; if (i < metricsHandler.length) metricsHandler[i](req, res, next); };
+        const next = () => { i++; if (i < metricsHandler.length) {metricsHandler[i](req, res, next);} };
         metricsHandler[0](req, res, next);
       });
 

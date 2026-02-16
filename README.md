@@ -2,10 +2,10 @@
 
 Secure, reliable UDP data transmission between Signal K servers with advanced bandwidth optimization, automatic failover, and comprehensive monitoring.
 
-[![Tests](https://img.shields.io/badge/tests-743%2B%20passed-brightgreen)](https://github.com/KEGustafsson/signalk-edge-link)
+[![Tests](https://img.shields.io/badge/tests-871%20passed-brightgreen)](https://github.com/KEGustafsson/signalk-edge-link)
 [![Version](https://img.shields.io/badge/version-2.0.0-blue)](https://github.com/KEGustafsson/signalk-edge-link)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D16-brightgreen)](https://nodejs.org/)
 
 ![Data Connector Concept](https://raw.githubusercontent.com/KEGustafsson/signalk-edge-link/refs/heads/main/doc/dataconnectorconcept.jpg)
 
@@ -114,6 +114,7 @@ The plugin provides a custom React-based configuration UI that dynamically adapt
 | Encryption Key | 32-character secret key |
 | MessagePack | Enable binary serialization |
 | Path Dictionary | Enable path encoding |
+| Protocol Version | v1 (standard UDP) or v2 (reliability, ACK/NAK, metrics) |
 
 ### Client Mode (Sender)
 
@@ -122,6 +123,7 @@ The plugin provides a custom React-based configuration UI that dynamically adapt
 | Operation Mode | Server/Client selector |
 | UDP Port | Port to send to |
 | Encryption Key | 32-character secret key (must match server) |
+| Protocol Version | v1 (standard UDP) or v2 (reliability, congestion control, bonding) |
 | Destination Address | Server IP or hostname |
 | Heartbeat Interval | Keep-alive message frequency (seconds) |
 | Connectivity Test Target | Address to ping for network monitoring |
@@ -129,6 +131,13 @@ The plugin provides a custom React-based configuration UI that dynamically adapt
 | Check Interval | How often to test connectivity (minutes) |
 | MessagePack | Enable binary serialization |
 | Path Dictionary | Enable path encoding |
+
+**v2-only client settings** (appear when Protocol Version is set to v2):
+
+| Setting | Description |
+|---------|-------------|
+| Congestion Control | AIMD algorithm that auto-adjusts send rate based on RTT and packet loss |
+| Connection Bonding | Primary/backup link failover (e.g., LTE + Starlink) |
 
 Additional client settings are available in the web dashboard:
 - **Delta timer** — collection interval (100–10000 ms)
@@ -180,6 +189,22 @@ All endpoints are rate-limited to 20 requests per minute per IP.
 | GET | `/plugins/signalk-edge-link/plugin-config` | Current plugin configuration |
 | POST | `/plugins/signalk-edge-link/plugin-config` | Update plugin configuration |
 | GET | `/plugins/signalk-edge-link/plugin-schema` | Plugin schema definition |
+| GET | `/plugins/signalk-edge-link/network-metrics` | Network quality metrics with link quality score (v2) |
+| GET | `/plugins/signalk-edge-link/congestion` | Congestion control state (v2, client only) |
+| POST | `/plugins/signalk-edge-link/delta-timer` | Manual delta timer override or auto mode (v2) |
+| GET | `/plugins/signalk-edge-link/bonding` | Bonding state and per-link health (v2, client only) |
+| POST | `/plugins/signalk-edge-link/bonding/failover` | Manually trigger link failover (v2) |
+| GET | `/plugins/signalk-edge-link/prometheus` | Prometheus text exposition metrics (v2) |
+| GET | `/plugins/signalk-edge-link/monitoring/packet-loss` | Packet loss heatmap data (v2) |
+| GET | `/plugins/signalk-edge-link/monitoring/path-latency` | Per-path latency tracking (v2) |
+| GET | `/plugins/signalk-edge-link/monitoring/retransmissions` | Retransmission rate chart data (v2) |
+| GET | `/plugins/signalk-edge-link/monitoring/alerts` | Alert thresholds and active alerts (v2) |
+| POST | `/plugins/signalk-edge-link/monitoring/alerts` | Update alert thresholds (v2) |
+| GET | `/plugins/signalk-edge-link/capture` | Packet capture statistics (v2) |
+| POST | `/plugins/signalk-edge-link/capture/start` | Start packet capture (v2) |
+| POST | `/plugins/signalk-edge-link/capture/stop` | Stop packet capture (v2) |
+| GET | `/plugins/signalk-edge-link/capture/export` | Export captured packets as .pcap file (v2) |
+| GET | `/plugins/signalk-edge-link/monitoring/inspector` | Packet inspector statistics (v2) |
 
 ---
 
@@ -199,6 +224,44 @@ In client mode, the plugin measures **Round Trip Time (RTT)** using TCP ping to 
 - Track connection quality over time
 - Trigger alerts on high latency
 - Analyze network performance trends
+
+---
+
+## Protocol v2
+
+Protocol v2 adds a reliability and performance layer on top of the encrypted UDP transport. Both client and server must use the same protocol version.
+
+### v1 vs v2 Comparison
+
+| Capability | v1 | v2 |
+|-----------|----|----|
+| Encrypted UDP transport | Yes | Yes |
+| Brotli compression | Yes | Yes |
+| Path dictionary + MessagePack | Yes | Yes |
+| Smart batching | Yes | Yes |
+| Binary packet headers with CRC16 | — | Yes |
+| Sequence tracking | — | Yes |
+| ACK/NAK retransmission | — | Yes (>99.9% delivery at 5% loss) |
+| Congestion control (AIMD) | — | Yes (auto-adjusts send rate) |
+| Connection bonding with failover | — | Yes (e.g., LTE + Starlink) |
+| NAT keepalive heartbeat | — | Yes (25s interval) |
+| RTT / jitter / packet loss metrics | — | Yes |
+| Prometheus metrics export | — | Yes |
+| Alert thresholds | — | Yes |
+| Packet capture (pcap export) | — | Yes |
+| Link quality score | — | Yes |
+
+### When to Use v2
+
+- **Unreliable networks** — cellular, satellite, or any link with packet loss. v2's retransmission ensures data arrives.
+- **Dual-link setups** — if you have LTE and Starlink (or any two connections), v2 bonding automatically fails over when one degrades.
+- **Monitoring requirements** — v2 publishes RTT, jitter, packet loss, and link quality to Signal K paths, enabling Grafana dashboards and alerts.
+- **Congestion-prone links** — v2's AIMD congestion control backs off when the network is saturated and recovers when it clears.
+
+### When v1 Is Sufficient
+
+- **Reliable LAN or VPN** — if packet loss is near zero and you don't need monitoring, v1's simpler protocol has less overhead (28 bytes vs 43 bytes per packet).
+- **One-way fire-and-forget** — if occasional data loss is acceptable (e.g., high-frequency sensor data where the next reading arrives quickly).
 
 ---
 
@@ -312,7 +375,7 @@ MySecretKey123                     # Too short
 - Verify `npm install` completed successfully
 - Check Signal K server logs for errors
 - Ensure plugin directory is `~/.signalk/node_modules/signalk-edge-link`
-- Verify Node.js version ≥ 14.0.0
+- Verify Node.js version ≥ 16
 
 ### Web UI Not Accessible
 
@@ -427,7 +490,7 @@ signalk-edge-link/
 │   │   └── styles.css
 │   └── components/
 │       └── PluginConfigurationPanel.jsx  # React config panel
-├── __tests__/                  # 743+ tests across 23 files
+├── __tests__/                  # 871 tests across 26 suites
 │   ├── crypto.test.js
 │   ├── pathDictionary.test.js
 │   ├── compression.test.js
@@ -479,7 +542,7 @@ npm run test:integration  # Run integration tests only
 
 ### Testing
 
-The test suite covers all critical paths with 743+ tests across 27 files:
+The test suite covers all critical paths with 871 tests across 26 suites:
 
 | Test file | Scope |
 |-----------|-------|

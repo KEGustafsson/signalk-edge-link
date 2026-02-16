@@ -18,7 +18,7 @@ const { PacketBuilder, PacketParser } = require("../../lib/packet");
 const { SequenceTracker } = require("../../lib/sequence");
 const { RetransmitQueue } = require("../../lib/retransmit-queue");
 const { CongestionControl } = require("../../lib/congestion");
-const { PacketLossTracker, PathLatencyTracker, RetransmissionTracker, AlertManager } = require("../../lib/monitoring");
+const { PacketLossTracker, PathLatencyTracker, RetransmissionTracker } = require("../../lib/monitoring");
 
 function formatMB(bytes) {
   return (bytes / 1048576).toFixed(2) + " MB";
@@ -51,14 +51,14 @@ function testRetransmitQueue() {
     queue.add(i, packet);
   }
 
-  const heapAfterFill = getHeapUsed();
+  getHeapUsed();
   printMemorySnapshot("After 20k adds (max 5k retained)");
 
   console.log(`  Queue size: ${queue.getSize()} (max: ${maxSize})`);
 
   // Acknowledge all
   queue.acknowledge(19999);
-  const heapAfterAck = getHeapUsed();
+  getHeapUsed();
   printMemorySnapshot("After acknowledge all");
 
   console.log(`  Queue size after ack: ${queue.getSize()}`);
@@ -67,7 +67,7 @@ function testRetransmitQueue() {
   for (let i = 20000; i < 40000; i++) {
     queue.add(i, packet);
   }
-  const heapSecondRound = getHeapUsed();
+  getHeapUsed();
   printMemorySnapshot("After second 20k adds");
 
   queue.acknowledge(39999);
@@ -96,7 +96,7 @@ function testSequenceTracker() {
     tracker.processSequence(i);
   }
 
-  const heapInOrder = getHeapUsed();
+  getHeapUsed();
   printMemorySnapshot("After 50k in-order sequences");
   console.log(`  receivedSeqs size: ${tracker.receivedSeqs.size}`);
   console.log(`  expectedSeq: ${tracker.expectedSeq}`);
@@ -106,7 +106,7 @@ function testSequenceTracker() {
     tracker.processSequence(i); // Skip every other
   }
 
-  const heapWithGaps = getHeapUsed();
+  getHeapUsed();
   printMemorySnapshot("After 25k with gaps");
 
   tracker.reset();
@@ -132,7 +132,7 @@ function testMonitoringTrackers() {
   for (let i = 0; i < 100000; i++) {
     lossTracker.record(Math.random() < 0.05);
   }
-  const heapAfterLoss = getHeapUsed();
+  getHeapUsed();
   printMemorySnapshot("After 100k loss records");
   console.log(`  Loss tracker buckets: ${lossTracker.buckets.length} (max: 60)`);
 
@@ -145,7 +145,7 @@ function testMonitoringTrackers() {
   for (let i = 0; i < 100000; i++) {
     latencyTracker.record(paths[i % paths.length], Math.random() * 200);
   }
-  const heapAfterLatency = getHeapUsed();
+  getHeapUsed();
   printMemorySnapshot("After 100k latency records (500 paths, max 200)");
   console.log(`  Tracked paths: ${latencyTracker.paths.size} (max: 200)`);
 
@@ -155,7 +155,7 @@ function testMonitoringTrackers() {
     retransmitTracker._lastSnapshot.timestamp = Date.now() - 1000;
     retransmitTracker.snapshot(i * 10, Math.floor(i * 0.05));
   }
-  const heapAfterRetransmit = getHeapUsed();
+  getHeapUsed();
   printMemorySnapshot("After 10k retransmit snapshots");
   console.log(`  Retransmit history entries: ${retransmitTracker.history.length} (max: 120)`);
 

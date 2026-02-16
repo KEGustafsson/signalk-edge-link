@@ -158,7 +158,7 @@ describe("V2 Pipeline End-to-End", () => {
 
       // Deliver packets 0, 1, 3, 4 (skip 2)
       const deliveryOrder = [0, 1, 3, 4];
-      let missingDetected = [];
+      const missingDetected = [];
 
       for (const idx of deliveryOrder) {
         const parsed = parser.parseHeader(packets[idx]);
