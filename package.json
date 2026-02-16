@@ -1,6 +1,6 @@
 {
   "name": "signalk-edge-link",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SignalK Edge Link. Secure UDP link for data exchange.",
   "main": "index.js",
   "keywords": [
@@ -30,7 +30,7 @@
     "@rjsf/core": "^5.18.4",
     "@rjsf/utils": "^5.18.4",
     "@rjsf/validator-ajv8": "^5.18.4",
-    "@signalk/server-admin-ui-dependencies": "*",
+    "@signalk/server-admin-ui-dependencies": "1.0.1",
     "ping-monitor": "^0.8.2"
   },
   "devDependencies": {
