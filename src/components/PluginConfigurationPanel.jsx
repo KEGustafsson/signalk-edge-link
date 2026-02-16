@@ -294,7 +294,7 @@ const uiSchema = {
  * Custom configuration panel for SignalK Data Connector plugin
  * Fetches configuration from API and renders dynamic form
  */
-function PluginConfigurationPanel(props) {
+function PluginConfigurationPanel(_props) {
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

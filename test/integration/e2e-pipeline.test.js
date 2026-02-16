@@ -210,10 +210,10 @@ function createV2ServerPipeline(opts = {}) {
     naks,
     async receiveAndDecode(packet, key, useMsgpack = false) {
       const parsed = parser.parseHeader(packet);
-      if (parsed.type !== PacketType.DATA) return { parsed, delta: null };
+      if (parsed.type !== PacketType.DATA) {return { parsed, delta: null };}
 
       const seqResult = tracker.processSequence(parsed.sequence);
-      if (seqResult.duplicate) return { parsed, seqResult, delta: null, duplicate: true };
+      if (seqResult.duplicate) {return { parsed, seqResult, delta: null, duplicate: true };}
 
       const decrypted = decryptBinary(parsed.payload, key);
       const decompressed = await brotliDecompressAsync(decrypted);
@@ -382,7 +382,7 @@ describe("E2E Pipeline Tests", () => {
         socketUdp: {
           send: (msg, port, host, cb) => {
             sentPackets.push(Buffer.from(msg));
-            if (cb) cb(null);
+            if (cb) {cb(null);}
           }
         },
         avgBytesPerDelta: 200,
@@ -656,7 +656,7 @@ describe("E2E Pipeline Tests", () => {
         socketUdp: {
           send: (msg, port, host, cb) => {
             sentPackets.push(Buffer.from(msg));
-            if (cb) cb(null);
+            if (cb) {cb(null);}
           }
         },
         avgBytesPerDelta: 200,
@@ -670,7 +670,7 @@ describe("E2E Pipeline Tests", () => {
         options: { useMsgpack: false, usePathDictionary: false },
         socketUdp: {
           send: (msg, port, host, cb) => {
-            if (cb) cb(null);
+            if (cb) {cb(null);}
           }
         }
       };
@@ -929,7 +929,7 @@ describe("E2E Pipeline Tests", () => {
       }
 
       // Send through lossy network
-      for (const { packet, seq } of allPackets) {
+      for (const { packet } of allPackets) {
         sim.send(packet, (pkt) => {
           try {
             const parsed = server.parser.parseHeader(pkt);
@@ -943,9 +943,9 @@ describe("E2E Pipeline Tests", () => {
       for (let round = 0; round < 3; round++) {
         const missing = [];
         for (let i = 0; i < numPackets; i++) {
-          if (!receivedSet.has(i)) missing.push(i);
+          if (!receivedSet.has(i)) {missing.push(i);}
         }
-        if (missing.length === 0) break;
+        if (missing.length === 0) {break;}
 
         const retransmitted = client.retransmitQueue.retransmit(missing);
         for (const { packet } of retransmitted) {
@@ -990,9 +990,9 @@ describe("E2E Pipeline Tests", () => {
       for (let round = 0; round < 5; round++) {
         const missing = [];
         for (let i = 0; i < numPackets; i++) {
-          if (!receivedSet.has(i)) missing.push(i);
+          if (!receivedSet.has(i)) {missing.push(i);}
         }
-        if (missing.length === 0) break;
+        if (missing.length === 0) {break;}
 
         const retransmitted = client.retransmitQueue.retransmit(missing);
         for (const { packet } of retransmitted) {
@@ -1038,9 +1038,9 @@ describe("E2E Pipeline Tests", () => {
       for (let round = 0; round < 4; round++) {
         const missing = [];
         for (let i = 0; i < numPackets; i++) {
-          if (!receivedSet.has(i)) missing.push(i);
+          if (!receivedSet.has(i)) {missing.push(i);}
         }
-        if (missing.length === 0) break;
+        if (missing.length === 0) {break;}
 
         const retransmitted = client.retransmitQueue.retransmit(missing);
         for (const { packet } of retransmitted) {
@@ -1105,7 +1105,7 @@ describe("E2E Pipeline Tests", () => {
       // Retransmit lost packets (link is up now)
       const missing = [];
       for (let i = 0; i < 20; i++) {
-        if (!receivedSet.has(i)) missing.push(i);
+        if (!receivedSet.has(i)) {missing.push(i);}
       }
 
       const retransmitted = client.retransmitQueue.retransmit(missing);
@@ -1134,7 +1134,7 @@ describe("E2E Pipeline Tests", () => {
       serverSocket.on("message", async (msg) => {
         try {
           const parsed = parser.parseHeader(msg);
-          if (parsed.type !== PacketType.DATA) return;
+          if (parsed.type !== PacketType.DATA) {return;}
 
           tracker.processSequence(parsed.sequence);
 
@@ -1360,9 +1360,9 @@ describe("E2E Pipeline Tests", () => {
       for (let round = 0; round < 4; round++) {
         const missing = [];
         for (let i = 0; i < numPackets; i++) {
-          if (!receivedSet.has(i)) missing.push(i);
+          if (!receivedSet.has(i)) {missing.push(i);}
         }
-        if (missing.length === 0) break;
+        if (missing.length === 0) {break;}
 
         const retransmitted = client.retransmitQueue.retransmit(missing);
         for (const { packet } of retransmitted) {
@@ -1556,7 +1556,7 @@ describe("E2E Pipeline Tests", () => {
       expect(avg).toBeLessThan(15);
     });
 
-    test("v2 packet building overhead is minimal", async () => {
+    test("v2 packet building overhead is minimal", () => {
       const builder = new PacketBuilder();
       const iterations = 10000;
 
@@ -1637,10 +1637,10 @@ describe("E2E Pipeline Tests", () => {
       const { packet } = await client.buildPacket({ 0: makeNavigationDelta() }, SECRET_KEY);
 
       // Server tries to decode with wrong key
-      await expect(async () => {
+      expect(() => {
         const parsed = server.parser.parseHeader(packet);
         decryptBinary(parsed.payload, WRONG_KEY);
-      }).rejects.toThrow();
+      }).toThrow();
     });
 
     test("v2: truncated packet is rejected", () => {
@@ -1657,7 +1657,7 @@ describe("E2E Pipeline Tests", () => {
       expect(parser.isV2Packet(randomData)).toBe(false);
     });
 
-    test("v1: empty data handling", async () => {
+    test("v1: empty data handling", () => {
       expect(() => encryptBinary(Buffer.alloc(0), SECRET_KEY)).toThrow();
     });
 
@@ -1665,7 +1665,7 @@ describe("E2E Pipeline Tests", () => {
       const serverMetrics = createMetrics();
       const serverState = {
         options: { useMsgpack: false, usePathDictionary: false },
-        socketUdp: { send: (msg, port, host, cb) => { if (cb) cb(null); } }
+        socketUdp: { send: (msg, port, host, cb) => { if (cb) {cb(null);} } }
       };
       const receivedMessages = [];
       const mockApp = {

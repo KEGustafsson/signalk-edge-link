@@ -789,7 +789,7 @@ class DataConnectorConfig {
     const stateClass = data.state === "slow-start" ? "warning" : data.state === "congestion-avoidance" ? "success" : "";
     const modeLabel = data.mode === "auto" ? "Automatic" : "Manual Override";
 
-    let html = `
+    const html = `
       <div class="v2-dashboard">
         <div class="metrics-grid">
           ${renderMetricItem("State", `<span class="congestion-state ${stateClass}">${stateLabel}</span>`)}
@@ -849,7 +849,7 @@ class DataConnectorConfig {
       }).join("");
     }
 
-    let html = `
+    const html = `
       <div class="v2-dashboard">
         <div class="metrics-grid">
           ${renderMetricItem("Mode", modeLabel)}
@@ -909,18 +909,16 @@ class DataConnectorConfig {
       const alertEntries = Object.entries(activeAlerts);
       const alertCount = alertEntries.filter(([, level]) => level !== "ok").length;
 
+      const alertsContent = alertCount === 0
+        ? "<div class=\"metrics-success\"><div class=\"success-message\">No active alerts</div></div>"
+        : `<div class="stats-grid">
+                ${alertEntries.map(([metric, level]) => renderStatItem(metric, `<span class="alert-level alert-${level}">${level.toUpperCase()}</span>`, level === "critical")).join("")}
+              </div>`;
+
       html += `
         <div class="monitoring-subsection">
           <h5>Active Alerts</h5>
-          ${alertCount === 0
-            ? '<div class="metrics-success"><div class="success-message">No active alerts</div></div>'
-            : `<div class="stats-grid">
-                ${alertEntries.map(([metric, level]) => {
-                  const levelClass = level === "critical" ? "error" : level === "warning" ? "" : "";
-                  return renderStatItem(metric, `<span class="alert-level alert-${level}">${level.toUpperCase()}</span>`, level === "critical");
-                }).join("")}
-              </div>`
-          }
+          ${alertsContent}
         </div>
       `;
     }
@@ -1084,9 +1082,9 @@ class DataConnectorConfig {
       renderCard("Bandwidth Monitor", "Network reception statistics", "bandwidth") +
       renderCard("Path Analytics", "Incoming data volume by SignalK path", "pathAnalytics") +
       renderCard("Performance Metrics", "Real-time reception statistics (auto-refreshes every 15 seconds)", "metrics") +
-      `<div id="monitoringSection" style="display:none;">` +
+      "<div id=\"monitoringSection\" style=\"display:none;\">" +
         renderCard("Monitoring & Alerts", "Packet loss, retransmission tracking, and alert thresholds", "monitoringAlerts") +
-      `</div>`;
+      "</div>";
   }
 
   showNotification(message, type = "success") {
