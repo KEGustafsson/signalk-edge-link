@@ -41,6 +41,7 @@ module.exports = function createPlugin(app) {
     options: null,
     socketUdp: null,
     readyToSend: false,
+    stopped: false,
     isServerMode: false,
     deltas: [],
     timer: false,
@@ -371,6 +372,7 @@ module.exports = function createPlugin(app) {
   // ── Plugin lifecycle ──
 
   plugin.start = async function (options, restartPlugin) {
+    state.stopped = false;
     state.options = options;
     state.restartPlugin = restartPlugin;
 
@@ -465,8 +467,9 @@ module.exports = function createPlugin(app) {
         if (!state.readyToSend) {
           app.debug("Skipping hello message (not ready to send)");
         } else if (timeSinceLastPacket >= helloInterval) {
+          const mmsi = app.getSelfPath("mmsi") || "000000000";
           const fixedDelta = {
-            context: "vessels.urn:mrn:imo:mmsi:" + app.getSelfPath("mmsi"),
+            context: "vessels.urn:mrn:imo:mmsi:" + mmsi,
             updates: [{ timestamp: new Date(), values: [] }]
           };
           app.debug("Sending hello message (no recent data transmission)");
@@ -484,6 +487,7 @@ module.exports = function createPlugin(app) {
 
       state.socketUdp.on("error", (err) => {
         app.error(`Client UDP socket error: ${err.message}`);
+        state.readyToSend = false;
         setStatus(`UDP socket error: ${err.code || err.message}`);
       });
 
@@ -598,6 +602,8 @@ module.exports = function createPlugin(app) {
   };
 
   plugin.stop = function stop() {
+    state.stopped = true;
+
     // Unsubscribe from SignalK subscriptions
     state.unsubscribes.forEach((f) => f());
     state.unsubscribes = [];
@@ -620,8 +626,11 @@ module.exports = function createPlugin(app) {
 
     // Clear intervals and timeouts
     clearInterval(state.helloMessageSender);
+    state.helloMessageSender = null;
     clearTimeout(state.pingTimeout);
+    state.pingTimeout = null;
     clearTimeout(state.deltaTimer);
+    state.deltaTimer = null;
     Object.keys(state.configDebounceTimers).forEach((k) => {
       clearTimeout(state.configDebounceTimers[k]);
       delete state.configDebounceTimers[k];
@@ -656,6 +665,9 @@ module.exports = function createPlugin(app) {
 
     // Clean up enhanced monitoring
     if (state.monitoring) {
+      if (state.monitoring.packetLossTracker) {state.monitoring.packetLossTracker.reset();}
+      if (state.monitoring.pathLatencyTracker) {state.monitoring.pathLatencyTracker.reset();}
+      if (state.monitoring.retransmissionTracker) {state.monitoring.retransmissionTracker.reset();}
       if (state.monitoring.packetCapture) {state.monitoring.packetCapture.reset();}
       if (state.monitoring.packetInspector) {state.monitoring.packetInspector.reset();}
       if (state.monitoring.alertManager) {state.monitoring.alertManager.reset();}
