@@ -29,9 +29,6 @@
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.0.0",
-    "@rjsf/core": "^5.18.4",
-    "@rjsf/utils": "^5.18.4",
-    "@rjsf/validator-ajv8": "^5.18.4",
     "@signalk/server-admin-ui-dependencies": "*",
     "ping-monitor": "^0.8.2"
   },
