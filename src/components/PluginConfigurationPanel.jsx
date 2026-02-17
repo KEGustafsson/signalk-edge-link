@@ -118,7 +118,7 @@ const clientProperties = {
         type: "number",
         title: "Retransmit Max Age (ms)",
         description: "Expire stale unacknowledged packets older than this age",
-        default: 30000,
+        default: 120000,
         minimum: 1000,
         maximum: 300000
       },
@@ -126,7 +126,7 @@ const clientProperties = {
         type: "number",
         title: "Retransmit Min Age (ms)",
         description: "Minimum packet age before expiration is allowed",
-        default: 2000,
+        default: 10000,
         minimum: 200,
         maximum: 30000
       },
@@ -134,7 +134,7 @@ const clientProperties = {
         type: "number",
         title: "RTT Expiry Multiplier",
         description: "Dynamic expiry age is adjusted to RTT x this multiplier",
-        default: 6,
+        default: 12,
         minimum: 2,
         maximum: 20
       },
@@ -142,7 +142,7 @@ const clientProperties = {
         type: "number",
         title: "ACK Idle Drain Age (ms)",
         description: "If ACKs are idle longer than this, expiry becomes more aggressive",
-        default: 3000,
+        default: 20000,
         minimum: 500,
         maximum: 30000
       },
@@ -150,14 +150,44 @@ const clientProperties = {
         type: "boolean",
         title: "Force Drain After ACK Idle",
         description: "When enabled, clear retransmit queue if no ACKs arrive for too long",
-        default: true
+        default: false
       },
       forceDrainAfterMs: {
         type: "number",
         title: "Force Drain Timeout (ms)",
         description: "ACK idle duration before force-draining retransmit queue to zero",
-        default: 12000,
+        default: 45000,
         minimum: 2000,
+        maximum: 120000
+      },
+      recoveryBurstEnabled: {
+        type: "boolean",
+        title: "Recovery Burst Enabled",
+        description: "When ACKs return after outage, rapidly retransmit queued packets to catch up",
+        default: true
+      },
+      recoveryBurstSize: {
+        type: "number",
+        title: "Recovery Burst Size",
+        description: "Max queued packets to retransmit per recovery burst cycle",
+        default: 100,
+        minimum: 10,
+        maximum: 1000
+      },
+      recoveryBurstIntervalMs: {
+        type: "number",
+        title: "Recovery Burst Interval (ms)",
+        description: "Interval between recovery burst cycles while backlog exists",
+        default: 200,
+        minimum: 50,
+        maximum: 5000
+      },
+      recoveryAckGapMs: {
+        type: "number",
+        title: "Recovery ACK Gap (ms)",
+        description: "Minimum ACK silence before triggering fast recovery bursts",
+        default: 4000,
+        minimum: 500,
         maximum: 120000
       }
     }
