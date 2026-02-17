@@ -133,6 +133,44 @@ describe("RetransmitQueue", () => {
     });
   });
 
+  describe("Wraparound Acknowledgment", () => {
+    test("acknowledges circular ACK range across uint32 wrap", () => {
+      const queue = new RetransmitQueue();
+
+      queue.add(0xfffffffe, Buffer.from("p-max-1"));
+      queue.add(0xffffffff, Buffer.from("p-max"));
+      queue.add(0, Buffer.from("p0"));
+      queue.add(1, Buffer.from("p1"));
+
+      const removed = queue.acknowledgeRange(0xfffffffe, 0);
+
+      // (0xfffffffe, 0] => 0xffffffff and 0
+      expect(removed).toBe(2);
+      expect(queue.get(0xfffffffe)).toBeDefined();
+      expect(queue.get(0xffffffff)).toBeUndefined();
+      expect(queue.get(0)).toBeUndefined();
+      expect(queue.get(1)).toBeDefined();
+    });
+
+    test("acknowledges non-wrap ACK range", () => {
+      const queue = new RetransmitQueue();
+
+      queue.add(2, Buffer.from("p2"));
+      queue.add(3, Buffer.from("p3"));
+      queue.add(4, Buffer.from("p4"));
+      queue.add(5, Buffer.from("p5"));
+
+      const removed = queue.acknowledgeRange(2, 4);
+
+      // (2, 4] => 3, 4
+      expect(removed).toBe(2);
+      expect(queue.get(2)).toBeDefined();
+      expect(queue.get(3)).toBeUndefined();
+      expect(queue.get(4)).toBeUndefined();
+      expect(queue.get(5)).toBeDefined();
+    });
+  });
+
   describe("Retransmission", () => {
     test("retransmits requested packets", () => {
       const queue = new RetransmitQueue();

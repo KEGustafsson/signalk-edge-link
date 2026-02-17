@@ -464,6 +464,37 @@ describe("SequenceTracker", () => {
       t.reset();
     });
 
+    test("handles uint32 wraparound in-order", () => {
+      const t = new SequenceTracker();
+      t.expectedSeq = 0xffffffff;
+
+      const r1 = t.processSequence(0xffffffff);
+      expect(r1.inOrder).toBe(true);
+      expect(t.expectedSeq).toBe(0);
+
+      const r2 = t.processSequence(0);
+      expect(r2.inOrder).toBe(true);
+      expect(t.expectedSeq).toBe(1);
+      t.reset();
+    });
+
+    test("handles out-of-order delivery across wraparound", () => {
+      const t = new SequenceTracker();
+      t.expectedSeq = 0xfffffffe;
+
+      // Arrives ahead by 2 (missing 0xfffffffe, 0xffffffff)
+      const ahead = t.processSequence(0);
+      expect(ahead.inOrder).toBe(false);
+      expect(ahead.missing).toEqual([0xfffffffe, 0xffffffff]);
+
+      // Fill the gap and ensure contiguous advancement includes wrapped seq 0
+      t.processSequence(0xfffffffe);
+      const fill = t.processSequence(0xffffffff);
+      expect(fill.inOrder).toBe(true);
+      expect(t.expectedSeq).toBe(1);
+      t.reset();
+    });
+
     test("late arrival cancels pending NAK timer", async () => {
       const onLoss = jest.fn();
       const t = new SequenceTracker({ nakTimeout: 100, onLossDetected: onLoss, maxOutOfOrder: 5 });
