@@ -82,15 +82,17 @@ module.exports = function createPlugin(app) {
    * @param {number} rttMs - RTT in milliseconds
    */
   function publishRtt(rttMs) {
-    app.handleMessage(plugin.id, {
-      context: "vessels.self",
-      updates: [
-        {
-          timestamp: new Date(),
-          values: [{ path: "networking.modem.rtt", value: rttMs / 1000 }]
-        }
-      ]
-    });
+    if (options.protocolVersion === 1){
+      app.handleMessage(plugin.id, {
+        context: "vessels.self",
+        updates: [
+          {
+            timestamp: new Date(),
+            values: [{ path: "networking.modem.rtt", value: rttMs / 1000 }]
+          }
+        ]
+      });
+    }
   }
 
   /**
