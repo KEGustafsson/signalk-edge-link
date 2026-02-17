@@ -93,6 +93,75 @@ const clientProperties = {
     minimum: 0.1,
     maximum: 60
   },
+  reliability: {
+    type: "object",
+    title: "Reliability Settings (v2 only)",
+    description: "Requires Protocol v2. Controls retransmit queue behavior and packet retry limits",
+    properties: {
+      retransmitQueueSize: {
+        type: "number",
+        title: "Retransmit Queue Size",
+        description: "Maximum number of sent packets stored for potential retransmission",
+        default: 5000,
+        minimum: 100,
+        maximum: 50000
+      },
+      maxRetransmits: {
+        type: "number",
+        title: "Max Retransmit Attempts",
+        description: "Maximum resend attempts before a packet is dropped from the retransmit queue",
+        default: 3,
+        minimum: 1,
+        maximum: 20
+      },
+      retransmitMaxAge: {
+        type: "number",
+        title: "Retransmit Max Age (ms)",
+        description: "Expire stale unacknowledged packets older than this age",
+        default: 30000,
+        minimum: 1000,
+        maximum: 300000
+      },
+      retransmitMinAge: {
+        type: "number",
+        title: "Retransmit Min Age (ms)",
+        description: "Minimum packet age before expiration is allowed",
+        default: 2000,
+        minimum: 200,
+        maximum: 30000
+      },
+      retransmitRttMultiplier: {
+        type: "number",
+        title: "RTT Expiry Multiplier",
+        description: "Dynamic expiry age is adjusted to RTT x this multiplier",
+        default: 6,
+        minimum: 2,
+        maximum: 20
+      },
+      ackIdleDrainAge: {
+        type: "number",
+        title: "ACK Idle Drain Age (ms)",
+        description: "If ACKs are idle longer than this, expiry becomes more aggressive",
+        default: 3000,
+        minimum: 500,
+        maximum: 30000
+      },
+      forceDrainAfterAckIdle: {
+        type: "boolean",
+        title: "Force Drain After ACK Idle",
+        description: "When enabled, clear retransmit queue if no ACKs arrive for too long",
+        default: true
+      },
+      forceDrainAfterMs: {
+        type: "number",
+        title: "Force Drain Timeout (ms)",
+        description: "ACK idle duration before force-draining retransmit queue to zero",
+        default: 12000,
+        minimum: 2000,
+        maximum: 120000
+      }
+    }
+  },
   congestionControl: {
     type: "object",
     title: "Dynamic Congestion Control (v2 only)",
@@ -111,6 +180,14 @@ const clientProperties = {
         default: 200,
         minimum: 50,
         maximum: 2000
+      },
+      nominalDeltaTimer: {
+        type: "number",
+        title: "Nominal Delta Timer (ms)",
+        description: "Preferred steady-state send interval. Controller converges toward this value when link is stable",
+        default: 1000,
+        minimum: 100,
+        maximum: 10000
       },
       minDeltaTimer: {
         type: "number",
@@ -245,6 +322,41 @@ const clientProperties = {
   }
 };
 
+// Server-only properties
+const serverProperties = {
+  reliability: {
+    type: "object",
+    title: "Reliability Settings (v2 only)",
+    description: "Requires Protocol v2. Controls ACK/NAK timing for reliable delivery",
+    properties: {
+      ackInterval: {
+        type: "number",
+        title: "ACK Interval (ms)",
+        description: "How often server sends cumulative ACK updates",
+        default: 100,
+        minimum: 20,
+        maximum: 5000
+      },
+      ackResendInterval: {
+        type: "number",
+        title: "ACK Resend Interval (ms)",
+        description: "Re-send duplicate ACK periodically to recover from lost ACK packets",
+        default: 1000,
+        minimum: 100,
+        maximum: 10000
+      },
+      nakTimeout: {
+        type: "number",
+        title: "NAK Timeout (ms)",
+        description: "Delay before requesting retransmission for missing sequence numbers",
+        default: 100,
+        minimum: 20,
+        maximum: 5000
+      }
+    }
+  }
+};
+
 // Generate schema based on current mode
 function getSchema(isClientMode) {
   const properties = { ...baseProperties };
@@ -253,6 +365,8 @@ function getSchema(isClientMode) {
   if (isClientMode) {
     Object.assign(properties, clientProperties);
     required.push("udpAddress", "testAddress", "testPort");
+  } else {
+    Object.assign(properties, serverProperties);
   }
 
   return {
@@ -278,6 +392,7 @@ const uiSchema = {
     "testAddress",
     "testPort",
     "pingIntervalTime",
+    "reliability",
     "congestionControl",
     "bonding"
   ],

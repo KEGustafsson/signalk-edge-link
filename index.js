@@ -82,7 +82,7 @@ module.exports = function createPlugin(app) {
    * @param {number} rttMs - RTT in milliseconds
    */
   function publishRtt(rttMs) {
-    if (options.protocolVersion === 1){
+    if (state.options && state.options.protocolVersion === 1) {
       app.handleMessage(plugin.id, {
         context: "vessels.self",
         updates: [
@@ -753,7 +753,38 @@ module.exports = function createPlugin(app) {
         oneOf: [
           {
             properties: {
-              serverType: { enum: ["server"] }
+              serverType: { enum: ["server"] },
+              reliability: {
+                type: "object",
+                title: "Reliability Settings (v2 only)",
+                description: "Requires Protocol v2. Controls ACK/NAK timing for reliable delivery",
+                properties: {
+                  ackInterval: {
+                    type: "number",
+                    title: "ACK Interval (ms)",
+                    description: "How often server sends cumulative ACK updates",
+                    default: 100,
+                    minimum: 20,
+                    maximum: 5000
+                  },
+                  ackResendInterval: {
+                    type: "number",
+                    title: "ACK Resend Interval (ms)",
+                    description: "Re-send duplicate ACK periodically to recover from lost ACK packets",
+                    default: 1000,
+                    minimum: 100,
+                    maximum: 10000
+                  },
+                  nakTimeout: {
+                    type: "number",
+                    title: "NAK Timeout (ms)",
+                    description: "Delay before requesting retransmission for missing sequence numbers",
+                    default: 100,
+                    minimum: 20,
+                    maximum: 5000
+                  }
+                }
+              }
             }
           },
           {
@@ -795,6 +826,37 @@ module.exports = function createPlugin(app) {
                 minimum: 0.1,
                 maximum: 60
               },
+              reliability: {
+                type: "object",
+                title: "Reliability Settings (v2 only)",
+                description: "Requires Protocol v2. Controls retransmit queue behavior and packet retry limits",
+                properties: {
+                  retransmitQueueSize: {
+                    type: "number",
+                    title: "Retransmit Queue Size",
+                    description: "Maximum number of sent packets stored for potential retransmission",
+                    default: 5000,
+                    minimum: 100,
+                    maximum: 50000
+                  },
+                  maxRetransmits: {
+                    type: "number",
+                    title: "Max Retransmit Attempts",
+                    description: "Maximum resend attempts before a packet is dropped from the retransmit queue",
+                    default: 3,
+                    minimum: 1,
+                    maximum: 20
+                  },
+                  retransmitMaxAge: {
+                    type: "number",
+                    title: "Retransmit Max Age (ms)",
+                    description: "Expire stale unacknowledged packets older than this age",
+                    default: 30000,
+                    minimum: 1000,
+                    maximum: 300000
+                  }
+                }
+              },
               congestionControl: {
                 type: "object",
                 title: "Dynamic Congestion Control (v2 only)",
@@ -813,6 +875,14 @@ module.exports = function createPlugin(app) {
                     default: 200,
                     minimum: 50,
                     maximum: 2000
+                  },
+                  nominalDeltaTimer: {
+                    type: "number",
+                    title: "Nominal Delta Timer (ms)",
+                    description: "Preferred steady-state send interval. Controller converges toward this value when link is stable",
+                    default: 1000,
+                    minimum: 100,
+                    maximum: 10000
                   },
                   minDeltaTimer: {
                     type: "number",
