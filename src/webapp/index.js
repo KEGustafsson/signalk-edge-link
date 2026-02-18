@@ -785,23 +785,28 @@ class DataConnectorConfig {
 
     section.style.display = "";
 
-    const stateLabel = (data.state || "unknown").replace(/-/g, " ");
-    const stateClass = data.state === "slow-start" ? "warning" : data.state === "congestion-avoidance" ? "success" : "";
-    const modeLabel = data.mode === "auto" ? "Automatic" : "Manual Override";
+    const enabled = !!data.enabled;
+    const manualMode = !!data.manualMode;
+    const stateLabel = enabled ? (manualMode ? "manual" : "active") : "disabled";
+    const stateClass = enabled ? (manualMode ? "warning" : "success") : "error";
+    const modeLabel = manualMode ? "Manual Override" : "Automatic";
+    const currentDeltaTimer = data.currentDeltaTimer || 0;
+    const nominalDeltaTimer = data.nominalDeltaTimer || 0;
 
     const html = `
       <div class="v2-dashboard">
         <div class="metrics-grid">
           ${renderMetricItem("State", `<span class="congestion-state ${stateClass}">${stateLabel}</span>`)}
           ${renderMetricItem("Mode", modeLabel)}
-          ${renderMetricItem("Window Size", data.windowSize || 0)}
-          ${renderMetricItem("Delta Timer", (data.currentDeltaTimer || data.deltaTimer || 0) + " ms")}
+          ${renderMetricItem("Current Timer", currentDeltaTimer + " ms")}
+          ${renderMetricItem("Nominal Timer", nominalDeltaTimer + " ms")}
         </div>
         <div class="metrics-stats">
           <h5>Congestion Details</h5>
           <div class="stats-grid">
             ${renderStatItem("Min Delta Timer", (data.minDeltaTimer || 0) + " ms")}
             ${renderStatItem("Max Delta Timer", (data.maxDeltaTimer || 0) + " ms")}
+            ${renderStatItem("Target RTT", (data.targetRTT || 0) + " ms")}
             ${renderStatItem("Avg RTT", (data.avgRTT !== undefined ? Math.round(data.avgRTT) : 0) + " ms")}
             ${renderStatItem("Avg Packet Loss", (data.avgLoss !== undefined ? (data.avgLoss * 100).toFixed(1) : 0) + "%", data.avgLoss > 0.05)}
           </div>
@@ -824,7 +829,7 @@ class DataConnectorConfig {
 
     section.style.display = "";
 
-    const modeLabel = (data.mode || "active-backup").replace(/-/g, " ");
+    const modeLabel = (data.mode || "main-backup").replace(/-/g, " ");
     const activeLink = data.activeLink || "primary";
 
     let linksHtml = "";
@@ -832,17 +837,19 @@ class DataConnectorConfig {
       const linkEntries = Object.entries(data.links);
       linksHtml = linkEntries.map(([name, link]) => {
         const isActive = name === activeLink;
-        const aliveClass = link.alive ? "success" : "error";
+        const status = (link.status || "unknown").toLowerCase();
+        const isUp = status !== "down";
+        const aliveClass = isUp ? "success" : "error";
         return `
           <div class="bonding-link ${isActive ? "active" : ""}">
             <div class="link-header">
               <span class="link-name">${this.escapeHtml(name)}</span>
               ${isActive ? '<span class="link-badge active-badge">ACTIVE</span>' : ""}
-              <span class="link-badge ${aliveClass}">${link.alive ? "UP" : "DOWN"}</span>
+              <span class="link-badge ${aliveClass}">${this.escapeHtml(status.toUpperCase())}</span>
             </div>
             <div class="link-stats">
               ${renderStatItem("RTT", (link.rtt || 0) + " ms")}
-              ${renderStatItem("Packet Loss", ((link.packetLoss || 0) * 100).toFixed(1) + "%")}
+              ${renderStatItem("Packet Loss", ((link.loss || 0) * 100).toFixed(1) + "%")}
             </div>
           </div>
         `;
@@ -906,14 +913,38 @@ class DataConnectorConfig {
     // Alerts section
     if (data.alerts) {
       const activeAlerts = data.alerts.activeAlerts || {};
-      const alertEntries = Object.entries(activeAlerts);
-      const alertCount = alertEntries.filter(([, level]) => level !== "ok").length;
+      const alertEntries = Object.entries(activeAlerts).map(([metric, alert]) => {
+        let level = "warning";
+        if (typeof alert === "string") {
+          level = alert.toLowerCase();
+        } else if (alert && typeof alert === "object" && alert.level) {
+          level = String(alert.level).toLowerCase();
+        }
+
+        if (level === "warn") {level = "warning";}
+        if (level === "alert") {level = "critical";}
+        if (level !== "warning" && level !== "critical") {level = "warning";}
+
+        return {
+          metric,
+          level,
+          value: alert && typeof alert === "object" ? alert.value : undefined
+        };
+      });
+      const alertCount = alertEntries.length;
+
+      const alertItems = alertEntries.map((entry) => {
+        const alertValue = entry.value !== undefined ? ` (${this.escapeHtml(String(entry.value))})` : "";
+        return renderStatItem(
+          this.escapeHtml(entry.metric),
+          `<span class="alert-level alert-${entry.level}">${this.escapeHtml(entry.level.toUpperCase())}${alertValue}</span>`,
+          entry.level === "critical"
+        );
+      }).join("");
 
       const alertsContent = alertCount === 0
         ? "<div class=\"metrics-success\"><div class=\"success-message\">No active alerts</div></div>"
-        : `<div class="stats-grid">
-                ${alertEntries.map(([metric, level]) => renderStatItem(metric, `<span class="alert-level alert-${level}">${level.toUpperCase()}</span>`, level === "critical")).join("")}
-              </div>`;
+        : `<div class="stats-grid">${alertItems}</div>`;
 
       html += `
         <div class="monitoring-subsection">

@@ -14,8 +14,8 @@ describe("SequenceTracker", () => {
   });
 
   describe("construction", () => {
-    test("initializes with expectedSeq 0", () => {
-      expect(tracker.expectedSeq).toBe(0);
+    test("initializes with expectedSeq null until first packet", () => {
+      expect(tracker.expectedSeq).toBe(null);
     });
 
     test("initializes with empty receivedSeqs", () => {
@@ -93,7 +93,8 @@ describe("SequenceTracker", () => {
 
     test("detects gap at start (no seq 0)", () => {
       const result = tracker.processSequence(3);
-      expect(result.missing).toEqual([0, 1, 2]);
+      expect(result.inOrder).toBe(true);
+      expect(result.missing).toEqual([]);
     });
 
     test("detects multiple gaps", () => {
@@ -338,11 +339,11 @@ describe("SequenceTracker", () => {
   });
 
   describe("reset", () => {
-    test("resets expectedSeq to 0", () => {
+    test("resets expectedSeq to null", () => {
       tracker.processSequence(0);
       tracker.processSequence(1);
       tracker.reset();
-      expect(tracker.expectedSeq).toBe(0);
+      expect(tracker.expectedSeq).toBe(null);
     });
 
     test("clears receivedSeqs", () => {

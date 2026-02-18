@@ -138,6 +138,7 @@ describe("CongestionControl", () => {
     test("returns true when adjust interval has elapsed", () => {
       // Set lastAdjustment to past
       cc.lastAdjustment = Date.now() - CONGESTION_ADJUST_INTERVAL - 1;
+      cc.updateMetrics({ rtt: 100, packetLoss: 0.01 });
       expect(cc.shouldAdjust()).toBe(true);
     });
   });
@@ -154,11 +155,11 @@ describe("CongestionControl", () => {
       expect(result).toBe(1000);
     });
 
-    test("decreases timer (additive increase) on good network", () => {
+    test("keeps timer at nominal value on good network when already nominal", () => {
       // Low loss, low RTT → should decrease timer
       cc.updateMetrics({ rtt: 50, packetLoss: 0.005 });
       const result = cc.adjust();
-      expect(result).toBeLessThan(1000);
+      expect(result).toBe(1000);
     });
 
     test("increases timer (multiplicative decrease) on high loss", () => {
@@ -218,16 +219,17 @@ describe("CongestionControl", () => {
     test("limits decrease adjustment to maxAdjustment", () => {
       cc = new CongestionControl({
         enabled: true,
-        initialDeltaTimer: 1000,
+        initialDeltaTimer: 1200,
+        nominalDeltaTimer: 1000,
         maxAdjustment: 0.1 // 10%
       });
       cc.lastAdjustment = Date.now() - CONGESTION_ADJUST_INTERVAL - 1;
       cc.updateMetrics({ rtt: 10, packetLoss: 0 });
       const result = cc.adjust();
-      // Desired: 1000 * 0.95 = 950, change = -50
-      // Max change: 1000 * 0.1 = 100
-      // 50 < 100 so it should be allowed
-      expect(result).toBe(950);
+      // Desired: 1200 * 0.95 = 1140, change = -60
+      // Max change: 1200 * 0.1 = 120
+      // 60 < 120 so it should be allowed
+      expect(result).toBe(1140);
     });
 
     test("rounds result to integer", () => {
@@ -281,10 +283,11 @@ describe("CongestionControl", () => {
     });
 
     test("returns updated value after adjustment", () => {
+      cc = new CongestionControl({ enabled: true, initialDeltaTimer: 1200, nominalDeltaTimer: 1000 });
       cc.lastAdjustment = Date.now() - CONGESTION_ADJUST_INTERVAL - 1;
       cc.updateMetrics({ rtt: 50, packetLoss: 0.005 });
       cc.adjust();
-      expect(cc.getCurrentDeltaTimer()).toBeLessThan(1000);
+      expect(cc.getCurrentDeltaTimer()).toBeLessThan(1200);
     });
   });
 

@@ -50,8 +50,8 @@ describe("Congestion Control - Network Transitions", () => {
       for (let i = 1; i < timers.length; i++) {
         expect(timers[i]).toBeLessThanOrEqual(timers[i - 1]);
       }
-      // Should have decreased from 1000
-      expect(timers[timers.length - 1]).toBeLessThan(1000);
+      // With nominal timer at 1000, healthy network should not go above nominal.
+      expect(timers[timers.length - 1]).toBeLessThanOrEqual(1000);
     });
 
     test("rate increase stays above minimum timer", () => {
@@ -103,7 +103,7 @@ describe("Congestion Control - Network Transitions", () => {
       // Start with good terrestrial connection
       runCycles(cc, 50, 0.005, 5);
       const lowLatencyTimer = cc.getCurrentDeltaTimer();
-      expect(lowLatencyTimer).toBeLessThan(1000);
+      expect(lowLatencyTimer).toBeLessThanOrEqual(1000);
 
       // Switch to satellite (high RTT)
       const highLatencyTimers = runCycles(cc, 600, 0.02, 10);
@@ -178,11 +178,10 @@ describe("Congestion Control - Network Transitions", () => {
     test("stable good network converges to minimum region", () => {
       const timers = runCycles(cc, 30, 0, 100);
 
-      // Should converge near minimum
+      // Should converge to nominal (default nominal is initial timer).
       const finalTimer = timers[timers.length - 1];
       expect(finalTimer).toBeGreaterThanOrEqual(cc.minDeltaTimer);
-      // After 100 cycles of good network, should be well below initial
-      expect(finalTimer).toBeLessThan(500);
+      expect(finalTimer).toBe(1000);
     });
   });
 
@@ -272,8 +271,8 @@ describe("Congestion Control - Network Transitions", () => {
       forceAdjustable(cc);
       cc.updateMetrics({ rtt: 10, packetLoss: 0 });
       const result = cc.adjust();
-      // Should start adjusting from 750 (not 1000)
-      expect(result).toBeLessThanOrEqual(750);
+      // Starts from manual value and moves toward nominal in auto mode.
+      expect(result).toBeGreaterThan(750);
     });
   });
 

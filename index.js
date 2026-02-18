@@ -460,9 +460,11 @@ module.exports = function createPlugin(app) {
 
       const deltaTimerTimeFile = await routes.loadConfigFile(state.deltaTimerFile);
       state.deltaTimerTime = deltaTimerTimeFile ? deltaTimerTimeFile.deltaTimer : DEFAULT_DELTA_TIMER;
+      const helloIntervalSeconds = Number.isFinite(options.helloMessageSender) ? options.helloMessageSender : 60;
+      const pingIntervalMinutes = Number.isFinite(options.pingIntervalTime) ? options.pingIntervalTime : 1;
 
       // Hello message sender with smart suppression
-      const helloInterval = options.helloMessageSender * 1000;
+      const helloInterval = helloIntervalSeconds * 1000;
       state.helloMessageSender = setInterval(async () => {
         const timeSinceLastPacket = Date.now() - state.lastPacketTime;
 
@@ -500,16 +502,16 @@ module.exports = function createPlugin(app) {
       state.pingMonitor = new Monitor({
         address: options.testAddress,
         port: options.testPort,
-        interval: options.pingIntervalTime,
+        interval: pingIntervalMinutes,
         protocol: "tcp"
       });
 
       state.pingMonitor.on("up", function (res) {
-        handlePingSuccess(res, "up", options.pingIntervalTime);
+        handlePingSuccess(res, "up", pingIntervalMinutes);
       });
 
       state.pingMonitor.on("restored", function (res) {
-        handlePingSuccess(res, "restored", options.pingIntervalTime);
+        handlePingSuccess(res, "restored", pingIntervalMinutes);
       });
 
       for (const event of ["down", "stop", "timeout"]) {
@@ -532,7 +534,7 @@ module.exports = function createPlugin(app) {
 
       state.pingTimeout = setTimeout(
         () => { state.readyToSend = false; },
-        options.pingIntervalTime * MILLISECONDS_PER_MINUTE + PING_TIMEOUT_BUFFER
+        pingIntervalMinutes * MILLISECONDS_PER_MINUTE + PING_TIMEOUT_BUFFER
       );
 
       // Initialize v2 client pipeline when protocolVersion is 2
@@ -544,7 +546,7 @@ module.exports = function createPlugin(app) {
           packetLossTracker: new PacketLossTracker(),
           pathLatencyTracker: new PathLatencyTracker(),
           retransmissionTracker: new RetransmissionTracker(),
-          alertManager: new AlertManager(app, options.alertThresholds || {}),
+          alertManager: new AlertManager(app, { thresholds: options.alertThresholds || {} }),
           packetCapture: new PacketCapture(),
           packetInspector: new PacketInspector()
         };
