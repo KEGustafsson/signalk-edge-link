@@ -1,6 +1,12 @@
 "use strict";
 
-const { formatPrometheusMetrics, formatLabels, validatePrometheusFormat } = require("../../lib/prometheus");
+const {
+  formatPrometheusMetrics,
+  formatLabels,
+  validatePrometheusFormat,
+  escapeLabelValue,
+  sanitizeMetricNameComponent
+} = require("../../lib/prometheus");
 const CircularBuffer = require("../../lib/CircularBuffer");
 
 describe("Prometheus Metrics Exporter", () => {
@@ -178,6 +184,34 @@ describe("Prometheus Metrics Exporter", () => {
       expect(text).toContain("signalk_edge_link_alert_rtt");
       expect(text).toContain("signalk_edge_link_alert_packetLoss");
     });
+
+    test("does not duplicate HELP/TYPE for repeated metric names", () => {
+      const extra = {
+        bonding: {
+          activeLink: "primary",
+          links: {
+            primary: { status: "active", rtt: 50, loss: 0.01, quality: 95 },
+            backup: { status: "standby", rtt: 100, loss: 0.02, quality: 90 }
+          }
+        }
+      };
+      const text = formatPrometheusMetrics(metrics, state, extra);
+      const lines = text.split("\n");
+      const typeLines = lines.filter((line) => line.startsWith("# TYPE signalk_edge_link_bonding_link_status "));
+      const helpLines = lines.filter((line) => line.startsWith("# HELP signalk_edge_link_bonding_link_status "));
+      expect(typeLines).toHaveLength(1);
+      expect(helpLines).toHaveLength(1);
+    });
+
+    test("sanitizes active alert metric names", () => {
+      const extra = {
+        activeAlerts: {
+          "bad.metric/name": { level: "warning", value: 1 }
+        }
+      };
+      const text = formatPrometheusMetrics(metrics, state, extra);
+      expect(text).toContain("signalk_edge_link_alert_bad_metric_name");
+    });
   });
 
   describe("formatLabels", () => {
@@ -192,6 +226,23 @@ describe("Prometheus Metrics Exporter", () => {
     test("formats multiple labels", () => {
       const result = formatLabels({ mode: "client", link: "primary" });
       expect(result).toBe('{mode="client",link="primary"}');
+    });
+
+    test("escapes quotes, backslashes, and newlines in label values", () => {
+      const result = formatLabels({ source: "a\"b\\c\nd" });
+      expect(result).toBe('{source="a\\"b\\\\c\\nd"}');
+    });
+  });
+
+  describe("escapeLabelValue", () => {
+    test("returns escaped Prometheus-safe label value", () => {
+      expect(escapeLabelValue("x\"y\\z\nq")).toBe("x\\\"y\\\\z\\nq");
+    });
+  });
+
+  describe("sanitizeMetricNameComponent", () => {
+    test("replaces invalid characters with underscores", () => {
+      expect(sanitizeMetricNameComponent("bad.metric/name")).toBe("bad_metric_name");
     });
   });
 

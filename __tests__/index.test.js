@@ -725,6 +725,25 @@ describe("SignalK Data Connector Plugin", () => {
       expect(savedConfig.helloMessageSender).toBeUndefined();
       expect(savedConfig.pingIntervalTime).toBeUndefined();
     });
+
+    test("should reject non-object JSON body", async () => {
+      const mockReq = {
+        headers: { "content-type": "application/json" },
+        body: []
+      };
+      const mockRes = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn()
+      };
+
+      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, error: "Request body must be a JSON object" })
+      );
+      expect(mockApp.savePluginOptions).not.toHaveBeenCalled();
+    });
   });
 
   describe("Plugin Config Read-Modify-Save Round-Trip", () => {
