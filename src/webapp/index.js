@@ -51,6 +51,9 @@ class DataConnectorConfig {
     this.deltaTimerConfig = null;
     this.subscriptionConfig = null;
     this.sentenceFilterConfig = null;
+    this.pluginConfig = null;
+    this.pluginSchema = null;
+    this.schemaCurrentMode = null;
     this.isServerMode = false;
     this.protocolVersion = 1;
     this.metricsInterval = null;
@@ -61,14 +64,25 @@ class DataConnectorConfig {
   async init() {
     try {
       await this.checkServerMode();
+
+      if (!this.pluginConfig) {
+        await this.loadPluginConfiguration(true);
+      }
+
       if (this.isServerMode) {
         this.showServerModeUI();
-      } else {
+      }
+
+      this.setupEventListeners();
+
+      if (!this.isServerMode) {
         await this.loadConfigurations();
-        this.setupEventListeners();
         this.updateUI();
         this.updateStatus();
+      } else {
+        this.updatePluginConfigUI();
       }
+
       await this.loadMetrics();
       this.startMetricsRefresh();
     } catch (error) {
@@ -78,6 +92,20 @@ class DataConnectorConfig {
   }
 
   async checkServerMode() {
+    const hasPluginConfig = await this.loadPluginConfiguration(false);
+    if (hasPluginConfig && this.pluginConfig) {
+      const normalizedServerType = this.normalizeServerType(this.pluginConfig.serverType);
+      if (normalizedServerType) {
+        this.isServerMode = normalizedServerType === "server";
+        return;
+      }
+    }
+
+    if (this.schemaCurrentMode === "server" || this.schemaCurrentMode === "client") {
+      this.isServerMode = this.schemaCurrentMode === "server";
+      return;
+    }
+
     try {
       // Try to access the configuration API
       const response = await fetch(`${API_BASE_PATH}/config/delta_timer.json`);
@@ -85,6 +113,46 @@ class DataConnectorConfig {
     } catch (error) {
       // If fetch fails completely, assume server mode
       this.isServerMode = true;
+    }
+  }
+
+  async loadPluginConfiguration(showErrors = true) {
+    try {
+      const [configResponse, schemaResponse] = await Promise.all([
+        fetch(`${API_BASE_PATH}/plugin-config`),
+        fetch(`${API_BASE_PATH}/plugin-schema`)
+      ]);
+
+      if (!configResponse.ok) {
+        throw new Error(`Failed to load plugin configuration (${configResponse.status})`);
+      }
+
+      const configData = await configResponse.json();
+      const configuration =
+        configData &&
+        configData.configuration &&
+        typeof configData.configuration === "object" &&
+        !Array.isArray(configData.configuration)
+          ? configData.configuration
+          : {};
+
+      if (schemaResponse.ok) {
+        const schemaData = await schemaResponse.json();
+        if (schemaData && schemaData.schema && typeof schemaData.schema === "object") {
+          this.pluginSchema = schemaData.schema;
+        }
+        if (schemaData && (schemaData.currentMode === "server" || schemaData.currentMode === "client")) {
+          this.schemaCurrentMode = schemaData.currentMode;
+        }
+      }
+
+      this.pluginConfig = this.buildCompletePluginConfig(configuration);
+      return true;
+    } catch (error) {
+      if (showErrors) {
+        this.showNotification("Error loading plugin config: " + error.message, "warning");
+      }
+      return false;
     }
   }
 
@@ -112,42 +180,84 @@ class DataConnectorConfig {
 
   setupEventListeners() {
     // Delta timer save button
-    document.getElementById("saveDeltaTimer").addEventListener("click", () => {
-      this.saveDeltaTimer();
-    });
+    const saveDeltaTimerBtn = document.getElementById("saveDeltaTimer");
+    if (saveDeltaTimerBtn) {
+      saveDeltaTimerBtn.addEventListener("click", () => {
+        this.saveDeltaTimer();
+      });
+    }
 
     // Subscription save button
-    document.getElementById("saveSubscription").addEventListener("click", () => {
-      this.saveSubscription();
-    });
+    const saveSubscriptionBtn = document.getElementById("saveSubscription");
+    if (saveSubscriptionBtn) {
+      saveSubscriptionBtn.addEventListener("click", () => {
+        this.saveSubscription();
+      });
+    }
 
     // Sentence filter save button
-    document.getElementById("saveSentenceFilter").addEventListener("click", () => {
-      this.saveSentenceFilter();
-    });
+    const saveSentenceFilterBtn = document.getElementById("saveSentenceFilter");
+    if (saveSentenceFilterBtn) {
+      saveSentenceFilterBtn.addEventListener("click", () => {
+        this.saveSentenceFilter();
+      });
+    }
 
     // Add path button
-    document.getElementById("addPath").addEventListener("click", () => {
-      this.addPathItem();
-    });
+    const addPathBtn = document.getElementById("addPath");
+    if (addPathBtn) {
+      addPathBtn.addEventListener("click", () => {
+        this.addPathItem();
+      });
+    }
 
     // JSON editor sync (debounced to avoid rebuilding form on every keystroke)
-    document.getElementById("subscriptionJson").addEventListener("input", () => {
-      if (this.syncTimeout) {
-        clearTimeout(this.syncTimeout);
-      }
-      this.syncTimeout = setTimeout(() => {
-        this.syncFromJson();
-      }, JSON_SYNC_DEBOUNCE);
-    });
+    const subscriptionJsonEditor = document.getElementById("subscriptionJson");
+    if (subscriptionJsonEditor) {
+      subscriptionJsonEditor.addEventListener("input", () => {
+        if (this.syncTimeout) {
+          clearTimeout(this.syncTimeout);
+        }
+        this.syncTimeout = setTimeout(() => {
+          this.syncFromJson();
+        }, JSON_SYNC_DEBOUNCE);
+      });
+    }
 
     // Context input change
-    document.getElementById("context").addEventListener("input", () => {
-      this.updateJsonFromForm();
-    });
+    const contextInput = document.getElementById("context");
+    if (contextInput) {
+      contextInput.addEventListener("input", () => {
+        this.updateJsonFromForm();
+      });
+    }
+
+    // Full plugin config actions
+    const savePluginConfigBtn = document.getElementById("savePluginConfig");
+    if (savePluginConfigBtn) {
+      savePluginConfigBtn.addEventListener("click", () => {
+        this.savePluginConfig();
+      });
+    }
+
+    const reloadPluginConfigBtn = document.getElementById("reloadPluginConfig");
+    if (reloadPluginConfigBtn) {
+      reloadPluginConfigBtn.addEventListener("click", () => {
+        this.reloadPluginConfiguration();
+      });
+    }
+
+    const loadDefaultPluginConfigBtn = document.getElementById("loadDefaultPluginConfig");
+    if (loadDefaultPluginConfigBtn) {
+      loadDefaultPluginConfigBtn.addEventListener("click", () => {
+        this.loadDefaultPluginConfiguration();
+      });
+    }
   }
 
   updateUI() {
+    this.updatePluginConfigUI();
+
     // Update delta timer input
     if (this.deltaTimerConfig && this.deltaTimerConfig.deltaTimer) {
       document.getElementById("deltaTimer").value = this.deltaTimerConfig.deltaTimer;
@@ -179,6 +289,38 @@ class DataConnectorConfig {
     if (this.sentenceFilterConfig && Array.isArray(this.sentenceFilterConfig.excludedSentences)) {
       document.getElementById("sentenceFilter").value =
         this.sentenceFilterConfig.excludedSentences.join(", ");
+    }
+  }
+
+  updatePluginConfigUI() {
+    const editor = document.getElementById("pluginConfigJson");
+    const summary = document.getElementById("pluginConfigSummary");
+
+    if (!editor) {
+      return;
+    }
+
+    if (!this.pluginConfig) {
+      editor.value = "{}";
+      if (summary) {
+        summary.innerHTML = "<p>Plugin config unavailable.</p>";
+      }
+      return;
+    }
+
+    editor.value = JSON.stringify(this.pluginConfig, null, 2);
+
+    if (summary) {
+      const mode = this.pluginConfig.serverType || "client";
+      const protocol = this.pluginConfig.protocolVersion || 1;
+      const keyCount = Object.keys(this.pluginConfig).length;
+      summary.innerHTML = `
+        <div class="plugin-summary-grid">
+          ${renderStatItem("Mode", this.escapeHtml(mode.toUpperCase()))}
+          ${renderStatItem("Protocol", "v" + this.escapeHtml(String(protocol)))}
+          ${renderStatItem("Top-Level Fields", this.escapeHtml(String(keyCount)))}
+        </div>
+      `;
     }
   }
 
@@ -313,6 +455,67 @@ class DataConnectorConfig {
       .filter((s) => s.length > 0);
 
     await this.saveConfig("sentence_filter.json", { excludedSentences }, "sentenceFilterConfig", "Sentence filter");
+  }
+
+  async savePluginConfig() {
+    const editor = document.getElementById("pluginConfigJson");
+    if (!editor) {
+      return;
+    }
+
+    try {
+      const parsedConfig = JSON.parse(editor.value);
+      if (!parsedConfig || typeof parsedConfig !== "object" || Array.isArray(parsedConfig)) {
+        throw new Error("Plugin configuration must be a JSON object");
+      }
+      const previousServerMode = this.isServerMode;
+
+      const requestConfig = this.deepClone(parsedConfig);
+      const normalizedServerType = this.normalizeServerType(requestConfig.serverType);
+      if (normalizedServerType) {
+        requestConfig.serverType = normalizedServerType;
+      }
+
+      const response = await fetch(`${API_BASE_PATH}/plugin-config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestConfig)
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || `Failed to save plugin configuration (${response.status})`);
+      }
+
+      this.pluginConfig = this.buildCompletePluginConfig(requestConfig);
+      this.isServerMode = this.pluginConfig.serverType === "server";
+      this.updatePluginConfigUI();
+      if (previousServerMode !== this.isServerMode) {
+        this.showNotification(
+          "Configuration saved. Refresh this page to load the new mode-specific controls.",
+          "warning"
+        );
+      } else {
+        this.showNotification(result.message || "Plugin configuration saved.", "success");
+      }
+    } catch (error) {
+      this.showNotification("Error saving full plugin config: " + error.message, "error");
+    }
+  }
+
+  async reloadPluginConfiguration() {
+    const loaded = await this.loadPluginConfiguration(true);
+    if (loaded) {
+      this.isServerMode = this.pluginConfig && this.pluginConfig.serverType === "server";
+      this.updatePluginConfigUI();
+      this.showNotification("Plugin configuration reloaded.", "success");
+    }
+  }
+
+  loadDefaultPluginConfiguration() {
+    this.pluginConfig = this.buildCompletePluginConfig({});
+    this.updatePluginConfigUI();
+    this.showNotification("Loaded schema defaults into editor. Save to apply.", "warning");
   }
 
   async loadMetrics() {
@@ -988,6 +1191,133 @@ class DataConnectorConfig {
     div.innerHTML = html;
   }
 
+  buildCompletePluginConfig(currentConfig) {
+    const defaults = this.extractSchemaDefaults(this.pluginSchema);
+    const merged = this.deepMerge(defaults || {}, currentConfig || {});
+    const normalizedServerType = this.normalizeServerType(merged.serverType);
+    merged.serverType = normalizedServerType || "client";
+
+    return merged;
+  }
+
+  normalizeServerType(value) {
+    if (value === true || value === "server") {
+      return "server";
+    }
+    if (value === false || value === "client") {
+      return "client";
+    }
+    return undefined;
+  }
+
+  extractSchemaDefaults(schemaNode) {
+    if (!schemaNode || typeof schemaNode !== "object") {
+      return undefined;
+    }
+
+    const isObjectNode = schemaNode.type === "object" || !!schemaNode.properties;
+    const merged = {};
+    let hasData = false;
+
+    if (isObjectNode && schemaNode.default && this.isPlainObject(schemaNode.default)) {
+      Object.assign(merged, this.deepClone(schemaNode.default));
+      hasData = true;
+    }
+
+    if (schemaNode.properties && this.isPlainObject(schemaNode.properties)) {
+      for (const [key, value] of Object.entries(schemaNode.properties)) {
+        const childDefaults = this.extractSchemaDefaults(value);
+        if (childDefaults !== undefined) {
+          merged[key] = childDefaults;
+          hasData = true;
+        } else if (value && value.type === "object") {
+          merged[key] = {};
+          hasData = true;
+        } else if (value && value.type === "string") {
+          merged[key] = "";
+          hasData = true;
+        }
+      }
+    }
+
+    if (schemaNode.dependencies && this.isPlainObject(schemaNode.dependencies)) {
+      for (const dependencyValue of Object.values(schemaNode.dependencies)) {
+        const dependencyDefaults = this.extractSchemaDefaults(dependencyValue);
+        if (dependencyDefaults && this.isPlainObject(dependencyDefaults)) {
+          Object.assign(merged, this.deepMerge(merged, dependencyDefaults));
+          hasData = true;
+        }
+      }
+    }
+
+    for (const compositeKey of ["oneOf", "anyOf", "allOf"]) {
+      const composite = schemaNode[compositeKey];
+      if (!Array.isArray(composite)) {
+        continue;
+      }
+
+      composite.forEach((item) => {
+        const itemDefaults = this.extractSchemaDefaults(item);
+        if (itemDefaults !== undefined) {
+          if (this.isPlainObject(itemDefaults)) {
+            Object.assign(merged, this.deepMerge(merged, itemDefaults));
+          } else if (!hasData && schemaNode.default === undefined) {
+            return;
+          }
+          hasData = true;
+        }
+      });
+    }
+
+    if (hasData) {
+      return merged;
+    }
+
+    if (schemaNode.default !== undefined) {
+      return this.deepClone(schemaNode.default);
+    }
+
+    return undefined;
+  }
+
+  isPlainObject(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  deepClone(value) {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.deepClone(item));
+    }
+    if (this.isPlainObject(value)) {
+      const clone = {};
+      for (const [key, childValue] of Object.entries(value)) {
+        clone[key] = this.deepClone(childValue);
+      }
+      return clone;
+    }
+    return value;
+  }
+
+  deepMerge(baseValue, overrideValue) {
+    if (overrideValue === undefined) {
+      return this.deepClone(baseValue);
+    }
+
+    if (Array.isArray(overrideValue)) {
+      return this.deepClone(overrideValue);
+    }
+
+    if (this.isPlainObject(baseValue) && this.isPlainObject(overrideValue)) {
+      const merged = this.deepClone(baseValue);
+      for (const [key, value] of Object.entries(overrideValue)) {
+        merged[key] = this.deepMerge(baseValue[key], value);
+      }
+      return merged;
+    }
+
+    return this.deepClone(overrideValue);
+  }
+
   formatBytes(bytes) {
     if (!bytes || bytes <= 0) {
       return "0 B";
@@ -1078,6 +1408,40 @@ class DataConnectorConfig {
     statusDiv.innerHTML = statusHtml;
   }
 
+  renderPluginConfigurationCard() {
+    return `
+      <div class="config-section">
+        <div class="card">
+          <div class="card-header">
+            <h2>Full Plugin Configuration</h2>
+            <p>All parameters from <code>/plugin-config</code> (advanced JSON editor)</p>
+          </div>
+          <div class="card-content">
+            <div id="pluginConfigSummary" class="plugin-config-summary">
+              <p>Loading plugin configuration...</p>
+            </div>
+            <div class="json-editor plugin-config-editor">
+              <h3>Plugin Config JSON</h3>
+              <textarea
+                id="pluginConfigJson"
+                rows="20"
+                placeholder='{"serverType":"client","udpPort":4446,"secretKey":"..."}'
+              ></textarea>
+              <small class="help-text">
+                This editor exposes all available plugin fields. Save triggers plugin restart when supported.
+              </small>
+            </div>
+            <div class="plugin-config-actions">
+              <button id="savePluginConfig" class="btn btn-primary">Save Full Plugin Config</button>
+              <button id="reloadPluginConfig" class="btn btn-secondary">Reload From Server</button>
+              <button id="loadDefaultPluginConfig" class="btn btn-secondary">Load Schema Defaults</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   showServerModeUI() {
     const container = document.querySelector(".container");
 
@@ -1109,6 +1473,7 @@ class DataConnectorConfig {
 
     container.innerHTML =
       serverModeCard +
+      this.renderPluginConfigurationCard() +
       renderCard("Network Quality", "Link quality score and network health indicators", "networkQuality") +
       renderCard("Bandwidth Monitor", "Network reception statistics", "bandwidth") +
       renderCard("Path Analytics", "Incoming data volume by SignalK path", "pathAnalytics") +

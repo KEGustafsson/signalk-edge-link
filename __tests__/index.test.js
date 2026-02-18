@@ -114,6 +114,31 @@ describe("SignalK Data Connector Plugin", () => {
       expect(clientDep.required).toContain("testPort");
     });
 
+    test("should expose advanced client reliability parameters in schema", () => {
+      const clientDep = plugin.schema.dependencies.serverType.oneOf.find(
+        (dep) => dep.properties.serverType.enum && dep.properties.serverType.enum.includes("client")
+      );
+      expect(clientDep).toBeDefined();
+      const reliabilityProps = clientDep.properties.reliability.properties;
+      expect(reliabilityProps.retransmitMinAge).toBeDefined();
+      expect(reliabilityProps.retransmitRttMultiplier).toBeDefined();
+      expect(reliabilityProps.ackIdleDrainAge).toBeDefined();
+      expect(reliabilityProps.forceDrainAfterAckIdle).toBeDefined();
+      expect(reliabilityProps.recoveryBurstEnabled).toBeDefined();
+      expect(reliabilityProps.retransmitMaxAge.default).toBe(120000);
+    });
+
+    test("should expose alert thresholds and bonding heartbeat timeout in schema", () => {
+      const clientDep = plugin.schema.dependencies.serverType.oneOf.find(
+        (dep) => dep.properties.serverType.enum && dep.properties.serverType.enum.includes("client")
+      );
+      expect(clientDep).toBeDefined();
+      expect(clientDep.properties.alertThresholds).toBeDefined();
+      expect(clientDep.properties.alertThresholds.properties.rtt).toBeDefined();
+      expect(clientDep.properties.alertThresholds.properties.packetLoss).toBeDefined();
+      expect(clientDep.properties.bonding.properties.failover.properties.heartbeatTimeout).toBeDefined();
+    });
+
     test("should NOT have client fields in server mode oneOf", () => {
       const serverDep = plugin.schema.dependencies.serverType.oneOf.find(
         (dep) => dep.properties.serverType.enum && dep.properties.serverType.enum.includes("server")
@@ -741,6 +766,55 @@ describe("SignalK Data Connector Plugin", () => {
       expect(mockRes.status).toHaveBeenCalledWith(400);
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({ success: false, error: "Request body must be a JSON object" })
+      );
+      expect(mockApp.savePluginOptions).not.toHaveBeenCalled();
+    });
+
+    test("should reject udpPort when not an integer", async () => {
+      const mockReq = {
+        headers: { "content-type": "application/json" },
+        body: {
+          serverType: "server",
+          udpPort: "4446",
+          secretKey: "12345678901234567890123456789012"
+        }
+      };
+      const mockRes = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn()
+      };
+
+      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, error: "Valid udpPort (1024-65535) is required" })
+      );
+      expect(mockApp.savePluginOptions).not.toHaveBeenCalled();
+    });
+
+    test("should reject weak secretKey values", async () => {
+      const mockReq = {
+        headers: { "content-type": "application/json" },
+        body: {
+          serverType: "server",
+          udpPort: 4446,
+          secretKey: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      };
+      const mockRes = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn()
+      };
+
+      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          error: expect.stringContaining("insufficient entropy")
+        })
       );
       expect(mockApp.savePluginOptions).not.toHaveBeenCalled();
     });

@@ -10,10 +10,40 @@
     <div id="app">
         <header class="header">
             <h1>SignalK Edge Link Configuration</h1>
-            <p class="subtitle">Configure delta timer and subscription settings</p>
+            <p class="subtitle">Configure full plugin parameters and runtime data flow settings</p>
         </header>
 
         <div class="container">
+            <div class="config-section">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Full Plugin Configuration</h2>
+                        <p>All parameters from <code>/plugin-config</code> (advanced JSON editor)</p>
+                    </div>
+                    <div class="card-content">
+                        <div id="pluginConfigSummary" class="plugin-config-summary">
+                            <p>Loading plugin configuration...</p>
+                        </div>
+                        <div class="json-editor plugin-config-editor">
+                            <h3>Plugin Config JSON</h3>
+                            <textarea
+                                id="pluginConfigJson"
+                                rows="20"
+                                placeholder='{"serverType":"client","udpPort":4446,"secretKey":"..."}'
+                            ></textarea>
+                            <small class="help-text">
+                                This editor exposes all available plugin fields. Save triggers plugin restart when supported.
+                            </small>
+                        </div>
+                        <div class="plugin-config-actions">
+                            <button id="savePluginConfig" class="btn btn-primary">Save Full Plugin Config</button>
+                            <button id="reloadPluginConfig" class="btn btn-secondary">Reload From Server</button>
+                            <button id="loadDefaultPluginConfig" class="btn btn-secondary">Load Schema Defaults</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="config-section">
                 <div class="card">
                     <div class="card-header">

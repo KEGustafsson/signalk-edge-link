@@ -390,7 +390,7 @@ module.exports = function createPlugin(app) {
       return;
     }
 
-    if (!options.udpPort || options.udpPort < 1024 || options.udpPort > 65535) {
+    if (!Number.isInteger(options.udpPort) || options.udpPort < 1024 || options.udpPort > 65535) {
       app.error("UDP port must be between 1024 and 65535");
       setStatus("UDP port validation failed");
       return;
@@ -853,9 +853,77 @@ module.exports = function createPlugin(app) {
                     type: "number",
                     title: "Retransmit Max Age (ms)",
                     description: "Expire stale unacknowledged packets older than this age",
-                    default: 30000,
+                    default: 120000,
                     minimum: 1000,
                     maximum: 300000
+                  },
+                  retransmitMinAge: {
+                    type: "number",
+                    title: "Retransmit Min Age (ms)",
+                    description: "Minimum packet age before expiration is allowed",
+                    default: 10000,
+                    minimum: 200,
+                    maximum: 30000
+                  },
+                  retransmitRttMultiplier: {
+                    type: "number",
+                    title: "RTT Expiry Multiplier",
+                    description: "Dynamic expiry age is adjusted to RTT x this multiplier",
+                    default: 12,
+                    minimum: 2,
+                    maximum: 20
+                  },
+                  ackIdleDrainAge: {
+                    type: "number",
+                    title: "ACK Idle Drain Age (ms)",
+                    description: "If ACKs are idle longer than this, expiry becomes more aggressive",
+                    default: 20000,
+                    minimum: 500,
+                    maximum: 30000
+                  },
+                  forceDrainAfterAckIdle: {
+                    type: "boolean",
+                    title: "Force Drain After ACK Idle",
+                    description: "When enabled, clear retransmit queue if no ACKs arrive for too long",
+                    default: false
+                  },
+                  forceDrainAfterMs: {
+                    type: "number",
+                    title: "Force Drain Timeout (ms)",
+                    description: "ACK idle duration before force-draining retransmit queue to zero",
+                    default: 45000,
+                    minimum: 2000,
+                    maximum: 120000
+                  },
+                  recoveryBurstEnabled: {
+                    type: "boolean",
+                    title: "Recovery Burst Enabled",
+                    description: "When ACKs return after outage, rapidly retransmit queued packets to catch up",
+                    default: true
+                  },
+                  recoveryBurstSize: {
+                    type: "number",
+                    title: "Recovery Burst Size",
+                    description: "Max queued packets to retransmit per recovery burst cycle",
+                    default: 100,
+                    minimum: 10,
+                    maximum: 1000
+                  },
+                  recoveryBurstIntervalMs: {
+                    type: "number",
+                    title: "Recovery Burst Interval (ms)",
+                    description: "Interval between recovery burst cycles while backlog exists",
+                    default: 200,
+                    minimum: 50,
+                    maximum: 5000
+                  },
+                  recoveryAckGapMs: {
+                    type: "number",
+                    title: "Recovery ACK Gap (ms)",
+                    description: "Minimum ACK silence before triggering fast recovery bursts",
+                    default: 4000,
+                    minimum: 500,
+                    maximum: 120000
                   }
                 }
               },
@@ -1012,7 +1080,62 @@ module.exports = function createPlugin(app) {
                         default: 30000,
                         minimum: 5000,
                         maximum: 300000
+                      },
+                      heartbeatTimeout: {
+                        type: "number",
+                        title: "Heartbeat Timeout (ms)",
+                        description: "Mark link as down when heartbeat responses exceed this timeout",
+                        default: 5000,
+                        minimum: 1000,
+                        maximum: 30000
                       }
+                    }
+                  }
+                }
+              },
+              alertThresholds: {
+                type: "object",
+                title: "Monitoring Alert Thresholds (v2 only)",
+                description: "Customize warning/critical thresholds for network monitoring alerts",
+                properties: {
+                  rtt: {
+                    type: "object",
+                    title: "RTT Thresholds",
+                    properties: {
+                      warning: { type: "number", title: "Warning RTT (ms)", default: 300 },
+                      critical: { type: "number", title: "Critical RTT (ms)", default: 800 }
+                    }
+                  },
+                  packetLoss: {
+                    type: "object",
+                    title: "Packet Loss Thresholds",
+                    properties: {
+                      warning: { type: "number", title: "Warning Loss Ratio", default: 0.03 },
+                      critical: { type: "number", title: "Critical Loss Ratio", default: 0.10 }
+                    }
+                  },
+                  retransmitRate: {
+                    type: "object",
+                    title: "Retransmit Rate Thresholds",
+                    properties: {
+                      warning: { type: "number", title: "Warning Retransmit Ratio", default: 0.05 },
+                      critical: { type: "number", title: "Critical Retransmit Ratio", default: 0.15 }
+                    }
+                  },
+                  jitter: {
+                    type: "object",
+                    title: "Jitter Thresholds",
+                    properties: {
+                      warning: { type: "number", title: "Warning Jitter (ms)", default: 100 },
+                      critical: { type: "number", title: "Critical Jitter (ms)", default: 300 }
+                    }
+                  },
+                  queueDepth: {
+                    type: "object",
+                    title: "Queue Depth Thresholds",
+                    properties: {
+                      warning: { type: "number", title: "Warning Queue Depth", default: 100 },
+                      critical: { type: "number", title: "Critical Queue Depth", default: 500 }
                     }
                   }
                 }

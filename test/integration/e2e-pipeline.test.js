@@ -1010,6 +1010,80 @@ describe("E2E Pipeline Tests", () => {
       sim.destroy();
     });
 
+    test("extreme loss (50%-70%): tuned retransmission keeps end-to-end delivery above 95%", async () => {
+      const scenarios = [
+        { lossRate: 0.50, numPackets: 250, minDeliveryRate: 0.97 },
+        { lossRate: 0.70, numPackets: 250, minDeliveryRate: 0.95 }
+      ];
+
+      for (const scenario of scenarios) {
+        const client = createV2ClientPipeline({ maxRetransmits: 10 });
+        const server = createV2ServerPipeline({ nakTimeout: 0 });
+        const sim = new NetworkSimulator({ packetLoss: scenario.lossRate });
+
+        const expectedLatBySeq = new Map();
+        const receivedLatBySeq = new Map();
+        let decodeErrors = 0;
+
+        const processDelivered = async (deliveredPackets) => {
+          for (const pkt of deliveredPackets) {
+            try {
+              const { parsed, delta, duplicate } = await server.receiveAndDecode(pkt, SECRET_KEY);
+              if (duplicate || !delta) {continue;}
+              const lat = delta?.["0"]?.updates?.[0]?.values?.[0]?.value?.latitude;
+              if (typeof lat === "number") {
+                receivedLatBySeq.set(parsed.sequence, lat);
+              } else {
+                decodeErrors++;
+              }
+            } catch {
+              decodeErrors++;
+            }
+          }
+        };
+
+        // Initial send through lossy network
+        const initiallyDelivered = [];
+        for (let i = 0; i < scenario.numPackets; i++) {
+          const lat = 60 + i * 0.0001;
+          expectedLatBySeq.set(i, lat);
+          const { packet } = await client.buildPacket({ 0: makeNavigationDelta(lat, 24) }, SECRET_KEY);
+          sim.send(packet, (pkt) => initiallyDelivered.push(pkt));
+        }
+        await processDelivered(initiallyDelivered);
+
+        // Retransmit missing packets in rounds
+        for (let round = 0; round < 12; round++) {
+          const missing = [];
+          for (let i = 0; i < scenario.numPackets; i++) {
+            if (!receivedLatBySeq.has(i)) {missing.push(i);}
+          }
+          if (missing.length === 0) {break;}
+
+          const retransmitted = client.retransmitQueue.retransmit(missing);
+          if (retransmitted.length === 0) {break;}
+
+          const deliveredThisRound = [];
+          for (const { packet } of retransmitted) {
+            sim.send(packet, (pkt) => deliveredThisRound.push(pkt));
+          }
+          await processDelivered(deliveredThisRound);
+        }
+
+        const deliveryRate = receivedLatBySeq.size / scenario.numPackets;
+        expect(deliveryRate).toBeGreaterThan(scenario.minDeliveryRate);
+        expect(decodeErrors).toBe(0);
+
+        // Validate that payload values survive high-loss retransmission
+        for (const [seq, lat] of receivedLatBySeq.entries()) {
+          expect(lat).toBeCloseTo(expectedLatBySeq.get(seq), 6);
+        }
+
+        sim.destroy();
+        server.tracker.reset();
+      }
+    }, 20000);
+
     test("burst loss (Gilbert-Elliott model): recovery after burst", async () => {
       const client = createV2ClientPipeline({ maxRetransmits: 5 });
       const server = createV2ServerPipeline({ nakTimeout: 0 });

@@ -345,7 +345,62 @@ const clientProperties = {
             default: 30000,
             minimum: 5000,
             maximum: 300000
+          },
+          heartbeatTimeout: {
+            type: "number",
+            title: "Heartbeat Timeout (ms)",
+            description: "Mark link as down when heartbeat responses exceed this timeout",
+            default: 5000,
+            minimum: 1000,
+            maximum: 30000
           }
+        }
+      }
+    }
+  },
+  alertThresholds: {
+    type: "object",
+    title: "Monitoring Alert Thresholds (v2 only)",
+    description: "Customize warning/critical thresholds for network monitoring alerts",
+    properties: {
+      rtt: {
+        type: "object",
+        title: "RTT Thresholds",
+        properties: {
+          warning: { type: "number", title: "Warning RTT (ms)", default: 300 },
+          critical: { type: "number", title: "Critical RTT (ms)", default: 800 }
+        }
+      },
+      packetLoss: {
+        type: "object",
+        title: "Packet Loss Thresholds",
+        properties: {
+          warning: { type: "number", title: "Warning Loss Ratio", default: 0.03 },
+          critical: { type: "number", title: "Critical Loss Ratio", default: 0.10 }
+        }
+      },
+      retransmitRate: {
+        type: "object",
+        title: "Retransmit Rate Thresholds",
+        properties: {
+          warning: { type: "number", title: "Warning Retransmit Ratio", default: 0.05 },
+          critical: { type: "number", title: "Critical Retransmit Ratio", default: 0.15 }
+        }
+      },
+      jitter: {
+        type: "object",
+        title: "Jitter Thresholds",
+        properties: {
+          warning: { type: "number", title: "Warning Jitter (ms)", default: 100 },
+          critical: { type: "number", title: "Critical Jitter (ms)", default: 300 }
+        }
+      },
+      queueDepth: {
+        type: "object",
+        title: "Queue Depth Thresholds",
+        properties: {
+          warning: { type: "number", title: "Warning Queue Depth", default: 100 },
+          critical: { type: "number", title: "Critical Queue Depth", default: 500 }
         }
       }
     }
@@ -424,7 +479,8 @@ const uiSchema = {
     "pingIntervalTime",
     "reliability",
     "congestionControl",
-    "bonding"
+    "bonding",
+    "alertThresholds"
   ],
   secretKey: {
     "ui:widget": "password",
@@ -492,6 +548,7 @@ function PluginConfigurationPanel(_props) {
       delete cleanedData.pingIntervalTime;
       delete cleanedData.congestionControl;
       delete cleanedData.bonding;
+      delete cleanedData.alertThresholds;
     }
 
     try {
