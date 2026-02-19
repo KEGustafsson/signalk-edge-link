@@ -862,6 +862,16 @@ describe("BondingManager", () => {
       expect(bm.links.primary.pendingHeartbeats.size).toBeGreaterThan(0);
       expect(bm.links.backup.pendingHeartbeats.size).toBeGreaterThan(0);
     });
+
+    test("continues probing links marked DOWN to allow recovery", async () => {
+      await bm.initialize();
+      bm.links.primary.health.status = LinkStatus.DOWN;
+
+      jest.advanceTimersByTime(1000);
+
+      expect(bm.links.primary.heartbeatsSent).toBeGreaterThanOrEqual(1);
+      expect(bm.links.primary.pendingHeartbeats.size).toBeGreaterThan(0);
+    });
   });
 
   // ═══════════════════════════════════════════════

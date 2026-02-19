@@ -512,6 +512,29 @@ describe("SequenceTracker", () => {
       expect(onLoss).not.toHaveBeenCalled();
       t.reset();
     });
+
+    test("resyncs on excessive ahead gap to avoid timer explosion", () => {
+      const t = new SequenceTracker({ maxOutOfOrder: 10, maxGapTracking: 20 });
+      t.processSequence(0);
+
+      const result = t.processSequence(1000);
+      expect(result.inOrder).toBe(true);
+      expect(result.resynced).toBe(true);
+      expect(t.expectedSeq).toBe(1001);
+      expect(t.nakTimers.size).toBe(0);
+      t.reset();
+    });
+
+    test("resyncs on excessive behind distance after sender restart", () => {
+      const t = new SequenceTracker({ maxOutOfOrder: 10, behindResyncThreshold: 50 });
+      t.processSequence(1000);
+
+      const result = t.processSequence(10);
+      expect(result.inOrder).toBe(true);
+      expect(result.resynced).toBe(true);
+      expect(t.expectedSeq).toBe(11);
+      t.reset();
+    });
   });
 
   describe("getMissingSequences edge cases", () => {

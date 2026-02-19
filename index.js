@@ -179,6 +179,78 @@ module.exports = function createPlugin(app) {
     }
   );
 
+  /**
+   * Filter outbound deltas to prevent feedback loops of local plugin metrics.
+   *
+   * @param {Object} delta - Signal K delta
+   * @returns {Object|null} Filtered delta or null when nothing should be transmitted
+   */
+  function filterOutboundDelta(delta) {
+    if (!delta || !Array.isArray(delta.updates)) {
+      return delta;
+    }
+
+    let changed = false;
+    const filteredUpdates = [];
+
+    for (const update of delta.updates) {
+      if (!update) {
+        changed = true;
+        continue;
+      }
+
+      const sourceLabel = update.source && update.source.label;
+      if (sourceLabel === plugin.id) {
+        changed = true;
+        continue;
+      }
+
+      if (!Array.isArray(update.values)) {
+        filteredUpdates.push(update);
+        continue;
+      }
+
+      const filteredValues = update.values.filter((entry) => {
+        const path = entry && entry.path;
+        if (typeof path !== "string") {
+          return true;
+        }
+        if (path === "networking.modem.rtt") {
+          return false;
+        }
+        if (path === "networking.edgeLink" || path.startsWith("networking.edgeLink.")) {
+          return false;
+        }
+        if (path === "notifications.signalk-edge-link" || path.startsWith("notifications.signalk-edge-link.")) {
+          return false;
+        }
+        return true;
+      });
+
+      if (filteredValues.length === 0) {
+        changed = true;
+        continue;
+      }
+
+      if (filteredValues.length !== update.values.length) {
+        changed = true;
+        filteredUpdates.push({ ...update, values: filteredValues });
+      } else {
+        filteredUpdates.push(update);
+      }
+    }
+
+    if (filteredUpdates.length === 0) {
+      return null;
+    }
+
+    if (!changed) {
+      return delta;
+    }
+
+    return { ...delta, updates: filteredUpdates };
+  }
+
   // Subscription change handler
   const handleSubscriptionChange = createDebouncedConfigHandler(
     "Subscription",
@@ -203,7 +275,12 @@ module.exports = function createPlugin(app) {
           },
           (delta) => {
             if (state.readyToSend) {
-              const sentence = delta?.updates?.[0]?.source?.sentence;
+              const filteredDelta = filterOutboundDelta(delta);
+              if (!filteredDelta) {
+                return;
+              }
+
+              const sentence = filteredDelta?.updates?.[0]?.source?.sentence;
               if (sentence && state.excludedSentences.includes(sentence)) {
                 return;
               }
@@ -213,7 +290,7 @@ module.exports = function createPlugin(app) {
                 state.deltas = [];
               }
 
-              state.deltas.push(delta);
+              state.deltas.push(filteredDelta);
               setImmediate(() => app.reportOutputMessages());
 
               const batchReady = state.deltas.length >= state.maxDeltasPerBatch;

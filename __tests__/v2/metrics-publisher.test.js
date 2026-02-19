@@ -514,6 +514,23 @@ describe("MetricsPublisher", () => {
       expect(loss.value).toBe(0.05);
     });
 
+    test("publishes per-link loss when only packetLoss is provided", () => {
+      publisher.publishLinkMetrics("primary", {
+        status: "active",
+        rtt: 50,
+        jitter: 10,
+        packetLoss: 0.07,
+        retransmitRate: 0
+      });
+
+      const values = publishedMessages[0].updates[0].values;
+      const loss = values.find(v =>
+        v.path === "networking.edgeLink.links.primary.loss"
+      );
+
+      expect(loss.value).toBe(0.07);
+    });
+
     test("publishes with source label", () => {
       publisher.publishLinkMetrics("primary", {
         status: "active",
