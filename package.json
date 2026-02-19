@@ -1,6 +1,6 @@
 {
   "name": "signalk-edge-link",
-  "version": "2.0.0-beta.2",
+  "version": "2.0.0-beta.3",
   "description": "SignalK Edge Link. Secure UDP link for data exchange.",
   "main": "index.js",
   "keywords": [
