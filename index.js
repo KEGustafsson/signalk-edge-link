@@ -304,9 +304,11 @@ module.exports = function createPlugin(app) {
                   metrics.smartBatching.timerSends++;
                 }
                 if (state.pipeline) {
-                  state.pipeline.sendDelta(state.deltas, state.options.secretKey, state.options.udpAddress, state.options.udpPort);
+                  state.pipeline.sendDelta(state.deltas, state.options.secretKey, state.options.udpAddress, state.options.udpPort)
+                    .catch((err) => app.debug(`sendDelta error: ${err.message}`));
                 } else {
-                  pipeline.packCrypt(state.deltas, state.options.secretKey, state.options.udpAddress, state.options.udpPort);
+                  pipeline.packCrypt(state.deltas, state.options.secretKey, state.options.udpAddress, state.options.udpPort)
+                    .catch((err) => app.debug(`packCrypt error: ${err.message}`));
                 }
                 state.deltas = [];
                 state.timer = false;
@@ -543,24 +545,28 @@ module.exports = function createPlugin(app) {
       // Hello message sender with smart suppression
       const helloInterval = helloIntervalSeconds * 1000;
       state.helloMessageSender = setInterval(async () => {
-        const timeSinceLastPacket = Date.now() - state.lastPacketTime;
+        try {
+          const timeSinceLastPacket = Date.now() - state.lastPacketTime;
 
-        if (!state.readyToSend) {
-          app.debug("Skipping hello message (not ready to send)");
-        } else if (timeSinceLastPacket >= helloInterval) {
-          const mmsi = app.getSelfPath("mmsi") || "000000000";
-          const fixedDelta = {
-            context: "vessels.urn:mrn:imo:mmsi:" + mmsi,
-            updates: [{ timestamp: new Date(), values: [] }]
-          };
-          app.debug("Sending hello message (no recent data transmission)");
-          if (state.pipeline) {
-            await state.pipeline.sendDelta([fixedDelta], options.secretKey, options.udpAddress, options.udpPort);
+          if (!state.readyToSend) {
+            app.debug("Skipping hello message (not ready to send)");
+          } else if (timeSinceLastPacket >= helloInterval) {
+            const mmsi = app.getSelfPath("mmsi") || "000000000";
+            const fixedDelta = {
+              context: "vessels.urn:mrn:imo:mmsi:" + mmsi,
+              updates: [{ timestamp: new Date(), values: [] }]
+            };
+            app.debug("Sending hello message (no recent data transmission)");
+            if (state.pipeline) {
+              await state.pipeline.sendDelta([fixedDelta], options.secretKey, options.udpAddress, options.udpPort);
+            } else {
+              await pipeline.packCrypt([fixedDelta], options.secretKey, options.udpAddress, options.udpPort);
+            }
           } else {
-            await pipeline.packCrypt([fixedDelta], options.secretKey, options.udpAddress, options.udpPort);
+            app.debug(`Skipping hello message (last packet ${timeSinceLastPacket}ms ago)`);
           }
-        } else {
-          app.debug(`Skipping hello message (last packet ${timeSinceLastPacket}ms ago)`);
+        } catch (err) {
+          app.error(`Hello message send error: ${err.message}`);
         }
       }, helloInterval);
 
