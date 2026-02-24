@@ -52,9 +52,9 @@ describe("Crypto Module", () => {
       test("should throw error for invalid secret key", () => {
         const data = Buffer.from(testData);
         expect(() => encryptBinary(data, "short")).toThrow(
-          "Secret key must be exactly 32 characters"
+          "Secret key must be exactly 32 bytes"
         );
-        expect(() => encryptBinary(data, null)).toThrow("Secret key must be exactly 32 characters");
+        expect(() => encryptBinary(data, null)).toThrow("Secret key must be exactly 32 bytes");
       });
 
       test("should throw error for empty data", () => {
@@ -122,7 +122,7 @@ describe("Crypto Module", () => {
       test("should throw error for invalid secret key", () => {
         const packet = Buffer.alloc(100);
         expect(() => decryptBinary(packet, "short")).toThrow(
-          "Secret key must be exactly 32 characters"
+          "Secret key must be exactly 32 bytes"
         );
       });
     });
@@ -187,19 +187,19 @@ describe("Crypto Module", () => {
     });
 
     test("should throw error for short key", () => {
-      expect(() => validateSecretKey("short")).toThrow("Secret key must be exactly 32 characters");
+      expect(() => validateSecretKey("short")).toThrow("Secret key must be exactly 32 bytes");
     });
 
     test("should throw error for long key", () => {
       expect(() => validateSecretKey("123456789012345678901234567890123")).toThrow(
-        "Secret key must be exactly 32 characters"
+        "Secret key must be exactly 32 bytes"
       );
     });
 
     test("should throw error for null/undefined key", () => {
-      expect(() => validateSecretKey(null)).toThrow("Secret key must be exactly 32 characters");
+      expect(() => validateSecretKey(null)).toThrow("Secret key must be exactly 32 bytes");
       expect(() => validateSecretKey(undefined)).toThrow(
-        "Secret key must be exactly 32 characters"
+        "Secret key must be exactly 32 bytes"
       );
     });
 

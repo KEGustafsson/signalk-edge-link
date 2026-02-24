@@ -94,20 +94,15 @@ describe("Path Dictionary", () => {
       expect(encodePath("custom.sensor.value")).toBe("custom.sensor.value");
     });
 
-    test("should handle wildcard patterns with instance IDs", () => {
-      // electrical.batteries.1.voltage should match electrical.batteries.voltage
-      expect(encodePath("electrical.batteries.1.voltage")).toBe(0x0301);
-      expect(encodePath("tanks.fuel.0.currentLevel")).toBe(0x060a);
+    test("should preserve instance IDs in paths without exact match", () => {
+      // Paths with instance IDs must be returned as-is to avoid data loss
+      // (the receiver needs the instance ID to distinguish battery banks, engines, etc.)
+      expect(encodePath("electrical.batteries.1.voltage")).toBe("electrical.batteries.1.voltage");
+      expect(encodePath("tanks.fuel.0.currentLevel")).toBe("tanks.fuel.0.currentLevel");
+      expect(encodePath("propulsion.0.revolutions")).toBe("propulsion.0.revolutions");
     });
 
-    test("should handle paths with multiple instance IDs", () => {
-      // Even with multiple numbers, should still try to match
-      const result = encodePath("propulsion.0.revolutions");
-      // This should match propulsion.revolutions pattern
-      expect(result).toBe(0x0402);
-    });
-
-    test("should return original for paths that dont match after stripping", () => {
+    test("should return original for unknown paths", () => {
       expect(encodePath("completely.unknown.1.path")).toBe("completely.unknown.1.path");
     });
   });

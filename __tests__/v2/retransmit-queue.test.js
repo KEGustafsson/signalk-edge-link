@@ -359,7 +359,7 @@ describe("RetransmitQueue", () => {
       expect(removed).toBe(0);
     });
 
-    test("retransmit resets timestamp for expiration", () => {
+    test("expireOld uses originalTimestamp, not retransmit timestamp", () => {
       jest.useFakeTimers();
       const queue = new RetransmitQueue();
 
@@ -368,16 +368,16 @@ describe("RetransmitQueue", () => {
 
       jest.advanceTimersByTime(4000);
 
-      // Retransmit seq 0, refreshing its timestamp
+      // Retransmit seq 0 (updates entry.timestamp but not originalTimestamp)
       queue.retransmit([0]);
 
       jest.advanceTimersByTime(2000);
 
-      // Now 6s since add for both, but seq 0 was retransmitted 2s ago
+      // Now 6s since add for both; expireOld uses originalTimestamp so both expire
       const removed = queue.expireOld(5000);
 
-      expect(removed).toBe(1); // Only seq 1 expired
-      expect(queue.get(0)).toBeDefined();
+      expect(removed).toBe(2);
+      expect(queue.get(0)).toBeUndefined();
       expect(queue.get(1)).toBeUndefined();
 
       jest.useRealTimers();

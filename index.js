@@ -87,7 +87,7 @@ module.exports = function createPlugin(app) {
         context: "vessels.self",
         updates: [
           {
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
             values: [{ path: "networking.modem.rtt", value: rttMs / 1000 }]
           }
         ]
@@ -118,6 +118,7 @@ module.exports = function createPlugin(app) {
   const scheduleDeltaTimer = () => {
     clearTimeout(state.deltaTimer);
     state.deltaTimer = setTimeout(() => {
+      if (state.stopped) { return; }
       state.timer = true;
       scheduleDeltaTimer();
     }, state.deltaTimerTime);
@@ -140,7 +141,7 @@ module.exports = function createPlugin(app) {
             content = await readFile(getFilePath(), "utf-8");
           }
 
-          const hashSource = content || JSON.stringify(options.readFallback);
+          const hashSource = content || JSON.stringify(options.readFallback) || "";
           const contentHash = crypto.createHash(CONTENT_HASH_ALGORITHM).update(hashSource).digest("hex");
 
           if (contentHash === state.configContentHashes[name]) {
@@ -275,14 +276,21 @@ module.exports = function createPlugin(app) {
           },
           (delta) => {
             if (state.readyToSend) {
-              const filteredDelta = filterOutboundDelta(delta);
+              let filteredDelta = filterOutboundDelta(delta);
               if (!filteredDelta) {
                 return;
               }
 
-              const sentence = filteredDelta?.updates?.[0]?.source?.sentence;
-              if (sentence && state.excludedSentences.includes(sentence)) {
-                return;
+              // Filter out updates whose source sentence is in the exclusion list
+              if (state.excludedSentences.length > 0 && filteredDelta.updates) {
+                const kept = filteredDelta.updates.filter((u) => {
+                  const sentence = u?.source?.sentence;
+                  return !(sentence && state.excludedSentences.includes(sentence));
+                });
+                if (kept.length === 0) { return; }
+                if (kept.length !== filteredDelta.updates.length) {
+                  filteredDelta = { ...filteredDelta, updates: kept };
+                }
               }
 
               if (state.deltas.length >= MAX_DELTAS_BUFFER_SIZE) {
@@ -304,9 +312,11 @@ module.exports = function createPlugin(app) {
                   metrics.smartBatching.timerSends++;
                 }
                 if (state.pipeline) {
-                  state.pipeline.sendDelta(state.deltas, state.options.secretKey, state.options.udpAddress, state.options.udpPort);
+                  state.pipeline.sendDelta(state.deltas, state.options.secretKey, state.options.udpAddress, state.options.udpPort)
+                    .catch((err) => app.debug(`sendDelta error: ${err.message}`));
                 } else {
-                  pipeline.packCrypt(state.deltas, state.options.secretKey, state.options.udpAddress, state.options.udpPort);
+                  pipeline.packCrypt(state.deltas, state.options.secretKey, state.options.udpAddress, state.options.udpPort)
+                    .catch((err) => app.debug(`packCrypt error: ${err.message}`));
                 }
                 state.deltas = [];
                 state.timer = false;
@@ -363,6 +373,7 @@ module.exports = function createPlugin(app) {
           }
           watcherObj.recoveryTimer = setTimeout(() => {
             watcherObj.recoveryTimer = null;
+            if (state.stopped) { return; }
             app.debug(`Attempting to recreate ${name} watcher...`);
             createWatcher();
             if (watcherObj.watcher) {
@@ -496,6 +507,7 @@ module.exports = function createPlugin(app) {
       });
 
       state.socketUdp.on("listening", () => {
+        if (!state.socketUdp) { return; }
         const address = state.socketUdp.address();
         app.debug(`UDP server listening on ${address.address}:${address.port}`);
         setStatus(`Server listening on port ${address.port}`);
@@ -513,6 +525,7 @@ module.exports = function createPlugin(app) {
 
         // Start ACK timer and metrics publishing after binding
         state.socketUdp.on("listening", () => {
+          if (!state.socketUdp) { return; }
           v2Server.startACKTimer();
           v2Server.startMetricsPublishing();
           app.debug("[v2] Server pipeline with ACK/NAK initialized");
@@ -536,31 +549,37 @@ module.exports = function createPlugin(app) {
       await initializePersistentStorage();
 
       const deltaTimerTimeFile = await routes.loadConfigFile(state.deltaTimerFile);
-      state.deltaTimerTime = deltaTimerTimeFile ? deltaTimerTimeFile.deltaTimer : DEFAULT_DELTA_TIMER;
+      state.deltaTimerTime = (deltaTimerTimeFile && Number.isFinite(deltaTimerTimeFile.deltaTimer) && deltaTimerTimeFile.deltaTimer >= 100)
+        ? deltaTimerTimeFile.deltaTimer
+        : DEFAULT_DELTA_TIMER;
       const helloIntervalSeconds = Number.isFinite(options.helloMessageSender) ? options.helloMessageSender : 60;
       const pingIntervalMinutes = Number.isFinite(options.pingIntervalTime) ? options.pingIntervalTime : 1;
 
       // Hello message sender with smart suppression
       const helloInterval = helloIntervalSeconds * 1000;
       state.helloMessageSender = setInterval(async () => {
-        const timeSinceLastPacket = Date.now() - state.lastPacketTime;
+        try {
+          const timeSinceLastPacket = Date.now() - state.lastPacketTime;
 
-        if (!state.readyToSend) {
-          app.debug("Skipping hello message (not ready to send)");
-        } else if (timeSinceLastPacket >= helloInterval) {
-          const mmsi = app.getSelfPath("mmsi") || "000000000";
-          const fixedDelta = {
-            context: "vessels.urn:mrn:imo:mmsi:" + mmsi,
-            updates: [{ timestamp: new Date(), values: [] }]
-          };
-          app.debug("Sending hello message (no recent data transmission)");
-          if (state.pipeline) {
-            await state.pipeline.sendDelta([fixedDelta], options.secretKey, options.udpAddress, options.udpPort);
+          if (!state.readyToSend) {
+            app.debug("Skipping hello message (not ready to send)");
+          } else if (timeSinceLastPacket >= helloInterval) {
+            const mmsi = app.getSelfPath("mmsi") || "000000000";
+            const fixedDelta = {
+              context: "vessels.urn:mrn:imo:mmsi:" + mmsi,
+              updates: [{ timestamp: new Date().toISOString(), values: [] }]
+            };
+            app.debug("Sending hello message (no recent data transmission)");
+            if (state.pipeline) {
+              await state.pipeline.sendDelta([fixedDelta], options.secretKey, options.udpAddress, options.udpPort);
+            } else {
+              await pipeline.packCrypt([fixedDelta], options.secretKey, options.udpAddress, options.udpPort);
+            }
           } else {
-            await pipeline.packCrypt([fixedDelta], options.secretKey, options.udpAddress, options.udpPort);
+            app.debug(`Skipping hello message (last packet ${timeSinceLastPacket}ms ago)`);
           }
-        } else {
-          app.debug(`Skipping hello message (last packet ${timeSinceLastPacket}ms ago)`);
+        } catch (err) {
+          app.error(`Hello message send error: ${err.message}`);
         }
       }, helloInterval);
 
@@ -684,6 +703,7 @@ module.exports = function createPlugin(app) {
 
   plugin.stop = function stop() {
     state.stopped = true;
+    state.readyToSend = false;
 
     // Unsubscribe from SignalK subscriptions
     state.unsubscribes.forEach((f) => f());
@@ -693,8 +713,8 @@ module.exports = function createPlugin(app) {
 
     // Reset state variables for clean restart
     state.isServerMode = false;
-    state.readyToSend = false;
     state.deltas = [];
+    state.timer = false;
     Object.keys(state.configContentHashes).forEach((k) => delete state.configContentHashes[k]);
     state.excludedSentences = ["GSV"];
     state.lastPacketTime = 0;
