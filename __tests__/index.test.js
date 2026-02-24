@@ -1096,4 +1096,97 @@ describe("SignalK Data Connector Plugin", () => {
       expect(() => plugin.stop()).not.toThrow();
     });
   });
+
+  // ── Multi-instance array-based config (the primary new code path) ─────────
+  describe("Multi-Instance Config (connections[])", () => {
+    test("should start two independent server connections via array config", async () => {
+      const options = {
+        connections: [
+          { name: "Server A", serverType: "server", udpPort: 4470, secretKey: "12345678901234567890123456789012" },
+          { name: "Server B", serverType: "server", udpPort: 4471, secretKey: "12345678901234567890123456789012" }
+        ]
+      };
+
+      await plugin.start(options);
+
+      expect(mockApp.error).not.toHaveBeenCalled();
+      // updateAggregatedStatus should have been called with both connections represented
+      expect(mockApp.setPluginStatus).toHaveBeenCalledWith(expect.stringContaining("2 connections"));
+    });
+
+    test("should start a server and a client simultaneously", async () => {
+      const options = {
+        connections: [
+          { name: "Shore Server", serverType: "server", udpPort: 4472, secretKey: "12345678901234567890123456789012" },
+          {
+            name: "Sat Client", serverType: "client", udpPort: 4473,
+            secretKey: "12345678901234567890123456789012",
+            udpAddress: "127.0.0.1", testAddress: "127.0.0.1", testPort: 80,
+            pingIntervalTime: 60, helloMessageSender: 60
+          }
+        ]
+      };
+
+      await plugin.start(options);
+
+      expect(mockApp.error).not.toHaveBeenCalled();
+      expect(mockApp.setPluginStatus).toHaveBeenCalledWith(expect.stringContaining("2 connections"));
+    });
+
+    test("should detect and reject duplicate server ports before starting any instance", async () => {
+      const options = {
+        connections: [
+          { name: "Server A", serverType: "server", udpPort: 4474, secretKey: "12345678901234567890123456789012" },
+          { name: "Server B", serverType: "server", udpPort: 4474, secretKey: "12345678901234567890123456789012" }
+        ]
+      };
+
+      await plugin.start(options);
+
+      expect(mockApp.error).toHaveBeenCalledWith(expect.stringContaining("Duplicate server ports"));
+      // Status should reflect the config error, not a started state
+      expect(mockApp.setPluginStatus).toHaveBeenCalledWith(expect.stringContaining("error"));
+    });
+
+    test("should generate unique instance IDs when two connections share the same name", async () => {
+      // Both connections have the same name – the collision path in generateInstanceId
+      // must append -1 to the second one.  We verify the plugin starts successfully
+      // (no error thrown / logged) which confirms the disambiguation worked.
+      const options = {
+        connections: [
+          { name: "My Link", serverType: "server", udpPort: 4475, secretKey: "12345678901234567890123456789012" },
+          { name: "My Link", serverType: "server", udpPort: 4476, secretKey: "12345678901234567890123456789012" }
+        ]
+      };
+
+      await plugin.start(options);
+
+      expect(mockApp.error).not.toHaveBeenCalled();
+    });
+
+    test("should reject an empty connections array", async () => {
+      await plugin.start({ connections: [] });
+
+      expect(mockApp.error).toHaveBeenCalled();
+    });
+
+    test("clients on same port as server do not trigger duplicate port error", async () => {
+      const options = {
+        connections: [
+          { name: "Server",     serverType: "server", udpPort: 4477, secretKey: "12345678901234567890123456789012" },
+          {
+            name: "Client", serverType: "client", udpPort: 4477,
+            secretKey: "12345678901234567890123456789012",
+            udpAddress: "127.0.0.1", testAddress: "127.0.0.1", testPort: 80,
+            pingIntervalTime: 60, helloMessageSender: 60
+          }
+        ]
+      };
+
+      await plugin.start(options);
+
+      // Server listens on 4477, client connects TO 4477 – not a collision
+      expect(mockApp.error).not.toHaveBeenCalledWith(expect.stringContaining("Duplicate server ports"));
+    });
+  });
 });

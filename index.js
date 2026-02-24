@@ -140,9 +140,8 @@ module.exports = function createPlugin(app) {
         cfg,
         instanceId,
         plugin.id,
-        (id, msg) => {
+        (_id, _msg) => {
           // Per-instance status change → re-aggregate global status
-          void id; void msg;
           updateAggregatedStatus();
         }
       );
