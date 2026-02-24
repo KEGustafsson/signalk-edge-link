@@ -87,7 +87,7 @@ module.exports = function createPlugin(app) {
         context: "vessels.self",
         updates: [
           {
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
             values: [{ path: "networking.modem.rtt", value: rttMs / 1000 }]
           }
         ]
@@ -118,6 +118,7 @@ module.exports = function createPlugin(app) {
   const scheduleDeltaTimer = () => {
     clearTimeout(state.deltaTimer);
     state.deltaTimer = setTimeout(() => {
+      if (state.stopped) { return; }
       state.timer = true;
       scheduleDeltaTimer();
     }, state.deltaTimerTime);
@@ -275,14 +276,21 @@ module.exports = function createPlugin(app) {
           },
           (delta) => {
             if (state.readyToSend) {
-              const filteredDelta = filterOutboundDelta(delta);
+              let filteredDelta = filterOutboundDelta(delta);
               if (!filteredDelta) {
                 return;
               }
 
-              const sentence = filteredDelta?.updates?.[0]?.source?.sentence;
-              if (sentence && state.excludedSentences.includes(sentence)) {
-                return;
+              // Filter out updates whose source sentence is in the exclusion list
+              if (state.excludedSentences.length > 0 && filteredDelta.updates) {
+                const kept = filteredDelta.updates.filter((u) => {
+                  const sentence = u?.source?.sentence;
+                  return !(sentence && state.excludedSentences.includes(sentence));
+                });
+                if (kept.length === 0) { return; }
+                if (kept.length !== filteredDelta.updates.length) {
+                  filteredDelta = { ...filteredDelta, updates: kept };
+                }
               }
 
               if (state.deltas.length >= MAX_DELTAS_BUFFER_SIZE) {
@@ -365,6 +373,7 @@ module.exports = function createPlugin(app) {
           }
           watcherObj.recoveryTimer = setTimeout(() => {
             watcherObj.recoveryTimer = null;
+            if (state.stopped) { return; }
             app.debug(`Attempting to recreate ${name} watcher...`);
             createWatcher();
             if (watcherObj.watcher) {
@@ -498,6 +507,7 @@ module.exports = function createPlugin(app) {
       });
 
       state.socketUdp.on("listening", () => {
+        if (!state.socketUdp) { return; }
         const address = state.socketUdp.address();
         app.debug(`UDP server listening on ${address.address}:${address.port}`);
         setStatus(`Server listening on port ${address.port}`);
@@ -515,6 +525,7 @@ module.exports = function createPlugin(app) {
 
         // Start ACK timer and metrics publishing after binding
         state.socketUdp.on("listening", () => {
+          if (!state.socketUdp) { return; }
           v2Server.startACKTimer();
           v2Server.startMetricsPublishing();
           app.debug("[v2] Server pipeline with ACK/NAK initialized");
@@ -554,7 +565,7 @@ module.exports = function createPlugin(app) {
             const mmsi = app.getSelfPath("mmsi") || "000000000";
             const fixedDelta = {
               context: "vessels.urn:mrn:imo:mmsi:" + mmsi,
-              updates: [{ timestamp: new Date(), values: [] }]
+              updates: [{ timestamp: new Date().toISOString(), values: [] }]
             };
             app.debug("Sending hello message (no recent data transmission)");
             if (state.pipeline) {
@@ -690,6 +701,7 @@ module.exports = function createPlugin(app) {
 
   plugin.stop = function stop() {
     state.stopped = true;
+    state.readyToSend = false;
 
     // Unsubscribe from SignalK subscriptions
     state.unsubscribes.forEach((f) => f());
@@ -699,7 +711,6 @@ module.exports = function createPlugin(app) {
 
     // Reset state variables for clean restart
     state.isServerMode = false;
-    state.readyToSend = false;
     state.deltas = [];
     Object.keys(state.configContentHashes).forEach((k) => delete state.configContentHashes[k]);
     state.excludedSentences = ["GSV"];
