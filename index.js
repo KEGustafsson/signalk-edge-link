@@ -141,7 +141,7 @@ module.exports = function createPlugin(app) {
             content = await readFile(getFilePath(), "utf-8");
           }
 
-          const hashSource = content || JSON.stringify(options.readFallback);
+          const hashSource = content || JSON.stringify(options.readFallback) || "";
           const contentHash = crypto.createHash(CONTENT_HASH_ALGORITHM).update(hashSource).digest("hex");
 
           if (contentHash === state.configContentHashes[name]) {
@@ -549,7 +549,9 @@ module.exports = function createPlugin(app) {
       await initializePersistentStorage();
 
       const deltaTimerTimeFile = await routes.loadConfigFile(state.deltaTimerFile);
-      state.deltaTimerTime = deltaTimerTimeFile ? deltaTimerTimeFile.deltaTimer : DEFAULT_DELTA_TIMER;
+      state.deltaTimerTime = (deltaTimerTimeFile && Number.isFinite(deltaTimerTimeFile.deltaTimer) && deltaTimerTimeFile.deltaTimer >= 100)
+        ? deltaTimerTimeFile.deltaTimer
+        : DEFAULT_DELTA_TIMER;
       const helloIntervalSeconds = Number.isFinite(options.helloMessageSender) ? options.helloMessageSender : 60;
       const pingIntervalMinutes = Number.isFinite(options.pingIntervalTime) ? options.pingIntervalTime : 1;
 
@@ -712,6 +714,7 @@ module.exports = function createPlugin(app) {
     // Reset state variables for clean restart
     state.isServerMode = false;
     state.deltas = [];
+    state.timer = false;
     Object.keys(state.configContentHashes).forEach((k) => delete state.configContentHashes[k]);
     state.excludedSentences = ["GSV"];
     state.lastPacketTime = 0;
