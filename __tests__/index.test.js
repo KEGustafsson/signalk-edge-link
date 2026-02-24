@@ -167,7 +167,7 @@ describe("SignalK Data Connector Plugin", () => {
       await plugin.start(options);
 
       expect(mockApp.error).toHaveBeenCalledWith(
-        expect.stringContaining("Secret key must be exactly 32 characters")
+        expect.stringContaining("Secret key must be exactly 32 bytes")
       );
     });
 
