@@ -4,16 +4,55 @@ import validator from "@rjsf/validator-ajv8";
 
 const API_BASE = "/plugins/signalk-edge-link";
 
-// Base schema properties shared between server and client modes
-const baseProperties = {
+// ── Default config factories ──────────────────────────────────────────────────
+
+function defaultClientConnection(name) {
+  return {
+    name: name || "client",
+    serverType: "client",
+    udpPort: 4446,
+    secretKey: "",
+    useMsgpack: false,
+    usePathDictionary: false,
+    protocolVersion: 1,
+    udpAddress: "127.0.0.1",
+    helloMessageSender: 60,
+    testAddress: "127.0.0.1",
+    testPort: 80,
+    pingIntervalTime: 1
+  };
+}
+
+function defaultServerConnection(name) {
+  return {
+    name: name || "server",
+    serverType: "server",
+    udpPort: 4446,
+    secretKey: "",
+    useMsgpack: false,
+    usePathDictionary: false,
+    protocolVersion: 1
+  };
+}
+
+// ── Schema builders ───────────────────────────────────────────────────────────
+
+const commonProperties = {
+  name: {
+    type: "string",
+    title: "Connection Name",
+    description: "Human-readable label for this connection (e.g. 'Shore Server', 'Sat Client')",
+    default: "connection",
+    maxLength: 40
+  },
   serverType: {
     type: "string",
     title: "Operation Mode",
-    description: "Select Server to receive data, or Client to send data",
+    description: "Server: receive incoming data.  Client: send data to a server.",
     default: "client",
     oneOf: [
-      { const: "server", title: "Server Mode - Receive Data" },
-      { const: "client", title: "Client Mode - Send Data" }
+      { const: "server", title: "Server – Receive Data" },
+      { const: "client", title: "Client – Send Data" }
     ]
   },
   udpPort: {
@@ -46,27 +85,26 @@ const baseProperties = {
   protocolVersion: {
     type: "number",
     title: "Protocol Version",
-    description: "v1: encrypted UDP transmission. v2 adds: packet reliability (sequence tracking, ACK/NAK, retransmission), congestion control, connection bonding with failover, metrics/monitoring, and NAT keepalive. Must match on both ends.",
+    description: "v1: encrypted UDP.  v2 adds reliability (ACK/NAK/retransmit), congestion control, bonding, metrics.  Must match on both ends.",
     default: 1,
     oneOf: [
-      { const: 1, title: "v1 - Standard encrypted UDP" },
-      { const: 2, title: "v2 - Reliability, congestion control, bonding, metrics" }
+      { const: 1, title: "v1 – Standard encrypted UDP" },
+      { const: 2, title: "v2 – Reliability, congestion control, bonding, metrics" }
     ]
   }
 };
 
-// Client-only properties
 const clientProperties = {
   udpAddress: {
     type: "string",
     title: "Server Address",
-    description: "IP address or hostname of the SignalK server",
+    description: "IP address or hostname of the SignalK server to send data to",
     default: "127.0.0.1"
   },
   helloMessageSender: {
     type: "integer",
     title: "Heartbeat Interval (seconds)",
-    description: "How often to send heartbeat messages",
+    description: "How often to send heartbeat messages to keep the link alive",
     default: 60,
     minimum: 10,
     maximum: 3600
@@ -74,13 +112,13 @@ const clientProperties = {
   testAddress: {
     type: "string",
     title: "Connectivity Test Address",
-    description: "Address to ping for network testing (e.g., 8.8.8.8)",
+    description: "Address to check for network availability (e.g. 8.8.8.8)",
     default: "127.0.0.1"
   },
   testPort: {
     type: "number",
     title: "Connectivity Test Port",
-    description: "Port for connectivity test (80, 443, 53)",
+    description: "Port for connectivity test (e.g. 80, 443, 53)",
     default: 80,
     minimum: 1,
     maximum: 65535
@@ -96,264 +134,142 @@ const clientProperties = {
   reliability: {
     type: "object",
     title: "Reliability Settings (v2 only)",
-    description: "Requires Protocol v2. Controls retransmit queue behavior and packet retry limits",
+    description: "Requires Protocol v2. Controls retransmit queue and packet retry limits.",
     properties: {
       retransmitQueueSize: {
-        type: "number",
-        title: "Retransmit Queue Size",
-        description: "Maximum number of sent packets stored for potential retransmission",
-        default: 5000,
-        minimum: 100,
-        maximum: 50000
+        type: "number", title: "Retransmit Queue Size",
+        description: "Maximum sent packets stored for potential retransmission",
+        default: 5000, minimum: 100, maximum: 50000
       },
       maxRetransmits: {
-        type: "number",
-        title: "Max Retransmit Attempts",
-        description: "Maximum resend attempts before a packet is dropped from the retransmit queue",
-        default: 3,
-        minimum: 1,
-        maximum: 20
+        type: "number", title: "Max Retransmit Attempts",
+        description: "Maximum resend attempts before a packet is dropped",
+        default: 3, minimum: 1, maximum: 20
       },
       retransmitMaxAge: {
-        type: "number",
-        title: "Retransmit Max Age (ms)",
-        description: "Expire stale unacknowledged packets older than this age",
-        default: 120000,
-        minimum: 1000,
-        maximum: 300000
+        type: "number", title: "Retransmit Max Age (ms)",
+        description: "Expire unacknowledged packets older than this",
+        default: 120000, minimum: 1000, maximum: 300000
       },
       retransmitMinAge: {
-        type: "number",
-        title: "Retransmit Min Age (ms)",
+        type: "number", title: "Retransmit Min Age (ms)",
         description: "Minimum packet age before expiration is allowed",
-        default: 10000,
-        minimum: 200,
-        maximum: 30000
+        default: 10000, minimum: 200, maximum: 30000
       },
       retransmitRttMultiplier: {
-        type: "number",
-        title: "RTT Expiry Multiplier",
-        description: "Dynamic expiry age is adjusted to RTT x this multiplier",
-        default: 12,
-        minimum: 2,
-        maximum: 20
+        type: "number", title: "RTT Expiry Multiplier",
+        description: "Dynamic expiry age = RTT × this multiplier",
+        default: 12, minimum: 2, maximum: 20
       },
       ackIdleDrainAge: {
-        type: "number",
-        title: "ACK Idle Drain Age (ms)",
-        description: "If ACKs are idle longer than this, expiry becomes more aggressive",
-        default: 20000,
-        minimum: 500,
-        maximum: 30000
+        type: "number", title: "ACK Idle Drain Age (ms)",
+        description: "When ACKs are idle beyond this, expiry becomes aggressive",
+        default: 20000, minimum: 500, maximum: 30000
       },
       forceDrainAfterAckIdle: {
-        type: "boolean",
-        title: "Force Drain After ACK Idle",
-        description: "When enabled, clear retransmit queue if no ACKs arrive for too long",
+        type: "boolean", title: "Force Drain After ACK Idle",
+        description: "Clear retransmit queue if no ACKs arrive for too long",
         default: false
       },
       forceDrainAfterMs: {
-        type: "number",
-        title: "Force Drain Timeout (ms)",
-        description: "ACK idle duration before force-draining retransmit queue to zero",
-        default: 45000,
-        minimum: 2000,
-        maximum: 120000
+        type: "number", title: "Force Drain Timeout (ms)",
+        description: "ACK idle duration before force-draining retransmit queue",
+        default: 45000, minimum: 2000, maximum: 120000
       },
       recoveryBurstEnabled: {
-        type: "boolean",
-        title: "Recovery Burst Enabled",
-        description: "When ACKs return after outage, rapidly retransmit queued packets to catch up",
+        type: "boolean", title: "Recovery Burst Enabled",
+        description: "Rapidly retransmit queued packets when ACKs return after outage",
         default: true
       },
       recoveryBurstSize: {
-        type: "number",
-        title: "Recovery Burst Size",
+        type: "number", title: "Recovery Burst Size",
         description: "Max queued packets to retransmit per recovery burst cycle",
-        default: 100,
-        minimum: 10,
-        maximum: 1000
+        default: 100, minimum: 10, maximum: 1000
       },
       recoveryBurstIntervalMs: {
-        type: "number",
-        title: "Recovery Burst Interval (ms)",
-        description: "Interval between recovery burst cycles while backlog exists",
-        default: 200,
-        minimum: 50,
-        maximum: 5000
+        type: "number", title: "Recovery Burst Interval (ms)",
+        description: "Interval between recovery burst cycles",
+        default: 200, minimum: 50, maximum: 5000
       },
       recoveryAckGapMs: {
-        type: "number",
-        title: "Recovery ACK Gap (ms)",
-        description: "Minimum ACK silence before triggering fast recovery bursts",
-        default: 4000,
-        minimum: 500,
-        maximum: 120000
+        type: "number", title: "Recovery ACK Gap (ms)",
+        description: "Minimum ACK silence before triggering fast recovery",
+        default: 4000, minimum: 500, maximum: 120000
       }
     }
   },
   congestionControl: {
     type: "object",
     title: "Dynamic Congestion Control (v2 only)",
-    description: "Requires Protocol v2. AIMD algorithm to dynamically adjust send rate based on network conditions",
+    description: "Requires Protocol v2. AIMD algorithm adjusts send rate based on RTT and packet loss.",
     properties: {
       enabled: {
-        type: "boolean",
-        title: "Enable Congestion Control",
-        description: "Automatically adjust delta timer based on RTT and packet loss",
+        type: "boolean", title: "Enable Congestion Control",
+        description: "Automatically adjust delta timer based on network conditions",
         default: false
       },
       targetRTT: {
-        type: "number",
-        title: "Target RTT (ms)",
-        description: "RTT threshold above which send rate is reduced",
-        default: 200,
-        minimum: 50,
-        maximum: 2000
+        type: "number", title: "Target RTT (ms)",
+        description: "Send rate is reduced when RTT exceeds this threshold",
+        default: 200, minimum: 50, maximum: 2000
       },
       nominalDeltaTimer: {
-        type: "number",
-        title: "Nominal Delta Timer (ms)",
-        description: "Preferred steady-state send interval. Controller converges toward this value when link is stable",
-        default: 1000,
-        minimum: 100,
-        maximum: 10000
+        type: "number", title: "Nominal Delta Timer (ms)",
+        description: "Preferred steady-state send interval",
+        default: 1000, minimum: 100, maximum: 10000
       },
       minDeltaTimer: {
-        type: "number",
-        title: "Minimum Delta Timer (ms)",
+        type: "number", title: "Minimum Delta Timer (ms)",
         description: "Fastest allowed send interval",
-        default: 100,
-        minimum: 50,
-        maximum: 1000
+        default: 100, minimum: 50, maximum: 1000
       },
       maxDeltaTimer: {
-        type: "number",
-        title: "Maximum Delta Timer (ms)",
+        type: "number", title: "Maximum Delta Timer (ms)",
         description: "Slowest allowed send interval",
-        default: 5000,
-        minimum: 1000,
-        maximum: 30000
+        default: 5000, minimum: 1000, maximum: 30000
       }
     }
   },
   bonding: {
     type: "object",
     title: "Connection Bonding (v2 only)",
-    description: "Requires Protocol v2. Dual-link bonding with automatic failover between primary and backup connections",
+    description: "Requires Protocol v2. Dual-link bonding with automatic failover.",
     properties: {
       enabled: {
-        type: "boolean",
-        title: "Enable Connection Bonding",
+        type: "boolean", title: "Enable Connection Bonding",
         description: "Enable dual-link bonding with automatic failover",
         default: false
       },
       mode: {
-        type: "string",
-        title: "Bonding Mode",
-        description: "Bonding operating mode",
-        default: "main-backup",
-        oneOf: [
-          { const: "main-backup", title: "Main/Backup - Failover to backup when primary degrades" }
-        ]
+        type: "string", title: "Bonding Mode", default: "main-backup",
+        oneOf: [{ const: "main-backup", title: "Main/Backup – Failover to backup when primary degrades" }]
       },
       primary: {
-        type: "object",
-        title: "Primary Link",
-        description: "Primary connection (e.g., LTE modem)",
+        type: "object", title: "Primary Link",
+        description: "Primary connection (e.g. LTE modem)",
         properties: {
-          address: {
-            type: "string",
-            title: "Server Address",
-            description: "IP address or hostname of the server for primary link",
-            default: "127.0.0.1"
-          },
-          port: {
-            type: "number",
-            title: "UDP Port",
-            description: "UDP port for primary link",
-            default: 4446,
-            minimum: 1024,
-            maximum: 65535
-          },
-          interface: {
-            type: "string",
-            title: "Bind Interface (optional)",
-            description: "Network interface IP to bind to (e.g., 192.168.1.100)"
-          }
+          address: { type: "string", title: "Server Address", default: "127.0.0.1" },
+          port: { type: "number", title: "UDP Port", default: 4446, minimum: 1024, maximum: 65535 },
+          interface: { type: "string", title: "Bind Interface (optional)", description: "Network interface IP to bind to" }
         }
       },
       backup: {
-        type: "object",
-        title: "Backup Link",
-        description: "Backup connection (e.g., Starlink, satellite)",
+        type: "object", title: "Backup Link",
+        description: "Backup connection (e.g. Starlink, satellite)",
         properties: {
-          address: {
-            type: "string",
-            title: "Server Address",
-            description: "IP address or hostname of the server for backup link",
-            default: "127.0.0.1"
-          },
-          port: {
-            type: "number",
-            title: "UDP Port",
-            description: "UDP port for backup link",
-            default: 4447,
-            minimum: 1024,
-            maximum: 65535
-          },
-          interface: {
-            type: "string",
-            title: "Bind Interface (optional)",
-            description: "Network interface IP to bind to (e.g., 10.0.0.100)"
-          }
+          address: { type: "string", title: "Server Address", default: "127.0.0.1" },
+          port: { type: "number", title: "UDP Port", default: 4447, minimum: 1024, maximum: 65535 },
+          interface: { type: "string", title: "Bind Interface (optional)", description: "Network interface IP to bind to" }
         }
       },
       failover: {
-        type: "object",
-        title: "Failover Thresholds",
-        description: "Configure when failover is triggered",
+        type: "object", title: "Failover Thresholds",
         properties: {
-          rttThreshold: {
-            type: "number",
-            title: "RTT Threshold (ms)",
-            description: "Failover when RTT exceeds this value",
-            default: 500,
-            minimum: 100,
-            maximum: 5000
-          },
-          lossThreshold: {
-            type: "number",
-            title: "Packet Loss Threshold",
-            description: "Failover when loss exceeds this ratio (0.0 - 1.0)",
-            default: 0.1,
-            minimum: 0.01,
-            maximum: 0.5
-          },
-          healthCheckInterval: {
-            type: "number",
-            title: "Health Check Interval (ms)",
-            description: "How often to check link health",
-            default: 1000,
-            minimum: 500,
-            maximum: 10000
-          },
-          failbackDelay: {
-            type: "number",
-            title: "Failback Delay (ms)",
-            description: "Wait time before switching back to primary after recovery",
-            default: 30000,
-            minimum: 5000,
-            maximum: 300000
-          },
-          heartbeatTimeout: {
-            type: "number",
-            title: "Heartbeat Timeout (ms)",
-            description: "Mark link as down when heartbeat responses exceed this timeout",
-            default: 5000,
-            minimum: 1000,
-            maximum: 30000
-          }
+          rttThreshold: { type: "number", title: "RTT Threshold (ms)", default: 500, minimum: 100, maximum: 5000 },
+          lossThreshold: { type: "number", title: "Loss Threshold (0-1)", default: 0.1, minimum: 0.01, maximum: 0.5 },
+          healthCheckInterval: { type: "number", title: "Health Check Interval (ms)", default: 1000, minimum: 500, maximum: 10000 },
+          failbackDelay: { type: "number", title: "Failback Delay (ms)", default: 30000, minimum: 5000, maximum: 300000 },
+          heartbeatTimeout: { type: "number", title: "Heartbeat Timeout (ms)", default: 5000, minimum: 1000, maximum: 30000 }
         }
       }
     }
@@ -361,43 +277,38 @@ const clientProperties = {
   alertThresholds: {
     type: "object",
     title: "Monitoring Alert Thresholds (v2 only)",
-    description: "Customize warning/critical thresholds for network monitoring alerts",
+    description: "Customize warning/critical thresholds for network monitoring alerts.",
     properties: {
       rtt: {
-        type: "object",
-        title: "RTT Thresholds",
+        type: "object", title: "RTT Thresholds",
         properties: {
           warning: { type: "number", title: "Warning RTT (ms)", default: 300 },
           critical: { type: "number", title: "Critical RTT (ms)", default: 800 }
         }
       },
       packetLoss: {
-        type: "object",
-        title: "Packet Loss Thresholds",
+        type: "object", title: "Packet Loss Thresholds",
         properties: {
           warning: { type: "number", title: "Warning Loss Ratio", default: 0.03 },
           critical: { type: "number", title: "Critical Loss Ratio", default: 0.10 }
         }
       },
       retransmitRate: {
-        type: "object",
-        title: "Retransmit Rate Thresholds",
+        type: "object", title: "Retransmit Rate Thresholds",
         properties: {
           warning: { type: "number", title: "Warning Retransmit Ratio", default: 0.05 },
           critical: { type: "number", title: "Critical Retransmit Ratio", default: 0.15 }
         }
       },
       jitter: {
-        type: "object",
-        title: "Jitter Thresholds",
+        type: "object", title: "Jitter Thresholds",
         properties: {
           warning: { type: "number", title: "Warning Jitter (ms)", default: 100 },
           critical: { type: "number", title: "Critical Jitter (ms)", default: 300 }
         }
       },
       queueDepth: {
-        type: "object",
-        title: "Queue Depth Thresholds",
+        type: "object", title: "Queue Depth Thresholds",
         properties: {
           warning: { type: "number", title: "Warning Queue Depth", default: 100 },
           critical: { type: "number", title: "Critical Queue Depth", default: 500 }
@@ -407,277 +318,380 @@ const clientProperties = {
   }
 };
 
-// Server-only properties
 const serverProperties = {
   reliability: {
     type: "object",
     title: "Reliability Settings (v2 only)",
-    description: "Requires Protocol v2. Controls ACK/NAK timing for reliable delivery",
+    description: "Requires Protocol v2. Controls ACK/NAK timing for reliable delivery.",
     properties: {
       ackInterval: {
-        type: "number",
-        title: "ACK Interval (ms)",
+        type: "number", title: "ACK Interval (ms)",
         description: "How often server sends cumulative ACK updates",
-        default: 100,
-        minimum: 20,
-        maximum: 5000
+        default: 100, minimum: 20, maximum: 5000
       },
       ackResendInterval: {
-        type: "number",
-        title: "ACK Resend Interval (ms)",
+        type: "number", title: "ACK Resend Interval (ms)",
         description: "Re-send duplicate ACK periodically to recover from lost ACK packets",
-        default: 1000,
-        minimum: 100,
-        maximum: 10000
+        default: 1000, minimum: 100, maximum: 10000
       },
       nakTimeout: {
-        type: "number",
-        title: "NAK Timeout (ms)",
+        type: "number", title: "NAK Timeout (ms)",
         description: "Delay before requesting retransmission for missing sequence numbers",
-        default: 100,
-        minimum: 20,
-        maximum: 5000
+        default: 100, minimum: 20, maximum: 5000
       }
     }
   }
 };
 
-// Generate schema based on current mode
-function getSchema(isClientMode) {
-  const properties = { ...baseProperties };
+function buildSchema(isClient) {
+  const props = { ...commonProperties };
   const required = ["serverType", "udpPort", "secretKey"];
-
-  if (isClientMode) {
-    Object.assign(properties, clientProperties);
+  if (isClient) {
+    Object.assign(props, clientProperties);
     required.push("udpAddress", "testAddress", "testPort");
   } else {
-    Object.assign(properties, serverProperties);
+    Object.assign(props, serverProperties);
   }
-
-  return {
-    type: "object",
-    title: "SignalK Edge Link",
-    description: "Configure encrypted UDP data transmission between SignalK units",
-    required,
-    properties
-  };
+  return { type: "object", required, properties: props };
 }
 
-// UI Schema for field ordering and styling
-const uiSchema = {
+const uiSchemaClient = {
   "ui:order": [
-    "serverType",
-    "udpPort",
-    "secretKey",
-    "useMsgpack",
-    "usePathDictionary",
-    "protocolVersion",
-    "udpAddress",
-    "helloMessageSender",
-    "testAddress",
-    "testPort",
-    "pingIntervalTime",
-    "reliability",
-    "congestionControl",
-    "bonding",
-    "alertThresholds"
+    "name", "serverType", "udpPort", "secretKey", "useMsgpack", "usePathDictionary",
+    "protocolVersion", "udpAddress", "helloMessageSender", "testAddress", "testPort",
+    "pingIntervalTime", "reliability", "congestionControl", "bonding", "alertThresholds"
   ],
-  secretKey: {
-    "ui:widget": "password",
-    "ui:help": "Must be exactly 32 characters long"
-  },
-  serverType: {
-    "ui:widget": "select"
-  }
+  secretKey: { "ui:widget": "password", "ui:help": "Must be exactly 32 characters long" },
+  serverType: { "ui:widget": "select" }
 };
 
-/**
- * Custom configuration panel for SignalK Data Connector plugin
- * Fetches configuration from API and renders dynamic form
- */
+const uiSchemaServer = {
+  "ui:order": [
+    "name", "serverType", "udpPort", "secretKey", "useMsgpack", "usePathDictionary",
+    "protocolVersion", "reliability"
+  ],
+  secretKey: { "ui:widget": "password", "ui:help": "Must be exactly 32 characters long" },
+  serverType: { "ui:widget": "select" }
+};
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+const css = `
+.el-config { font-family: inherit; }
+.el-card {
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.el-card-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  background: #f8f9fa;
+  cursor: pointer;
+  user-select: none;
+  gap: 10px;
+}
+.el-card-header:hover { background: #e9ecef; }
+.el-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.el-badge-server { background: #cfe2ff; color: #084298; }
+.el-badge-client { background: #d1e7dd; color: #0a3622; }
+.el-card-title { font-weight: 600; flex: 1; }
+.el-expand-icon { font-size: 0.8rem; color: #6c757d; }
+.el-btn-remove {
+  background: none;
+  border: 1px solid #dc3545;
+  color: #dc3545;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.el-btn-remove:hover { background: #dc3545; color: white; }
+.el-btn-remove:disabled { opacity: 0.4; cursor: default; border-color: #aaa; color: #aaa; }
+.el-btn-remove:disabled:hover { background: none; }
+.el-card-body { padding: 16px; border-top: 1px solid #dee2e6; }
+.el-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #dee2e6;
+  flex-wrap: wrap;
+}
+.el-btn {
+  padding: 7px 16px;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  border: none;
+}
+.el-btn-primary { background: #0d6efd; color: white; }
+.el-btn-primary:hover { background: #0b5ed7; }
+.el-btn-primary:disabled { background: #6c757d; cursor: default; }
+.el-btn-secondary { background: white; color: #0d6efd; border: 1px solid #0d6efd; }
+.el-btn-secondary:hover { background: #e7f0ff; }
+.el-alert {
+  padding: 10px 14px;
+  border-radius: 4px;
+  margin-bottom: 14px;
+  font-size: 0.9rem;
+}
+.el-alert-success { background: #d1e7dd; color: #0a3622; border: 1px solid #a3cfbb; }
+.el-alert-error   { background: #f8d7da; color: #58151c; border: 1px solid #f1aeb5; }
+.el-alert-saving  { background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; }
+.el-dup-warn { font-size: 0.8rem; color: #dc3545; margin-top: 4px; }
+`;
+
+// ── ConnectionCard ────────────────────────────────────────────────────────────
+
+function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange, onRemove }) {
+  const isClient = conn.serverType !== "server";
+  const schema = buildSchema(isClient);
+  const uiSchema = isClient ? uiSchemaClient : uiSchemaServer;
+  const modeLabel = isClient ? "Client" : "Server";
+  const displayName = (conn.name || `Connection ${index + 1}`).trim();
+
+  // When the user changes serverType inside the form, strip fields that don't
+  // belong to the new mode so they don't carry over as stale data.
+  const handleFormChange = useCallback(({ formData: next }) => {
+    if (next.serverType !== conn.serverType) {
+      // Mode switched – keep only the common fields and apply defaults
+      const base = next.serverType === "server"
+        ? defaultServerConnection(next.name)
+        : defaultClientConnection(next.name);
+      // Preserve fields that are valid in both modes
+      const shared = ["name", "udpPort", "secretKey", "useMsgpack", "usePathDictionary", "protocolVersion"];
+      const merged = { ...base };
+      for (const k of shared) {
+        if (next[k] !== undefined) { merged[k] = next[k]; }
+      }
+      merged.serverType = next.serverType;
+      onChange(merged);
+    } else {
+      onChange(next);
+    }
+  }, [conn.serverType, onChange]);
+
+  return (
+    <div className="el-card">
+      <div className="el-card-header" onClick={onToggle} role="button" aria-expanded={expanded}>
+        <span className={`el-badge ${isClient ? "el-badge-client" : "el-badge-server"}`}>
+          {modeLabel}
+        </span>
+        <span className="el-card-title">{displayName}</span>
+        <span className="el-expand-icon">{expanded ? "▲" : "▼"}</span>
+        <button
+          className="el-btn-remove"
+          disabled={totalCount <= 1}
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          title={totalCount <= 1 ? "Cannot remove the only connection" : "Remove this connection"}
+        >
+          Remove
+        </button>
+      </div>
+      {expanded && (
+        <div className="el-card-body">
+          <Form
+            schema={schema}
+            uiSchema={uiSchema}
+            formData={conn}
+            validator={validator}
+            onChange={handleFormChange}
+            onSubmit={() => {}}
+            liveValidate={false}
+          >
+            {/* Hide the default submit button – saving is done from the outer toolbar */}
+            <div />
+          </Form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main panel ────────────────────────────────────────────────────────────────
+
 function PluginConfigurationPanel(_props) {
-  const [formData, setFormData] = useState({});
+  const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [saveStatus, setSaveStatus] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [saveStatus, setSaveStatus] = useState(null); // { type, message }
+  const [expandedIndex, setExpandedIndex] = useState(0);
 
-  // Determine if we're in client mode
-  const isClientMode = formData.serverType !== "server";
-
-  // Generate schema based on current mode
-  const schema = getSchema(isClientMode);
-
-  // Fetch configuration from API on mount
+  // ── Load config ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    async function fetchConfig() {
+    async function load() {
       try {
-        const response = await fetch(`${API_BASE}/plugin-config`);
-        if (!response.ok) {
-          throw new Error(`Failed to load: ${response.statusText}`);
+        const res = await fetch(`${API_BASE}/plugin-config`);
+        if (!res.ok) { throw new Error(`HTTP ${res.status}: ${res.statusText}`); }
+        const body = await res.json();
+        if (!body.success) { throw new Error(body.error || "Failed to load configuration"); }
+
+        const cfg = body.configuration || {};
+        let list;
+        if (Array.isArray(cfg.connections) && cfg.connections.length > 0) {
+          list = cfg.connections;
+        } else if (cfg.serverType) {
+          // Legacy flat config – wrap as single-item array
+          list = [cfg];
+        } else {
+          list = [defaultClientConnection()];
         }
-        const data = await response.json();
-        if (data.success && data.configuration) {
-          setFormData(data.configuration);
-        }
+        setConnections(list);
+        setExpandedIndex(0);
       } catch (err) {
-        setError(err.message);
+        setLoadError(err.message);
       } finally {
         setLoading(false);
       }
     }
-    fetchConfig();
+    load();
   }, []);
 
-  // Handle form changes
-  const handleChange = useCallback(({ formData: newFormData }) => {
-    setFormData(newFormData);
+  // ── Duplicate server-port detection ─────────────────────────────────────────
+  const serverPorts = connections
+    .filter((c) => c.serverType === "server")
+    .map((c) => c.udpPort);
+  const duplicatePortSet = new Set(
+    serverPorts.filter((p, i) => serverPorts.indexOf(p) !== i)
+  );
+
+  // ── Handlers ─────────────────────────────────────────────────────────────────
+  const updateConnection = useCallback((idx, data) => {
+    setConnections((prev) => prev.map((c, i) => (i === idx ? data : c)));
     setSaveStatus(null);
   }, []);
 
-  // Handle form submission
-  const handleSubmit = useCallback(async ({ formData: submittedData }) => {
-    setSaveStatus({ type: "saving", message: "Saving..." });
+  const addServer = useCallback(() => {
+    const idx = connections.length;
+    setConnections((prev) => [...prev, defaultServerConnection(`server-${prev.length + 1}`)]);
+    setExpandedIndex(idx);
+    setSaveStatus(null);
+  }, [connections.length]);
 
-    // Clean up client-only fields when in server mode
-    const cleanedData = { ...submittedData };
-    if (cleanedData.serverType === "server") {
-      delete cleanedData.udpAddress;
-      delete cleanedData.helloMessageSender;
-      delete cleanedData.testAddress;
-      delete cleanedData.testPort;
-      delete cleanedData.pingIntervalTime;
-      delete cleanedData.congestionControl;
-      delete cleanedData.bonding;
-      delete cleanedData.alertThresholds;
+  const addClient = useCallback(() => {
+    const idx = connections.length;
+    setConnections((prev) => [...prev, defaultClientConnection(`client-${prev.length + 1}`)]);
+    setExpandedIndex(idx);
+    setSaveStatus(null);
+  }, [connections.length]);
+
+  const removeConnection = useCallback((idx) => {
+    setConnections((prev) => prev.filter((_, i) => i !== idx));
+    setExpandedIndex((prev) => (prev >= idx && prev > 0 ? prev - 1 : prev));
+    setSaveStatus(null);
+  }, []);
+
+  const toggleExpand = useCallback((idx) => {
+    setExpandedIndex((prev) => (prev === idx ? null : idx));
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (duplicatePortSet.size > 0) {
+      setSaveStatus({
+        type: "error",
+        message: `Duplicate server ports detected: ${[...duplicatePortSet].join(", ")}. Each server must use a unique UDP port.`
+      });
+      return;
     }
 
+    setSaveStatus({ type: "saving", message: "Saving configuration..." });
     try {
-      const response = await fetch(`${API_BASE}/plugin-config`, {
+      const res = await fetch(`${API_BASE}/plugin-config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(cleanedData)
+        body: JSON.stringify({ connections })
       });
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        setSaveStatus({
-          type: "success",
-          message: data.message || "Configuration saved. Plugin restarting..."
-        });
+      const body = await res.json();
+      if (res.ok && body.success) {
+        setSaveStatus({ type: "success", message: body.message || "Configuration saved. Plugin restarting..." });
       } else {
-        throw new Error(data.error || "Failed to save");
+        throw new Error(body.error || "Failed to save");
       }
     } catch (err) {
       setSaveStatus({ type: "error", message: err.message });
     }
-  }, []);
+  }, [connections, duplicatePortSet]);
 
+  // ── Render ────────────────────────────────────────────────────────────────────
   if (loading) {
     return <div style={{ padding: "20px", textAlign: "center" }}>Loading configuration...</div>;
   }
 
-  if (error) {
+  if (loadError) {
     return (
-      <div style={{ padding: "20px", color: "#dc3545" }}>
-        <h4>Error Loading Configuration</h4>
-        <p>{error}</p>
+      <div style={{ padding: "20px" }}>
+        <div className="el-alert el-alert-error">
+          <strong>Error loading configuration:</strong> {loadError}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="signalk-edge-link-config">
+    <div className="el-config">
+      <style>{css}</style>
+
       {saveStatus && (
-        <div
-          style={{
-            padding: "10px 15px",
-            marginBottom: "15px",
-            borderRadius: "4px",
-            backgroundColor:
-              saveStatus.type === "success"
-                ? "#d4edda"
-                : saveStatus.type === "error"
-                  ? "#f8d7da"
-                  : "#fff3cd",
-            color:
-              saveStatus.type === "success"
-                ? "#155724"
-                : saveStatus.type === "error"
-                  ? "#721c24"
-                  : "#856404",
-            border: `1px solid ${
-              saveStatus.type === "success"
-                ? "#c3e6cb"
-                : saveStatus.type === "error"
-                  ? "#f5c6cb"
-                  : "#ffeeba"
-            }`
-          }}
-        >
+        <div className={`el-alert el-alert-${saveStatus.type === "saving" ? "saving" : saveStatus.type === "success" ? "success" : "error"}`}>
           {saveStatus.message}
         </div>
       )}
-      <Form
-        schema={schema}
-        uiSchema={uiSchema}
-        formData={formData}
-        validator={validator}
-        onChange={handleChange}
-        onSubmit={handleSubmit}
-        liveValidate={false}
-      >
-        <button type="submit" className="btn btn-primary">
+
+      {connections.map((conn, idx) => (
+        <div key={idx}>
+          <ConnectionCard
+            conn={conn}
+            index={idx}
+            totalCount={connections.length}
+            expanded={expandedIndex === idx}
+            onToggle={() => toggleExpand(idx)}
+            onChange={(data) => updateConnection(idx, data)}
+            onRemove={() => removeConnection(idx)}
+          />
+          {conn.serverType === "server" && duplicatePortSet.has(conn.udpPort) && (
+            <div className="el-dup-warn">
+              Port {conn.udpPort} is used by multiple server connections. Each server requires a unique port.
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="el-toolbar">
+        <button className="el-btn el-btn-secondary" onClick={addServer}>
+          + Add Server
+        </button>
+        <button className="el-btn el-btn-secondary" onClick={addClient}>
+          + Add Client
+        </button>
+        <button
+          className="el-btn el-btn-primary"
+          onClick={handleSave}
+          disabled={saveStatus && saveStatus.type === "saving"}
+        >
           Save Configuration
         </button>
-      </Form>
-      <style>{`
-        .signalk-edge-link-config {
-          width: 100%;
-        }
-        .signalk-edge-link-config .form-group {
-          margin-bottom: 1rem;
-        }
-        .signalk-edge-link-config label {
-          font-weight: 600;
-          margin-bottom: 0.25rem;
-          display: block;
-        }
-        .signalk-edge-link-config .help-block,
-        .signalk-edge-link-config .field-description {
-          font-size: 0.85rem;
-          color: #666;
-          margin-top: 0.25rem;
-        }
-        .signalk-edge-link-config input,
-        .signalk-edge-link-config select {
-          width: 100%;
-          padding: 0.5rem;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-          font-size: 1rem;
-        }
-        .signalk-edge-link-config input[type="checkbox"] {
-          width: auto;
-        }
-        .signalk-edge-link-config .btn-primary {
-          background-color: #007bff;
-          border-color: #007bff;
-          color: white;
-          padding: 0.5rem 1rem;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 1rem;
-          margin-top: 1rem;
-        }
-        .signalk-edge-link-config .btn-primary:hover {
-          background-color: #0069d9;
-          border-color: #0062cc;
-        }
-        .signalk-edge-link-config .text-danger {
-          color: #dc3545;
-          font-size: 0.85rem;
-        }
-      `}</style>
+        <span style={{ fontSize: "0.85rem", color: "#6c757d" }}>
+          {connections.length} connection{connections.length !== 1 ? "s" : ""} configured
+          {" · "}
+          {connections.filter((c) => c.serverType === "server").length} server
+          {connections.filter((c) => c.serverType === "server").length !== 1 ? "s" : ""}
+          {", "}
+          {connections.filter((c) => c.serverType !== "server").length} client
+          {connections.filter((c) => c.serverType !== "server").length !== 1 ? "s" : ""}
+        </span>
+      </div>
     </div>
   );
 }
