@@ -44,7 +44,7 @@ Server Signal K
 
 - Two Signal K instances (source + destination)
 - UDP reachability from client to server on your configured port
-- One shared 32-character secret key on both ends
+- One shared secret key (exactly 32 bytes / 32 ASCII characters) on both ends
 - For source installs: Node.js 16+
 
 ## Installation
@@ -75,7 +75,7 @@ In Signal K Admin UI:
 - Open `Server -> Plugin Config -> Signal K Edge Link`
 - Set `Operation Mode` to `Server`
 - Set `UDP Port` (default `4446`)
-- Set `Encryption Key` (exactly 32 chars)
+- Set `Encryption Key` (exactly 32 bytes / 32 ASCII characters)
 - Set `Protocol Version` (`2` recommended)
 - Save
 
@@ -148,7 +148,7 @@ There are two configuration layers:
 |---|---|---|
 | `serverType` | yes | `server` or `client` |
 | `udpPort` | yes | `1024-65535` |
-| `secretKey` | yes | exactly 32 chars, at least 8 unique chars |
+| `secretKey` | yes | exactly 32 bytes (32 ASCII chars), at least 8 unique chars |
 | `protocolVersion` | no | `1` or `2` |
 | `useMsgpack` | no | must match both ends |
 | `usePathDictionary` | no | must match both ends |
@@ -250,6 +250,7 @@ Current rate limit: 120 requests/minute/IP.
 
 - `GET /metrics`
 - `GET /network-metrics`
+- `GET /paths`
 - `GET /monitoring/alerts`
 - `POST /monitoring/alerts`
 - `GET /monitoring/packet-loss`
@@ -274,6 +275,7 @@ Current rate limit: 120 requests/minute/IP.
 
 - Encryption is AES-256-GCM with auth tag verification
 - If keys mismatch, packets are rejected
+- Keys must be exactly 32 bytes (use ASCII characters only)
 - Use strong random keys and rotate periodically
 - Keep UDP ingress restricted to trusted source addresses where possible
 
@@ -288,7 +290,7 @@ openssl rand -base64 32 | cut -c1-32
 | Symptom | Likely Cause | Action |
 |---|---|---|
 | No data on server | wrong IP/port/key | verify `udpAddress`, `udpPort`, `secretKey` on both ends |
-| Auth/decrypt errors | key mismatch | set identical 32-char key |
+| Auth/decrypt errors | key mismatch | set identical 32-byte key (ASCII only) |
 | No `/config/*` access | running server mode | this endpoint is client mode only |
 | Frequent packet loss | unstable link or too aggressive send rate | use protocol v2, enable congestion control, tune reliability |
 | UI missing updates | stale frontend bundle | rebuild plugin (`npm run build`) and reload |
