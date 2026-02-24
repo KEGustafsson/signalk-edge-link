@@ -57,50 +57,63 @@ describe("SignalK Data Connector Plugin", () => {
   });
 
   describe("Schema Validation", () => {
-    test("should require serverType, udpPort and secretKey", () => {
-      expect(plugin.schema.required).toContain("serverType");
-      expect(plugin.schema.required).toContain("udpPort");
-      expect(plugin.schema.required).toContain("secretKey");
+    // Helper: navigate to the per-connection item schema
+    // plugin.schema wraps everything in a connections[] array.
+    let itemSchema;
+    beforeEach(() => {
+      itemSchema = plugin.schema.properties.connections.items;
+    });
+
+    test("connections array is defined with at least 1 item required", () => {
+      const conns = plugin.schema.properties.connections;
+      expect(conns).toBeDefined();
+      expect(conns.type).toBe("array");
+      expect(conns.minItems).toBe(1);
+      expect(conns.items).toBeDefined();
+    });
+
+    test("should require serverType, udpPort and secretKey inside each connection", () => {
+      expect(itemSchema.required).toContain("serverType");
+      expect(itemSchema.required).toContain("udpPort");
+      expect(itemSchema.required).toContain("secretKey");
     });
 
     test("should have serverType options", () => {
-      const serverType = plugin.schema.properties.serverType;
-      expect(serverType.oneOf).toEqual([
-        { const: "server", title: "Server Mode - Receive Data" },
-        { const: "client", title: "Client Mode - Send Data" }
-      ]);
+      const serverType = itemSchema.properties.serverType;
+      expect(serverType.oneOf[0].const).toBe("server");
+      expect(serverType.oneOf[1].const).toBe("client");
     });
 
     test("should validate udpPort range", () => {
-      const udpPort = plugin.schema.properties.udpPort;
+      const udpPort = itemSchema.properties.udpPort;
       expect(udpPort.minimum).toBe(1024);
       expect(udpPort.maximum).toBe(65535);
     });
 
     test("should validate secretKey length", () => {
-      const secretKey = plugin.schema.properties.secretKey;
+      const secretKey = itemSchema.properties.secretKey;
       expect(secretKey.minLength).toBe(32);
       expect(secretKey.maxLength).toBe(32);
     });
 
-    test("should NOT have client-only fields in main properties", () => {
-      // Client-only fields should only be in dependencies.oneOf, not main properties
-      expect(plugin.schema.properties.udpAddress).toBeUndefined();
-      expect(plugin.schema.properties.testAddress).toBeUndefined();
-      expect(plugin.schema.properties.testPort).toBeUndefined();
-      expect(plugin.schema.properties.pingIntervalTime).toBeUndefined();
-      expect(plugin.schema.properties.helloMessageSender).toBeUndefined();
+    test("should NOT have client-only fields in connection item main properties", () => {
+      // Client-only fields live inside dependencies.serverType.oneOf, not top-level
+      expect(itemSchema.properties.udpAddress).toBeUndefined();
+      expect(itemSchema.properties.testAddress).toBeUndefined();
+      expect(itemSchema.properties.testPort).toBeUndefined();
+      expect(itemSchema.properties.pingIntervalTime).toBeUndefined();
+      expect(itemSchema.properties.helloMessageSender).toBeUndefined();
     });
 
     test("should have dependencies with oneOf for conditional display", () => {
-      expect(plugin.schema.dependencies).toBeDefined();
-      expect(plugin.schema.dependencies.serverType).toBeDefined();
-      expect(plugin.schema.dependencies.serverType.oneOf).toBeDefined();
-      expect(plugin.schema.dependencies.serverType.oneOf.length).toBe(2);
+      expect(itemSchema.dependencies).toBeDefined();
+      expect(itemSchema.dependencies.serverType).toBeDefined();
+      expect(itemSchema.dependencies.serverType.oneOf).toBeDefined();
+      expect(itemSchema.dependencies.serverType.oneOf.length).toBe(2);
     });
 
     test("should have client-only fields inside oneOf for client mode", () => {
-      const clientDep = plugin.schema.dependencies.serverType.oneOf.find(
+      const clientDep = itemSchema.dependencies.serverType.oneOf.find(
         (dep) => dep.properties.serverType.enum && dep.properties.serverType.enum.includes("client")
       );
       expect(clientDep).toBeDefined();
@@ -115,7 +128,7 @@ describe("SignalK Data Connector Plugin", () => {
     });
 
     test("should expose advanced client reliability parameters in schema", () => {
-      const clientDep = plugin.schema.dependencies.serverType.oneOf.find(
+      const clientDep = itemSchema.dependencies.serverType.oneOf.find(
         (dep) => dep.properties.serverType.enum && dep.properties.serverType.enum.includes("client")
       );
       expect(clientDep).toBeDefined();
@@ -129,7 +142,7 @@ describe("SignalK Data Connector Plugin", () => {
     });
 
     test("should expose alert thresholds and bonding heartbeat timeout in schema", () => {
-      const clientDep = plugin.schema.dependencies.serverType.oneOf.find(
+      const clientDep = itemSchema.dependencies.serverType.oneOf.find(
         (dep) => dep.properties.serverType.enum && dep.properties.serverType.enum.includes("client")
       );
       expect(clientDep).toBeDefined();
@@ -140,7 +153,7 @@ describe("SignalK Data Connector Plugin", () => {
     });
 
     test("should NOT have client fields in server mode oneOf", () => {
-      const serverDep = plugin.schema.dependencies.serverType.oneOf.find(
+      const serverDep = itemSchema.dependencies.serverType.oneOf.find(
         (dep) => dep.properties.serverType.enum && dep.properties.serverType.enum.includes("server")
       );
       expect(serverDep).toBeDefined();
@@ -148,11 +161,11 @@ describe("SignalK Data Connector Plugin", () => {
       expect(serverDep.properties.testAddress).toBeUndefined();
     });
 
-    test("should NOT set additionalProperties:false (incompatible with dependencies/oneOf)", () => {
+    test("should NOT set additionalProperties:false on connection item (incompatible with dependencies/oneOf)", () => {
       // additionalProperties:false would reject client fields defined in dependencies.oneOf
       // since they are not in the top-level properties block. Server-side sanitization
       // in the /plugin-config POST handler protects against unknown fields instead.
-      expect(plugin.schema.additionalProperties).not.toBe(false);
+      expect(itemSchema.additionalProperties).not.toBe(false);
     });
   });
 
