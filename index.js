@@ -96,6 +96,9 @@ module.exports = function createPlugin(app) {
   };
 
   plugin.start = async function start(options, restartPlugin) {
+    // Store restartPlugin on the plugin itself so any route handler can access it
+    // regardless of how many instances are running.
+    plugin._restartPlugin = typeof restartPlugin === "function" ? restartPlugin : null;
     // ── Parse connections array (supports both legacy flat and new array format)
     let connectionList;
     if (Array.isArray(options.connections) && options.connections.length > 0) {
@@ -147,14 +150,16 @@ module.exports = function createPlugin(app) {
       instances.set(instanceId, instance);
     }
 
-    // Store restartPlugin on first instance's state for routes to use
-    const firstBundle = instanceRegistry.getFirst();
-    if (firstBundle && restartPlugin) {
-      firstBundle.state.restartPlugin = restartPlugin;
+    // Start all instances concurrently.
+    // On any failure, stop everything to avoid a half-started state.
+    try {
+      await Promise.all([...instances.values()].map((inst) => inst.start()));
+    } catch (err) {
+      app.error(`Failed to start one or more connections: ${err.message}`);
+      plugin.stop();
+      setStatus(`Startup failed: ${err.message}`);
+      return;
     }
-
-    // Start all instances concurrently
-    await Promise.all([...instances.values()].map((inst) => inst.start()));
 
     // Initial status aggregation after all instances report their status
     updateAggregatedStatus();

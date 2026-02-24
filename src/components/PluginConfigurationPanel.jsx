@@ -1,13 +1,21 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 
 const API_BASE = "/plugins/signalk-edge-link";
 
+// ── Stable ID helper ──────────────────────────────────────────────────────────
+// Each connection object carries a frontend-only `_id` for use as React key.
+// It is stripped before the array is POSTed to the backend.
+
+let _idSeq = 0;
+function makeId() { return `skel-${Date.now()}-${++_idSeq}`; }
+
 // ── Default config factories ──────────────────────────────────────────────────
 
 function defaultClientConnection(name) {
   return {
+    _id: makeId(),
     name: name || "client",
     serverType: "client",
     udpPort: 4446,
@@ -25,6 +33,7 @@ function defaultClientConnection(name) {
 
 function defaultServerConnection(name) {
   return {
+    _id: makeId(),
     name: name || "server",
     serverType: "server",
     udpPort: 4446,
@@ -33,6 +42,11 @@ function defaultServerConnection(name) {
     usePathDictionary: false,
     protocolVersion: 1
   };
+}
+
+/** Attach a stable _id to loaded connections that don't already have one. */
+function withId(conn) {
+  return conn._id ? conn : { ...conn, _id: makeId() };
 }
 
 // ── Schema builders ───────────────────────────────────────────────────────────
@@ -374,17 +388,38 @@ const uiSchemaServer = {
   serverType: { "ui:widget": "select" }
 };
 
+// Shared fields preserved when the user toggles server ↔ client mode
+const SHARED_FIELDS = ["name", "udpPort", "secretKey", "useMsgpack", "usePathDictionary", "protocolVersion"];
+
+// ── No-op submit button template (L2 fix: use official RJSF API) ──────────────
+const NoSubmitButton = () => null;
+const rjsfTemplates = { ButtonTemplates: { SubmitButton: NoSubmitButton } };
+
 // ── Styles ────────────────────────────────────────────────────────────────────
+// Using `skel-` prefix (Signal K Edge Link) to avoid collisions with other
+// plugins that may inject CSS into the same admin panel page.
 
 const css = `
-.el-config { font-family: inherit; }
-.el-card {
+.skel-config { font-family: inherit; }
+.skel-dirty-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #fff3cd;
+  color: #664d03;
+  border: 1px solid #ffe69c;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 0.88rem;
+}
+.skel-card {
   border: 1px solid #dee2e6;
   border-radius: 6px;
   margin-bottom: 12px;
   overflow: hidden;
 }
-.el-card-header {
+.skel-card-header {
   display: flex;
   align-items: center;
   padding: 10px 14px;
@@ -393,8 +428,8 @@ const css = `
   user-select: none;
   gap: 10px;
 }
-.el-card-header:hover { background: #e9ecef; }
-.el-badge {
+.skel-card-header:hover { background: #e9ecef; }
+.skel-badge {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 12px;
@@ -403,11 +438,11 @@ const css = `
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-.el-badge-server { background: #cfe2ff; color: #084298; }
-.el-badge-client { background: #d1e7dd; color: #0a3622; }
-.el-card-title { font-weight: 600; flex: 1; }
-.el-expand-icon { font-size: 0.8rem; color: #6c757d; }
-.el-btn-remove {
+.skel-badge-server { background: #cfe2ff; color: #084298; }
+.skel-badge-client { background: #d1e7dd; color: #0a3622; }
+.skel-card-title { font-weight: 600; flex: 1; }
+.skel-expand-icon { font-size: 0.8rem; color: #6c757d; }
+.skel-btn-remove {
   background: none;
   border: 1px solid #dc3545;
   color: #dc3545;
@@ -416,11 +451,11 @@ const css = `
   font-size: 0.8rem;
   cursor: pointer;
 }
-.el-btn-remove:hover { background: #dc3545; color: white; }
-.el-btn-remove:disabled { opacity: 0.4; cursor: default; border-color: #aaa; color: #aaa; }
-.el-btn-remove:disabled:hover { background: none; }
-.el-card-body { padding: 16px; border-top: 1px solid #dee2e6; }
-.el-toolbar {
+.skel-btn-remove:hover { background: #dc3545; color: white; }
+.skel-btn-remove:disabled { opacity: 0.4; cursor: default; border-color: #aaa; color: #aaa; }
+.skel-btn-remove:disabled:hover { background: none; }
+.skel-card-body { padding: 16px; border-top: 1px solid #dee2e6; }
+.skel-toolbar {
   display: flex;
   gap: 10px;
   align-items: center;
@@ -429,28 +464,28 @@ const css = `
   border-top: 1px solid #dee2e6;
   flex-wrap: wrap;
 }
-.el-btn {
+.skel-btn {
   padding: 7px 16px;
   border-radius: 4px;
   font-size: 0.95rem;
   cursor: pointer;
   border: none;
 }
-.el-btn-primary { background: #0d6efd; color: white; }
-.el-btn-primary:hover { background: #0b5ed7; }
-.el-btn-primary:disabled { background: #6c757d; cursor: default; }
-.el-btn-secondary { background: white; color: #0d6efd; border: 1px solid #0d6efd; }
-.el-btn-secondary:hover { background: #e7f0ff; }
-.el-alert {
+.skel-btn-primary { background: #0d6efd; color: white; }
+.skel-btn-primary:hover { background: #0b5ed7; }
+.skel-btn-primary:disabled { background: #6c757d; cursor: default; }
+.skel-btn-secondary { background: white; color: #0d6efd; border: 1px solid #0d6efd; }
+.skel-btn-secondary:hover { background: #e7f0ff; }
+.skel-alert {
   padding: 10px 14px;
   border-radius: 4px;
   margin-bottom: 14px;
   font-size: 0.9rem;
 }
-.el-alert-success { background: #d1e7dd; color: #0a3622; border: 1px solid #a3cfbb; }
-.el-alert-error   { background: #f8d7da; color: #58151c; border: 1px solid #f1aeb5; }
-.el-alert-saving  { background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; }
-.el-dup-warn { font-size: 0.8rem; color: #dc3545; margin-top: 4px; }
+.skel-alert-success { background: #d1e7dd; color: #0a3622; border: 1px solid #a3cfbb; }
+.skel-alert-error   { background: #f8d7da; color: #58151c; border: 1px solid #f1aeb5; }
+.skel-alert-saving  { background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; }
+.skel-dup-warn { font-size: 0.8rem; color: #dc3545; margin-top: 4px; }
 `;
 
 // ── ConnectionCard ────────────────────────────────────────────────────────────
@@ -463,36 +498,33 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
   const displayName = (conn.name || `Connection ${index + 1}`).trim();
 
   // When the user changes serverType inside the form, strip fields that don't
-  // belong to the new mode so they don't carry over as stale data.
+  // belong to the new mode so stale data never carries over.
   const handleFormChange = useCallback(({ formData: next }) => {
     if (next.serverType !== conn.serverType) {
-      // Mode switched – keep only the common fields and apply defaults
       const base = next.serverType === "server"
         ? defaultServerConnection(next.name)
         : defaultClientConnection(next.name);
-      // Preserve fields that are valid in both modes
-      const shared = ["name", "udpPort", "secretKey", "useMsgpack", "usePathDictionary", "protocolVersion"];
-      const merged = { ...base };
-      for (const k of shared) {
+      const merged = { ...base, _id: conn._id };
+      for (const k of SHARED_FIELDS) {
         if (next[k] !== undefined) { merged[k] = next[k]; }
       }
       merged.serverType = next.serverType;
       onChange(merged);
     } else {
-      onChange(next);
+      onChange({ ...next, _id: conn._id });
     }
-  }, [conn.serverType, onChange]);
+  }, [conn.serverType, conn._id, onChange]);
 
   return (
-    <div className="el-card">
-      <div className="el-card-header" onClick={onToggle} role="button" aria-expanded={expanded}>
-        <span className={`el-badge ${isClient ? "el-badge-client" : "el-badge-server"}`}>
+    <div className="skel-card">
+      <div className="skel-card-header" onClick={onToggle} role="button" aria-expanded={expanded}>
+        <span className={`skel-badge ${isClient ? "skel-badge-client" : "skel-badge-server"}`}>
           {modeLabel}
         </span>
-        <span className="el-card-title">{displayName}</span>
-        <span className="el-expand-icon">{expanded ? "▲" : "▼"}</span>
+        <span className="skel-card-title">{displayName}</span>
+        <span className="skel-expand-icon">{expanded ? "▲" : "▼"}</span>
         <button
-          className="el-btn-remove"
+          className="skel-btn-remove"
           disabled={totalCount <= 1}
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           title={totalCount <= 1 ? "Cannot remove the only connection" : "Remove this connection"}
@@ -501,7 +533,7 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
         </button>
       </div>
       {expanded && (
-        <div className="el-card-body">
+        <div className="skel-card-body">
           <Form
             schema={schema}
             uiSchema={uiSchema}
@@ -510,10 +542,8 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
             onChange={handleFormChange}
             onSubmit={() => {}}
             liveValidate={false}
-          >
-            {/* Hide the default submit button – saving is done from the outer toolbar */}
-            <div />
-          </Form>
+            templates={rjsfTemplates}
+          />
         </div>
       )}
     </div>
@@ -528,6 +558,11 @@ function PluginConfigurationPanel(_props) {
   const [loadError, setLoadError] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null); // { type, message }
   const [expandedIndex, setExpandedIndex] = useState(0);
+  const [isDirty, setIsDirty] = useState(false);
+
+  // Synchronous save lock prevents double-submits even if React batching delays
+  // the button's disabled state update (M2 fix).
+  const savingRef = useRef(false);
 
   // ── Load config ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -541,15 +576,16 @@ function PluginConfigurationPanel(_props) {
         const cfg = body.configuration || {};
         let list;
         if (Array.isArray(cfg.connections) && cfg.connections.length > 0) {
-          list = cfg.connections;
+          list = cfg.connections.map(withId);
         } else if (cfg.serverType) {
           // Legacy flat config – wrap as single-item array
-          list = [cfg];
+          list = [withId(cfg)];
         } else {
           list = [defaultClientConnection()];
         }
         setConnections(list);
         setExpandedIndex(0);
+        setIsDirty(false);
       } catch (err) {
         setLoadError(err.message);
       } finally {
@@ -568,36 +604,48 @@ function PluginConfigurationPanel(_props) {
   );
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
-  const updateConnection = useCallback((idx, data) => {
-    setConnections((prev) => prev.map((c, i) => (i === idx ? data : c)));
+  const markDirty = useCallback(() => {
+    setIsDirty(true);
     setSaveStatus(null);
   }, []);
 
+  const updateConnection = useCallback((idx, data) => {
+    setConnections((prev) => prev.map((c, i) => (i === idx ? data : c)));
+    markDirty();
+  }, [markDirty]);
+
   const addServer = useCallback(() => {
-    const idx = connections.length;
-    setConnections((prev) => [...prev, defaultServerConnection(`server-${prev.length + 1}`)]);
-    setExpandedIndex(idx);
-    setSaveStatus(null);
-  }, [connections.length]);
+    setConnections((prev) => {
+      const next = [...prev, defaultServerConnection(`server-${prev.length + 1}`)];
+      setExpandedIndex(next.length - 1);
+      return next;
+    });
+    markDirty();
+  }, [markDirty]);
 
   const addClient = useCallback(() => {
-    const idx = connections.length;
-    setConnections((prev) => [...prev, defaultClientConnection(`client-${prev.length + 1}`)]);
-    setExpandedIndex(idx);
-    setSaveStatus(null);
-  }, [connections.length]);
+    setConnections((prev) => {
+      const next = [...prev, defaultClientConnection(`client-${prev.length + 1}`)];
+      setExpandedIndex(next.length - 1);
+      return next;
+    });
+    markDirty();
+  }, [markDirty]);
 
   const removeConnection = useCallback((idx) => {
     setConnections((prev) => prev.filter((_, i) => i !== idx));
     setExpandedIndex((prev) => (prev >= idx && prev > 0 ? prev - 1 : prev));
-    setSaveStatus(null);
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const toggleExpand = useCallback((idx) => {
     setExpandedIndex((prev) => (prev === idx ? null : idx));
   }, []);
 
   const handleSave = useCallback(async () => {
+    // Synchronous guard (M2 fix) – prevents concurrent saves even before React
+    // re-renders to set saveStatus to "saving".
+    if (savingRef.current) { return; }
     if (duplicatePortSet.size > 0) {
       setSaveStatus({
         type: "error",
@@ -606,21 +654,27 @@ function PluginConfigurationPanel(_props) {
       return;
     }
 
+    savingRef.current = true;
     setSaveStatus({ type: "saving", message: "Saving configuration..." });
     try {
+      // Strip the frontend-only _id before sending to the backend
+      const payload = connections.map(({ _id, ...rest }) => rest);
       const res = await fetch(`${API_BASE}/plugin-config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connections })
+        body: JSON.stringify({ connections: payload })
       });
       const body = await res.json();
       if (res.ok && body.success) {
         setSaveStatus({ type: "success", message: body.message || "Configuration saved. Plugin restarting..." });
+        setIsDirty(false);
       } else {
         throw new Error(body.error || "Failed to save");
       }
     } catch (err) {
       setSaveStatus({ type: "error", message: err.message });
+    } finally {
+      savingRef.current = false;
     }
   }, [connections, duplicatePortSet]);
 
@@ -632,7 +686,7 @@ function PluginConfigurationPanel(_props) {
   if (loadError) {
     return (
       <div style={{ padding: "20px" }}>
-        <div className="el-alert el-alert-error">
+        <div className="skel-alert skel-alert-error">
           <strong>Error loading configuration:</strong> {loadError}
         </div>
       </div>
@@ -640,17 +694,26 @@ function PluginConfigurationPanel(_props) {
   }
 
   return (
-    <div className="el-config">
+    <div className="skel-config">
       <style>{css}</style>
 
+      {/* M3: unsaved changes banner */}
+      {isDirty && saveStatus?.type !== "saving" && (
+        <div className="skel-dirty-banner">
+          <span>&#9888;</span>
+          <span>You have unsaved changes.</span>
+        </div>
+      )}
+
       {saveStatus && (
-        <div className={`el-alert el-alert-${saveStatus.type === "saving" ? "saving" : saveStatus.type === "success" ? "success" : "error"}`}>
+        <div className={`skel-alert skel-alert-${saveStatus.type === "saving" ? "saving" : saveStatus.type === "success" ? "success" : "error"}`}>
           {saveStatus.message}
         </div>
       )}
 
+      {/* H3: use conn._id as stable React key instead of array index */}
       {connections.map((conn, idx) => (
-        <div key={idx}>
+        <div key={conn._id}>
           <ConnectionCard
             conn={conn}
             index={idx}
@@ -661,29 +724,29 @@ function PluginConfigurationPanel(_props) {
             onRemove={() => removeConnection(idx)}
           />
           {conn.serverType === "server" && duplicatePortSet.has(conn.udpPort) && (
-            <div className="el-dup-warn">
+            <div className="skel-dup-warn">
               Port {conn.udpPort} is used by multiple server connections. Each server requires a unique port.
             </div>
           )}
         </div>
       ))}
 
-      <div className="el-toolbar">
-        <button className="el-btn el-btn-secondary" onClick={addServer}>
+      <div className="skel-toolbar">
+        <button className="skel-btn skel-btn-secondary" onClick={addServer}>
           + Add Server
         </button>
-        <button className="el-btn el-btn-secondary" onClick={addClient}>
+        <button className="skel-btn skel-btn-secondary" onClick={addClient}>
           + Add Client
         </button>
         <button
-          className="el-btn el-btn-primary"
+          className="skel-btn skel-btn-primary"
           onClick={handleSave}
           disabled={saveStatus && saveStatus.type === "saving"}
         >
-          Save Configuration
+          {isDirty ? "Save Changes" : "Save Configuration"}
         </button>
         <span style={{ fontSize: "0.85rem", color: "#6c757d" }}>
-          {connections.length} connection{connections.length !== 1 ? "s" : ""} configured
+          {connections.length} connection{connections.length !== 1 ? "s" : ""}
           {" · "}
           {connections.filter((c) => c.serverType === "server").length} server
           {connections.filter((c) => c.serverType === "server").length !== 1 ? "s" : ""}
