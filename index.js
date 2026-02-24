@@ -166,6 +166,7 @@ module.exports = function createPlugin(app) {
   };
 
   plugin.stop = function stop() {
+    plugin._restartPlugin = null;  // Clear to prevent stale calls after stop
     routes.stopRateLimitCleanup();
     for (const instance of instances.values()) {
       instance.stop();
