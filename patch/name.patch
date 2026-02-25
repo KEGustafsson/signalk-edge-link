@@ -1,0 +1,183 @@
+From 7f8a93ff44d4d6a390746c750cb7fb115c984b00 Mon Sep 17 00:00:00 2001
+From: KE Gustafsson <ke.gustafsson@gmail.com>
+Date: Wed, 25 Feb 2026 17:51:06 +0200
+Subject: [PATCH] patch
+
+---
+ index.js                                    | 4 ++--
+ lib/bonding.js                              | 4 ++--
+ lib/metrics-publisher.js                    | 4 ++--
+ lib/monitoring.js                           | 6 +++---
+ package.json                                | 4 ++--
+ src/components/PluginConfigurationPanel.jsx | 4 ++--
+ src/webapp/index.html                       | 6 +++---
+ src/webapp/index.js                         | 2 +-
+ 8 files changed, 17 insertions(+), 17 deletions(-)
+
+diff --git a/index.js b/index.js
+index cb6cffc..0f4a4a6 100644
+--- a/index.js
++++ b/index.js
+@@ -30,7 +30,7 @@ const {
+ module.exports = function createPlugin(app) {
+   const plugin = {};
+   plugin.id = pkg.name;
+-  plugin.name = "Signal K Edge Link";
++  plugin.name = "Signal K Edge Link 2";
+   plugin.description = pkg.description;
+ 
+   // eslint-disable-next-line no-unused-vars
+@@ -795,7 +795,7 @@ module.exports = function createPlugin(app) {
+   // Based on: https://rjsf-team.github.io/react-jsonschema-form/docs/json-schema/dependencies/
+   plugin.schema = {
+     type: "object",
+-    title: "SignalK Edge Link",
++    title: "SignalK Edge Link 2",
+     description: "Configure encrypted UDP data transmission between SignalK units",
+     required: ["serverType", "udpPort", "secretKey"],
+     properties: {
+diff --git a/lib/bonding.js b/lib/bonding.js
+index 56fe228..9919828 100644
+--- a/lib/bonding.js
++++ b/lib/bonding.js
+@@ -466,12 +466,12 @@ class BondingManager {
+       this.app.handleMessage("vessels.self", {
+         updates: [{
+           source: {
+-            label: "signalk-edge-link",
++            label: "signalk-edge-link-2",
+             type: "plugin"
+           },
+           timestamp: new Date().toISOString(),
+           values: [{
+-            path: "notifications.signalk-edge-link.linkFailover",
++            path: "notifications.signalk-edge-link-2.linkFailover",
+             value: {
+               state: "alert",
+               message: `Link switched: ${from} to ${to}`,
+diff --git a/lib/metrics-publisher.js b/lib/metrics-publisher.js
+index c341a44..731151e 100644
+--- a/lib/metrics-publisher.js
++++ b/lib/metrics-publisher.js
+@@ -141,7 +141,7 @@ class MetricsPublisher {
+       this.app.handleMessage("vessels.self", {
+         updates: [{
+           source: {
+-            label: "signalk-edge-link",
++            label: "signalk-edge-link-2",
+             type: "plugin"
+           },
+           timestamp: new Date().toISOString(),
+@@ -206,7 +206,7 @@ class MetricsPublisher {
+ 
+     this.app.handleMessage("vessels.self", {
+       updates: [{
+-        source: { label: "signalk-edge-link" },
++        source: { label: "signalk-edge-link-2" },
+         timestamp: new Date().toISOString(),
+         values: values
+       }]
+diff --git a/lib/monitoring.js b/lib/monitoring.js
+index eb73ad8..99fca83 100644
+--- a/lib/monitoring.js
++++ b/lib/monitoring.js
+@@ -504,7 +504,7 @@ class AlertManager {
+     try {
+       this.app.handleMessage("vessels.self", {
+         updates: [{
+-          source: { label: "signalk-edge-link", type: "plugin" },
++          source: { label: "signalk-edge-link-2", type: "plugin" },
+           timestamp: new Date().toISOString(),
+           values: [{ path, value: { state, message, method } }]
+         }]
+@@ -521,7 +521,7 @@ class AlertManager {
+   _emitAlert(alert) {
+     const stateMap = { warning: "warn", critical: "alert" };
+     this._emitNotification(
+-      `notifications.signalk-edge-link.${alert.metric}`,
++      `notifications.signalk-edge-link-2.${alert.metric}`,
+       stateMap[alert.level] || "alert",
+       `${alert.metric}: ${alert.value} exceeds ${alert.level} threshold (${alert.threshold})`,
+       ["visual"]
+@@ -534,7 +534,7 @@ class AlertManager {
+    */
+   _emitClear(metricName) {
+     this._emitNotification(
+-      `notifications.signalk-edge-link.${metricName}`,
++      `notifications.signalk-edge-link-2.${metricName}`,
+       "normal",
+       `${metricName}: returned to normal`,
+       []
+diff --git a/package.json b/package.json
+index c1c4c15..612ded9 100644
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "signalk-edge-link",
++  "name": "signalk-edge-link-2",
+   "version": "2.0.0-beta.4",
+-  "description": "SignalK Edge Link. Secure UDP link for data exchange.",
++  "description": "Signal K Edge Link 2. Secure UDP link for data exchange.",
+   "main": "index.js",
+   "keywords": [
+     "signalk-node-server-plugin",
+diff --git a/src/components/PluginConfigurationPanel.jsx b/src/components/PluginConfigurationPanel.jsx
+index b0da07c..22d1757 100644
+--- a/src/components/PluginConfigurationPanel.jsx
++++ b/src/components/PluginConfigurationPanel.jsx
+@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
+ import Form from "@rjsf/core";
+ import validator from "@rjsf/validator-ajv8";
+ 
+-const API_BASE = "/plugins/signalk-edge-link";
++const API_BASE = "/plugins/signalk-edge-link-2";
+ 
+ // Base schema properties shared between server and client modes
+ const baseProperties = {
+@@ -456,7 +456,7 @@ function getSchema(isClientMode) {
+ 
+   return {
+     type: "object",
+-    title: "SignalK Edge Link",
++    title: "signalk Edge Link 2",
+     description: "Configure encrypted UDP data transmission between SignalK units",
+     required,
+     properties
+diff --git a/src/webapp/index.html b/src/webapp/index.html
+index 6e744df..0317700 100644
+--- a/src/webapp/index.html
++++ b/src/webapp/index.html
+@@ -3,13 +3,13 @@
+ <head>
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+-    <title>SignalK Edge Link Configuration</title>
+-    <link rel="icon" type="image/png" href="/plugins/signalk-edge-link/icon.png">
++    <title>Signalk Edge Link 2 Configuration</title>
++    <link rel="icon" type="image/png" href="/plugins/signalk-edge-link-2/icon.png">
+ </head>
+ <body>
+     <div id="app">
+         <header class="header">
+-            <h1>SignalK Edge Link Configuration</h1>
++            <h1>Signalk Edge Link 2 Configuration</h1>
+             <p class="subtitle">Configure full plugin parameters and runtime data flow settings</p>
+         </header>
+ 
+diff --git a/src/webapp/index.js b/src/webapp/index.js
+index 79e5a73..bbb9200 100644
+--- a/src/webapp/index.js
++++ b/src/webapp/index.js
+@@ -1,7 +1,7 @@
+ import "./styles.css";
+ 
+ // Constants
+-const API_BASE_PATH = "/plugins/signalk-edge-link";
++const API_BASE_PATH = "/plugins/signalk-edge-link-2";
+ const DELTA_TIMER_MIN = 100;
+ const DELTA_TIMER_MAX = 10000;
+ const NOTIFICATION_TIMEOUT = 4000;
+-- 
+2.51.0.windows.2
+
