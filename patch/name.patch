@@ -140,7 +140,7 @@ index b0da07c..22d1757 100644
    return {
      type: "object",
 -    title: "SignalK Edge Link",
-+    title: "signalk Edge Link 2",
++    title: "Signalk Edge Link 2",
      description: "Configure encrypted UDP data transmission between SignalK units",
      required,
      properties
