@@ -95,7 +95,13 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
 
     metricsApi = createMetrics();
     pipeline = createPipeline(mockApp, state, metricsApi);
-    routesApi = createRoutes(mockApp, state, metricsApi, { schema: {} });
+    const bundle = { state, metricsApi, metrics: metricsApi.metrics };
+    const mockRegistry = {
+      getFirst: () => bundle,
+      get: () => bundle,
+      getAll: () => [bundle]
+    };
+    routesApi = createRoutes(mockApp, mockRegistry, { schema: {} });
   });
 
   // ── 1. Client → Server Pipeline ──
@@ -582,19 +588,20 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       });
 
       // Config files should be created
-      const dtExists = await fs.access(path.join(tempDir, "delta_timer.json")).then(() => true).catch(() => false);
-      const subExists = await fs.access(path.join(tempDir, "subscription.json")).then(() => true).catch(() => false);
-      const sfExists = await fs.access(path.join(tempDir, "sentence_filter.json")).then(() => true).catch(() => false);
+      const instanceDir = path.join(tempDir, "instances", "default");
+      const dtExists = await fs.access(path.join(instanceDir, "delta_timer.json")).then(() => true).catch(() => false);
+      const subExists = await fs.access(path.join(instanceDir, "subscription.json")).then(() => true).catch(() => false);
+      const sfExists = await fs.access(path.join(instanceDir, "sentence_filter.json")).then(() => true).catch(() => false);
 
       expect(dtExists).toBe(true);
       expect(subExists).toBe(true);
       expect(sfExists).toBe(true);
 
       // Verify default values
-      const dtContent = JSON.parse(await fs.readFile(path.join(tempDir, "delta_timer.json"), "utf-8"));
+      const dtContent = JSON.parse(await fs.readFile(path.join(instanceDir, "delta_timer.json"), "utf-8"));
       expect(dtContent.deltaTimer).toBe(1000);
 
-      const sfContent = JSON.parse(await fs.readFile(path.join(tempDir, "sentence_filter.json"), "utf-8"));
+      const sfContent = JSON.parse(await fs.readFile(path.join(instanceDir, "sentence_filter.json"), "utf-8"));
       expect(sfContent.excludedSentences).toEqual(["GSV"]);
     });
   });
