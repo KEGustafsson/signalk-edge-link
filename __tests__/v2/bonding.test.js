@@ -352,7 +352,7 @@ describe("BondingManager", () => {
       await bm.initialize();
       bm.failover();
 
-      expect(app.handleMessage).toHaveBeenCalledWith("vessels.self", expect.objectContaining({
+      expect(app.handleMessage).toHaveBeenCalledWith("signalk-edge-link", expect.objectContaining({
         updates: expect.arrayContaining([
           expect.objectContaining({
             values: expect.arrayContaining([
@@ -431,7 +431,7 @@ describe("BondingManager", () => {
       app.handleMessage.mockClear();
       bm.failback();
 
-      expect(app.handleMessage).toHaveBeenCalledWith("vessels.self", expect.objectContaining({
+      expect(app.handleMessage).toHaveBeenCalledWith("signalk-edge-link", expect.objectContaining({
         updates: expect.arrayContaining([
           expect.objectContaining({
             values: expect.arrayContaining([

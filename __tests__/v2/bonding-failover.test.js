@@ -424,7 +424,7 @@ describe("Bonding Failover Scenarios", () => {
       bm._checkHealth();
 
       expect(app.handleMessage).toHaveBeenCalledWith(
-        "vessels.self",
+        "signalk-edge-link",
         expect.objectContaining({
           updates: expect.arrayContaining([
             expect.objectContaining({
@@ -465,7 +465,7 @@ describe("Bonding Failover Scenarios", () => {
       bm.failback();
 
       expect(app.handleMessage).toHaveBeenCalledWith(
-        "vessels.self",
+        "signalk-edge-link",
         expect.objectContaining({
           updates: expect.arrayContaining([
             expect.objectContaining({
