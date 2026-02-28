@@ -2,6 +2,39 @@
 
 All notable changes to Signal K Edge Link are documented in this file.
 
+## [2.1.0] - 2026-02-28
+
+### Added
+
+- **Array-based multi-connection config**: The plugin now accepts a `connections` array, allowing multiple server and/or client connections to run in parallel on a single Signal K node.
+- **Named connections**: Each connection has an optional `name` field (default: `"connection"`). The name is slugified to produce the instance ID and is used to namespace Signal K metrics paths (`networking.edgeLink.<name>.*`) and runtime config file directories.
+- **Per-instance API routes**: New endpoints for multi-connection deployments:
+  - `GET /connections` — list all active connections with status
+  - `GET /connections/:id/metrics`
+  - `GET /connections/:id/network-metrics`
+  - `GET /connections/:id/bonding` (client)
+  - `GET /connections/:id/congestion` (client)
+  - `GET /connections/:id/config/:filename` (client)
+  - `POST /connections/:id/config/:filename` (client)
+- **Duplicate port detection**: Startup rejects configurations where two server connections share the same UDP port.
+- **Instance ID collision disambiguation**: Two connections with the same name get `-1`, `-2` suffixes automatically.
+- **Legacy flat config normalization**: Existing single-connection flat config is transparently wrapped in a one-item `connections` array on startup — no migration required.
+
+### Changed
+
+- `POST /plugin-config` now always saves config in `{ connections: [...] }` format. Flat legacy bodies are accepted and normalized to array format before saving.
+- Plugin status now aggregates across all connections (e.g. `"2 connections active"` or `"1/2 active — sat-client: ..."`).
+- Rate limit corrected to actual value: **120 requests/minute/IP** (was documented as 20, code always used 120).
+
+### Tests
+
+- `index.test.js`, `instance.test.js`, `schema-compat.test.js` now load in CI environments where `ping-monitor` and `@msgpack/msgpack` are not installed, via `jest.mock(..., { virtual: true })`.
+- 69 previously-masked tests in `index.test.js` are now active (suite was failing to load).
+- New tests: `/connections` listing route, all `/connections/:id/*` 404 paths, `POST /plugin-config` with array body, round-trip config stability with connections format.
+- Total: **832 tests passing**.
+
+---
+
 ## [2.0.0] - 2026-02-14
 
 ### Summary
