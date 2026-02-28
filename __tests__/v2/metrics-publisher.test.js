@@ -42,6 +42,43 @@ describe("MetricsPublisher", () => {
       const pub = new MetricsPublisher(mockApp, config);
       expect(pub.config).toEqual(config);
     });
+
+    test("uses default pathPrefix 'networking.edgeLink' when not specified", () => {
+      const pub = new MetricsPublisher(mockApp);
+      expect(pub.pathPrefix).toBe("networking.edgeLink");
+    });
+
+    test("uses custom pathPrefix when specified", () => {
+      const pub = new MetricsPublisher(mockApp, { pathPrefix: "networking.edgeLink.my-instance" });
+      expect(pub.pathPrefix).toBe("networking.edgeLink.my-instance");
+    });
+  });
+
+  describe("pathPrefix namespacing", () => {
+    test("publishes RTT under custom prefix", () => {
+      const pub = new MetricsPublisher(mockApp, { pathPrefix: "networking.edgeLink.shore-server" });
+      pub.publish({ rtt: 100 });
+      const values = publishedMessages[0].updates[0].values;
+      const rttMetric = values.find((v) => v.path === "networking.edgeLink.shore-server.rtt");
+      expect(rttMetric).toBeDefined();
+      expect(rttMetric.value).toBe(100);
+    });
+
+    test("does NOT publish under default prefix when custom prefix is set", () => {
+      const pub = new MetricsPublisher(mockApp, { pathPrefix: "networking.edgeLink.sat-client" });
+      pub.publish({ rtt: 50 });
+      const values = publishedMessages[0].updates[0].values;
+      const defaultRtt = values.find((v) => v.path === "networking.edgeLink.rtt");
+      expect(defaultRtt).toBeUndefined();
+    });
+
+    test("publishLinkMetrics uses custom prefix for link paths", () => {
+      const pub = new MetricsPublisher(mockApp, { pathPrefix: "networking.edgeLink.lte" });
+      pub.publishLinkMetrics("primary", { status: "active", rtt: 20, loss: 0.01 });
+      const values = publishedMessages[0].updates[0].values;
+      const statusPath = values.find((v) => v.path === "networking.edgeLink.lte.links.primary.status");
+      expect(statusPath).toBeDefined();
+    });
   });
 
   describe("Core Metrics Publishing", () => {

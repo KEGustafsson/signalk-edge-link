@@ -2,7 +2,7 @@
 
 All REST API endpoints are served under the base path `/plugins/signalk-edge-link/`.
 
-All endpoints are rate-limited to **20 requests per minute per IP address**. Exceeding this limit returns HTTP 429.
+All endpoints are rate-limited to **120 requests per minute per IP address**. Exceeding this limit returns HTTP 429.
 
 ## Core Endpoints
 
@@ -163,11 +163,14 @@ Read current plugin configuration.
 {
   "success": true,
   "configuration": {
-    "serverType": "client",
-    "udpPort": 4446,
-    "secretKey": "...",
-    "useMsgpack": false,
-    "usePathDictionary": true
+    "connections": [
+      {
+        "name": "shore-server",
+        "serverType": "server",
+        "udpPort": 4446,
+        "secretKey": "..."
+      }
+    ]
   }
 }
 ```
@@ -182,9 +185,46 @@ Update plugin configuration. Triggers a plugin restart to apply changes.
 
 **Content-Type:** `application/json`
 
-**Required fields:** `serverType`, `udpPort`, `secretKey`
+**Body format (preferred — connections array):**
 
-**Additional required fields (client mode):** `udpAddress`, `testAddress`, `testPort`
+```json
+{
+  "connections": [
+    {
+      "name": "shore-server",
+      "serverType": "server",
+      "udpPort": 4446,
+      "secretKey": "..."
+    },
+    {
+      "name": "sat-client",
+      "serverType": "client",
+      "udpPort": 4447,
+      "secretKey": "...",
+      "udpAddress": "10.0.0.1",
+      "testAddress": "8.8.8.8",
+      "testPort": 53
+    }
+  ]
+}
+```
+
+**Body format (legacy — flat single connection, auto-normalised to array):**
+
+```json
+{
+  "serverType": "client",
+  "udpPort": 4446,
+  "secretKey": "...",
+  "udpAddress": "192.168.1.100",
+  "testAddress": "8.8.8.8",
+  "testPort": 53
+}
+```
+
+**Required per connection:** `serverType`, `udpPort`, `secretKey`
+
+**Additional required (client mode):** `udpAddress`, `testAddress`, `testPort`
 
 **Response:**
 
@@ -559,6 +599,107 @@ Export captured packets as a `.pcap` file (libpcap format).
 **Content-Type:** `application/vnd.tcpdump.pcap`
 
 The file can be opened in Wireshark or similar packet analysis tools. Uses DLT_USER0 link type.
+
+---
+
+## Multi-Connection Endpoints
+
+These endpoints are used when more than one connection is configured. Each `:id` is the slugified connection name (e.g. `shore-server`, `sat-client`).
+
+### GET /connections
+
+List all active connections with status.
+
+**Available in:** Client and Server mode
+
+**Response:**
+
+```json
+[
+  {
+    "id": "shore-server",
+    "name": "Shore Server",
+    "type": "server",
+    "port": 4446,
+    "protocolVersion": 2,
+    "status": "Server listening on port 4446",
+    "healthy": true,
+    "readyToSend": true
+  },
+  {
+    "id": "sat-client",
+    "name": "Sat Client",
+    "type": "client",
+    "port": 4447,
+    "protocolVersion": 2,
+    "status": "Ready",
+    "healthy": true,
+    "readyToSend": true
+  }
+]
+```
+
+---
+
+### GET /connections/:id/metrics
+
+Returns metrics for a specific connection instance.
+
+**Available in:** Client and Server mode
+
+**Response:** Same fields as `GET /metrics`, plus `instanceId` and `mode`.
+
+---
+
+### GET /connections/:id/network-metrics
+
+Returns network quality metrics for a specific connection.
+
+**Available in:** Client and Server mode
+
+**Response:** Same fields as `GET /network-metrics`, plus `instanceId`.
+
+---
+
+### GET /connections/:id/bonding
+
+Returns bonding state for a specific client connection.
+
+**Available in:** Client mode only
+
+**Response:** Same as `GET /bonding`.
+
+---
+
+### GET /connections/:id/congestion
+
+Returns congestion control state for a specific client connection.
+
+**Available in:** Client mode only
+
+**Response:** Same as `GET /congestion`.
+
+---
+
+### GET /connections/:id/config/:filename
+
+Read a runtime config file for a specific client connection.
+
+**Available in:** Client mode only
+
+**Response:** The JSON contents of the configuration file.
+
+---
+
+### POST /connections/:id/config/:filename
+
+Update a runtime config file for a specific client connection.
+
+**Available in:** Client mode only
+
+**Content-Type:** `application/json`
+
+**Response:** `200 OK` on success.
 
 ---
 
