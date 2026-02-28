@@ -32,5 +32,8 @@ coverage/
 # Test snapshots
 __tests__/__snapshots__/
 
+# Test runtime artifacts
+__tests__/temp/
+
 # Webpack cache
 .cache/
