@@ -8,7 +8,7 @@
 jest.mock("ping-monitor", () => jest.fn().mockImplementation(() => ({
   on: jest.fn(),
   stop: jest.fn()
-})));
+})), { virtual: true });
 
 const { createInstance, slugify } = require("../lib/instance");
 

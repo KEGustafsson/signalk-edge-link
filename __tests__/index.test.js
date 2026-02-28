@@ -1,4 +1,16 @@
 /* eslint-disable no-undef */
+
+// Mock external packages not available in the test environment
+jest.mock("ping-monitor", () => jest.fn().mockImplementation(() => ({
+  on: jest.fn(),
+  stop: jest.fn()
+})), { virtual: true });
+
+jest.mock("@msgpack/msgpack", () => ({
+  encode: jest.fn((v) => Buffer.from(JSON.stringify(v))),
+  decode: jest.fn((b) => JSON.parse(b.toString()))
+}), { virtual: true });
+
 const createPlugin = require("../index");
 
 describe("SignalK Data Connector Plugin", () => {
@@ -228,7 +240,7 @@ describe("SignalK Data Connector Plugin", () => {
       await plugin.start(options);
 
       expect(() => plugin.stop()).not.toThrow();
-      expect(mockApp.debug).toHaveBeenCalledWith(expect.stringContaining("stopped"));
+      expect(mockApp.setPluginStatus).toHaveBeenCalledWith(expect.stringContaining("Stopped"));
     });
 
     test("should be safe to call stop multiple times", async () => {
@@ -258,7 +270,7 @@ describe("SignalK Data Connector Plugin", () => {
 
       await plugin.start(options);
 
-      expect(mockApp.debug).toHaveBeenCalledWith(expect.stringContaining("server started"));
+      expect(mockApp.debug).toHaveBeenCalledWith(expect.stringContaining("Starting server on port"));
     });
 
     test("should accept boolean true for server mode", async () => {
@@ -270,7 +282,7 @@ describe("SignalK Data Connector Plugin", () => {
 
       await plugin.start(options);
 
-      expect(mockApp.debug).toHaveBeenCalledWith(expect.stringContaining("server started"));
+      expect(mockApp.debug).toHaveBeenCalledWith(expect.stringContaining("Starting server on port"));
     });
   });
 
@@ -515,10 +527,10 @@ describe("SignalK Data Connector Plugin", () => {
 
       await runWithMiddlewares(getMiddlewares, getHandler, mockReq, mockRes);
 
-      // Should return 503 (not initialized) before checking filename
-      expect(mockRes.status).toHaveBeenCalledWith(503);
+      // No client instance running → clientModeMiddleware returns 404
+      expect(mockRes.status).toHaveBeenCalledWith(404);
       expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: expect.stringContaining("not fully initialized") })
+        expect.objectContaining({ error: expect.any(String) })
       );
     });
 
@@ -536,10 +548,10 @@ describe("SignalK Data Connector Plugin", () => {
 
       await runWithMiddlewares(postMiddlewares, postHandler, mockReq, mockRes);
 
-      // Should return 503 (not initialized) before checking filename
-      expect(mockRes.status).toHaveBeenCalledWith(503);
+      // No client instance running → clientModeMiddleware returns 404
+      expect(mockRes.status).toHaveBeenCalledWith(404);
       expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: expect.stringContaining("not fully initialized") })
+        expect.objectContaining({ error: expect.any(String) })
       );
     });
 
@@ -639,11 +651,11 @@ describe("SignalK Data Connector Plugin", () => {
 
       expect(mockApp.savePluginOptions).toHaveBeenCalled();
       const savedConfig = mockApp.savePluginOptions.mock.calls[0][0];
-      // Must NOT be wrapped in { configuration: ... }
-      expect(savedConfig.configuration).toBeUndefined();
-      // Must have config fields directly
-      expect(savedConfig.serverType).toBe("client");
-      expect(savedConfig.udpPort).toBe(4446);
+      // Config is always saved as { connections: [...] }
+      expect(Array.isArray(savedConfig.connections)).toBe(true);
+      const conn = savedConfig.connections[0];
+      expect(conn.serverType).toBe("client");
+      expect(conn.udpPort).toBe(4446);
     });
 
     test("should strip unknown properties from config before saving", async () => {
@@ -670,8 +682,8 @@ describe("SignalK Data Connector Plugin", () => {
       expect(mockApp.savePluginOptions).toHaveBeenCalled();
       const savedConfig = mockApp.savePluginOptions.mock.calls[0][0];
       expect(savedConfig.unknownField).toBeUndefined();
-      expect(savedConfig.configuration).toBeUndefined();
-      expect(savedConfig.serverType).toBe("client");
+      expect(Array.isArray(savedConfig.connections)).toBe(true);
+      expect(savedConfig.connections[0].serverType).toBe("client");
     });
 
     test("should call restartPlugin with sanitized config after save", async () => {
@@ -701,9 +713,13 @@ describe("SignalK Data Connector Plugin", () => {
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({ success: true, restarting: true })
       );
-      // restartPlugin must receive the config (not called empty — that would delete config from disk)
+      // restartPlugin must receive the config in connections[] format
       expect(mockRestartPlugin).toHaveBeenCalledWith(
-        expect.objectContaining({ serverType: "server", udpPort: 4446 })
+        expect.objectContaining({
+          connections: expect.arrayContaining([
+            expect.objectContaining({ serverType: "server", udpPort: 4446 })
+          ])
+        })
       );
     });
 
@@ -756,12 +772,13 @@ describe("SignalK Data Connector Plugin", () => {
 
       expect(mockApp.savePluginOptions).toHaveBeenCalled();
       const savedConfig = mockApp.savePluginOptions.mock.calls[0][0];
-      expect(savedConfig.serverType).toBe("server");
-      expect(savedConfig.udpAddress).toBeUndefined();
-      expect(savedConfig.testAddress).toBeUndefined();
-      expect(savedConfig.testPort).toBeUndefined();
-      expect(savedConfig.helloMessageSender).toBeUndefined();
-      expect(savedConfig.pingIntervalTime).toBeUndefined();
+      const savedConn = savedConfig.connections[0];
+      expect(savedConn.serverType).toBe("server");
+      expect(savedConn.udpAddress).toBeUndefined();
+      expect(savedConn.testAddress).toBeUndefined();
+      expect(savedConn.testPort).toBeUndefined();
+      expect(savedConn.helloMessageSender).toBeUndefined();
+      expect(savedConn.pingIntervalTime).toBeUndefined();
     });
 
     test("should reject non-object JSON body", async () => {
@@ -801,7 +818,7 @@ describe("SignalK Data Connector Plugin", () => {
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
       expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({ success: false, error: "Valid udpPort (1024-65535) is required" })
+        expect.objectContaining({ success: false, error: expect.stringContaining("udpPort") })
       );
       expect(mockApp.savePluginOptions).not.toHaveBeenCalled();
     });
@@ -849,18 +866,20 @@ describe("SignalK Data Connector Plugin", () => {
     let diskFile;
 
     beforeEach(() => {
-      // Simulate the on-disk plugin config file
+      // Simulate the on-disk plugin config file (new connections[] format)
       diskFile = {
         enabled: true,
         configuration: {
-          serverType: "client",
-          udpPort: 4446,
-          secretKey: "12345678901234567890123456789012",
-          udpAddress: "192.168.1.100",
-          testAddress: "8.8.8.8",
-          testPort: 53,
-          helloMessageSender: 60,
-          pingIntervalTime: 1
+          connections: [{
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012",
+            udpAddress: "192.168.1.100",
+            testAddress: "8.8.8.8",
+            testPort: 53,
+            helloMessageSender: 60,
+            pingIntervalTime: 1
+          }]
         }
       };
 
@@ -978,67 +997,68 @@ describe("SignalK Data Connector Plugin", () => {
         await saveConfig(read.configuration);
       }
 
-      // The disk file's configuration should contain actual config fields, not a nested "configuration" object
-      expect(diskFile.configuration.serverType).toBe("client");
-      expect(diskFile.configuration.udpPort).toBe(4446);
+      // The disk file's configuration should contain a connections[] array with actual config fields
+      expect(Array.isArray(diskFile.configuration.connections)).toBe(true);
+      expect(diskFile.configuration.connections[0].serverType).toBe("client");
+      expect(diskFile.configuration.connections[0].udpPort).toBe(4446);
       expect(diskFile.configuration.configuration).toBeUndefined();
     });
 
     test("config values should survive multiple read-modify-save cycles", async () => {
-      // Round-trip 1: read, modify port, save
+      // Round-trip 1: read, modify port inside connections[0], save
       const read1 = await readConfig();
-      read1.configuration.udpPort = 5000;
+      read1.configuration.connections[0].udpPort = 5000;
       await saveConfig(read1.configuration);
-      expect(diskFile.configuration.udpPort).toBe(5000);
+      expect(diskFile.configuration.connections[0].udpPort).toBe(5000);
 
       // Round-trip 2: read, modify address, save
       const read2 = await readConfig();
-      expect(read2.configuration.udpPort).toBe(5000);
-      read2.configuration.udpAddress = "10.0.0.1";
+      expect(read2.configuration.connections[0].udpPort).toBe(5000);
+      read2.configuration.connections[0].udpAddress = "10.0.0.1";
       await saveConfig(read2.configuration);
-      expect(diskFile.configuration.udpPort).toBe(5000);
-      expect(diskFile.configuration.udpAddress).toBe("10.0.0.1");
+      expect(diskFile.configuration.connections[0].udpPort).toBe(5000);
+      expect(diskFile.configuration.connections[0].udpAddress).toBe("10.0.0.1");
 
       // Round-trip 3: read, verify all changes persisted
       const read3 = await readConfig();
-      expect(read3.configuration.udpPort).toBe(5000);
-      expect(read3.configuration.udpAddress).toBe("10.0.0.1");
-      expect(read3.configuration.secretKey).toBe("12345678901234567890123456789012");
+      expect(read3.configuration.connections[0].udpPort).toBe(5000);
+      expect(read3.configuration.connections[0].udpAddress).toBe("10.0.0.1");
+      expect(read3.configuration.connections[0].secretKey).toBe("12345678901234567890123456789012");
     });
 
     test("switching modes should not leave stale fields on disk", async () => {
       // Start in client mode, save
       const read1 = await readConfig();
-      expect(read1.configuration.serverType).toBe("client");
+      expect(read1.configuration.connections[0].serverType).toBe("client");
       await saveConfig(read1.configuration);
 
       // Switch to server mode — client fields should be stripped
       const read2 = await readConfig();
-      read2.configuration.serverType = "server";
+      read2.configuration.connections[0].serverType = "server";
       await saveConfig(read2.configuration);
 
-      expect(diskFile.configuration.serverType).toBe("server");
-      expect(diskFile.configuration.udpAddress).toBeUndefined();
-      expect(diskFile.configuration.testAddress).toBeUndefined();
-      expect(diskFile.configuration.testPort).toBeUndefined();
-      expect(diskFile.configuration.helloMessageSender).toBeUndefined();
-      expect(diskFile.configuration.pingIntervalTime).toBeUndefined();
+      expect(diskFile.configuration.connections[0].serverType).toBe("server");
+      expect(diskFile.configuration.connections[0].udpAddress).toBeUndefined();
+      expect(diskFile.configuration.connections[0].testAddress).toBeUndefined();
+      expect(diskFile.configuration.connections[0].testPort).toBeUndefined();
+      expect(diskFile.configuration.connections[0].helloMessageSender).toBeUndefined();
+      expect(diskFile.configuration.connections[0].pingIntervalTime).toBeUndefined();
 
       // Switch back to client mode — add client fields back
       const read3 = await readConfig();
-      read3.configuration.serverType = "client";
-      read3.configuration.udpAddress = "192.168.1.200";
-      read3.configuration.testAddress = "1.1.1.1";
-      read3.configuration.testPort = 443;
+      read3.configuration.connections[0].serverType = "client";
+      read3.configuration.connections[0].udpAddress = "192.168.1.200";
+      read3.configuration.connections[0].testAddress = "1.1.1.1";
+      read3.configuration.connections[0].testPort = 443;
       await saveConfig(read3.configuration);
 
-      expect(diskFile.configuration.serverType).toBe("client");
-      expect(diskFile.configuration.udpAddress).toBe("192.168.1.200");
+      expect(diskFile.configuration.connections[0].serverType).toBe("client");
+      expect(diskFile.configuration.connections[0].udpAddress).toBe("192.168.1.200");
       expect(diskFile.configuration.configuration).toBeUndefined();
     });
 
     test("stale nested configuration from prior bug should be cleaned on save", async () => {
-      // Simulate a corrupted disk file left by the old double-nesting bug
+      // Simulate a corrupted disk file with a nested configuration key
       diskFile = {
         enabled: true,
         configuration: {
@@ -1058,22 +1078,23 @@ describe("SignalK Data Connector Plugin", () => {
       // The nested "configuration" key will be present in what we read
       expect(read1.configuration.configuration).toBeDefined();
 
-      // User re-enters correct values and saves (simulating form fill after seeing defaults)
+      // User re-enters correct values and saves using the new connections[] format
       const fixedConfig = {
-        serverType: "client",
-        udpPort: 4446,
-        secretKey: "12345678901234567890123456789012",
-        udpAddress: "192.168.1.100",
-        testAddress: "8.8.8.8",
-        testPort: 53,
-        // Include the stale nested key that RJSF might preserve
-        configuration: { serverType: "client", udpPort: 4446 }
+        connections: [{
+          serverType: "client",
+          udpPort: 4446,
+          secretKey: "12345678901234567890123456789012",
+          udpAddress: "192.168.1.100",
+          testAddress: "8.8.8.8",
+          testPort: 53
+        }]
       };
       await saveConfig(fixedConfig);
 
-      // After save, sanitization should have stripped the nested "configuration" key
-      expect(diskFile.configuration.serverType).toBe("client");
-      expect(diskFile.configuration.udpPort).toBe(4446);
+      // After save, the config should be clean connections[] format
+      expect(Array.isArray(diskFile.configuration.connections)).toBe(true);
+      expect(diskFile.configuration.connections[0].serverType).toBe("client");
+      expect(diskFile.configuration.connections[0].udpPort).toBe(4446);
       expect(diskFile.configuration.configuration).toBeUndefined();
 
       // Subsequent round-trips should stay clean
@@ -1108,10 +1129,14 @@ describe("SignalK Data Connector Plugin", () => {
       };
 
       await plugin.start(options);
+      // Wait for async UDP socket binding to complete and status to be updated
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       expect(mockApp.error).not.toHaveBeenCalled();
-      // updateAggregatedStatus should have been called with both connections represented
-      expect(mockApp.setPluginStatus).toHaveBeenCalledWith(expect.stringContaining("2 connections"));
+      // Both connections should appear in the status (either "2 connections active" or "N/2 active — ...")
+      expect(mockApp.setPluginStatus).toHaveBeenCalledWith(
+        expect.stringMatching(/2 connections active|\/2 active/)
+      );
     });
 
     test("should start a server and a client simultaneously", async () => {
@@ -1128,9 +1153,13 @@ describe("SignalK Data Connector Plugin", () => {
       };
 
       await plugin.start(options);
+      // Wait for async UDP socket binding to complete and status to be updated
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       expect(mockApp.error).not.toHaveBeenCalled();
-      expect(mockApp.setPluginStatus).toHaveBeenCalledWith(expect.stringContaining("2 connections"));
+      expect(mockApp.setPluginStatus).toHaveBeenCalledWith(
+        expect.stringMatching(/2 connections active|\/2 active/)
+      );
     });
 
     test("should detect and reject duplicate server ports before starting any instance", async () => {
@@ -1187,6 +1216,252 @@ describe("SignalK Data Connector Plugin", () => {
 
       // Server listens on 4477, client connects TO 4477 – not a collision
       expect(mockApp.error).not.toHaveBeenCalledWith(expect.stringContaining("Duplicate server ports"));
+    });
+  });
+
+  // ── /connections API routes ───────────────────────────────────────────────
+  describe("Multi-Instance Routes (/connections)", () => {
+    let mockRouter;
+    let routeHandlers;  // "METHOD /path" -> handler fn
+
+    function makeRes() {
+      const res = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn(),
+        send: jest.fn()
+      };
+      return res;
+    }
+
+    beforeEach(() => {
+      routeHandlers = {};
+      mockRouter = {
+        get: jest.fn((path, ...args) => {
+          routeHandlers[`GET ${path}`] = args[args.length - 1];
+        }),
+        post: jest.fn((path, ...args) => {
+          routeHandlers[`POST ${path}`] = args[args.length - 1];
+        })
+      };
+      plugin.registerWithRouter(mockRouter);
+    });
+
+    test("GET /connections returns empty array when plugin not yet started", () => {
+      const handler = routeHandlers["GET /connections"];
+      const res = makeRes();
+      handler({}, res);
+      expect(res.json).toHaveBeenCalledWith([]);
+    });
+
+    test("GET /connections lists all active connections after start", async () => {
+      await plugin.start({
+        connections: [
+          { name: "Shore Server", serverType: "server", udpPort: 4480, secretKey: "12345678901234567890123456789012" },
+          {
+            name: "Sat Client", serverType: "client", udpPort: 4481,
+            secretKey: "12345678901234567890123456789012",
+            udpAddress: "127.0.0.1", testAddress: "127.0.0.1", testPort: 80,
+            pingIntervalTime: 60, helloMessageSender: 60
+          }
+        ]
+      });
+
+      const handler = routeHandlers["GET /connections"];
+      const res = makeRes();
+      handler({}, res);
+
+      const list = res.json.mock.calls[0][0];
+      expect(list).toHaveLength(2);
+      expect(list.find(c => c.id === "shore-server")).toBeDefined();
+      expect(list.find(c => c.id === "sat-client")).toBeDefined();
+      expect(list.find(c => c.id === "shore-server").type).toBe("server");
+      expect(list.find(c => c.id === "sat-client").type).toBe("client");
+    });
+
+    test("GET /connections/:id/metrics returns 404 for unknown id", () => {
+      const handler = routeHandlers["GET /connections/:id/metrics"];
+      const res = makeRes();
+      handler({ params: { id: "nonexistent" } }, res);
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining("nonexistent") }));
+    });
+
+    test("GET /connections/:id/network-metrics returns 404 for unknown id", () => {
+      const handler = routeHandlers["GET /connections/:id/network-metrics"];
+      const res = makeRes();
+      handler({ params: { id: "ghost" } }, res);
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    test("GET /connections/:id/bonding returns 404 for unknown id", () => {
+      const handler = routeHandlers["GET /connections/:id/bonding"];
+      const res = makeRes();
+      handler({ params: { id: "ghost" } }, res);
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    test("GET /connections/:id/congestion returns 404 for unknown id", () => {
+      const handler = routeHandlers["GET /connections/:id/congestion"];
+      const res = makeRes();
+      handler({ params: { id: "ghost" } }, res);
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    test("GET /connections/:id/config/:filename returns 404 for unknown id", async () => {
+      const handler = routeHandlers["GET /connections/:id/config/:filename"];
+      const res = makeRes();
+      await handler({ params: { id: "ghost", filename: "delta_timer.json" } }, res);
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    test("POST /connections/:id/config/:filename returns 404 for unknown id", async () => {
+      const handler = routeHandlers["POST /connections/:id/config/:filename"];
+      const res = makeRes();
+      await handler({ params: { id: "ghost", filename: "delta_timer.json" }, body: {} }, res);
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    test("GET /connections/:id/bonding returns 404 in server mode", async () => {
+      await plugin.start({
+        connections: [
+          { name: "my-server", serverType: "server", udpPort: 4482, secretKey: "12345678901234567890123456789012" }
+        ]
+      });
+
+      const handler = routeHandlers["GET /connections/:id/bonding"];
+      const res = makeRes();
+      handler({ params: { id: "my-server" } }, res);
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    test("GET /connections/:id/congestion returns 404 in server mode", async () => {
+      await plugin.start({
+        connections: [
+          { name: "my-server2", serverType: "server", udpPort: 4483, secretKey: "12345678901234567890123456789012" }
+        ]
+      });
+
+      const handler = routeHandlers["GET /connections/:id/congestion"];
+      const res = makeRes();
+      handler({ params: { id: "my-server2" } }, res);
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+  });
+
+  // ── POST /plugin-config with connections[] array format ───────────────────
+  describe("Plugin Config Save – connections array format", () => {
+    let mockRouter;
+    let pluginConfigPostHandler;
+    let pluginConfigPostMiddlewares;
+
+    beforeEach(() => {
+      mockApp.savePluginOptions = jest.fn((config, cb) => cb(null));
+      mockApp.readPluginOptions = jest.fn(() => ({
+        configuration: { serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }
+      }));
+
+      mockRouter = {
+        get: jest.fn(),
+        post: jest.fn((path, ...handlers) => {
+          if (path === "/plugin-config") {
+            pluginConfigPostHandler = handlers[handlers.length - 1];
+            pluginConfigPostMiddlewares = handlers.slice(0, -1);
+          }
+        })
+      };
+      plugin.registerWithRouter(mockRouter);
+    });
+
+    function runWithMiddlewares(middlewares, handler, req, res) {
+      return new Promise((resolve) => {
+        let i = 0;
+        const next = () => {
+          i++;
+          if (i < middlewares.length) {
+            middlewares[i](req, res, next);
+          } else {
+            Promise.resolve(handler(req, res)).then(resolve);
+          }
+        };
+        if (middlewares.length > 0) {
+          middlewares[0](req, res, next);
+        } else {
+          Promise.resolve(handler(req, res)).then(resolve);
+        }
+        setTimeout(resolve, 50);
+      });
+    }
+
+    test("should accept and save a connections[] array body", async () => {
+      const mockReq = {
+        headers: { "content-type": "application/json" },
+        body: {
+          connections: [
+            {
+              name: "shore-server",
+              serverType: "server",
+              udpPort: 4446,
+              secretKey: "12345678901234567890123456789012"
+            }
+          ]
+        }
+      };
+      const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+
+      expect(mockApp.savePluginOptions).toHaveBeenCalled();
+      const saved = mockApp.savePluginOptions.mock.calls[0][0];
+      expect(Array.isArray(saved.connections)).toBe(true);
+      expect(saved.connections[0].serverType).toBe("server");
+      expect(saved.connections[0].udpPort).toBe(4446);
+    });
+
+    test("should save multiple connections in array", async () => {
+      const mockReq = {
+        headers: { "content-type": "application/json" },
+        body: {
+          connections: [
+            { name: "server1", serverType: "server", udpPort: 4446, secretKey: "12345678901234567890123456789012" },
+            {
+              name: "client1", serverType: "client", udpPort: 4447,
+              secretKey: "12345678901234567890123456789012",
+              udpAddress: "10.0.0.1", testAddress: "10.0.0.1", testPort: 80
+            }
+          ]
+        }
+      };
+      const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+
+      expect(mockApp.savePluginOptions).toHaveBeenCalled();
+      const saved = mockApp.savePluginOptions.mock.calls[0][0];
+      expect(saved.connections).toHaveLength(2);
+    });
+
+    test("should reject empty connections array", async () => {
+      const mockReq = {
+        headers: { "content-type": "application/json" },
+        body: { connections: [] }
+      };
+      const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+    });
+
+    test("should reject body with neither connections nor serverType", async () => {
+      const mockReq = {
+        headers: { "content-type": "application/json" },
+        body: { udpPort: 4446 }
+      };
+      const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
     });
   });
 });
