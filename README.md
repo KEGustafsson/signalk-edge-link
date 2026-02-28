@@ -4,6 +4,7 @@ Signal K Edge Link is a Signal K plugin for sending vessel data over secure UDP 
 
 - Client mode: collects local deltas and sends them out
 - Server mode: receives, decrypts, and forwards into local Signal K
+- Multiple connections can run in parallel on a single Signal K instance
 - Protocol v2 adds reliability, congestion control, bonding, and detailed monitoring
 
 ![Data Connector Concept](doc/dataconnectorconcept.jpg)
@@ -21,6 +22,7 @@ Key capabilities:
 - Dynamic congestion control
 - Primary/backup link bonding with failover
 - Built-in metrics, alerts, and packet capture endpoints
+- Multiple simultaneous connections (e.g. one server + one client on the same node)
 
 ## Architecture At A Glance
 
@@ -73,7 +75,8 @@ Restart Signal K after install.
 In Signal K Admin UI:
 
 - Open `Server -> Plugin Config -> Signal K Edge Link`
-- Set `Operation Mode` to `Server`
+- Click **Add Server**
+- Set `Connection Name` (e.g. `shore-server`)
 - Set `UDP Port` (default `4446`)
 - Set `Encryption Key` (exactly 32 bytes / 32 ASCII characters)
 - Set `Protocol Version` (`2` recommended)
@@ -84,7 +87,8 @@ In Signal K Admin UI:
 On the sending Signal K instance:
 
 - Open `Server -> Plugin Config -> Signal K Edge Link`
-- Set `Operation Mode` to `Client`
+- Click **Add Client**
+- Set `Connection Name` (e.g. `vessel-client`)
 - Set same `UDP Port`
 - Set same `Encryption Key`
 - Set `Server Address` to destination host/IP
@@ -126,19 +130,74 @@ The runtime web app is available at:
 
 ## Configuration Model
 
-There are two configuration layers:
+### Connections array
 
-1. Plugin configuration
-- Stored by Signal K plugin options
-- Read/write endpoint: `/plugins/signalk-edge-link/plugin-config`
-- Saving usually restarts plugin to apply changes
+The plugin is configured as an array of connections. Each connection is either a server or a client and runs independently. A single Signal K node can host multiple connections simultaneously — for example, a server receiving data from a remote vessel and a client forwarding data to a shore-side aggregator.
 
-2. Client runtime JSON files (hot-reload)
+Plugin options shape:
+
+```json
+{
+  "connections": [
+    {
+      "name": "shore-server",
+      "serverType": "server",
+      "udpPort": 4446,
+      "secretKey": "<32-char key>",
+      "protocolVersion": 2
+    },
+    {
+      "name": "sat-client",
+      "serverType": "client",
+      "udpPort": 4447,
+      "secretKey": "<32-char key>",
+      "udpAddress": "10.0.0.1",
+      "protocolVersion": 2
+    }
+  ]
+}
+```
+
+Each connection gets its own instance ID derived from its `name` (slugified). Signal K metrics paths are namespaced per connection: `networking.edgeLink.<name>.<metric>`.
+
+**Backward compatibility:** A legacy flat config (single object without a `connections` array) is automatically normalized to a single-item array on startup. No manual migration is required.
+
+### Runtime JSON files (client mode, per-connection)
+
+Each client connection stores its runtime configuration files under a subdirectory named after its connection. These files support hot-reload without restarting the plugin:
+
 - `delta_timer.json`
 - `subscription.json`
 - `sentence_filter.json`
-- Read/write endpoint: `/plugins/signalk-edge-link/config/:filename`
-- Client mode only
+
+Read/write endpoint: `/plugins/signalk-edge-link/connections/:id/config/:filename`
+
+Example `delta_timer.json`:
+
+```json
+{
+  "deltaTimer": 1000
+}
+```
+
+Example `subscription.json`:
+
+```json
+{
+  "context": "*",
+  "subscribe": [
+    { "path": "*" }
+  ]
+}
+```
+
+Example `sentence_filter.json`:
+
+```json
+{
+  "excludedSentences": ["GSV"]
+}
+```
 
 ## Core Parameters
 
@@ -146,8 +205,9 @@ There are two configuration layers:
 
 | Key | Required | Notes |
 |---|---|---|
+| `name` | no | Human-readable label; used as instance ID and metrics namespace (default: `connection`) |
 | `serverType` | yes | `server` or `client` |
-| `udpPort` | yes | `1024-65535` |
+| `udpPort` | yes | `1024-65535`; each server connection must use a unique port |
 | `secretKey` | yes | exactly 32 bytes (32 ASCII chars), at least 8 unique chars |
 | `protocolVersion` | no | `1` or `2` |
 | `useMsgpack` | no | must match both ends |
@@ -171,35 +231,6 @@ There are two configuration layers:
 - `alertThresholds` (client)
 
 Tip: start with defaults and tune only if metrics indicate problems.
-
-### Runtime file examples (client mode)
-
-`delta_timer.json`
-
-```json
-{
-  "deltaTimer": 1000
-}
-```
-
-`subscription.json`
-
-```json
-{
-  "context": "*",
-  "subscribe": [
-    { "path": "*" }
-  ]
-}
-```
-
-`sentence_filter.json`
-
-```json
-{
-  "excludedSentences": ["GSV"]
-}
-```
 
 ## Protocol Version Choice
 
@@ -243,10 +274,8 @@ Current rate limit: 120 requests/minute/IP.
 - `GET /plugin-config`
 - `POST /plugin-config`
 - `GET /plugin-schema`
-- `GET /config/:filename` (client mode only)
-- `POST /config/:filename` (client mode only)
 
-### Runtime and monitoring
+### Runtime and monitoring (first/only connection)
 
 - `GET /metrics`
 - `GET /network-metrics`
@@ -259,7 +288,7 @@ Current rate limit: 120 requests/minute/IP.
 - `GET /monitoring/inspector`
 - `GET /monitoring/simulation`
 
-### v2 control and diagnostics
+### v2 control and diagnostics (first/only connection)
 
 - `GET /congestion` (client)
 - `POST /delta-timer` (client)
@@ -270,6 +299,20 @@ Current rate limit: 120 requests/minute/IP.
 - `POST /capture/start`
 - `POST /capture/stop`
 - `GET /capture/export`
+- `GET /config/:filename` (client mode only)
+- `POST /config/:filename` (client mode only)
+
+### Multi-connection routes
+
+When running more than one connection, use these per-connection endpoints. `:id` is the slugified connection name (e.g. `shore-server`, `sat-client`).
+
+- `GET /connections` — list all active connections with status
+- `GET /connections/:id/metrics`
+- `GET /connections/:id/network-metrics`
+- `GET /connections/:id/bonding` (client)
+- `GET /connections/:id/congestion` (client)
+- `GET /connections/:id/config/:filename` (client)
+- `POST /connections/:id/config/:filename` (client)
 
 ## Security Notes
 
@@ -295,6 +338,7 @@ openssl rand -base64 32 | cut -c1-32
 | Frequent packet loss | unstable link or too aggressive send rate | use protocol v2, enable congestion control, tune reliability |
 | UI missing updates | stale frontend bundle | rebuild plugin (`npm run build`) and reload |
 | Port bind failure | port in use or permission issue | choose free UDP port `>=1024` |
+| Startup error: duplicate server ports | two server connections share a port | assign each server connection a unique `udpPort` |
 
 ## Developer Commands
 
