@@ -391,10 +391,6 @@ const uiSchemaServer = {
 // Shared fields preserved when the user toggles server ↔ client mode
 const SHARED_FIELDS = ["name", "udpPort", "secretKey", "useMsgpack", "usePathDictionary", "protocolVersion"];
 
-// ── No-op submit button template (L2 fix: use official RJSF API) ──────────────
-const NoSubmitButton = () => null;
-const rjsfTemplates = { ButtonTemplates: { SubmitButton: NoSubmitButton } };
-
 // ── Styles ────────────────────────────────────────────────────────────────────
 // Using `skel-` prefix (Signal K Edge Link) to avoid collisions with other
 // plugins that may inject CSS into the same admin panel page.
@@ -515,6 +511,10 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
     }
   }, [conn.serverType, conn._id, onChange]);
 
+  // Strip the frontend-only _id before passing to RJSF – it is not in the
+  // schema and must not leak into the form data that RJSF manages.
+  const { _id: _strip, ...formData } = conn;
+
   return (
     <div className="skel-card">
       <div className="skel-card-header" onClick={onToggle} role="button" aria-expanded={expanded}>
@@ -537,13 +537,15 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
           <Form
             schema={schema}
             uiSchema={uiSchema}
-            formData={conn}
+            formData={formData}
             validator={validator}
             onChange={handleFormChange}
             onSubmit={() => {}}
             liveValidate={false}
-            templates={rjsfTemplates}
-          />
+          >
+            {/* Hide the default submit button – saving is done from the outer toolbar */}
+            <div />
+          </Form>
         </div>
       )}
     </div>
