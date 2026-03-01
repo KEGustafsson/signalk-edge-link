@@ -212,7 +212,7 @@ Alert thresholds are configured via the REST API at `POST /plugins/signalk-edge-
 | Jitter (ms) | 100 | 300 |
 | Queue Depth | 100 | 500 |
 
-Alerts emit Signal K notifications at `notifications.signalk-edge-link.<metric>` with `state` set to `"warn"` or `"alert"`. Alert cooldown is 60 seconds.
+Alerts emit Signal K notifications at `notifications.signalk-edge-link.<instanceId>.<metric>` with `state` set to `"warn"` or `"alert"`. The source label is `signalk-edge-link:<instanceId>`. Alert cooldown is 60 seconds.
 
 ## Internal Constants
 

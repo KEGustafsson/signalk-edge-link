@@ -334,7 +334,7 @@ describe("SignalK Data Connector Plugin", () => {
           delta.updates &&
           delta.updates[0] &&
           delta.updates[0].values &&
-          delta.updates[0].values.some((v) => v.path === "networking.modem.rtt")
+          delta.updates[0].values.some((v) => v.path === "networking.modem.default.rtt")
         );
       });
 
@@ -349,7 +349,7 @@ describe("SignalK Data Connector Plugin", () => {
         expect(delta.updates[0].values).toHaveLength(1);
 
         const rttValue = delta.updates[0].values[0];
-        expect(rttValue.path).toBe("networking.modem.rtt");
+        expect(rttValue.path).toBe("networking.modem.default.rtt");
         expect(typeof rttValue.value).toBe("number");
         expect(rttValue.value).toBeGreaterThan(0);
         // Value should be in seconds (converted from milliseconds)
@@ -382,7 +382,7 @@ describe("SignalK Data Connector Plugin", () => {
           delta.updates &&
           delta.updates[0] &&
           delta.updates[0].values &&
-          delta.updates[0].values.some((v) => v.path === "networking.modem.rtt")
+          delta.updates[0].values.some((v) => v.path === "networking.modem.default.rtt")
         );
       });
 
@@ -426,7 +426,7 @@ describe("SignalK Data Connector Plugin", () => {
           delta.updates &&
           delta.updates[0] &&
           delta.updates[0].values &&
-          delta.updates[0].values.some((v) => v.path === "networking.modem.rtt")
+          delta.updates[0].values.some((v) => v.path === "networking.modem.default.rtt")
         );
       });
 

@@ -158,7 +158,7 @@ Plugin options shape:
 }
 ```
 
-Each connection gets its own instance ID derived from its `name` (slugified). Signal K metrics paths are namespaced per connection: `networking.edgeLink.<name>.<metric>`.
+Each connection gets its own instance ID derived from its `name` (slugified). Signal K paths are namespaced per connection: `networking.edgeLink.<name>.<metric>` for telemetry and `notifications.signalk-edge-link.<name>.<alert>` for alerts.
 
 **Backward compatibility:** A legacy flat config (single object without a `connections` array) is automatically normalized to a single-item array on startup. No manual migration is required.
 
