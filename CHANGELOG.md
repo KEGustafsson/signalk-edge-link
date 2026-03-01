@@ -18,6 +18,7 @@ All notable changes to Signal K Edge Link are documented in this file.
   - `POST /connections/:id/config/:filename` (client)
 - **Duplicate port detection**: Startup rejects configurations where two server connections share the same UDP port.
 - **Instance ID collision disambiguation**: Two connections with the same name get `-1`, `-2` suffixes automatically.
+- **Per-instance notification namespacing**: Alert and bonding notifications are now emitted at `notifications.signalk-edge-link.<instanceId>.<metric>` with source label `signalk-edge-link:<instanceId>`. The feedback filter only suppresses the current instance's own notifications, allowing other instances' notifications to be forwarded.
 - **Legacy flat config normalization**: Existing single-connection flat config is transparently wrapped in a one-item `connections` array on startup — no migration required.
 
 ### Changed

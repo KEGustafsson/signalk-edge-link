@@ -410,22 +410,26 @@ Also update `publishRtt()` in `index.js` (will move to instance factory):
 #### 6b. Alert/notification namespacing (`lib/monitoring.js`, `lib/bonding.js`)
 
 `AlertManager` and `BondingManager` publish Signal K notifications under
-`notifications.signalk-edge-link.*`. Namespace these too:
+`notifications.signalk-edge-link.<instanceId>.*` with source label
+`signalk-edge-link:<instanceId>`. Both constructors receive `instanceId`
+and derive a namespaced source label (falling back to `"signalk-edge-link"`
+when no instanceId is set).
 
 ```
 notifications.signalk-edge-link.{instanceId}.lossAlert
 notifications.signalk-edge-link.{instanceId}.bondingFailover
 ```
 
-Pass `instanceId` into these constructors.
-
 ---
 
 ### Phase 7 — Feedback Filter Update (`filterOutboundDelta`)
 
-The existing filter blocks paths starting with `networking.edgeLink.` and
-`notifications.signalk-edge-link.`. Since all instances still publish under those
-prefixes (just deeper), the existing filter is sufficient — no change needed.
+The feedback filter only suppresses this instance's own paths:
+- `networking.edgeLink.<ownInstanceId>.*` — own telemetry metrics
+- `notifications.signalk-edge-link.<ownInstanceId>.*` — own alert notifications
+
+Other instances' metrics and notifications pass through so they can be
+forwarded for remote monitoring.
 
 ---
 

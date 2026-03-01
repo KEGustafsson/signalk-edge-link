@@ -286,7 +286,7 @@ Failback from backup to primary requires ALL conditions:
 
 ### Signal K Notifications
 
-Failover events emit Signal K notifications at `notifications.signalk-edge-link.linkFailover` with state `alert` and both visual and sound methods.
+Failover events emit Signal K notifications at `notifications.signalk-edge-link.<instanceId>.linkFailover` with state `alert` and both visual and sound methods. The source label is `signalk-edge-link:<instanceId>`.
 
 ## 10. Security
 
@@ -405,4 +405,4 @@ The v2 protocol publishes the following metrics to the Signal K data model:
 | `networking.edgeLink.bonding.activeLink` | string | Active bonding link name |
 | `networking.edgeLink.bonding.primary.*` | object | Primary link health metrics |
 | `networking.edgeLink.bonding.backup.*` | object | Backup link health metrics |
-| `notifications.signalk-edge-link.*` | notification | Alert notifications |
+| `notifications.signalk-edge-link.<instanceId>.*` | notification | Alert notifications (per-instance) |

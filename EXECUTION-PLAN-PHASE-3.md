@@ -328,7 +328,7 @@ class MetricsPublisher {
     
     this.app.handleMessage('vessels.self', {
       updates: [{
-        source: { label: 'signalk-edge-link' },
+        source: { label: this.sourceLabel },  // 'signalk-edge-link:<instanceId>'
         timestamp: new Date().toISOString(),
         values: values
       }]
