@@ -489,7 +489,7 @@ describe("AlertManager", () => {
     test("emits Signal K notification on alert", () => {
       alertManager.check("rtt", 600);
       expect(mockApp.handleMessage).toHaveBeenCalledWith(
-        "vessels.self",
+        "signalk-edge-link",
         expect.objectContaining({
           updates: expect.any(Array)
         })

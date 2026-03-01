@@ -236,12 +236,14 @@ describe("MetricsPublisher", () => {
       expect(timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
-    test("calls handleMessage with vessels.self context", () => {
+    test("calls handleMessage with plugin source label and vessels.self context", () => {
       publisher.publish({ rtt: 50 });
 
       expect(mockApp.handleMessage).toHaveBeenCalledWith(
-        "vessels.self",
-        expect.any(Object)
+        "signalk-edge-link",
+        expect.objectContaining({
+          context: "vessels.self"
+        })
       );
     });
   });
