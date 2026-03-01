@@ -129,6 +129,23 @@ describe("Outbound feedback filtering", () => {
     expect(mockApp.reportOutputMessages).not.toHaveBeenCalled();
   });
 
+  test("drops instance-namespaced networking.modem.<instanceId>.rtt path", async () => {
+    await startClientAndEnableSending();
+    expect(typeof mockApp._deltaCallback).toBe("function");
+
+    mockApp.reportOutputMessages.mockClear();
+
+    mockApp._deltaCallback({
+      context: "vessels.self",
+      updates: [{
+        values: [{ path: "networking.modem.default.rtt", value: 0.015 }]
+      }]
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mockApp.reportOutputMessages).not.toHaveBeenCalled();
+  });
+
   test("drops notifications.signalk-edge-link.* even without source metadata", async () => {
     await startClientAndEnableSending();
     expect(typeof mockApp._deltaCallback).toBe("function");
