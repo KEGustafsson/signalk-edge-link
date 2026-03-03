@@ -1113,6 +1113,11 @@ describe("SignalK Data Connector Plugin", () => {
       expect(mockApp.error).toHaveBeenCalled();
     });
 
+    test("should handle undefined options gracefully", async () => {
+      await expect(plugin.start()).resolves.toBeUndefined();
+      expect(mockApp.error).toHaveBeenCalled();
+    });
+
     test("should not throw on stop if never started", () => {
       expect(() => plugin.stop()).not.toThrow();
     });
