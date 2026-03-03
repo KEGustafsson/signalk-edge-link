@@ -643,14 +643,33 @@ class DataConnectorConfig {
     editor.value = JSON.stringify(this.pluginConfig, null, 2);
 
     if (summary) {
-      const mode = this.pluginConfig.serverType || "client";
-      const protocol = this.pluginConfig.protocolVersion || 1;
-      const keyCount = Object.keys(this.pluginConfig).length;
+      const hasConnections =
+        Array.isArray(this.pluginConfig.connections) &&
+        this.pluginConfig.connections.length > 0;
+
+      let summaryScope = "Top-level";
+      let keyLabel = "Top-Level Fields";
+      let summaryConfig = this.pluginConfig;
+
+      if (hasConnections) {
+        const totalConnections = this.pluginConfig.connections.length;
+        const runtimeIndex = this.connections.findIndex((c) => c.id === this.activeConnectionId);
+        const summaryIndex = runtimeIndex >= 0 && runtimeIndex < totalConnections ? runtimeIndex : 0;
+        const candidate = this.pluginConfig.connections[summaryIndex];
+        summaryConfig = candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate : {};
+        summaryScope = `Connection ${summaryIndex + 1}/${totalConnections}`;
+        keyLabel = "Connection Fields";
+      }
+
+      const mode = this.normalizeServerType(summaryConfig.serverType) || "client";
+      const protocol = summaryConfig.protocolVersion === 2 ? 2 : 1;
+      const keyCount = Object.keys(summaryConfig).length;
       summary.innerHTML = `
         <div class="plugin-summary-grid">
+          ${renderStatItem("Scope", this.escapeHtml(summaryScope))}
           ${renderStatItem("Mode", this.escapeHtml(mode.toUpperCase()))}
           ${renderStatItem("Protocol", "v" + this.escapeHtml(String(protocol)))}
-          ${renderStatItem("Top-Level Fields", this.escapeHtml(String(keyCount)))}
+          ${renderStatItem(keyLabel, this.escapeHtml(String(keyCount)))}
         </div>
       `;
     }
@@ -1472,6 +1491,9 @@ class DataConnectorConfig {
   buildCompletePluginConfig(currentConfig) {
     const defaults = this.extractSchemaDefaults(this.pluginSchema);
     const merged = this.deepMerge(defaults || {}, currentConfig || {});
+    if (Array.isArray(merged.connections)) {
+      return merged;
+    }
     const normalizedServerType = this.normalizeServerType(merged.serverType);
     merged.serverType = normalizedServerType || "client";
     return merged;

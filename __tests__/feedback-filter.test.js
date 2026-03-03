@@ -3,7 +3,7 @@
 const net = require("net");
 const createPlugin = require("../index");
 
-describe("Outbound feedback filtering", () => {
+describe("Outbound delta forwarding", () => {
   let plugin;
   let mockApp;
   let probeServer;
@@ -98,7 +98,7 @@ describe("Outbound feedback filtering", () => {
     await waitForReadyToSend();
   }
 
-  test("drops deltas sourced from this plugin", async () => {
+  test("forwards deltas sourced from this plugin", async () => {
     await startClientAndEnableSending();
     expect(typeof mockApp._deltaCallback).toBe("function");
 
@@ -113,7 +113,7 @@ describe("Outbound feedback filtering", () => {
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(mockApp.reportOutputMessages).not.toHaveBeenCalled();
+    expect(mockApp.reportOutputMessages).toHaveBeenCalledTimes(1);
   });
 
   test("allows non-edge-link deltas through", async () => {
@@ -134,7 +134,7 @@ describe("Outbound feedback filtering", () => {
     expect(mockApp.reportOutputMessages).toHaveBeenCalledTimes(1);
   });
 
-  test("drops networking.modem.rtt even without source metadata", async () => {
+  test("forwards networking.modem.rtt without source metadata", async () => {
     await startClientAndEnableSending();
     expect(typeof mockApp._deltaCallback).toBe("function");
 
@@ -148,10 +148,10 @@ describe("Outbound feedback filtering", () => {
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(mockApp.reportOutputMessages).not.toHaveBeenCalled();
+    expect(mockApp.reportOutputMessages).toHaveBeenCalledTimes(1);
   });
 
-  test("drops instance-namespaced networking.modem.<instanceId>.rtt path", async () => {
+  test("forwards instance-namespaced networking.modem.<instanceId>.rtt path", async () => {
     await startClientAndEnableSending();
     expect(typeof mockApp._deltaCallback).toBe("function");
 
@@ -165,10 +165,10 @@ describe("Outbound feedback filtering", () => {
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(mockApp.reportOutputMessages).not.toHaveBeenCalled();
+    expect(mockApp.reportOutputMessages).toHaveBeenCalledTimes(1);
   });
 
-  test("drops own instance notifications.signalk-edge-link.<instanceId>.*", async () => {
+  test("forwards own instance notifications.signalk-edge-link.<instanceId>.*", async () => {
     await startClientAndEnableSending();
     expect(typeof mockApp._deltaCallback).toBe("function");
 
@@ -185,7 +185,7 @@ describe("Outbound feedback filtering", () => {
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(mockApp.reportOutputMessages).not.toHaveBeenCalled();
+    expect(mockApp.reportOutputMessages).toHaveBeenCalledTimes(1);
   });
 
   test("allows other instance notifications to pass through", async () => {
