@@ -95,10 +95,20 @@ module.exports = function createPlugin(app) {
     routes.registerWithRouter(router);
   };
 
-  plugin.start = async function start(options, restartPlugin) {
+  plugin.start = async function start(options = {}, restartPlugin) {
     // Store restartPlugin on the plugin itself so any route handler can access it
     // regardless of how many instances are running.
     plugin._restartPlugin = typeof restartPlugin === "function" ? restartPlugin : null;
+
+    // If start() is called again without an explicit stop(), tear down existing
+    // instances first to avoid orphaned sockets and stale pipelines.
+    if (instances.size > 0) {
+      for (const instance of instances.values()) {
+        instance.stop();
+      }
+      instances.clear();
+    }
+
     // ── Parse connections array (supports both legacy flat and new array format)
     let connectionList;
     if (Array.isArray(options.connections) && options.connections.length > 0) {
