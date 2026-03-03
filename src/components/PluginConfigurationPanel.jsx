@@ -112,13 +112,13 @@ const clientProperties = {
   udpAddress: {
     type: "string",
     title: "Server Address",
-    description: "IP address or hostname of the SignalK server to send data to",
+    description: "Required. IP address or hostname of the remote SignalK endpoint.",
     default: "127.0.0.1"
   },
   helloMessageSender: {
     type: "integer",
     title: "Heartbeat Interval (seconds)",
-    description: "How often to send heartbeat messages to keep the link alive",
+    description: "Optional tuning. Send periodic heartbeat messages to keep NAT/firewall mappings alive.",
     default: 60,
     minimum: 10,
     maximum: 3600
@@ -126,13 +126,13 @@ const clientProperties = {
   testAddress: {
     type: "string",
     title: "Connectivity Test Address",
-    description: "Address to check for network availability (e.g. 8.8.8.8)",
+    description: "Required. Host used for reachability checks (for example 8.8.8.8).",
     default: "127.0.0.1"
   },
   testPort: {
     type: "number",
     title: "Connectivity Test Port",
-    description: "Port for connectivity test (e.g. 80, 443, 53)",
+    description: "Required. Port used for reachability checks (for example 53, 80, or 443).",
     default: 80,
     minimum: 1,
     maximum: 65535
@@ -140,15 +140,15 @@ const clientProperties = {
   pingIntervalTime: {
     type: "number",
     title: "Check Interval (minutes)",
-    description: "How often to test network connectivity",
+    description: "Optional tuning. Frequency of network reachability checks.",
     default: 1,
     minimum: 0.1,
     maximum: 60
   },
   reliability: {
     type: "object",
-    title: "Reliability Settings (v2 only)",
-    description: "Requires Protocol v2. Controls retransmit queue and packet retry limits.",
+    title: "Optional: Reliability Settings (v2 only)",
+    description: "Advanced. Requires Protocol v2. Controls retransmit queue behavior and retry limits.",
     properties: {
       retransmitQueueSize: {
         type: "number", title: "Retransmit Queue Size",
@@ -214,8 +214,8 @@ const clientProperties = {
   },
   congestionControl: {
     type: "object",
-    title: "Dynamic Congestion Control (v2 only)",
-    description: "Requires Protocol v2. AIMD algorithm adjusts send rate based on RTT and packet loss.",
+    title: "Optional: Dynamic Congestion Control (v2 only)",
+    description: "Advanced. Requires Protocol v2. AIMD logic can adapt send rate based on RTT and packet loss.",
     properties: {
       enabled: {
         type: "boolean", title: "Enable Congestion Control",
@@ -246,8 +246,8 @@ const clientProperties = {
   },
   bonding: {
     type: "object",
-    title: "Connection Bonding (v2 only)",
-    description: "Requires Protocol v2. Dual-link bonding with automatic failover.",
+    title: "Optional: Connection Bonding (v2 only)",
+    description: "Advanced. Requires Protocol v2. Configure dual-link operation with automatic failover.",
     properties: {
       enabled: {
         type: "boolean", title: "Enable Connection Bonding",
@@ -290,8 +290,8 @@ const clientProperties = {
   },
   alertThresholds: {
     type: "object",
-    title: "Monitoring Alert Thresholds (v2 only)",
-    description: "Customize warning/critical thresholds for network monitoring alerts.",
+    title: "Optional: Monitoring Alert Thresholds (v2 only)",
+    description: "Advanced. Customize warning/critical thresholds used by v2 monitoring.",
     properties: {
       rtt: {
         type: "object", title: "RTT Thresholds",
@@ -371,12 +371,24 @@ function buildSchema(isClient) {
 
 const uiSchemaClient = {
   "ui:order": [
-    "name", "serverType", "udpPort", "secretKey", "useMsgpack", "usePathDictionary",
-    "protocolVersion", "udpAddress", "helloMessageSender", "testAddress", "testPort",
-    "pingIntervalTime", "reliability", "congestionControl", "bonding", "alertThresholds"
+    "name", "serverType", "udpAddress", "udpPort", "secretKey", "protocolVersion",
+    "useMsgpack", "usePathDictionary", "testAddress", "testPort", "pingIntervalTime",
+    "helloMessageSender", "reliability", "congestionControl", "bonding", "alertThresholds"
   ],
   secretKey: { "ui:widget": "password", "ui:help": "Must be exactly 32 characters long" },
-  serverType: { "ui:widget": "select" }
+  serverType: { "ui:widget": "select" },
+  reliability: {
+    "ui:classNames": "skel-optional-group"
+  },
+  congestionControl: {
+    "ui:classNames": "skel-optional-group"
+  },
+  bonding: {
+    "ui:classNames": "skel-optional-group"
+  },
+  alertThresholds: {
+    "ui:classNames": "skel-optional-group"
+  }
 };
 
 const uiSchemaServer = {
@@ -482,6 +494,33 @@ const css = `
 .skel-alert-error   { background: #f8d7da; color: #58151c; border: 1px solid #f1aeb5; }
 .skel-alert-saving  { background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; }
 .skel-dup-warn { font-size: 0.8rem; color: #dc3545; margin-top: 4px; }
+.skel-config .field-description {
+  color: #5c6773;
+  font-size: 0.83rem;
+  line-height: 1.35;
+}
+.skel-config legend,
+.skel-config label {
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.skel-optional-group {
+  margin-top: 12px;
+  border: 1px dashed #ccd5df;
+  border-radius: 6px;
+  padding: 10px 12px 4px;
+  background: #fbfcfe;
+}
+.skel-optional-group legend {
+  font-size: 0.92rem;
+  margin-bottom: 6px;
+}
+.skel-optional-group .form-group {
+  margin-bottom: 10px;
+}
+.skel-optional-group .form-control {
+  max-width: 340px;
+}
 `;
 
 // ── ConnectionCard ────────────────────────────────────────────────────────────
