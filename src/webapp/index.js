@@ -104,9 +104,9 @@ class DataConnectorConfig {
   detectModeFromConfig() {
     if (this.pluginConfig) {
       const st = this.normalizeServerType(this.pluginConfig.serverType);
-      if (st) return st;
+      if (st) {return st;}
     }
-    if (this.schemaCurrentMode) return this.schemaCurrentMode;
+    if (this.schemaCurrentMode) {return this.schemaCurrentMode;}
     return "client";
   }
 
@@ -121,32 +121,32 @@ class DataConnectorConfig {
   // ── API path helpers ───────────────────────────────────────────────────────
 
   metricsPath(connId) {
-    if (connId === "_legacy") return `${API_BASE_PATH}/metrics`;
+    if (connId === "_legacy") {return `${API_BASE_PATH}/metrics`;}
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/metrics`;
   }
 
   configPath(connId, filename) {
-    if (connId === "_legacy") return `${API_BASE_PATH}/config/${filename}`;
+    if (connId === "_legacy") {return `${API_BASE_PATH}/config/${filename}`;}
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/config/${filename}`;
   }
 
   monitoringPath(connId, sub) {
-    if (connId === "_legacy") return `${API_BASE_PATH}/monitoring/${sub}`;
+    if (connId === "_legacy") {return `${API_BASE_PATH}/monitoring/${sub}`;}
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/monitoring/${sub}`;
   }
 
   congestionPath(connId) {
-    if (connId === "_legacy") return `${API_BASE_PATH}/congestion`;
+    if (connId === "_legacy") {return `${API_BASE_PATH}/congestion`;}
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/congestion`;
   }
 
   bondingPath(connId) {
-    if (connId === "_legacy") return `${API_BASE_PATH}/bonding`;
+    if (connId === "_legacy") {return `${API_BASE_PATH}/bonding`;}
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/bonding`;
   }
 
   bondingFailoverPath(connId) {
-    if (connId === "_legacy") return `${API_BASE_PATH}/bonding/failover`;
+    if (connId === "_legacy") {return `${API_BASE_PATH}/bonding/failover`;}
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/bonding/failover`;
   }
 
@@ -159,7 +159,7 @@ class DataConnectorConfig {
 
   renderTabs() {
     const tabsDiv = document.getElementById("connectionTabs");
-    if (!tabsDiv) return;
+    if (!tabsDiv) {return;}
 
     if (this.connections.length <= 1) {
       tabsDiv.innerHTML = "";
@@ -199,7 +199,7 @@ class DataConnectorConfig {
 
   renderConnectionContent() {
     const contentDiv = document.getElementById("connectionContent");
-    if (!contentDiv) return;
+    if (!contentDiv) {return;}
 
     const conn = this.getActiveConnection();
     this.isServerMode = conn.type === "server";
@@ -459,7 +459,7 @@ class DataConnectorConfig {
   }
 
   async loadMetrics(connId) {
-    if (!connId) connId = this.activeConnectionId;
+    if (!connId) {connId = this.activeConnectionId;}
     try {
       const response = await fetch(this.metricsPath(connId));
       if (response.ok) {
@@ -570,7 +570,7 @@ class DataConnectorConfig {
     const subscriptionJsonEditor = document.getElementById("subscriptionJson");
     if (subscriptionJsonEditor) {
       subscriptionJsonEditor.addEventListener("input", () => {
-        if (this.syncTimeout) clearTimeout(this.syncTimeout);
+        if (this.syncTimeout) {clearTimeout(this.syncTimeout);}
         this.syncTimeout = setTimeout(() => this.syncFromJson(), JSON_SYNC_DEBOUNCE);
       });
     }
@@ -603,12 +603,12 @@ class DataConnectorConfig {
 
     if (this.deltaTimerConfig && this.deltaTimerConfig.deltaTimer) {
       const el = document.getElementById("deltaTimer");
-      if (el) el.value = this.deltaTimerConfig.deltaTimer;
+      if (el) {el.value = this.deltaTimerConfig.deltaTimer;}
     }
 
     if (this.subscriptionConfig) {
       const ctxEl = document.getElementById("context");
-      if (ctxEl) ctxEl.value = this.subscriptionConfig.context || "*";
+      if (ctxEl) {ctxEl.value = this.subscriptionConfig.context || "*";}
 
       const pathsList = document.getElementById("pathsList");
       if (pathsList) {
@@ -619,12 +619,12 @@ class DataConnectorConfig {
       }
 
       const jsonEl = document.getElementById("subscriptionJson");
-      if (jsonEl) jsonEl.value = JSON.stringify(this.subscriptionConfig, null, 2);
+      if (jsonEl) {jsonEl.value = JSON.stringify(this.subscriptionConfig, null, 2);}
     }
 
     if (this.sentenceFilterConfig && Array.isArray(this.sentenceFilterConfig.excludedSentences)) {
       const el = document.getElementById("sentenceFilter");
-      if (el) el.value = this.sentenceFilterConfig.excludedSentences.join(", ");
+      if (el) {el.value = this.sentenceFilterConfig.excludedSentences.join(", ");}
     }
   }
 
@@ -632,11 +632,11 @@ class DataConnectorConfig {
     const editor = document.getElementById("pluginConfigJson");
     const summary = document.getElementById("pluginConfigSummary");
 
-    if (!editor) return;
+    if (!editor) {return;}
 
     if (!this.pluginConfig) {
       editor.value = "{}";
-      if (summary) summary.innerHTML = "<p>Plugin config unavailable.</p>";
+      if (summary) {summary.innerHTML = "<p>Plugin config unavailable.</p>";}
       return;
     }
 
@@ -660,7 +660,7 @@ class DataConnectorConfig {
 
   addPathItem(path = "") {
     const pathsList = document.getElementById("pathsList");
-    if (!pathsList) return;
+    if (!pathsList) {return;}
 
     const pathItem = document.createElement("div");
     pathItem.className = "path-item";
@@ -698,17 +698,17 @@ class DataConnectorConfig {
 
     const config = { context, subscribe };
     const jsonEl = document.getElementById("subscriptionJson");
-    if (jsonEl) jsonEl.value = JSON.stringify(config, null, 2);
+    if (jsonEl) {jsonEl.value = JSON.stringify(config, null, 2);}
   }
 
   syncFromJson() {
     try {
       const jsonEl = document.getElementById("subscriptionJson");
-      if (!jsonEl) return;
+      if (!jsonEl) {return;}
       const config = JSON.parse(jsonEl.value);
 
       const ctxEl = document.getElementById("context");
-      if (ctxEl) ctxEl.value = config.context || "*";
+      if (ctxEl) {ctxEl.value = config.context || "*";}
 
       const pathsList = document.getElementById("pathsList");
       if (pathsList) {
@@ -764,8 +764,8 @@ class DataConnectorConfig {
       const jsonText = document.getElementById("subscriptionJson").value;
       const config = JSON.parse(jsonText);
 
-      if (!config.context) throw new Error("Context is required");
-      if (!config.subscribe || !Array.isArray(config.subscribe)) throw new Error("Subscribe array is required");
+      if (!config.context) {throw new Error("Context is required");}
+      if (!config.subscribe || !Array.isArray(config.subscribe)) {throw new Error("Subscribe array is required");}
 
       await this.saveConfig("subscription.json", config, "subscriptionConfig", "Subscription configuration");
     } catch (error) {
@@ -785,7 +785,7 @@ class DataConnectorConfig {
 
   async savePluginConfig() {
     const editor = document.getElementById("pluginConfigJson");
-    if (!editor) return;
+    if (!editor) {return;}
 
     try {
       const parsedConfig = JSON.parse(editor.value);
@@ -795,7 +795,7 @@ class DataConnectorConfig {
 
       const requestConfig = this.deepClone(parsedConfig);
       const normalizedServerType = this.normalizeServerType(requestConfig.serverType);
-      if (normalizedServerType) requestConfig.serverType = normalizedServerType;
+      if (normalizedServerType) {requestConfig.serverType = normalizedServerType;}
 
       const response = await fetch(`${API_BASE_PATH}/plugin-config`, {
         method: "POST",
@@ -841,7 +841,7 @@ class DataConnectorConfig {
     this.updatePathAnalyticsDisplay(metrics);
 
     const metricsDiv = document.getElementById("metrics");
-    if (!metricsDiv) return;
+    if (!metricsDiv) {return;}
 
     const isClient = metrics.mode === "client";
     const { stats, status, uptime } = metrics;
@@ -929,7 +929,7 @@ class DataConnectorConfig {
 
   updateNetworkQualityDisplay(metrics) {
     const nqDiv = document.getElementById("networkQuality");
-    if (!nqDiv || !metrics.networkQuality) return;
+    if (!nqDiv || !metrics.networkQuality) {return;}
 
     const nq = metrics.networkQuality;
     const isClient = metrics.mode === "client";
@@ -1013,7 +1013,7 @@ class DataConnectorConfig {
 
   updateBandwidthDisplay(metrics) {
     const bandwidthDiv = document.getElementById("bandwidth");
-    if (!bandwidthDiv || !metrics.bandwidth) return;
+    if (!bandwidthDiv || !metrics.bandwidth) {return;}
 
     const bw = metrics.bandwidth;
     const isClient = metrics.mode === "client";
@@ -1110,7 +1110,7 @@ class DataConnectorConfig {
 
   updatePathAnalyticsDisplay(metrics) {
     const pathDiv = document.getElementById("pathAnalytics");
-    if (!pathDiv || !metrics.pathStats) return;
+    if (!pathDiv || !metrics.pathStats) {return;}
 
     const paths = metrics.pathStats;
 
@@ -1189,7 +1189,7 @@ class DataConnectorConfig {
   updateCongestionDisplay(data) {
     const section = document.getElementById("congestionSection");
     const div = document.getElementById("congestionControl");
-    if (!section || !div) return;
+    if (!section || !div) {return;}
 
     section.style.display = "";
 
@@ -1228,7 +1228,7 @@ class DataConnectorConfig {
   updateBondingDisplay(data) {
     const section = document.getElementById("bondingSection");
     const div = document.getElementById("bondingStatus");
-    if (!section || !div) return;
+    if (!section || !div) {return;}
 
     if (!data.enabled) {
       section.style.display = "none";
@@ -1305,7 +1305,7 @@ class DataConnectorConfig {
   updateMonitoringDisplay(data) {
     const section = document.getElementById("monitoringSection");
     const div = document.getElementById("monitoringAlerts");
-    if (!section || !div) return;
+    if (!section || !div) {return;}
 
     const hasData = data.alerts || data.packetLoss || data.retransmissions;
     if (!hasData) {
@@ -1327,9 +1327,9 @@ class DataConnectorConfig {
           level = String(alert.level).toLowerCase();
         }
 
-        if (level === "warn") level = "warning";
-        if (level === "alert") level = "critical";
-        if (level !== "warning" && level !== "critical") level = "warning";
+        if (level === "warn") {level = "warning";}
+        if (level === "alert") {level = "critical";}
+        if (level !== "warning" && level !== "critical") {level = "warning";}
 
         return {
           metric,
@@ -1396,7 +1396,7 @@ class DataConnectorConfig {
 
   updateStatus() {
     const statusDiv = document.getElementById("status");
-    if (!statusDiv) return;
+    if (!statusDiv) {return;}
 
     let statusHtml = "<h4>Configuration Status</h4>";
 
@@ -1478,13 +1478,13 @@ class DataConnectorConfig {
   }
 
   normalizeServerType(value) {
-    if (value === true || value === "server") return "server";
-    if (value === false || value === "client") return "client";
+    if (value === true || value === "server") {return "server";}
+    if (value === false || value === "client") {return "client";}
     return undefined;
   }
 
   extractSchemaDefaults(schemaNode) {
-    if (!schemaNode || typeof schemaNode !== "object") return undefined;
+    if (!schemaNode || typeof schemaNode !== "object") {return undefined;}
 
     const isObjectNode = schemaNode.type === "object" || !!schemaNode.properties;
     const merged = {};
@@ -1523,7 +1523,7 @@ class DataConnectorConfig {
 
     for (const compositeKey of ["oneOf", "anyOf", "allOf"]) {
       const composite = schemaNode[compositeKey];
-      if (!Array.isArray(composite)) continue;
+      if (!Array.isArray(composite)) {continue;}
 
       composite.forEach((item) => {
         const itemDefaults = this.extractSchemaDefaults(item);
@@ -1538,9 +1538,9 @@ class DataConnectorConfig {
       });
     }
 
-    if (hasData) return merged;
+    if (hasData) {return merged;}
 
-    if (schemaNode.default !== undefined) return this.deepClone(schemaNode.default);
+    if (schemaNode.default !== undefined) {return this.deepClone(schemaNode.default);}
 
     return undefined;
   }
@@ -1550,7 +1550,7 @@ class DataConnectorConfig {
   }
 
   deepClone(value) {
-    if (Array.isArray(value)) return value.map((item) => this.deepClone(item));
+    if (Array.isArray(value)) {return value.map((item) => this.deepClone(item));}
     if (this.isPlainObject(value)) {
       const clone = {};
       for (const [key, childValue] of Object.entries(value)) {
@@ -1562,8 +1562,8 @@ class DataConnectorConfig {
   }
 
   deepMerge(baseValue, overrideValue) {
-    if (overrideValue === undefined) return this.deepClone(baseValue);
-    if (Array.isArray(overrideValue)) return this.deepClone(overrideValue);
+    if (overrideValue === undefined) {return this.deepClone(baseValue);}
+    if (Array.isArray(overrideValue)) {return this.deepClone(overrideValue);}
 
     if (this.isPlainObject(baseValue) && this.isPlainObject(overrideValue)) {
       const merged = this.deepClone(baseValue);
@@ -1577,7 +1577,7 @@ class DataConnectorConfig {
   }
 
   formatBytes(bytes) {
-    if (!bytes || bytes <= 0) return "0 B";
+    if (!bytes || bytes <= 0) {return "0 B";}
     const k = 1024;
     const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
@@ -1592,7 +1592,7 @@ class DataConnectorConfig {
 
   showNotification(message, type = "success") {
     const notification = document.getElementById("notification");
-    if (!notification) return;
+    if (!notification) {return;}
     notification.textContent = message;
     notification.className = `notification ${type} show`;
 
@@ -1609,7 +1609,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Clean up metrics refresh interval when page is hidden or unloaded
 document.addEventListener("visibilitychange", () => {
-  if (!window.dataConnectorConfig) return;
+  if (!window.dataConnectorConfig) {return;}
 
   if (document.hidden) {
     if (window.dataConnectorConfig.metricsInterval) {

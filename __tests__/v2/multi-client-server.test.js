@@ -97,7 +97,7 @@ describe("pipeline-v2-server multi-client sessions", () => {
     const packet = await makeSentPacket(SECRET);
 
     // Set up a minimal mock socket so receivePacket can try to send ACK
-    let udpSends = [];
+    const udpSends = [];
     state.socketUdp = {
       send: jest.fn((data, port, address, cb) => {
         udpSends.push({ port, address });

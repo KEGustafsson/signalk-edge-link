@@ -49,7 +49,7 @@ function makeMockApp() {
     reportOutputMessages: jest.fn(),
     getDataDirPath: jest.fn(() => "/tmp/test-instance-" + Math.random().toString(36).slice(2)),
     subscriptionmanager: {
-      subscribe: jest.fn((sub, unsubs, onError, onDelta) => {
+      subscribe: jest.fn((_sub, unsubs, _onError, _onDelta) => {
         // store onDelta so tests can trigger it
         unsubs.push(() => {});
       })

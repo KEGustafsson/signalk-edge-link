@@ -3,6 +3,22 @@ const { promises: fs } = require("fs");
 const path = require("path");
 const os = require("os");
 
+jest.mock("ping-monitor", () => {
+  const { EventEmitter } = require("events");
+
+  class MockMonitor extends EventEmitter {
+    constructor() {
+      super();
+      MockMonitor.instances.push(this);
+    }
+
+    stop() {}
+  }
+
+  MockMonitor.instances = [];
+  return MockMonitor;
+}, { virtual: true });
+
 // We'll test the config functions indirectly through the plugin
 const createPlugin = require("../index");
 

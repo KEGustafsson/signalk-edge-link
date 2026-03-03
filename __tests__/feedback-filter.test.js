@@ -1,27 +1,13 @@
 "use strict";
 
-jest.mock("ping-monitor", () => {
-  const { EventEmitter } = require("events");
-
-  class MockMonitor extends EventEmitter {
-    constructor() {
-      super();
-      MockMonitor.instances.push(this);
-    }
-
-    stop() {}
-  }
-
-  MockMonitor.instances = [];
-  return MockMonitor;
-});
-
+const net = require("net");
 const createPlugin = require("../index");
-const Monitor = require("ping-monitor");
 
 describe("Outbound feedback filtering", () => {
   let plugin;
   let mockApp;
+  let probeServer;
+  let probePort;
 
   const clientOptions = {
     secretKey: "12345678901234567890123456789012",
@@ -34,8 +20,17 @@ describe("Outbound feedback filtering", () => {
     helloMessageSender: 60
   };
 
-  beforeEach(() => {
-    Monitor.instances.length = 0;
+  beforeEach(async () => {
+    probeServer = net.createServer();
+    await new Promise((resolve, reject) => {
+      probeServer.once("error", reject);
+      probeServer.listen(0, "127.0.0.1", () => {
+        probeServer.removeListener("error", reject);
+        resolve();
+      });
+    });
+    const addr = probeServer.address();
+    probePort = addr && typeof addr === "object" ? addr.port : 80;
 
     mockApp = {
       debug: jest.fn(),
@@ -61,19 +56,46 @@ describe("Outbound feedback filtering", () => {
     if (plugin && plugin.stop) {
       plugin.stop();
     }
+    if (probeServer) {
+      await new Promise((resolve) => probeServer.close(() => resolve()));
+      probeServer = null;
+    }
     await new Promise((resolve) => setTimeout(resolve, 50));
   });
 
+  async function waitForReadyToSend() {
+    const probeDelta = {
+      context: "vessels.self",
+      updates: [{
+        source: { label: "probe" },
+        values: [{ path: "navigation.speedOverGround", value: 1.1 }]
+      }]
+    };
+
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      mockApp.reportOutputMessages.mockClear();
+      mockApp._deltaCallback(probeDelta);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (mockApp.reportOutputMessages.mock.calls.length > 0) {
+        mockApp.reportOutputMessages.mockClear();
+        return;
+      }
+    }
+    throw new Error("Timed out waiting for client readiness");
+  }
+
   async function startClientAndEnableSending() {
-    await plugin.start(clientOptions);
+    await plugin.start({
+      ...clientOptions,
+      testPort: probePort,
+      pingIntervalTime: 0.001
+    });
     const deadline = Date.now() + 2000;
     while (typeof mockApp._deltaCallback !== "function" && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-
-    const monitor = Monitor.instances[0];
-    expect(monitor).toBeDefined();
-    monitor.emit("up", { time: 10 });
+    await waitForReadyToSend();
   }
 
   test("drops deltas sourced from this plugin", async () => {

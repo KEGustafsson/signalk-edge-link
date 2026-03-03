@@ -11,6 +11,22 @@
  *   6. Source fixing (null source → empty object) through decodeDelta
  */
 
+jest.mock("ping-monitor", () => {
+  const { EventEmitter } = require("events");
+
+  class MockMonitor extends EventEmitter {
+    constructor() {
+      super();
+      MockMonitor.instances.push(this);
+    }
+
+    stop() {}
+  }
+
+  MockMonitor.instances = [];
+  return MockMonitor;
+}, { virtual: true });
+
 const createMetrics = require("../lib/metrics");
 const createPipeline = require("../lib/pipeline");
 const createRoutes = require("../lib/routes");

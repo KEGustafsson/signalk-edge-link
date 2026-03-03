@@ -513,7 +513,8 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
 
   // Strip the frontend-only _id before passing to RJSF – it is not in the
   // schema and must not leak into the form data that RJSF manages.
-  const { _id: _strip, ...formData } = conn;
+  const { _id, ...formData } = conn;
+  void _id;
 
   return (
     <div className="skel-card">
