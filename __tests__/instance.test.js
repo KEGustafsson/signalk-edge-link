@@ -172,8 +172,8 @@ describe("createInstance", () => {
       "plugin",
       jest.fn()
     );
-    // start() should call app.error and return early
-    await inst.start();
+    // start() should throw so Promise.all in index.js can detect startup failure
+    await expect(inst.start()).rejects.toThrow(/Secret key validation failed/);
     expect(app.error).toHaveBeenCalled();
     expect(inst.getState().socketUdp).toBeNull();
   });
@@ -187,7 +187,7 @@ describe("createInstance", () => {
       "plugin",
       jest.fn()
     );
-    await inst.start();
+    await expect(inst.start()).rejects.toThrow(/UDP port must be between/);
     expect(app.error).toHaveBeenCalled();
     expect(inst.getState().socketUdp).toBeNull();
   });

@@ -20,9 +20,9 @@ describe("MetricsPublisher", () => {
 
   describe("Construction", () => {
     test("initializes with empty windows", () => {
-      expect(publisher.rttWindow).toEqual([]);
-      expect(publisher.jitterWindow).toEqual([]);
-      expect(publisher.lossWindow).toEqual([]);
+      expect(publisher.rttWindow.length).toBe(0);
+      expect(publisher.jitterWindow.length).toBe(0);
+      expect(publisher.lossWindow.length).toBe(0);
     });
 
     test("initializes with default window size of 10", () => {
@@ -384,7 +384,13 @@ describe("MetricsPublisher", () => {
     });
 
     test("limits window size to configured value", () => {
+      // CircularBuffer size is fixed at construction, so recreate the
+      // internal buffers with the smaller window size.
+      const CircularBuffer = require("../../lib/CircularBuffer");
       publisher.windowSize = 3;
+      publisher.rttWindow = new CircularBuffer(3);
+      publisher.jitterWindow = new CircularBuffer(3);
+      publisher.lossWindow = new CircularBuffer(3);
 
       for (let i = 0; i < 10; i++) {
         publisher.publish({ rtt: i * 10 });
@@ -591,9 +597,9 @@ describe("MetricsPublisher", () => {
 
       publisher.reset();
 
-      expect(publisher.rttWindow).toEqual([]);
-      expect(publisher.jitterWindow).toEqual([]);
-      expect(publisher.lossWindow).toEqual([]);
+      expect(publisher.rttWindow.length).toBe(0);
+      expect(publisher.jitterWindow.length).toBe(0);
+      expect(publisher.lossWindow.length).toBe(0);
       expect(publisher.lastPublished).toEqual({});
     });
 
