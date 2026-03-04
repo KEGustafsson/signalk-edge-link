@@ -1,30 +1,26 @@
 # Signal K Edge Link
 
-Signal K Edge Link is a Signal K plugin for sending vessel data over secure UDP between two Signal K servers.
+Signal K Edge Link is a Signal K plugin that transfers vessel deltas between Signal K servers over encrypted UDP.
 
-- Client mode: collects local deltas and sends them out
-- Server mode: receives, decrypts, and forwards into local Signal K
-- Multiple connections can run in parallel on a single Signal K instance
-- Protocol v2 adds reliability, congestion control, bonding, and detailed monitoring
+It is designed for links where latency, packet loss, and bandwidth usage matter (cellular, satellite, and other unstable WAN paths).
 
-![Data Connector Concept](doc/dataconnectorconcept.jpg)
+![Data Connector Concept](docs/assets/dataconnectorconcept.jpg)
 
-## What This Solves
+## Why use it?
 
-Use this plugin when you need to move Signal K data over unstable links (cellular, satellite, offshore WAN) where low latency and bandwidth efficiency matter.
+- **Secure transport** using AES-256-GCM
+- **Bandwidth optimization** with Brotli compression (plus optional MessagePack and path dictionary)
+- **Two operating modes**:
+  - **Client**: subscribes to local deltas and sends packets
+  - **Server**: receives packets, decrypts, and forwards to local Signal K
+- **Protocol v2 features** for difficult links:
+  - ACK/NAK-based reliability
+  - congestion control
+  - optional primary/backup bonding
+  - monitoring and alerting endpoints
+- **Multi-connection support** on one Signal K instance
 
-Key capabilities:
-
-- AES-256-GCM authenticated encryption
-- Brotli compression
-- Optional MessagePack and path dictionary encoding
-- Protocol v2 ACK/NAK retransmission
-- Dynamic congestion control
-- Primary/backup link bonding with failover
-- Built-in metrics, alerts, and packet capture endpoints
-- Multiple simultaneous connections (e.g. one server + one client on the same node)
-
-## Architecture At A Glance
+## How data flows
 
 ```text
 Client Signal K
@@ -42,99 +38,101 @@ Server Signal K
   <- inject into local Signal K
 ```
 
-## Prerequisites
+## Requirements
 
-- Two Signal K instances (source + destination)
-- UDP reachability from client to server on your configured port
-- One shared secret key (exactly 32 bytes / 32 ASCII characters) on both ends
-- For source installs: Node.js 16+
+- Two Signal K instances (source and destination)
+- UDP reachability from client to server on your chosen port
+- Shared encryption key on both ends (**exactly 32 ASCII characters**)
+- Node.js 16+ (if installing from source)
 
 ## Installation
 
-### Option A: Plugin manager
+### Option A: Signal K Plugin Manager
 
-If your Signal K setup exposes this plugin in the plugin catalog, install it there.
+Install **Signal K Edge Link** from your Signal K plugin catalog.
 
 ### Option B: Manual install from source
 
 ```bash
 cd ~/.signalk/node_modules
-
 git clone https://github.com/KEGustafsson/signalk-edge-link.git
 cd signalk-edge-link
 npm install
 npm run build
 ```
 
-Restart Signal K after install.
+Restart Signal K after installation.
 
-## Quick Start (Recommended)
+## Quick start
 
-### 1. Configure destination (Server mode)
+### 1) Configure the destination (Server mode)
 
 In Signal K Admin UI:
 
-- Open `Server -> Plugin Config -> Signal K Edge Link`
-- Click **Add Server**
-- Set `Connection Name` (e.g. `shore-server`)
-- Set `UDP Port` (default `4446`)
-- Set `Encryption Key` (exactly 32 bytes / 32 ASCII characters)
-- Set `Protocol Version` (`2` recommended)
-- Save
+1. Open `Server -> Plugin Config -> Signal K Edge Link`
+2. Click **Add Server**
+3. Set:
+   - `Connection Name` (for example `shore-server`)
+   - `UDP Port` (default `4446`)
+   - `Encryption Key` (same 32-character key used by client)
+   - `Protocol Version` (`2` recommended)
+4. Save
 
-### 2. Configure source (Client mode)
+### 2) Configure the source (Client mode)
 
 On the sending Signal K instance:
 
-- Open `Server -> Plugin Config -> Signal K Edge Link`
-- Click **Add Client**
-- Set `Connection Name` (e.g. `vessel-client`)
-- Set same `UDP Port`
-- Set same `Encryption Key`
-- Set `Server Address` to destination host/IP
-- Set `Protocol Version` (`2` recommended)
-- Save
+1. Open `Server -> Plugin Config -> Signal K Edge Link`
+2. Click **Add Client**
+3. Set:
+   - `Connection Name` (for example `vessel-client`)
+   - `Server Address` (destination host/IP)
+   - `UDP Port` (must match server)
+   - `Encryption Key` (must match server)
+   - `Protocol Version` (`2` recommended)
+4. Save
 
-### 3. Verify data flow
+### 3) Verify traffic
 
-Open web app:
+Open the runtime UI:
 
 `http://<signalk-host>:3000/plugins/signalk-edge-link/`
 
-Then confirm:
+Check that:
 
-- Client shows `Deltas Sent` increasing
-- Server shows `Deltas Received` increasing
-- No growing encryption/decryption errors
+- client `Deltas Sent` increases
+- server `Deltas Received` increases
+- encryption/decryption errors remain stable at zero
 
-## Web UI Guide
+## Protocol version guidance
 
-The runtime web app is available at:
+| Version | Use when | Notes |
+|---|---|---|
+| v1 | stable local links, simplest setup | lower overhead, no ACK/NAK reliability layer |
+| v2 | packet loss, variable latency, WAN links | adds retransmission, congestion control, bonding, richer monitoring |
 
-`/plugins/signalk-edge-link/`
+For unstable links, start with **v2 defaults** and tune only after checking metrics.
 
-### Available in both modes
+## Runtime UI and API
 
-- Full Plugin Configuration (advanced JSON editor using `/plugin-config`)
-- Network quality, bandwidth, path analytics
-- Performance metrics
-- Monitoring and alert status (v2)
+- Runtime UI: `/plugins/signalk-edge-link/`
+- API base path: `/plugins/signalk-edge-link`
+- Default API rate limit: **120 requests/minute/IP**
 
-### Client-only sections
+Most used endpoints:
 
-- `delta_timer.json` editor
-- `subscription.json` editor
-- `sentence_filter.json` editor
-- Congestion control panel (v2)
-- Bonding panel + manual failover trigger (v2)
+- `GET /metrics`
+- `GET /network-metrics`
+- `GET /monitoring/alerts`
+- `GET /connections`
+- `GET /connections/:id/metrics`
+- `GET /connections/:id/network-metrics`
 
-## Configuration Model
+For full endpoint details, use `docs/api-reference.md`.
 
-### Connections array
+## Configuration model (summary)
 
-The plugin is configured as an array of connections. Each connection is either a server or a client and runs independently. A single Signal K node can host multiple connections simultaneously — for example, a server receiving data from a remote vessel and a client forwarding data to a shore-side aggregator.
-
-Plugin options shape:
+Configuration is an array of independent connections:
 
 ```json
 {
@@ -150,179 +148,27 @@ Plugin options shape:
       "name": "sat-client",
       "serverType": "client",
       "udpPort": 4447,
-      "secretKey": "<32-char key>",
       "udpAddress": "10.0.0.1",
+      "secretKey": "<32-char key>",
       "protocolVersion": 2
     }
   ]
 }
 ```
 
-Each connection gets its own instance ID derived from its `name` (slugified). Signal K paths are namespaced per connection: `networking.edgeLink.<name>.<metric>` for telemetry and `notifications.signalk-edge-link.<name>.<alert>` for alerts.
+- Each connection runs independently.
+- Legacy single-object config is auto-normalized to one connection.
+- Client runtime JSON files (`delta_timer.json`, `subscription.json`, `sentence_filter.json`) are stored per connection and can be edited via API.
 
-**Backward compatibility:** A legacy flat config (single object without a `connections` array) is automatically normalized to a single-item array on startup. No manual migration is required.
+For complete setting definitions and ranges, use `docs/configuration-reference.md`.
 
-### Runtime JSON files (client mode, per-connection)
+## Security notes
 
-Each client connection stores its runtime configuration files under a subdirectory named after its connection. These files support hot-reload without restarting the plugin:
+- Uses AES-256-GCM authenticated encryption.
+- Keys must match exactly and be 32 ASCII characters.
+- Restrict UDP ingress to trusted source addresses whenever possible.
 
-- `delta_timer.json`
-- `subscription.json`
-- `sentence_filter.json`
-
-Read/write endpoint: `/plugins/signalk-edge-link/connections/:id/config/:filename`
-
-Example `delta_timer.json`:
-
-```json
-{
-  "deltaTimer": 1000
-}
-```
-
-Example `subscription.json`:
-
-```json
-{
-  "context": "*",
-  "subscribe": [
-    { "path": "*" }
-  ]
-}
-```
-
-Example `sentence_filter.json`:
-
-```json
-{
-  "excludedSentences": ["GSV"]
-}
-```
-
-## Core Parameters
-
-### Common (client + server)
-
-| Key | Required | Notes |
-|---|---|---|
-| `name` | no | Human-readable label; used as instance ID and metrics namespace (default: `connection`) |
-| `serverType` | yes | `server` or `client` |
-| `udpPort` | yes | `1024-65535`; each server connection must use a unique port |
-| `secretKey` | yes | exactly 32 bytes (32 ASCII chars), at least 8 unique chars |
-| `protocolVersion` | no | `1` or `2` |
-| `useMsgpack` | no | must match both ends |
-| `usePathDictionary` | no | must match both ends |
-
-### Client-required
-
-| Key | Required | Notes |
-|---|---|---|
-| `udpAddress` | yes | destination server host/IP |
-| `testAddress` | yes | RTT test target |
-| `testPort` | yes | `1-65535` |
-| `helloMessageSender` | no | heartbeat interval seconds (`10-3600`) |
-| `pingIntervalTime` | no | connectivity check minutes (`0.1-60`) |
-
-### v2 tuning groups
-
-- `reliability` (client and server mode variants)
-- `congestionControl` (client)
-- `bonding` (client)
-- `alertThresholds` (client)
-
-Tip: start with defaults and tune only if metrics indicate problems.
-
-## Protocol Version Choice
-
-| Version | When to use | Notes |
-|---|---|---|
-| v1 | stable local links, simplest setup | lower protocol overhead, no ACK/NAK reliability layer |
-| v2 | packet loss, variable latency, WAN links | adds retransmission, congestion control, bonding, richer monitoring |
-
-## High Packet Loss Guidance
-
-For unstable networks, use this baseline:
-
-1. Set `protocolVersion` to `2` on both ends.
-2. Leave `reliability` defaults first, then tune only if needed.
-3. Enable `congestionControl.enabled = true` on client if loss/RTT spikes under load.
-4. If you have two links (for example LTE + satellite), enable `bonding.enabled = true`.
-5. Use these endpoints to validate behavior:
-- `/plugins/signalk-edge-link/metrics`
-- `/plugins/signalk-edge-link/monitoring/packet-loss`
-- `/plugins/signalk-edge-link/monitoring/retransmissions`
-- `/plugins/signalk-edge-link/congestion`
-- `/plugins/signalk-edge-link/bonding`
-
-Practical tuning direction:
-
-- Frequent queue exhaustion: increase `reliability.retransmitQueueSize`
-- Packets dropped too early: raise `reliability.retransmitMaxAge`
-- Slow recovery after outage: increase `reliability.recoveryBurstSize`
-- Link saturation signs: enable congestion control or increase delta timer
-
-## REST API Quick Reference
-
-All API routes are under:
-
-`/plugins/signalk-edge-link`
-
-Current rate limit: 120 requests/minute/IP.
-
-### Configuration
-
-- `GET /plugin-config`
-- `POST /plugin-config`
-- `GET /plugin-schema`
-
-### Runtime and monitoring (first/only connection)
-
-- `GET /metrics`
-- `GET /network-metrics`
-- `GET /paths`
-- `GET /monitoring/alerts`
-- `POST /monitoring/alerts`
-- `GET /monitoring/packet-loss`
-- `GET /monitoring/retransmissions`
-- `GET /monitoring/path-latency`
-- `GET /monitoring/inspector`
-- `GET /monitoring/simulation`
-
-### v2 control and diagnostics (first/only connection)
-
-- `GET /congestion` (client)
-- `POST /delta-timer` (client)
-- `GET /bonding` (client)
-- `POST /bonding/failover` (client)
-- `GET /prometheus`
-- `GET /capture`
-- `POST /capture/start`
-- `POST /capture/stop`
-- `GET /capture/export`
-- `GET /config/:filename` (client mode only)
-- `POST /config/:filename` (client mode only)
-
-### Multi-connection routes
-
-When running more than one connection, use these per-connection endpoints. `:id` is the slugified connection name (e.g. `shore-server`, `sat-client`).
-
-- `GET /connections` — list all active connections with status
-- `GET /connections/:id/metrics`
-- `GET /connections/:id/network-metrics`
-- `GET /connections/:id/bonding` (client)
-- `GET /connections/:id/congestion` (client)
-- `GET /connections/:id/config/:filename` (client)
-- `POST /connections/:id/config/:filename` (client)
-
-## Security Notes
-
-- Encryption is AES-256-GCM with auth tag verification
-- If keys mismatch, packets are rejected
-- Keys must be exactly 32 bytes (use ASCII characters only)
-- Use strong random keys and rotate periodically
-- Keep UDP ingress restricted to trusted source addresses where possible
-
-Generate a 32-character key example:
+Example key generation:
 
 ```bash
 openssl rand -base64 32 | cut -c1-32
@@ -330,44 +176,29 @@ openssl rand -base64 32 | cut -c1-32
 
 ## Troubleshooting
 
-| Symptom | Likely Cause | Action |
-|---|---|---|
-| No data on server | wrong IP/port/key | verify `udpAddress`, `udpPort`, `secretKey` on both ends |
-| Auth/decrypt errors | key mismatch | set identical 32-byte key (ASCII only) |
-| No `/config/*` access | running server mode | this endpoint is client mode only |
-| Frequent packet loss | unstable link or too aggressive send rate | use protocol v2, enable congestion control, tune reliability |
-| UI missing updates | stale frontend bundle | rebuild plugin (`npm run build`) and reload |
-| Port bind failure | port in use or permission issue | choose free UDP port `>=1024` |
-| Startup error: duplicate server ports | two server connections share a port | assign each server connection a unique `udpPort` |
+Common checks:
 
-## Developer Commands
+- Verify `udpAddress`, `udpPort`, and `secretKey` match both ends.
+- Confirm server UDP port is reachable and not already in use.
+- If link quality is poor, switch to `protocolVersion: 2` and monitor retransmissions/RTT before tuning.
+
+For issue-oriented diagnostics, use `docs/troubleshooting.md`.
+
+## Developer commands
 
 ```bash
-npm run build           # production web assets to public/
-npm run dev             # webpack watch
-npm test                # full test suite
-npm run test:v2         # v2-focused tests
+npm run build
+npm run dev
+npm test
+npm run test:v2
 npm run test:integration
 npm run lint
 npm run lint:fix
 ```
 
-## Project Layout
+## Documentation map
 
-- `index.js` plugin entry + schema + lifecycle
-- `lib/` protocol, crypto, metrics, monitoring, routes
-- `src/components/PluginConfigurationPanel.jsx` Admin UI config panel
-- `src/webapp/` runtime web UI
-- `docs/` protocol/API/config/troubleshooting references
-
-## Additional Docs
-
-- `docs/api-reference.md`
-- `docs/configuration-reference.md`
-- `docs/protocol-v2-spec.md`
-- `docs/troubleshooting.md`
-- `docs/migration/v1-to-v2.md`
-- `CHANGELOG.md`
+See `docs/README.md` for a guide to user docs, migration notes, and engineering/planning documents.
 
 ## License
 
