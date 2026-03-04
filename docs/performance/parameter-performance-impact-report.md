@@ -1,4 +1,4 @@
-# Parameter & Performance Impact Report (2026-03-04)
+# Parameter & Performance Impact Report
 
 This report captures benchmark runs performed locally to evaluate how key tunable parameters affect throughput, latency, overhead, and reliability behavior.
 
