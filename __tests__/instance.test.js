@@ -5,10 +5,22 @@
  */
 
 // Mock external packages not available in the test environment
-jest.mock("ping-monitor", () => jest.fn().mockImplementation(() => ({
-  on: jest.fn(),
-  stop: jest.fn()
-})), { virtual: true });
+const monitorInstances = [];
+jest.mock("ping-monitor", () => jest.fn().mockImplementation(() => {
+  const handlers = new Map();
+  const monitor = {
+    on: jest.fn((event, cb) => {
+      handlers.set(event, cb);
+    }),
+    emit: (event, payload) => {
+      const cb = handlers.get(event);
+      if (cb) { cb(payload); }
+    },
+    stop: jest.fn()
+  };
+  monitorInstances.push(monitor);
+  return monitor;
+}), { virtual: true });
 
 const { createInstance, slugify } = require("../lib/instance");
 
@@ -74,6 +86,10 @@ function makeClientOptions(overrides = {}) {
 }
 
 describe("createInstance", () => {
+  beforeEach(() => {
+    monitorInstances.length = 0;
+  });
+
   test("returns expected API surface", () => {
     const app = makeMockApp();
     const inst = createInstance(app, makeClientOptions(), "test", "signalk-edge-link", jest.fn());
@@ -190,5 +206,65 @@ describe("createInstance", () => {
     await expect(inst.start()).rejects.toThrow(/UDP port must be between/);
     expect(app.error).toHaveBeenCalled();
     expect(inst.getState().socketUdp).toBeNull();
+  });
+
+
+  test("marks client unhealthy when post-connectivity ping timeout elapses", async () => {
+    const app = makeMockApp();
+    const inst = createInstance(app, makeClientOptions(), "x", "plugin", jest.fn());
+
+    const originalSetTimeout = global.setTimeout;
+    const originalClearTimeout = global.clearTimeout;
+    const timeoutCallbacks = [];
+
+    global.setTimeout = jest.fn((cb) => {
+      timeoutCallbacks.push(cb);
+      return timeoutCallbacks.length;
+    });
+    global.clearTimeout = jest.fn();
+
+    try {
+      await inst.start();
+      const monitor = monitorInstances[0];
+      monitor.emit("up", { time: 18 });
+
+      const before = inst.getStatus().text;
+      expect(before).toBe("Connected");
+
+      const lastTimeoutCb = timeoutCallbacks[timeoutCallbacks.length - 1];
+      expect(typeof lastTimeoutCb).toBe("function");
+      lastTimeoutCb();
+
+      expect(inst.getState().isHealthy).toBe(false);
+      expect(inst.getStatus().text).toBe("Connection monitor timeout");
+      expect(inst.getState().readyToSend).toBe(false);
+    } finally {
+      inst.stop();
+      global.setTimeout = originalSetTimeout;
+      global.clearTimeout = originalClearTimeout;
+    }
+  });
+
+  test("marks client unhealthy on monitor down/timeout/error events", async () => {
+    const app = makeMockApp();
+    const inst = createInstance(app, makeClientOptions(), "x", "plugin", jest.fn());
+
+    await inst.start();
+
+    const monitor = monitorInstances[0];
+    expect(monitor).toBeDefined();
+
+    monitor.emit("up", { time: 22 });
+    expect(inst.getState().isHealthy).toBe(true);
+
+    monitor.emit("down");
+    expect(inst.getState().isHealthy).toBe(false);
+    expect(inst.getStatus().text).toContain("Connection monitor: down");
+
+    monitor.emit("error", { message: "simulated" });
+    expect(inst.getState().isHealthy).toBe(false);
+    expect(inst.getStatus().text).toContain("Connection monitor error");
+
+    inst.stop();
   });
 });
