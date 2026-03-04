@@ -46,6 +46,42 @@ const renderBwStat = (label, value, isHighlight = false, isSuccess = false) => `
   </div>
 `;
 
+const renderSectionGroup = (title, description, content, id = "") => `
+  <section class="page-group"${id ? ` id="${id}"` : ""}>
+    <div class="page-group-header">
+      <h2>${title}</h2>
+      ${description ? `<p>${description}</p>` : ""}
+    </div>
+    <div class="page-group-content">
+      ${content}
+    </div>
+  </section>
+`;
+
+const renderModeBanner = (mode, details = []) => {
+  const modeLabel = mode === "server" ? "Server" : "Client";
+  const modeDescription =
+    mode === "server"
+      ? "Receiving and processing updates from connected clients"
+      : "Collecting, filtering, and transmitting local updates";
+  const detailHtml = details.map((detail) => `
+    <div class="mode-banner-item">${detail}</div>`).join("");
+
+  return `
+    <div class="config-section">
+      <div class="card mode-banner-card mode-${mode}">
+        <div class="card-header">
+          <h2>${modeLabel} Mode</h2>
+          <p>${modeDescription}</p>
+        </div>
+        <div class="card-content">
+          <div class="mode-banner-grid">${detailHtml}</div>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
 class DataConnectorConfig {
   constructor() {
     this.connections = [];
@@ -215,30 +251,13 @@ class DataConnectorConfig {
   }
 
   renderServerContent(container) {
-    container.innerHTML =
-      `<div class="config-section">
-        <div class="card server-mode-card">
-          <div class="card-header">
-            <h2>Server Mode Active</h2>
-            <p>Receiving data from clients</p>
-          </div>
-          <div class="card-content">
-            <div class="server-mode-info">
-              <div class="info-grid compact">
-                <div class="info-item">
-                  <h4>Configuration</h4>
-                  <p>Managed through SignalK plugin settings</p>
-                </div>
-                <div class="info-item">
-                  <h4>Data Flow</h4>
-                  <p>Client Devices &rarr; Server &rarr; SignalK</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>` +
-      this.renderPluginConfigurationCard() +
+    const configuration =
+      renderModeBanner("server", [
+        "Configuration is managed through shared plugin settings.",
+        "Data flow: Client Devices &rarr; Server &rarr; SignalK"
+      ]);
+
+    const telemetryAndHealth =
       renderCard("Network Quality", "Link quality score and network health indicators", "networkQuality") +
       renderCard("Bandwidth Monitor", "Network reception statistics", "bandwidth") +
       renderCard("Path Analytics", "Incoming data volume by SignalK path", "pathAnalytics") +
@@ -246,14 +265,39 @@ class DataConnectorConfig {
       '<div id="monitoringSection" style="display:none;">' +
         renderCard("Monitoring & Alerts", "Packet loss, retransmission tracking, and alert thresholds", "monitoringAlerts") +
       "</div>";
+
+    container.innerHTML =
+      renderSectionGroup(
+        "Configuration",
+        "Review mode context and manage plugin-level settings.",
+        configuration,
+        "configurationGroup"
+      ) +
+      renderSectionGroup(
+        "Operations & Monitoring",
+        "Track reception quality, throughput, and runtime behavior.",
+        telemetryAndHealth,
+        "operationsGroup"
+      ) +
+      renderSectionGroup(
+        "Advanced",
+        "Full plugin configurator (JSON editor).",
+        this.renderPluginConfigurationCard(),
+        "advancedGroup"
+      );
   }
 
   renderClientContent(container) {
-    container.innerHTML =
-      this.renderPluginConfigurationCard() +
+    const configuration =
+      renderModeBanner("client", [
+        "Tune collection frequency, subscriptions, and sentence filters.",
+        "Use full plugin config editor for advanced multi-field changes."
+      ]) +
       this.renderDeltaTimerCard() +
       this.renderSubscriptionCard() +
-      this.renderSentenceFilterCard() +
+      this.renderSentenceFilterCard();
+
+    const telemetryAndHealth =
       renderCard("Status", null, "status", "status-info") +
       renderCard("Network Quality", "Link quality score and network health indicators", "networkQuality") +
       renderCard("Bandwidth Monitor", "Real-time data transmission statistics", "bandwidth") +
@@ -268,6 +312,26 @@ class DataConnectorConfig {
       '<div id="monitoringSection" style="display:none;">' +
         renderCard("Monitoring & Alerts", "Packet loss, retransmission tracking, and alert thresholds", "monitoringAlerts") +
       "</div>";
+
+    container.innerHTML =
+      renderSectionGroup(
+        "Configuration",
+        "Set up transmission behavior and plugin-level parameters.",
+        configuration,
+        "configurationGroup"
+      ) +
+      renderSectionGroup(
+        "Operations & Monitoring",
+        "Track transmission quality, reliability, and runtime performance.",
+        telemetryAndHealth,
+        "operationsGroup"
+      ) +
+      renderSectionGroup(
+        "Advanced",
+        "Full plugin configurator (JSON editor).",
+        this.renderPluginConfigurationCard(),
+        "advancedGroup"
+      );
   }
 
   renderDeltaTimerCard() {
@@ -338,10 +402,9 @@ class DataConnectorConfig {
           <div class="card-content">
             <div class="form-group">
               <label for="sentenceFilter">Excluded Sentences:</label>
-              <input type="text" id="sentenceFilter" placeholder="GSV, GSA, VTG" />
+              <input type="text" id="sentenceFilter" placeholder="" autocomplete="off" />
               <small class="help-text">
-                Comma-separated list of NMEA sentence types to exclude (e.g., GSV, GSA, VTG)<br>
-                Common sentences: GSV (satellites in view), GSA (DOP and active satellites), VTG (track/speed)
+                Comma-separated list of NMEA sentence types to exclude.
               </small>
             </div>
             <button id="saveSentenceFilter" class="btn btn-primary">Save Sentence Filter</button>
@@ -1472,13 +1535,6 @@ class DataConnectorConfig {
         </div>
         <div class="status-details">
           <strong>Excluded:</strong> ${escapedFilters}
-        </div>
-      `;
-    } else {
-      statusHtml += `
-        <div class="status-item">
-          <strong>Sentence Filter:</strong>
-          <span class="status-indicator info">No filters (all sentences transmitted)</span>
         </div>
       `;
     }
