@@ -53,6 +53,7 @@ function createDefaultConfig(overrides = {}) {
       address: "10.0.1.1",
       port: 4447
     },
+    notificationsEnabled: true,
     failover: {
       rttThreshold: 500,
       lossThreshold: 0.10,

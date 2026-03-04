@@ -57,6 +57,7 @@ function createDefaultConfig() {
       port: 4447,
       interface: null
     },
+    notificationsEnabled: true,
     failover: {
       rttThreshold: 500,
       lossThreshold: 0.10,
