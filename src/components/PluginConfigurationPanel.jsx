@@ -155,7 +155,7 @@ const clientProperties = {
   },
   reliability: {
     type: "object",
-    title: "Optional: Reliability Settings (v2 only)",
+    title: "Reliability Settings",
     description: "Advanced. Requires Protocol v2. Controls retransmit queue behavior and retry limits.",
     properties: {
       retransmitQueueSize: {
@@ -222,7 +222,7 @@ const clientProperties = {
   },
   congestionControl: {
     type: "object",
-    title: "Optional: Dynamic Congestion Control (v2 only)",
+    title: "Dynamic Congestion Control",
     description: "Advanced. Requires Protocol v2. AIMD logic can adapt send rate based on RTT and packet loss.",
     properties: {
       enabled: {
@@ -254,7 +254,7 @@ const clientProperties = {
   },
   bonding: {
     type: "object",
-    title: "Optional: Connection Bonding (v2 only)",
+    title: "Connection Bonding",
     description: "Advanced. Requires Protocol v2. Configure dual-link operation with automatic failover.",
     properties: {
       enabled: {
@@ -298,7 +298,7 @@ const clientProperties = {
   },
   alertThresholds: {
     type: "object",
-    title: "Optional: Monitoring Alert Thresholds (v2 only)",
+    title: "Monitoring Alert Thresholds",
     description: "Advanced. Customize warning/critical thresholds used by v2 monitoring.",
     properties: {
       rtt: {
@@ -343,7 +343,7 @@ const clientProperties = {
 const serverProperties = {
   reliability: {
     type: "object",
-    title: "Reliability Settings (v2 only)",
+    title: "Reliability Settings",
     description: "Requires Protocol v2. Controls ACK/NAK timing for reliable delivery.",
     properties: {
       ackInterval: {
@@ -365,14 +365,29 @@ const serverProperties = {
   }
 };
 
-function buildSchema(isClient) {
+const CLIENT_V2_SETTING_KEYS = ["reliability", "congestionControl", "bonding", "alertThresholds", "enableNotifications"];
+const SERVER_V2_SETTING_KEYS = ["reliability"];
+
+function buildSchema(isClient, protocolVersion) {
+  const isV2 = Number(protocolVersion) === 2;
   const props = { ...commonProperties };
   const required = ["serverType", "udpPort", "secretKey"];
   if (isClient) {
     Object.assign(props, clientProperties);
     required.push("udpAddress", "testAddress", "testPort");
+    if (!isV2) {
+      for (const key of CLIENT_V2_SETTING_KEYS) {
+        delete props[key];
+      }
+    }
   } else {
     Object.assign(props, serverProperties);
+    delete props.enableNotifications;
+    if (!isV2) {
+      for (const key of SERVER_V2_SETTING_KEYS) {
+        delete props[key];
+      }
+    }
   }
   return { type: "object", required, properties: props };
 }
@@ -380,8 +395,8 @@ function buildSchema(isClient) {
 const uiSchemaClient = {
   "ui:order": [
     "name", "serverType", "udpAddress", "udpPort", "secretKey", "protocolVersion",
-    "useMsgpack", "usePathDictionary", "enableNotifications", "testAddress", "testPort", "pingIntervalTime",
-    "helloMessageSender", "reliability", "congestionControl", "bonding", "alertThresholds"
+    "useMsgpack", "usePathDictionary", "testAddress", "testPort", "pingIntervalTime",
+    "helloMessageSender", "reliability", "congestionControl", "bonding", "enableNotifications", "alertThresholds"
   ],
   secretKey: { "ui:widget": "password", "ui:help": "Must be exactly 32 characters long" },
   serverType: { "ui:widget": "select" },
@@ -401,7 +416,7 @@ const uiSchemaClient = {
 
 const uiSchemaServer = {
   "ui:order": [
-    "name", "serverType", "udpPort", "secretKey", "useMsgpack", "usePathDictionary", "enableNotifications",
+    "name", "serverType", "udpPort", "secretKey", "useMsgpack", "usePathDictionary",
     "protocolVersion", "reliability"
   ],
   secretKey: { "ui:widget": "password", "ui:help": "Must be exactly 32 characters long" },
@@ -535,7 +550,7 @@ const css = `
 
 function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange, onRemove }) {
   const isClient = conn.serverType !== "server";
-  const schema = buildSchema(isClient);
+  const schema = buildSchema(isClient, conn.protocolVersion);
   const uiSchema = isClient ? uiSchemaClient : uiSchemaServer;
   const modeLabel = isClient ? "Client" : "Server";
   const displayName = (conn.name || `Connection ${index + 1}`).trim();

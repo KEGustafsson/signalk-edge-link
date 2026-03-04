@@ -258,21 +258,23 @@ class DataConnectorConfig {
       ]);
 
     const telemetryAndHealth =
+      renderCard("Performance Metrics", "Real-time reception statistics (auto-refreshes every 15 seconds)", "metrics") +
+      '<div id="monitoringSection" style="display:none;">' +
       renderCard("Network Quality", "Link quality score and network health indicators", "networkQuality") +
       renderCard("Bandwidth Monitor", "Network reception statistics", "bandwidth") +
       renderCard("Path Analytics", "Incoming data volume by SignalK path", "pathAnalytics") +
-      renderCard("Performance Metrics", "Real-time reception statistics (auto-refreshes every 15 seconds)", "metrics") +
-      '<div id="monitoringSection" style="display:none;">' +
-        renderCard("Monitoring & Alerts", "Packet loss, retransmission tracking, and alert thresholds", "monitoringAlerts") +
+      renderCard("Monitoring & Alerts", "Packet loss, retransmission tracking, and alert thresholds", "monitoringAlerts") +
       "</div>";
 
     container.innerHTML =
+/*
       renderSectionGroup(
         "Configuration",
         "Review mode context and manage plugin-level settings.",
         configuration,
         "configurationGroup"
       ) +
+*/
       renderSectionGroup(
         "Operations & Monitoring",
         "Track reception quality, throughput, and runtime behavior.",
@@ -289,29 +291,31 @@ class DataConnectorConfig {
 
   renderClientContent(container) {
     const configuration =
+/*
       renderModeBanner("client", [
         "Tune collection frequency, subscriptions, and sentence filters.",
         "Use full plugin config editor for advanced multi-field changes."
       ]) +
+*/
       this.renderDeltaTimerCard() +
       this.renderSubscriptionCard() +
       this.renderSentenceFilterCard();
 
     const telemetryAndHealth =
-      renderCard("Status", null, "status", "status-info") +
+      renderCard("Performance Metrics", "Real-time transmission statistics (auto-refreshes every 15 seconds)", "metrics") +
+      '<div id="congestionSection" class="config-section" style="display:none;">' +
       renderCard("Network Quality", "Link quality score and network health indicators", "networkQuality") +
       renderCard("Bandwidth Monitor", "Real-time data transmission statistics", "bandwidth") +
       renderCard("Path Analytics", "Data volume by subscription path", "pathAnalytics") +
-      renderCard("Performance Metrics", "Real-time transmission statistics (auto-refreshes every 15 seconds)", "metrics") +
-      '<div id="congestionSection" class="config-section" style="display:none;">' +
-        renderCard("Congestion Control", "AIMD congestion control state and delta timer auto-adjustment", "congestionControl") +
+      renderCard("Congestion Control", "AIMD congestion control state and delta timer auto-adjustment", "congestionControl") +
       "</div>" +
       '<div id="bondingSection" class="config-section" style="display:none;">' +
         renderCard("Connection Bonding", "Multi-link bonding status and failover control", "bondingStatus") +
       "</div>" +
       '<div id="monitoringSection" style="display:none;">' +
         renderCard("Monitoring & Alerts", "Packet loss, retransmission tracking, and alert thresholds", "monitoringAlerts") +
-      "</div>";
+      "</div>" +
+      renderCard("Status", null, "status", "status-info");
 
     container.innerHTML =
       renderSectionGroup(
