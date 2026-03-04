@@ -22,6 +22,7 @@ function defaultClientConnection(name) {
     secretKey: "",
     useMsgpack: false,
     usePathDictionary: false,
+    enableNotifications: false,
     protocolVersion: 1,
     udpAddress: "127.0.0.1",
     helloMessageSender: 60,
@@ -40,6 +41,7 @@ function defaultServerConnection(name) {
     secretKey: "",
     useMsgpack: false,
     usePathDictionary: false,
+    enableNotifications: false,
     protocolVersion: 1
   };
 }
@@ -94,6 +96,12 @@ const commonProperties = {
     type: "boolean",
     title: "Use Path Dictionary",
     description: "Encode paths as numeric IDs for bandwidth savings (must match on both ends)",
+    default: false
+  },
+  enableNotifications: {
+    type: "boolean",
+    title: "Enable Signal K Notifications",
+    description: "Emit Signal K notifications for alerts/failover events.",
     default: false
   },
   protocolVersion: {
@@ -372,7 +380,7 @@ function buildSchema(isClient) {
 const uiSchemaClient = {
   "ui:order": [
     "name", "serverType", "udpAddress", "udpPort", "secretKey", "protocolVersion",
-    "useMsgpack", "usePathDictionary", "testAddress", "testPort", "pingIntervalTime",
+    "useMsgpack", "usePathDictionary", "enableNotifications", "testAddress", "testPort", "pingIntervalTime",
     "helloMessageSender", "reliability", "congestionControl", "bonding", "alertThresholds"
   ],
   secretKey: { "ui:widget": "password", "ui:help": "Must be exactly 32 characters long" },
@@ -393,7 +401,7 @@ const uiSchemaClient = {
 
 const uiSchemaServer = {
   "ui:order": [
-    "name", "serverType", "udpPort", "secretKey", "useMsgpack", "usePathDictionary",
+    "name", "serverType", "udpPort", "secretKey", "useMsgpack", "usePathDictionary", "enableNotifications",
     "protocolVersion", "reliability"
   ],
   secretKey: { "ui:widget": "password", "ui:help": "Must be exactly 32 characters long" },
@@ -401,7 +409,7 @@ const uiSchemaServer = {
 };
 
 // Shared fields preserved when the user toggles server ↔ client mode
-const SHARED_FIELDS = ["name", "udpPort", "secretKey", "useMsgpack", "usePathDictionary", "protocolVersion"];
+const SHARED_FIELDS = ["name", "udpPort", "secretKey", "useMsgpack", "usePathDictionary", "enableNotifications", "protocolVersion"];
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 // Using `skel-` prefix (Signal K Edge Link) to avoid collisions with other
