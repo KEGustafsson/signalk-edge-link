@@ -5,7 +5,7 @@
 Before diving into specific issues, check these common items:
 
 1. **Both sides running same version?** Client and server must both be on v2.0
-2. **Encryption keys match?** Must be identical 32-character strings
+2. **Encryption keys match?** Must be identical values (64-char hex preferred; 43/44-char base64 and legacy 32-char raw are supported)
 3. **UDP port open?** Firewall must allow UDP traffic on configured port
 4. **Plugin enabled?** Check Admin UI > Plugin Config
 5. **Node.js >= 14.0.0?** Run `node --version` to verify
@@ -104,13 +104,15 @@ Before diving into specific issues, check these common items:
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| `Unsupported state or unable to authenticate data` | Mismatched encryption keys | Verify identical 32-char keys on both ends |
-| `Secret key must be exactly 32 characters` | Invalid key length | Use exactly 32 characters |
+| `Unsupported state or unable to authenticate data` | Mismatched encryption keys | Verify identical keys on both ends (prefer 64-char hex) |
+| `Secret key must be exactly 32 bytes` | Invalid key format or length | Use 64-char hex, 43/44-char base64, or legacy 32-char raw key |
 | `Key lacks sufficient diversity` | Key too simple (< 8 unique chars) | Use a randomly generated key |
 
 Generate a secure key:
 ```bash
-openssl rand -base64 32 | cut -c1-32
+openssl rand -hex 32
+# or (base64)
+openssl rand -base64 32
 ```
 
 ### Protocol Errors

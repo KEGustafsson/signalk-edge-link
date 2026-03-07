@@ -145,7 +145,7 @@ Configuration is an array of independent connections:
       "name": "shore-server",
       "serverType": "server",
       "udpPort": 4446,
-      "secretKey": "<32-char key>",
+      "secretKey": "<64-char hex key>",
       "protocolVersion": 2
     },
     {
@@ -153,7 +153,7 @@ Configuration is an array of independent connections:
       "serverType": "client",
       "udpPort": 4447,
       "udpAddress": "10.0.0.1",
-      "secretKey": "<32-char key>",
+      "secretKey": "<64-char hex key>",
       "protocolVersion": 2
     }
   ]
@@ -175,13 +175,16 @@ Schema and migration helpers:
 ## Security notes
 
 - Uses AES-256-GCM authenticated encryption.
-- Keys must match exactly and be 32 ASCII characters.
+- Keys must match exactly on both ends.
+- Supported formats: 64-character hex (preferred), 43/44-character base64 for 32-byte payloads, or legacy 32-character raw strings.
 - Restrict UDP ingress to trusted source addresses whenever possible.
 
 Example key generation:
 
 ```bash
-openssl rand -base64 32 | cut -c1-32
+openssl rand -hex 32
+# or (base64)
+openssl rand -base64 32
 ```
 
 ## Troubleshooting

@@ -167,3 +167,47 @@ describe("duplicate server port detection", () => {
     expect(findDuplicatePorts(conns)).toContain(4446);
   });
 });
+
+
+// ── Secret key schema compatibility ───────────────────────────────────────
+
+describe("secretKey schema compatibility", () => {
+  const secretKeySchema = require("../schemas/config.schema.json")
+    .definitions.connection.properties.secretKey;
+
+  function matchesOption(value, option) {
+    if (option.minLength !== undefined && value.length < option.minLength) {
+      return false;
+    }
+    if (option.maxLength !== undefined && value.length > option.maxLength) {
+      return false;
+    }
+    if (option.pattern && !(new RegExp(option.pattern).test(value))) {
+      return false;
+    }
+    return true;
+  }
+
+  function isAcceptedBySecretKeySchema(value) {
+    return secretKeySchema.oneOf.some((option) => matchesOption(value, option));
+  }
+
+  test.each([
+    "a".repeat(32),
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE",
+    "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+  ])("accepts supported secretKey format: %s", (key) => {
+    expect(isAcceptedBySecretKeySchema(key)).toBe(true);
+  });
+
+  test.each([
+    "a".repeat(31),
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg",
+    "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE==",
+    "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUEA",
+    "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE_"
+  ])("rejects unsupported secretKey format: %s", (key) => {
+    expect(isAcceptedBySecretKeySchema(key)).toBe(false);
+  });
+});

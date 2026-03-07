@@ -14,10 +14,16 @@
         "$ref": "#/definitions/connection"
       }
     },
-    "name": { "type": "string", "maxLength": 40 },
+    "name": {
+      "type": "string",
+      "maxLength": 40
+    },
     "serverType": {
       "type": "string",
-      "enum": ["server", "client"]
+      "enum": [
+        "server",
+        "client"
+      ]
     },
     "udpPort": {
       "type": "number",
@@ -26,19 +32,45 @@
     },
     "secretKey": {
       "type": "string",
-      "minLength": 32,
-      "maxLength": 32
+      "oneOf": [
+        {
+          "title": "Raw 32-character key",
+          "minLength": 32,
+          "maxLength": 32
+        },
+        {
+          "title": "64-character hex key",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        },
+        {
+          "title": "43-character base64 key (unpadded)",
+          "minLength": 43,
+          "maxLength": 43,
+          "pattern": "^[A-Za-z0-9+/]{43}$"
+        },
+        {
+          "title": "44-character base64 key (single '=' padding)",
+          "minLength": 44,
+          "maxLength": 44,
+          "pattern": "^[A-Za-z0-9+/]{43}=$"
+        }
+      ]
     },
     "protocolVersion": {
       "type": "number",
-      "enum": [1, 2],
+      "enum": [
+        1,
+        2
+      ],
       "default": 1
     }
   },
   "allOf": [
     {
       "if": {
-        "required": ["connections"]
+        "required": [
+          "connections"
+        ]
       },
       "then": {
         "properties": {
@@ -53,7 +85,11 @@
     "connection": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["serverType", "udpPort", "secretKey"],
+      "required": [
+        "serverType",
+        "udpPort",
+        "secretKey"
+      ],
       "properties": {
         "name": {
           "type": "string",
@@ -62,7 +98,10 @@
         },
         "serverType": {
           "type": "string",
-          "enum": ["server", "client"],
+          "enum": [
+            "server",
+            "client"
+          ],
           "default": "client"
         },
         "udpPort": {
@@ -73,8 +112,29 @@
         },
         "secretKey": {
           "type": "string",
-          "minLength": 32,
-          "maxLength": 32
+          "oneOf": [
+            {
+              "title": "Raw 32-character key",
+              "minLength": 32,
+              "maxLength": 32
+            },
+            {
+              "title": "64-character hex key",
+              "pattern": "^[0-9a-fA-F]{64}$"
+            },
+            {
+              "title": "43-character base64 key (unpadded)",
+              "minLength": 43,
+              "maxLength": 43,
+              "pattern": "^[A-Za-z0-9+/]{43}$"
+            },
+            {
+              "title": "44-character base64 key (single '=' padding)",
+              "minLength": 44,
+              "maxLength": 44,
+              "pattern": "^[A-Za-z0-9+/]{43}=$"
+            }
+          ]
         },
         "useMsgpack": {
           "type": "boolean",
@@ -86,7 +146,10 @@
         },
         "protocolVersion": {
           "type": "number",
-          "enum": [1, 2],
+          "enum": [
+            1,
+            2
+          ],
           "default": 1
         }
       }

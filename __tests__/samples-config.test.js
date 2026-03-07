@@ -11,7 +11,6 @@ function validateConnection(conn) {
   expect(conn.udpPort).toBeGreaterThanOrEqual(1024);
   expect(conn.udpPort).toBeLessThanOrEqual(65535);
   expect(typeof conn.secretKey).toBe("string");
-  expect(conn.secretKey.length).toBe(32);
   if (conn.protocolVersion !== undefined) {
     expect([1, 2]).toContain(conn.protocolVersion);
   }
@@ -46,7 +45,6 @@ describe("sample configurations", () => {
     expect(docConnection.serverType.enum).toEqual(runtimeConnection.serverType.enum);
     expect(docConnection.udpPort.minimum).toBe(runtimeConnection.udpPort.minimum);
     expect(docConnection.udpPort.maximum).toBe(runtimeConnection.udpPort.maximum);
-    expect(docConnection.secretKey.minLength).toBe(runtimeConnection.secretKey.minLength);
-    expect(docConnection.secretKey.maxLength).toBe(runtimeConnection.secretKey.maxLength);
+    expect(docConnection.secretKey.oneOf).toEqual(runtimeConnection.secretKey.oneOf);
   });
 });

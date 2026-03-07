@@ -297,15 +297,16 @@ All DATA payloads are encrypted with AES-256-GCM:
 | Property | Detail |
 |----------|--------|
 | Algorithm | AES-256-GCM |
-| Key size | 256 bits (32 ASCII characters) |
+| Key size | 256 bits (32 bytes; accepts 64-char hex, 43/44-char base64, or legacy 32-char raw) |
 | IV | 12 bytes, unique per message (random) |
 | Auth tag | 16 bytes, tamper detection |
 | Wire format | `[IV (12B)][Encrypted Data][Auth Tag (16B)]` |
 
 ### Key Requirements
 
-- Exactly 32 characters (256 bits)
-- Minimum 8 unique characters (entropy check)
+- Must normalize to exactly 32 bytes
+- Supported encodings: 64-character hex, 43/44-character base64, or legacy 32-character raw string
+- Minimum 8 unique characters entropy check applies to legacy raw-string keys
 - Must match on both client and server
 
 ### Security Properties

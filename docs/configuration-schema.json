@@ -14,7 +14,9 @@
       }
     }
   },
-  "required": ["connections"],
+  "required": [
+    "connections"
+  ],
   "examples": [
     {
       "connections": [
@@ -22,7 +24,7 @@
           "name": "shore-server",
           "serverType": "server",
           "udpPort": 4446,
-          "secretKey": "12345678901234567890123456789012",
+          "secretKey": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
           "protocolVersion": 2,
           "useMsgpack": true,
           "usePathDictionary": true,
@@ -43,31 +45,104 @@
     "connection": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["serverType", "udpPort", "secretKey"],
+      "required": [
+        "serverType",
+        "udpPort",
+        "secretKey"
+      ],
       "properties": {
-        "name": { "type": "string", "maxLength": 40 },
-        "serverType": { "type": "string", "enum": ["server", "client"] },
-        "udpAddress": { "type": "string" },
-        "udpPort": { "type": "number", "minimum": 1024, "maximum": 65535 },
-        "secretKey": { "type": "string", "minLength": 32, "maxLength": 32 },
-        "protocolVersion": { "type": "number", "enum": [1, 2], "default": 1 },
-        "useMsgpack": { "type": "boolean", "default": false },
-        "usePathDictionary": { "type": "boolean", "default": false },
+        "name": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "serverType": {
+          "type": "string",
+          "enum": [
+            "server",
+            "client"
+          ]
+        },
+        "udpAddress": {
+          "type": "string"
+        },
+        "udpPort": {
+          "type": "number",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "secretKey": {
+          "type": "string",
+          "oneOf": [
+            {
+              "title": "Raw 32-character key",
+              "minLength": 32,
+              "maxLength": 32
+            },
+            {
+              "title": "64-character hex key",
+              "pattern": "^[0-9a-fA-F]{64}$"
+            },
+            {
+              "title": "43-character base64 key (unpadded)",
+              "minLength": 43,
+              "maxLength": 43,
+              "pattern": "^[A-Za-z0-9+/]{43}$"
+            },
+            {
+              "title": "44-character base64 key (single '=' padding)",
+              "minLength": 44,
+              "maxLength": 44,
+              "pattern": "^[A-Za-z0-9+/]{43}=$"
+            }
+          ]
+        },
+        "protocolVersion": {
+          "type": "number",
+          "enum": [
+            1,
+            2
+          ],
+          "default": 1
+        },
+        "useMsgpack": {
+          "type": "boolean",
+          "default": false
+        },
+        "usePathDictionary": {
+          "type": "boolean",
+          "default": false
+        },
         "bonding": {
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "mode": { "type": "string", "enum": ["active-backup", "round-robin"] },
-            "failoverThreshold": { "type": "number", "minimum": 0 }
+            "enabled": {
+              "type": "boolean"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "active-backup",
+                "round-robin"
+              ]
+            },
+            "failoverThreshold": {
+              "type": "number",
+              "minimum": 0
+            }
           }
         },
         "congestionControl": {
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "maxWindow": { "type": "number", "minimum": 1 }
+            "enabled": {
+              "type": "boolean"
+            },
+            "maxWindow": {
+              "type": "number",
+              "minimum": 1
+            }
           }
         }
       }
