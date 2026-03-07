@@ -446,7 +446,9 @@ describe("SignalK Data Connector Plugin", () => {
     test("should register routes with router", () => {
       const mockRouter = {
         get: jest.fn(),
-        post: jest.fn()
+        post: jest.fn(),
+        put: jest.fn(),
+        delete: jest.fn()
       };
 
       plugin.registerWithRouter(mockRouter);
@@ -478,7 +480,9 @@ describe("SignalK Data Connector Plugin", () => {
             postHandler = handlers[handlers.length - 1];
             postMiddlewares = handlers.slice(0, -1);
           }
-        })
+        }),
+        put: jest.fn(),
+        delete: jest.fn()
       };
 
       plugin.registerWithRouter(mockRouter);
@@ -604,7 +608,9 @@ describe("SignalK Data Connector Plugin", () => {
             pluginConfigPostHandler = handlers[handlers.length - 1];
             pluginConfigPostMiddlewares = handlers.slice(0, -1);
           }
-        })
+        }),
+        put: jest.fn(),
+        delete: jest.fn()
       };
 
       plugin.registerWithRouter(mockRouter);
@@ -906,7 +912,9 @@ describe("SignalK Data Connector Plugin", () => {
             pluginConfigPostHandler = handlers[handlers.length - 1];
             pluginConfigPostMiddlewares = handlers.slice(0, -1);
           }
-        })
+        }),
+        put: jest.fn(),
+        delete: jest.fn()
       };
 
       plugin.registerWithRouter(mockRouter);
@@ -1246,6 +1254,12 @@ describe("SignalK Data Connector Plugin", () => {
         }),
         post: jest.fn((path, ...args) => {
           routeHandlers[`POST ${path}`] = args[args.length - 1];
+        }),
+        put: jest.fn((path, ...args) => {
+          routeHandlers[`PUT ${path}`] = args[args.length - 1];
+        }),
+        delete: jest.fn((path, ...args) => {
+          routeHandlers[`DELETE ${path}`] = args[args.length - 1];
         })
       };
       plugin.registerWithRouter(mockRouter);
@@ -1372,7 +1386,9 @@ describe("SignalK Data Connector Plugin", () => {
             pluginConfigPostHandler = handlers[handlers.length - 1];
             pluginConfigPostMiddlewares = handlers.slice(0, -1);
           }
-        })
+        }),
+        put: jest.fn(),
+        delete: jest.fn()
       };
       plugin.registerWithRouter(mockRouter);
     });

@@ -60,6 +60,29 @@ describe("Metrics Reset", () => {
     expect(metrics.bandwidth.history.length).toBe(0);
   });
 
+
+  test("tracks categorized recent errors and resets them", () => {
+    const api = createMetrics();
+    const { metrics, recordError, resetMetrics } = api;
+
+    recordError("subscription", "sub failed");
+    recordError("udpSend", "send failed");
+    recordError("weird", "unknown failed");
+
+    expect(metrics.errorCounts.subscription).toBe(1);
+    expect(metrics.errorCounts.udpSend).toBe(1);
+    expect(metrics.errorCounts.general).toBe(1);
+    expect(metrics.recentErrors.length).toBe(3);
+    expect(metrics.recentErrors[2]).toEqual(expect.objectContaining({ category: "general", message: "unknown failed" }));
+
+    resetMetrics();
+
+    expect(metrics.recentErrors).toEqual([]);
+    expect(metrics.errorCounts.subscription).toBe(0);
+    expect(metrics.errorCounts.udpSend).toBe(0);
+    expect(metrics.errorCounts.general).toBe(0);
+  });
+
   test("evicts stale path stats when capacity is reached", () => {
     const api = createMetrics();
     const { metrics, trackPathStats } = api;

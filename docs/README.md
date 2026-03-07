@@ -12,6 +12,13 @@ If you are configuring or operating the plugin, start with the user docs below.
 - `troubleshooting.md` - Diagnostic workflows and symptom-based fixes
 - `migration/v1-to-v2.md` - Practical migration path from protocol v1 to v2
 - `protocol-v2-spec.md` - Protocol behavior and packet-level specification
+- `protocol-v2.md` - Operational v2 overview (reliability, ACK/NAK, congestion, bonding)
+- `bonding.md` - Bonding concepts, endpoint usage, and tuning notes
+- `congestion-control.md` - Congestion-control behavior and tuning workflow
+- `metrics.md` - Runtime and Prometheus-oriented metrics reference
+- `management-tools.md` - Practical API and CLI operations for instances/bonding
+- `security.md` - Security hardening and operational best practices
+- `performance-tuning.md` - Tuning guidance for embedded and server deployments
 
 ## Performance reports
 
@@ -20,6 +27,14 @@ If you are configuring or operating the plugin, start with the user docs below.
 - `performance/phase-7-results.md`
 
 These are benchmarking and optimization records from development phases.
+
+## Sample configs
+
+- `../samples/` - Sample config files for minimal, development, and v2-bonding setups
+
+## Dashboard assets
+
+- `../grafana/dashboards/edge-link.json` - Starter dashboard for RTT, loss, retransmit, ACK/NAK and bonding trends
 
 ## Planning and design records
 

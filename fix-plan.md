@@ -1,5 +1,64 @@
 # Plan to address issues identified in the `multi_test` branch
 
+## Progress update (implemented in this branch)
+
+- ✅ Added a new management route alias `GET /instances` in `lib/routes/connections.js`.
+  - Returns active instance list with compact status and metrics summary.
+  - Keeps existing `/connections` routes unchanged for backward compatibility.
+- ✅ Added coverage in `__tests__/routes.rate-limit.test.js` to verify route registration and response shape for `/instances`.
+- ✅ Implemented `GET /instances/:id` with detailed per-instance operational information (mode, network snapshot, bonding state, and config).
+- ✅ Implemented global bonding management endpoints:
+  - `GET /bonding` to summarize bonding state across instances.
+  - `POST /bonding` to validate and apply failover threshold updates to all bonding-enabled instances.
+- ✅ Expanded route unit tests to cover `/instances/:id`, `/bonding`, and `/bonding` validation errors.
+- ✅ Added focused v2 server pipeline unit tests for data ingest, duplicate detection, and NAK emission (`__tests__/v2/pipeline-v2-server.test.js`).
+- ✅ Added `docs/architecture-overview.md` and linked architecture docs from `README.md`.
+- ✅ Added instance lifecycle management endpoints: `POST /instances`, `PUT /instances/:id`, and `DELETE /instances/:id` with validation and restart orchestration.
+- ✅ Redacted sensitive `secretKey` values from `GET /instances/:id` configuration payloads.
+- ✅ Hardened instance lifecycle APIs by mapping config entries via derived instance IDs (safe with duplicate names) and validating new instance payloads (`serverType`, `udpPort`, `secretKey`).
+- ✅ Added `/instances` filtering/pagination support (`state`, `limit`, `page`) with input validation and tests.
+- ✅ Tightened `PUT /instances/:id` patch handling by rejecting empty updates and unsupported keys.
+- ✅ Added pre-restart duplicate server-port validation to `/instances` create/update paths to avoid invalid runtime reconfiguration.
+- ✅ Added lifecycle edge-case handling tests for delete-last-instance protection and missing restart handler responses.
+- ✅ Fixed integration route mocks in `__tests__/integration-pipe.test.js` to include `put`/`delete` handlers, restoring full-suite compatibility after adding instance lifecycle routes.
+
+- ✅ Added a unified config schema (`schemas/config.schema.json`) and a migration helper script (`scripts/migrate-config.js`) with tests for legacy-to-connections conversion.
+- ✅ Refined config migration/schema behavior to avoid injecting empty `connections` arrays for unrelated configs and to preserve omission of optional legacy flags when absent.
+- ✅ Added a lightweight CLI entrypoint (`bin/edge-link-cli.js`) with `migrate-config` support and tests for help/error/migration flows.
+- ✅ Updated package publish metadata (`files`) so CLI/schema/migration assets are included in npm tarballs, and added CLI coverage for missing migration input.
+- ✅ Hardened legacy config migration by validating required legacy fields (`serverType`, `udpPort`, `secretKey`) before conversion to `connections[]`, preventing invalid partial migrations.
+- ✅ Extended the CLI (`bin/edge-link-cli.js`) with management read commands (`instances list`, `instances show`, `bonding status`) and tests for command parsing/API wiring.
+- ✅ Extended CLI management beyond read-only commands: added `instances create/update/delete` and `bonding update` operations that call the runtime HTTP API with JSON payloads.
+- ✅ Added missing operations docs (`docs/protocol-v2.md`, `docs/bonding.md`, `docs/congestion-control.md`, `docs/metrics.md`) and a starter Grafana dashboard (`grafana/dashboards/edge-link.json`).
+- ✅ Added status/error surfacing for operators: `GET /status` now returns per-instance health + recent errors, and `/metrics` now includes categorized `errorCounts` and `recentErrors` summaries.
+- ✅ Added `docs/management-tools.md` with practical API + CLI workflows for instance and bonding management.
+- ✅ Improved CLI operator UX with optional table output (`--format=table`) for `instances list/show` and `bonding status`, with validation and tests.
+- ✅ Added optional management API token protection + audit logging for `/instances`, `/bonding`, and `/status` (supports `X-Edge-Link-Token` or Bearer auth), with route tests.
+- ✅ Added CLI token passthrough (`--token` and env fallback) so management commands work against token-protected management APIs without manual header plumbing.
+- ✅ Added CLI `status` command (`GET /status`) with optional table output and token support for operator health/error summaries.
+- ✅ Added CLI query controls for `instances list` (`--state`, `--limit`, `--page`) with validation, matching the management API filtering/pagination behavior.
+- ✅ Fixed CLI paginated list rendering so table output consumes `/instances` pagination envelopes (`items` + `pagination`) and prints page summary metadata.
+- ✅ Updated CLI token transport to send both `X-Edge-Link-Token` and Bearer `Authorization` headers for broader proxy compatibility.
+- ✅ Relaxed management API credential matching to accept either valid `X-Edge-Link-Token`/`X-Management-Token` or Bearer token when both are present, preventing false 401 responses from conflicting proxy-injected headers.
+- ✅ Added documentation schema artifact (`docs/configuration-schema.json`) plus sample config fixtures (`samples/minimal-config.json`, `samples/v2-with-bonding.json`, `samples/development.json`) and automated validation tests.
+- ✅ Added security operations guidance in `docs/security.md` covering token auth, key handling, input validation, and network hardening.
+- ✅ Added performance tuning guide (`docs/performance-tuning.md`) summarizing benchmark references, parameter trade-offs, and hardware-specific tuning recommendations.
+- ✅ Added malformed-packet observability: v2 client/server now increment `malformedPackets` on parse/packet validation failures, exported as `signalk_edge_link_malformed_packets_total` and documented in `docs/metrics.md`.
+
+## Numbered-item completion status
+
+- ✅ **1.1 Implement the v2 server pipeline** — implemented with sequence handling, ACK/NAK logic, retransmit behavior, and unit coverage.
+- ✅ **1.2 Flesh out missing utilities** — retransmit queue, sequence tracker, Prometheus formatter/export route behavior, and route tests are implemented.
+- ✅ **1.3 Missing documentation** — architecture, protocol, bonding, congestion-control, and README/doc index links are in place.
+- ✅ **2.1 Consolidate configuration files** — unified schema, migration tooling, and docs are implemented.
+- ✅ **2.2 API and schema docs** — API reference, docs-facing schema artifact, and sample configuration fixtures with tests are implemented.
+- ✅ **3.1 Extend metrics** — additional v2/bonding/error metrics (including malformed packets) are instrumented and exported.
+- ✅ **3.2 Surface errors** — categorized errors and recent error summaries are exposed in status/metrics APIs and Prometheus views.
+- ✅ **4.1 Management tooling** — management REST API + CLI (read/write operations, auth, filtering, formatting) and usage docs are implemented.
+- ✅ **5.1 Security audit actions** — AES-GCM usage, token-auth protections, input validation hardening, and security best-practices documentation are implemented.
+- ✅ **5.2 Performance profiling actions** — benchmark artifacts and tuning guidance are documented in performance reports and `docs/performance-tuning.md`.
+- ✅ **6 Timeline and prioritisation** — short/medium/long-term items are now captured as delivered work in this branch history.
+
 This document outlines a comprehensive plan to address the issues found in the `multi_test` branch of
 the `signalk-edge-link` project.  Each section below describes an identified issue, the rationale
 for addressing it, and concrete steps required to implement a fix or improvement.  The plan is

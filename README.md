@@ -125,8 +125,12 @@ Most used endpoints:
 - `GET /network-metrics`
 - `GET /monitoring/alerts`
 - `GET /connections`
+- `GET /instances`
+- `GET /instances/:id`
 - `GET /connections/:id/metrics`
 - `GET /connections/:id/network-metrics`
+- `GET /bonding`
+- `POST /bonding`
 
 For full endpoint details, use `docs/api-reference.md`.
 
@@ -162,6 +166,12 @@ Configuration is an array of independent connections:
 
 For complete setting definitions and ranges, use `docs/configuration-reference.md`.
 
+Schema and migration helpers:
+
+- `schemas/config.schema.json` (machine-readable config schema)
+- `scripts/migrate-config.js` (convert legacy flat config to `connections[]`)
+- `npm run migrate:config -- <input.json> [output.json]`
+
 ## Security notes
 
 - Uses AES-256-GCM authenticated encryption.
@@ -194,11 +204,38 @@ npm run test:v2
 npm run test:integration
 npm run lint
 npm run lint:fix
+npm run cli -- help
+npm run cli -- instances list --token=$EDGE_LINK_TOKEN --state=running --limit=10 --page=1 --format=table
+npm run cli -- instances show alpha --token=$EDGE_LINK_TOKEN --format=table
+npm run cli -- instances create --config ./new-instance.json --token=$EDGE_LINK_TOKEN
+npm run cli -- instances update alpha --patch '{"udpAddress":"10.0.0.2"}' --token=$EDGE_LINK_TOKEN
+npm run cli -- instances delete alpha --token=$EDGE_LINK_TOKEN
+npm run cli -- bonding status --token=$EDGE_LINK_TOKEN --format=table
+npm run cli -- bonding update --patch '{"failoverThreshold":300}' --token=$EDGE_LINK_TOKEN
+npm run cli -- status --token=$EDGE_LINK_TOKEN --format=table
 ```
+
+Management API security: set `managementApiToken` in plugin options (or environment variable `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) and send it as `X-Edge-Link-Token` or `Authorization: Bearer <token>` for `/instances`, `/bonding`, and `/status` routes. CLI commands support this via `--token=<token>` or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`.
 
 ## Documentation map
 
-See `docs/README.md` for a guide to user docs, migration notes, and engineering/planning documents.
+- `docs/README.md` (documentation index)
+- `docs/architecture-overview.md` (system architecture and lifecycle)
+- `docs/configuration-reference.md` (settings and defaults)
+- `docs/api-reference.md` (REST endpoints)
+- `docs/protocol-v2.md` (v2 protocol operational overview)
+- `docs/bonding.md` (bonding concepts and API usage)
+- `docs/congestion-control.md` (congestion-control behavior and tuning)
+- `docs/metrics.md` (metrics and monitoring reference)
+- `docs/management-tools.md` (instance/bonding API + CLI operations)
+- `docs/security.md` (security guidance and deployment hardening)
+- `docs/performance-tuning.md` (deployment tuning recommendations by hardware profile)
+- `samples/` (example JSON configurations for minimal/dev/v2-bonding setups)
+- `grafana/dashboards/edge-link.json` (starter Grafana dashboard)
+- `schemas/config.schema.json` (unified plugin config schema)
+- `scripts/migrate-config.js` (legacy config migration utility)
+- `bin/edge-link-cli.js` (CLI wrapper for migration and instance/bonding management)
+
 
 ## License
 

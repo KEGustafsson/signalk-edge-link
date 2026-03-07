@@ -96,6 +96,7 @@ module.exports = function createPlugin(app) {
   };
 
   plugin.start = async function start(options = {}, restartPlugin) {
+    plugin._currentOptions = options;
     // Store restartPlugin on the plugin itself so any route handler can access it
     // regardless of how many instances are running.
     plugin._restartPlugin = typeof restartPlugin === "function" ? restartPlugin : null;
@@ -176,6 +177,7 @@ module.exports = function createPlugin(app) {
 
   plugin.stop = function stop() {
     plugin._restartPlugin = null;  // Clear to prevent stale calls after stop
+    plugin._currentOptions = null;
     routes.stopRateLimitCleanup();
     for (const instance of instances.values()) {
       instance.stop();

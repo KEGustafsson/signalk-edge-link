@@ -23,6 +23,7 @@ describe("Prometheus Metrics Exporter", () => {
       compressionErrors: 1,
       encryptionErrors: 0,
       subscriptionErrors: 0,
+      malformedPackets: 2,
       rtt: 50,
       jitter: 10,
       retransmissions: 15,
@@ -86,6 +87,21 @@ describe("Prometheus Metrics Exporter", () => {
       expect(text).toContain("signalk_edge_link_udp_send_errors_total");
       expect(text).toContain("signalk_edge_link_compression_errors_total");
       expect(text).toContain("signalk_edge_link_encryption_errors_total");
+    });
+
+
+    test("includes malformed packet counter", () => {
+      const text = formatPrometheusMetrics(metrics, state);
+      expect(text).toContain("signalk_edge_link_malformed_packets_total");
+      expect(text).toContain(" 2");
+    });
+
+    test("includes categorized error counters when available", () => {
+      metrics.errorCounts = { general: 2, udpSend: 1 };
+      const text = formatPrometheusMetrics(metrics, state);
+      expect(text).toContain("signalk_edge_link_errors_by_category_total");
+      expect(text).toContain('category="general"');
+      expect(text).toContain('category="udpSend"');
     });
 
     test("includes bandwidth metrics", () => {

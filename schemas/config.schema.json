@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://signalk-edge-link/schemas/config.schema.json",
+  "title": "Signal K Edge Link Plugin Configuration",
+  "description": "Unified configuration schema supporting both legacy single-connection and modern multi-connection layouts.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "connections": {
+      "type": "array",
+      "title": "Connections",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/connection"
+      }
+    },
+    "name": { "type": "string", "maxLength": 40 },
+    "serverType": {
+      "type": "string",
+      "enum": ["server", "client"]
+    },
+    "udpPort": {
+      "type": "number",
+      "minimum": 1024,
+      "maximum": 65535
+    },
+    "secretKey": {
+      "type": "string",
+      "minLength": 32,
+      "maxLength": 32
+    },
+    "protocolVersion": {
+      "type": "number",
+      "enum": [1, 2],
+      "default": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["connections"]
+      },
+      "then": {
+        "properties": {
+          "connections": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "connection": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["serverType", "udpPort", "secretKey"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "connection",
+          "maxLength": 40
+        },
+        "serverType": {
+          "type": "string",
+          "enum": ["server", "client"],
+          "default": "client"
+        },
+        "udpPort": {
+          "type": "number",
+          "minimum": 1024,
+          "maximum": 65535,
+          "default": 4446
+        },
+        "secretKey": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        },
+        "useMsgpack": {
+          "type": "boolean",
+          "default": false
+        },
+        "usePathDictionary": {
+          "type": "boolean",
+          "default": false
+        },
+        "protocolVersion": {
+          "type": "number",
+          "enum": [1, 2],
+          "default": 1
+        }
+      }
+    }
+  }
+}
