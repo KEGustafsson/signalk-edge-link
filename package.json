@@ -36,7 +36,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{js,json,md}\"",
     "migrate:config": "node scripts/migrate-config.js",
-    "cli": "node bin/edge-link-cli.js"
+    "cli": "node bin/edge-link-cli.js",
+    "test:docs-config": "jest __tests__/docs-examples-runtime-validation.test.js"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.0.0",

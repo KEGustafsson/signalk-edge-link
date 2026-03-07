@@ -19,21 +19,45 @@
     {
       "connections": [
         {
-          "name": "shore-server",
-          "serverType": "server",
+          "name": "edge-client-primary",
+          "serverType": "client",
+          "udpAddress": "203.0.113.10",
           "udpPort": 4446,
           "secretKey": "12345678901234567890123456789012",
           "protocolVersion": 2,
           "useMsgpack": true,
           "usePathDictionary": true,
+          "testAddress": "203.0.113.10",
+          "testPort": 80,
+          "pingIntervalTime": 5,
+          "helloMessageSender": 30,
           "bonding": {
             "enabled": true,
-            "mode": "active-backup",
-            "failoverThreshold": 500
+            "mode": "main-backup",
+            "primary": {
+              "address": "198.51.100.11",
+              "port": 4446,
+              "interface": "eth0"
+            },
+            "backup": {
+              "address": "198.51.100.12",
+              "port": 4447,
+              "interface": "wwan0"
+            },
+            "failover": {
+              "rttThreshold": 500,
+              "lossThreshold": 0.2,
+              "healthCheckInterval": 1000,
+              "failbackDelay": 30000,
+              "heartbeatTimeout": 5000
+            }
           },
           "congestionControl": {
             "enabled": true,
-            "maxWindow": 32
+            "targetRTT": 250,
+            "nominalDeltaTimer": 1000,
+            "minDeltaTimer": 100,
+            "maxDeltaTimer": 3000
           }
         }
       ]
@@ -53,13 +77,46 @@
         "protocolVersion": { "type": "number", "enum": [1, 2], "default": 1 },
         "useMsgpack": { "type": "boolean", "default": false },
         "usePathDictionary": { "type": "boolean", "default": false },
+        "enableNotifications": { "type": "boolean", "default": false },
+        "testAddress": { "type": "string" },
+        "testPort": { "type": "number", "minimum": 1, "maximum": 65535 },
+        "pingIntervalTime": { "type": "number", "minimum": 0.1, "maximum": 60 },
+        "helloMessageSender": { "type": "number", "minimum": 10, "maximum": 3600 },
         "bonding": {
           "type": "object",
           "additionalProperties": true,
           "properties": {
             "enabled": { "type": "boolean" },
-            "mode": { "type": "string", "enum": ["active-backup", "round-robin"] },
-            "failoverThreshold": { "type": "number", "minimum": 0 }
+            "mode": { "type": "string", "enum": ["main-backup"] },
+            "primary": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "address": { "type": "string" },
+                "port": { "type": "number", "minimum": 1024, "maximum": 65535 },
+                "interface": { "type": "string" }
+              }
+            },
+            "backup": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "address": { "type": "string" },
+                "port": { "type": "number", "minimum": 1024, "maximum": 65535 },
+                "interface": { "type": "string" }
+              }
+            },
+            "failover": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "rttThreshold": { "type": "number", "minimum": 100, "maximum": 5000 },
+                "lossThreshold": { "type": "number", "minimum": 0.01, "maximum": 0.5 },
+                "healthCheckInterval": { "type": "number", "minimum": 500, "maximum": 10000 },
+                "failbackDelay": { "type": "number", "minimum": 5000, "maximum": 300000 },
+                "heartbeatTimeout": { "type": "number", "minimum": 1000, "maximum": 30000 }
+              }
+            }
           }
         },
         "congestionControl": {
@@ -67,7 +124,10 @@
           "additionalProperties": true,
           "properties": {
             "enabled": { "type": "boolean" },
-            "maxWindow": { "type": "number", "minimum": 1 }
+            "targetRTT": { "type": "number", "minimum": 50, "maximum": 2000 },
+            "nominalDeltaTimer": { "type": "number", "minimum": 100, "maximum": 10000 },
+            "minDeltaTimer": { "type": "number", "minimum": 50, "maximum": 1000 },
+            "maxDeltaTimer": { "type": "number", "minimum": 1000, "maximum": 30000 }
           }
         }
       }
