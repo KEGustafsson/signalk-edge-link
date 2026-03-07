@@ -357,7 +357,9 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
             metricsHandler = handlers;
           }
         }),
-        post: jest.fn()
+        post: jest.fn(),
+        put: jest.fn(),
+        delete: jest.fn()
       };
 
       routesApi.registerWithRouter(mockRouter);
@@ -562,7 +564,9 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
             metricsHandler = handlers;
           }
         }),
-        post: jest.fn()
+        post: jest.fn(),
+        put: jest.fn(),
+        delete: jest.fn()
       };
       fullPlugin.registerWithRouter(mockRouter);
 

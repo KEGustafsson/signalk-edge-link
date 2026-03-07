@@ -6,7 +6,10 @@
   "files": [
     "index.js",
     "lib/",
-    "public/"
+    "public/",
+    "bin/",
+    "schemas/",
+    "scripts/migrate-config.js"
   ],
   "keywords": [
     "signalk-node-server-plugin",
@@ -31,7 +34,9 @@
     "test:coverage": "jest --coverage",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write \"**/*.{js,json,md}\""
+    "format": "prettier --write \"**/*.{js,json,md}\"",
+    "migrate:config": "node scripts/migrate-config.js",
+    "cli": "node bin/edge-link-cli.js"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.0.0",
@@ -84,5 +89,8 @@
       "/node_modules/",
       "/public/"
     ]
+  },
+  "bin": {
+    "edge-link-cli": "bin/edge-link-cli.js"
   }
 }

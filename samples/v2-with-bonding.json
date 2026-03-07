@@ -1,0 +1,23 @@
+{
+  "connections": [
+    {
+      "name": "dual-link-client",
+      "serverType": "client",
+      "udpAddress": "192.168.1.50",
+      "udpPort": 4450,
+      "secretKey": "abcdefghijklmnopqrstuvwxyzABCDEF",
+      "protocolVersion": 2,
+      "useMsgpack": true,
+      "usePathDictionary": true,
+      "bonding": {
+        "enabled": true,
+        "mode": "active-backup",
+        "failoverThreshold": 400
+      },
+      "congestionControl": {
+        "enabled": true,
+        "maxWindow": 24
+      }
+    }
+  ]
+}

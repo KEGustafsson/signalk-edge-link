@@ -12,6 +12,12 @@ function makeRouterCollector() {
     },
     post(path, ...handlers) {
       routes.push({ method: "post", path, handlers });
+    },
+    put(path, ...handlers) {
+      routes.push({ method: "put", path, handlers });
+    },
+    delete(path, ...handlers) {
+      routes.push({ method: "delete", path, handlers });
     }
   };
 }
@@ -32,6 +38,8 @@ function makeBundle() {
         encryptionErrors: 0,
         subscriptionErrors: 0,
         duplicatePackets: 0,
+        errorCounts: { general: 0, subscription: 0, udpSend: 0 },
+        recentErrors: [],
         bandwidth: {
           packetsOut: 0,
           packetsIn: 0,
@@ -218,4 +226,876 @@ describe("rate limit middleware client identity", () => {
     expect(nextB).toHaveBeenCalled();
   });
 
+});
+
+describe("instances management route", () => {
+  test("registers /instances and returns compact instance status", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.state.instanceStatus = "running";
+    bundle.state.options.protocolVersion = 2;
+
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    expect(instancesRoute).toBeDefined();
+
+    const req = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    instancesRoute.handlers[1](req, res);
+
+    expect(res.json).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: "test",
+        protocolVersion: 2,
+        state: "running",
+        metrics: expect.objectContaining({
+          deltasSent: 0,
+          deltasReceived: 0,
+          udpSendErrors: 0,
+          duplicatePackets: 0
+        })
+      })
+    ]);
+  });
+
+
+
+  test("supports /instances filtering by state and paginated responses", () => {
+    const app = { get: jest.fn(() => false) };
+    const a = makeBundle();
+    a.id = "a";
+    a.name = "a";
+    a.state.instanceStatus = "running";
+
+    const b = makeBundle();
+    b.id = "b";
+    b.name = "b";
+    b.state.instanceStatus = "stopped";
+
+    const c = makeBundle();
+    c.id = "c";
+    c.name = "c";
+    c.state.instanceStatus = "running";
+
+    const instanceRegistry = {
+      get: jest.fn(() => null),
+      getFirst: jest.fn(() => a),
+      getAll: jest.fn(() => [a, b, c])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    const req = { query: { state: "running", limit: "1", page: "2" }, headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    instancesRoute.handlers[1](req, res);
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      items: [expect.objectContaining({ id: "c", state: "running" })],
+      pagination: expect.objectContaining({ page: 2, limit: 1, total: 2, totalPages: 2 })
+    }));
+  });
+
+  test("rejects invalid /instances pagination params", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    const json = jest.fn();
+    const req = { query: { limit: "0" }, headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    instancesRoute.handlers[1](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ error: "limit must be a positive integer" });
+  });
+  test("registers /instances/:id and returns detailed instance status", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.state.instanceStatus = "running";
+    bundle.state.options.protocolVersion = 2;
+    bundle.state.options.someOption = true;
+    bundle.state.readyToSend = true;
+
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "test" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const instanceRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances/:id");
+    expect(instanceRoute).toBeDefined();
+
+    const req = { params: { id: "test" }, headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    instanceRoute.handlers[1](req, res);
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      id: "test",
+      protocolVersion: 2,
+      state: "running",
+      readyToSend: true,
+      config: expect.objectContaining({ someOption: true }),
+      network: expect.objectContaining({ rtt: 0, dataSource: "local" }),
+      metrics: expect.objectContaining({ deltasSent: 0, duplicatePackets: 0 }),
+      bonding: expect.objectContaining({ enabled: false })
+    }));
+  });
+
+  test("registers /bonding and reports per-instance bonding state", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.state.pipeline = {
+      getBondingManager: () => ({
+        getState: () => ({ enabled: true, activeLink: "primary" }),
+        failoverThresholds: { rttThreshold: 500 }
+      })
+    };
+
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const bondingRoute = router.routes.find((r) => r.method === "get" && r.path === "/bonding");
+    expect(bondingRoute).toBeDefined();
+
+    const req = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    bondingRoute.handlers[1](req, res);
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      totalInstances: 1,
+      bondingEnabledInstances: 1,
+      instances: [expect.objectContaining({ enabled: true })]
+    }));
+  });
+
+  test("registers POST /bonding and validates unsupported keys", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const bondingRoute = router.routes.find((r) => r.method === "post" && r.path === "/bonding");
+    expect(bondingRoute).toBeDefined();
+
+    const req = {
+      body: { unsupported: 1 },
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const json = jest.fn();
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    bondingRoute.handlers[2](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ error: "Unsupported bonding setting 'unsupported'" });
+  });
+
+  test("redacts secretKey in /instances/:id response config", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.state.instanceStatus = "running";
+    bundle.state.options.secretKey = "12345678901234567890123456789012";
+
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "test" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {
+      _restartPlugin: jest.fn(),
+      _currentOptions: { connections: [{ name: "test", serverType: "client", udpPort: 4446, secretKey: "123" }] }
+    });
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const instanceRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances/:id");
+    const req = { params: { id: "test" }, headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    instanceRoute.handlers[1](req, res);
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({ secretKey: "[redacted]" })
+    }));
+  });
+
+  test("POST /instances appends a new connection and triggers restart", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const restart = jest.fn().mockResolvedValue(undefined);
+    const pluginRef = {
+      _restartPlugin: restart,
+      _currentOptions: {
+        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+      }
+    };
+
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const route = router.routes.find((r) => r.method === "post" && r.path === "/instances");
+    const req = {
+      body: { name: "new", serverType: "server", udpPort: 4500, secretKey: "abcdefghijklmnopqrstuvwxyz123456" },
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    await route.handlers[2](req, res);
+
+    expect(restart).toHaveBeenCalledWith(expect.objectContaining({
+      connections: expect.arrayContaining([
+        expect.objectContaining({ name: "base" }),
+        expect.objectContaining({ name: "new", udpPort: 4500 })
+      ])
+    }));
+  });
+
+  test("PUT /instances/:id rejects immutable field updates", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.name = "base";
+
+    const pluginRef = {
+      _restartPlugin: jest.fn().mockResolvedValue(undefined),
+      _currentOptions: {
+        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+      }
+    };
+
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "base" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const route = router.routes.find((r) => r.method === "put" && r.path === "/instances/:id");
+    const json = jest.fn();
+    const req = {
+      params: { id: "base" },
+      body: { udpPort: 9000 },
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    await route.handlers[2](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ error: "Field 'udpPort' is not updatable via /instances/:id" });
+  });
+
+
+
+
+  test("PUT /instances/:id rejects unknown mutable keys", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.name = "base";
+
+    const pluginRef = {
+      _restartPlugin: jest.fn().mockResolvedValue(undefined),
+      _currentOptions: {
+        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+      }
+    };
+
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "base" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const route = router.routes.find((r) => r.method === "put" && r.path === "/instances/:id");
+    const json = jest.fn();
+    const req = {
+      params: { id: "base" },
+      body: { foo: "bar" },
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    await route.handlers[2](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ error: "Field 'foo' is not supported for /instances/:id updates" });
+  });
+  test("POST /instances validates secretKey length", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const restart = jest.fn().mockResolvedValue(undefined);
+
+    const routes = createRoutes(app, {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    }, {
+      _restartPlugin: restart,
+      _currentOptions: {
+        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+      }
+    });
+
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+    const route = router.routes.find((r) => r.method === "post" && r.path === "/instances");
+
+    const json = jest.fn();
+    const req = {
+      body: { name: "bad", serverType: "client", udpPort: 4446, secretKey: "short" },
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    await route.handlers[2](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ error: "secretKey must be exactly 32 characters" });
+    expect(restart).not.toHaveBeenCalled();
+  });
+
+
+  test("POST /instances rejects duplicate server UDP ports", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const restart = jest.fn().mockResolvedValue(undefined);
+
+    const routes = createRoutes(app, {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    }, {
+      _restartPlugin: restart,
+      _currentOptions: {
+        connections: [{ name: "s1", serverType: "server", udpPort: 4500, secretKey: "12345678901234567890123456789012" }]
+      }
+    });
+
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+    const route = router.routes.find((r) => r.method === "post" && r.path === "/instances");
+
+    const json = jest.fn();
+    const req = {
+      body: { name: "s2", serverType: "server", udpPort: 4500, secretKey: "abcdefghijklmnopqrstuvwxyz123456" },
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    await route.handlers[2](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ error: "Duplicate server ports are not allowed: 4500" });
+    expect(restart).not.toHaveBeenCalled();
+  });
+
+  test("PUT /instances/:id rejects empty patch payloads", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.name = "base";
+
+    const pluginRef = {
+      _restartPlugin: jest.fn().mockResolvedValue(undefined),
+      _currentOptions: {
+        connections: [
+          { name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }
+        ]
+      }
+    };
+
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "base" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const route = router.routes.find((r) => r.method === "put" && r.path === "/instances/:id");
+    const json = jest.fn();
+    const req = {
+      params: { id: "base" },
+      body: {},
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    await route.handlers[2](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ error: "Request body must include at least one field to update" });
+    expect(pluginRef._restartPlugin).not.toHaveBeenCalled();
+  });
+
+
+  test("DELETE /instances/:id rejects deleting the last configured instance", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.name = "solo";
+
+    const pluginRef = {
+      _restartPlugin: jest.fn().mockResolvedValue(undefined),
+      _currentOptions: {
+        connections: [{ name: "solo", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+      }
+    };
+
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "solo" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const route = router.routes.find((r) => r.method === "delete" && r.path === "/instances/:id");
+    const json = jest.fn();
+    const req = {
+      params: { id: "solo" },
+      headers: {},
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    await route.handlers[1](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ error: "At least one instance must remain configured" });
+    expect(pluginRef._restartPlugin).not.toHaveBeenCalled();
+  });
+
+  test("POST /instances fails gracefully when restart handler is unavailable", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+
+    const routes = createRoutes(app, {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    }, {
+      _currentOptions: {
+        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+      }
+    });
+
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+    const route = router.routes.find((r) => r.method === "post" && r.path === "/instances");
+
+    const json = jest.fn();
+    const req = {
+      body: { name: "new", serverType: "client", udpPort: 4447, secretKey: "abcdefghijklmnopqrstuvwxyz123456" },
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    await route.handlers[2](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(json).toHaveBeenCalledWith({ error: "Runtime restart handler unavailable" });
+  });
+
+});
+
+
+describe("status and error summary routes", () => {
+  test("returns aggregated /status with recent errors", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.id = "alpha";
+    bundle.name = "Alpha";
+    bundle.state.instanceStatus = "Subscription error - data transmission paused";
+    bundle.metricsApi.metrics.lastError = "Subscription error";
+    bundle.metricsApi.metrics.lastErrorTime = 123;
+    bundle.metricsApi.metrics.errorCounts = { subscription: 3, general: 1 };
+    bundle.metricsApi.metrics.recentErrors = [{ category: "subscription", message: "failed", timestamp: 111 }];
+
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const statusRoute = router.routes.find((r) => r.method === "get" && r.path === "/status");
+    expect(statusRoute).toBeDefined();
+
+    const req = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    statusRoute.handlers[1](req, res);
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      healthyInstances: 0,
+      totalInstances: 1,
+      instances: [expect.objectContaining({
+        id: "alpha",
+        healthy: false,
+        errorCounts: { subscription: 3, general: 1 },
+        recentErrors: [{ category: "subscription", message: "failed", timestamp: 111 }]
+      })]
+    }));
+  });
+
+  test("includes error summaries in /metrics response", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.metricsApi.metrics.errorCounts = { general: 2, udpSend: 1 };
+    bundle.metricsApi.metrics.recentErrors = [{ category: "udpSend", message: "socket down", timestamp: 42 }];
+
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const metricsRoute = router.routes.find((r) => r.method === "get" && r.path === "/metrics");
+    const req = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    metricsRoute.handlers[1](req, res);
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      stats: expect.objectContaining({
+        errorCounts: { general: 2, udpSend: 1 }
+      }),
+      recentErrors: [{ category: "udpSend", message: "socket down", timestamp: 42 }]
+    }));
+  });
+});
+
+
+describe("management API token authorization", () => {
+  test("rejects /instances when managementApiToken is configured and missing", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    const req = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false }, query: {} };
+    const json = jest.fn();
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    instancesRoute.handlers[1](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(json).toHaveBeenCalledWith({ error: "Unauthorized management API request" });
+  });
+
+  test("allows /instances when token is supplied via Bearer auth", () => {
+    const app = { get: jest.fn(() => false), debug: jest.fn() };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    const req = {
+      headers: { authorization: "Bearer secret-token" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false },
+      query: {}
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    instancesRoute.handlers[1](req, res);
+
+    expect(res.status).not.toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalled();
+  });
+
+  test("allows /instances with x-edge-link-token header", () => {
+    const app = { get: jest.fn(() => false), debug: jest.fn() };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    const req = {
+      headers: { "x-edge-link-token": "secret-token" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false },
+      query: {}
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    instancesRoute.handlers[1](req, res);
+
+    expect(res.status).not.toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalled();
+    expect(app.debug).toHaveBeenCalledWith(expect.stringContaining("authorized action=instances.list"));
+  });
+
+
+  test("allows /instances with legacy x-management-token header", () => {
+    const app = { get: jest.fn(() => false), debug: jest.fn() };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    const req = {
+      headers: { "x-management-token": "secret-token" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false },
+      query: {}
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    instancesRoute.handlers[1](req, res);
+
+    expect(res.status).not.toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalled();
+  });
+
+
+  test("accepts valid Bearer token when x-edge-link-token is present but invalid", () => {
+    const app = { get: jest.fn(() => false), debug: jest.fn() };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const statusRoute = router.routes.find((r) => r.method === "get" && r.path === "/status");
+    const req = {
+      headers: {
+        "x-edge-link-token": "wrong-token",
+        authorization: "Bearer secret-token"
+      },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    statusRoute.handlers[1](req, res);
+
+    expect(res.status).not.toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalled();
+  });
+
+  test("accepts first value when authorization header is provided as an array", () => {
+    const app = { get: jest.fn(() => false), debug: jest.fn() };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const statusRoute = router.routes.find((r) => r.method === "get" && r.path === "/status");
+    const req = {
+      headers: { authorization: ["Bearer secret-token", "Bearer ignored"] },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    statusRoute.handlers[1](req, res);
+
+    expect(res.status).not.toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalled();
+  });
+  test("uses SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN when plugin option is absent", () => {
+    const original = process.env.SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN;
+    process.env.SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN = "env-token";
+
+    try {
+      const app = { get: jest.fn(() => false), debug: jest.fn() };
+      const bundle = makeBundle();
+      const instanceRegistry = {
+        get: jest.fn(() => bundle),
+        getFirst: jest.fn(() => bundle),
+        getAll: jest.fn(() => [bundle])
+      };
+
+      const routes = createRoutes(app, instanceRegistry, {});
+      const router = makeRouterCollector();
+      routes.registerWithRouter(router);
+
+      const statusRoute = router.routes.find((r) => r.method === "get" && r.path === "/status");
+
+      const reqDenied = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+      const deniedJson = jest.fn();
+      const deniedRes = { json: jest.fn(), status: jest.fn(() => ({ json: deniedJson })) };
+      statusRoute.handlers[1](reqDenied, deniedRes);
+
+      expect(deniedRes.status).toHaveBeenCalledWith(401);
+      expect(deniedJson).toHaveBeenCalledWith({ error: "Unauthorized management API request" });
+
+      const reqAllowed = {
+        headers: { authorization: "bearer env-token" },
+        ip: "127.0.0.1",
+        socket: {},
+        app: { get: () => false }
+      };
+      const allowedRes = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+      statusRoute.handlers[1](reqAllowed, allowedRes);
+
+      expect(allowedRes.json).toHaveBeenCalled();
+    } finally {
+      process.env.SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN = original;
+    }
+  });
+
+  test("rejects /status when token configured and no token provided", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const statusRoute = router.routes.find((r) => r.method === "get" && r.path === "/status");
+    const req = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const json = jest.fn();
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    statusRoute.handlers[1](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(json).toHaveBeenCalledWith({ error: "Unauthorized management API request" });
+  });
 });

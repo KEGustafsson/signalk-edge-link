@@ -1,0 +1,12 @@
+{
+  "connections": [
+    {
+      "name": "default-client",
+      "serverType": "client",
+      "udpAddress": "127.0.0.1",
+      "udpPort": 4446,
+      "secretKey": "12345678901234567890123456789012",
+      "protocolVersion": 1
+    }
+  ]
+}
