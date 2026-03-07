@@ -167,3 +167,62 @@ describe("duplicate server port detection", () => {
     expect(findDuplicatePorts(conns)).toContain(4446);
   });
 });
+
+// ── Schema typo protection ────────────────────────────────────────────────
+
+describe("configuration schema typo protection", () => {
+  const Ajv = require("ajv");
+  const runtimeSchema = require("../schemas/config.schema.json");
+  const docSchema = require("../docs/configuration-schema.json");
+
+  const baseConnection = {
+    name: "client-1",
+    serverType: "client",
+    udpAddress: "192.168.1.10",
+    udpPort: 4446,
+    secretKey: "12345678901234567890123456789012",
+    protocolVersion: 2,
+    testAddress: "8.8.8.8",
+    testPort: 53,
+    helloMessageSender: 60,
+    pingIntervalTime: 1
+  };
+
+  function isValidConnection(schema, connection) {
+    const ajv = new Ajv({ allErrors: true });
+    const validate = ajv.compile(schema);
+    return validate({ connections: [connection] });
+  }
+
+  test("rejects misspelled udpAdress field", () => {
+    const invalid = {
+      ...baseConnection,
+      udpAdress: baseConnection.udpAddress
+    };
+    delete invalid.udpAddress;
+
+    expect(isValidConnection(runtimeSchema, invalid)).toBe(false);
+    expect(isValidConnection(docSchema, invalid)).toBe(false);
+  });
+
+  test("rejects misspelled protcolVersion field", () => {
+    const invalid = {
+      ...baseConnection,
+      protcolVersion: baseConnection.protocolVersion
+    };
+    delete invalid.protocolVersion;
+
+    expect(isValidConnection(runtimeSchema, invalid)).toBe(false);
+    expect(isValidConnection(docSchema, invalid)).toBe(false);
+  });
+
+  test("allows explicitly namespaced extension keys", () => {
+    const extended = {
+      ...baseConnection,
+      "x-experimentalFeature": true
+    };
+
+    expect(isValidConnection(runtimeSchema, extended)).toBe(true);
+    expect(isValidConnection(docSchema, extended)).toBe(true);
+  });
+});
