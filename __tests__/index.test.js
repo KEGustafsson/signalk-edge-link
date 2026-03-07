@@ -1,15 +1,24 @@
 /* eslint-disable no-undef */
 
 // Mock external packages not available in the test environment
-jest.mock("ping-monitor", () => jest.fn().mockImplementation(() => ({
-  on: jest.fn(),
-  stop: jest.fn()
-})), { virtual: true });
+jest.mock(
+  "ping-monitor",
+  () =>
+    jest.fn().mockImplementation(() => ({
+      on: jest.fn(),
+      stop: jest.fn()
+    })),
+  { virtual: true }
+);
 
-jest.mock("@msgpack/msgpack", () => ({
-  encode: jest.fn((v) => Buffer.from(JSON.stringify(v))),
-  decode: jest.fn((b) => JSON.parse(b.toString()))
-}), { virtual: true });
+jest.mock(
+  "@msgpack/msgpack",
+  () => ({
+    encode: jest.fn((v) => Buffer.from(JSON.stringify(v))),
+    decode: jest.fn((b) => JSON.parse(b.toString()))
+  }),
+  { virtual: true }
+);
 
 const createPlugin = require("../index");
 
@@ -161,7 +170,9 @@ describe("SignalK Data Connector Plugin", () => {
       expect(clientDep.properties.alertThresholds).toBeDefined();
       expect(clientDep.properties.alertThresholds.properties.rtt).toBeDefined();
       expect(clientDep.properties.alertThresholds.properties.packetLoss).toBeDefined();
-      expect(clientDep.properties.bonding.properties.failover.properties.heartbeatTimeout).toBeDefined();
+      expect(
+        clientDep.properties.bonding.properties.failover.properties.heartbeatTimeout
+      ).toBeDefined();
     });
 
     test("should NOT have client fields in server mode oneOf", () => {
@@ -270,7 +281,9 @@ describe("SignalK Data Connector Plugin", () => {
 
       await plugin.start(options);
 
-      expect(mockApp.debug).toHaveBeenCalledWith(expect.stringContaining("Starting server on port"));
+      expect(mockApp.debug).toHaveBeenCalledWith(
+        expect.stringContaining("Starting server on port")
+      );
     });
 
     test("should accept boolean true for server mode", async () => {
@@ -282,7 +295,9 @@ describe("SignalK Data Connector Plugin", () => {
 
       await plugin.start(options);
 
-      expect(mockApp.debug).toHaveBeenCalledWith(expect.stringContaining("Starting server on port"));
+      expect(mockApp.debug).toHaveBeenCalledWith(
+        expect.stringContaining("Starting server on port")
+      );
     });
   });
 
@@ -598,7 +613,11 @@ describe("SignalK Data Connector Plugin", () => {
     beforeEach(() => {
       mockApp.savePluginOptions = jest.fn((config, cb) => cb(null));
       mockApp.readPluginOptions = jest.fn(() => ({
-        configuration: { serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }
+        configuration: {
+          serverType: "client",
+          udpPort: 4446,
+          secretKey: "12345678901234567890123456789012"
+        }
       }));
 
       mockRouter = {
@@ -653,7 +672,12 @@ describe("SignalK Data Connector Plugin", () => {
         json: jest.fn()
       };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockApp.savePluginOptions).toHaveBeenCalled();
       const savedConfig = mockApp.savePluginOptions.mock.calls[0][0];
@@ -683,7 +707,12 @@ describe("SignalK Data Connector Plugin", () => {
         json: jest.fn()
       };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockApp.savePluginOptions).toHaveBeenCalled();
       const savedConfig = mockApp.savePluginOptions.mock.calls[0][0];
@@ -695,11 +724,14 @@ describe("SignalK Data Connector Plugin", () => {
     test("should call restartPlugin with sanitized config after save", async () => {
       // Start the plugin to set state.restartPlugin
       const mockRestartPlugin = jest.fn();
-      await plugin.start({
-        secretKey: "12345678901234567890123456789012",
-        udpPort: 4446,
-        serverType: "server"
-      }, mockRestartPlugin);
+      await plugin.start(
+        {
+          secretKey: "12345678901234567890123456789012",
+          udpPort: 4446,
+          serverType: "server"
+        },
+        mockRestartPlugin
+      );
 
       const mockReq = {
         headers: { "content-type": "application/json" },
@@ -714,7 +746,12 @@ describe("SignalK Data Connector Plugin", () => {
         json: jest.fn()
       };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({ success: true, restarting: true })
@@ -747,7 +784,12 @@ describe("SignalK Data Connector Plugin", () => {
         json: jest.fn()
       };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockApp.savePluginOptions).toHaveBeenCalled();
       expect(mockRes.json).toHaveBeenCalledWith(
@@ -774,7 +816,12 @@ describe("SignalK Data Connector Plugin", () => {
         json: jest.fn()
       };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockApp.savePluginOptions).toHaveBeenCalled();
       const savedConfig = mockApp.savePluginOptions.mock.calls[0][0];
@@ -797,7 +844,12 @@ describe("SignalK Data Connector Plugin", () => {
         json: jest.fn()
       };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
       expect(mockRes.json).toHaveBeenCalledWith(
@@ -820,7 +872,12 @@ describe("SignalK Data Connector Plugin", () => {
         json: jest.fn()
       };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
       expect(mockRes.json).toHaveBeenCalledWith(
@@ -843,7 +900,12 @@ describe("SignalK Data Connector Plugin", () => {
         json: jest.fn()
       };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
       expect(mockRes.json).toHaveBeenCalledWith(
@@ -876,16 +938,18 @@ describe("SignalK Data Connector Plugin", () => {
       diskFile = {
         enabled: true,
         configuration: {
-          connections: [{
-            serverType: "client",
-            udpPort: 4446,
-            secretKey: "12345678901234567890123456789012",
-            udpAddress: "192.168.1.100",
-            testAddress: "8.8.8.8",
-            testPort: 53,
-            helloMessageSender: 60,
-            pingIntervalTime: 1
-          }]
+          connections: [
+            {
+              serverType: "client",
+              udpPort: 4446,
+              secretKey: "12345678901234567890123456789012",
+              udpAddress: "192.168.1.100",
+              testAddress: "8.8.8.8",
+              testPort: 53,
+              helloMessageSender: 60,
+              pingIntervalTime: 1
+            }
+          ]
         }
       };
 
@@ -945,14 +1009,11 @@ describe("SignalK Data Connector Plugin", () => {
       let captured;
       const mockRes = {
         status: jest.fn().mockReturnThis(),
-        json: jest.fn((data) => { captured = data; })
+        json: jest.fn((data) => {
+          captured = data;
+        })
       };
-      await runWithMiddlewares(
-        pluginConfigGetMiddlewares,
-        pluginConfigGetHandler,
-        {},
-        mockRes
-      );
+      await runWithMiddlewares(pluginConfigGetMiddlewares, pluginConfigGetHandler, {}, mockRes);
       return captured;
     }
 
@@ -961,7 +1022,9 @@ describe("SignalK Data Connector Plugin", () => {
       let captured;
       const mockRes = {
         status: jest.fn().mockReturnThis(),
-        json: jest.fn((data) => { captured = data; })
+        json: jest.fn((data) => {
+          captured = data;
+        })
       };
       await runWithMiddlewares(
         pluginConfigPostMiddlewares,
@@ -1034,6 +1097,43 @@ describe("SignalK Data Connector Plugin", () => {
       expect(read3.configuration.connections[0].secretKey).toBe("12345678901234567890123456789012");
     });
 
+    test("managementApiToken survives config read/save round-trips", async () => {
+      const read1 = await readConfig();
+      read1.configuration.managementApiToken = "  this-is-a-very-long-management-token  ";
+      await saveConfig(read1.configuration);
+
+      expect(diskFile.configuration.managementApiToken).toBe(
+        "this-is-a-very-long-management-token"
+      );
+
+      const read2 = await readConfig();
+      expect(read2.configuration.managementApiToken).toBe("this-is-a-very-long-management-token");
+      await saveConfig(read2.configuration);
+
+      expect(diskFile.configuration.managementApiToken).toBe(
+        "this-is-a-very-long-management-token"
+      );
+    });
+
+    test("managementApiToken shorter than minimum is rejected", async () => {
+      const response = await saveConfig({
+        connections: [
+          {
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012",
+            udpAddress: "192.168.1.100",
+            testAddress: "8.8.8.8",
+            testPort: 53
+          }
+        ],
+        managementApiToken: "too-short"
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/managementApiToken must be between 16 and 256 characters/);
+    });
+
     test("switching modes should not leave stale fields on disk", async () => {
       // Start in client mode, save
       const read1 = await readConfig();
@@ -1088,14 +1188,16 @@ describe("SignalK Data Connector Plugin", () => {
 
       // User re-enters correct values and saves using the new connections[] format
       const fixedConfig = {
-        connections: [{
-          serverType: "client",
-          udpPort: 4446,
-          secretKey: "12345678901234567890123456789012",
-          udpAddress: "192.168.1.100",
-          testAddress: "8.8.8.8",
-          testPort: 53
-        }]
+        connections: [
+          {
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012",
+            udpAddress: "192.168.1.100",
+            testAddress: "8.8.8.8",
+            testPort: 53
+          }
+        ]
       };
       await saveConfig(fixedConfig);
 
@@ -1136,8 +1238,18 @@ describe("SignalK Data Connector Plugin", () => {
     test("should start two independent server connections via array config", async () => {
       const options = {
         connections: [
-          { name: "Server A", serverType: "server", udpPort: 4470, secretKey: "12345678901234567890123456789012" },
-          { name: "Server B", serverType: "server", udpPort: 4471, secretKey: "12345678901234567890123456789012" }
+          {
+            name: "Server A",
+            serverType: "server",
+            udpPort: 4470,
+            secretKey: "12345678901234567890123456789012"
+          },
+          {
+            name: "Server B",
+            serverType: "server",
+            udpPort: 4471,
+            secretKey: "12345678901234567890123456789012"
+          }
         ]
       };
 
@@ -1155,12 +1267,22 @@ describe("SignalK Data Connector Plugin", () => {
     test("should start a server and a client simultaneously", async () => {
       const options = {
         connections: [
-          { name: "Shore Server", serverType: "server", udpPort: 4472, secretKey: "12345678901234567890123456789012" },
           {
-            name: "Sat Client", serverType: "client", udpPort: 4473,
+            name: "Shore Server",
+            serverType: "server",
+            udpPort: 4472,
+            secretKey: "12345678901234567890123456789012"
+          },
+          {
+            name: "Sat Client",
+            serverType: "client",
+            udpPort: 4473,
             secretKey: "12345678901234567890123456789012",
-            udpAddress: "127.0.0.1", testAddress: "127.0.0.1", testPort: 80,
-            pingIntervalTime: 60, helloMessageSender: 60
+            udpAddress: "127.0.0.1",
+            testAddress: "127.0.0.1",
+            testPort: 80,
+            pingIntervalTime: 60,
+            helloMessageSender: 60
           }
         ]
       };
@@ -1178,8 +1300,18 @@ describe("SignalK Data Connector Plugin", () => {
     test("should detect and reject duplicate server ports before starting any instance", async () => {
       const options = {
         connections: [
-          { name: "Server A", serverType: "server", udpPort: 4474, secretKey: "12345678901234567890123456789012" },
-          { name: "Server B", serverType: "server", udpPort: 4474, secretKey: "12345678901234567890123456789012" }
+          {
+            name: "Server A",
+            serverType: "server",
+            udpPort: 4474,
+            secretKey: "12345678901234567890123456789012"
+          },
+          {
+            name: "Server B",
+            serverType: "server",
+            udpPort: 4474,
+            secretKey: "12345678901234567890123456789012"
+          }
         ]
       };
 
@@ -1196,8 +1328,18 @@ describe("SignalK Data Connector Plugin", () => {
       // (no error thrown / logged) which confirms the disambiguation worked.
       const options = {
         connections: [
-          { name: "My Link", serverType: "server", udpPort: 4475, secretKey: "12345678901234567890123456789012" },
-          { name: "My Link", serverType: "server", udpPort: 4476, secretKey: "12345678901234567890123456789012" }
+          {
+            name: "My Link",
+            serverType: "server",
+            udpPort: 4475,
+            secretKey: "12345678901234567890123456789012"
+          },
+          {
+            name: "My Link",
+            serverType: "server",
+            udpPort: 4476,
+            secretKey: "12345678901234567890123456789012"
+          }
         ]
       };
 
@@ -1215,12 +1357,22 @@ describe("SignalK Data Connector Plugin", () => {
     test("clients on same port as server do not trigger duplicate port error", async () => {
       const options = {
         connections: [
-          { name: "Server",     serverType: "server", udpPort: 4477, secretKey: "12345678901234567890123456789012" },
           {
-            name: "Client", serverType: "client", udpPort: 4477,
+            name: "Server",
+            serverType: "server",
+            udpPort: 4477,
+            secretKey: "12345678901234567890123456789012"
+          },
+          {
+            name: "Client",
+            serverType: "client",
+            udpPort: 4477,
             secretKey: "12345678901234567890123456789012",
-            udpAddress: "127.0.0.1", testAddress: "127.0.0.1", testPort: 80,
-            pingIntervalTime: 60, helloMessageSender: 60
+            udpAddress: "127.0.0.1",
+            testAddress: "127.0.0.1",
+            testPort: 80,
+            pingIntervalTime: 60,
+            helloMessageSender: 60
           }
         ]
       };
@@ -1228,14 +1380,16 @@ describe("SignalK Data Connector Plugin", () => {
       await plugin.start(options);
 
       // Server listens on 4477, client connects TO 4477 – not a collision
-      expect(mockApp.error).not.toHaveBeenCalledWith(expect.stringContaining("Duplicate server ports"));
+      expect(mockApp.error).not.toHaveBeenCalledWith(
+        expect.stringContaining("Duplicate server ports")
+      );
     });
   });
 
   // ── /connections API routes ───────────────────────────────────────────────
   describe("Multi-Instance Routes (/connections)", () => {
     let mockRouter;
-    let routeHandlers;  // "METHOD /path" -> handler fn
+    let routeHandlers; // "METHOD /path" -> handler fn
 
     function makeRes() {
       const res = {
@@ -1275,12 +1429,22 @@ describe("SignalK Data Connector Plugin", () => {
     test("GET /connections lists all active connections after start", async () => {
       await plugin.start({
         connections: [
-          { name: "Shore Server", serverType: "server", udpPort: 4480, secretKey: "12345678901234567890123456789012" },
           {
-            name: "Sat Client", serverType: "client", udpPort: 4481,
+            name: "Shore Server",
+            serverType: "server",
+            udpPort: 4480,
+            secretKey: "12345678901234567890123456789012"
+          },
+          {
+            name: "Sat Client",
+            serverType: "client",
+            udpPort: 4481,
             secretKey: "12345678901234567890123456789012",
-            udpAddress: "127.0.0.1", testAddress: "127.0.0.1", testPort: 80,
-            pingIntervalTime: 60, helloMessageSender: 60
+            udpAddress: "127.0.0.1",
+            testAddress: "127.0.0.1",
+            testPort: 80,
+            pingIntervalTime: 60,
+            helloMessageSender: 60
           }
         ]
       });
@@ -1291,10 +1455,10 @@ describe("SignalK Data Connector Plugin", () => {
 
       const list = res.json.mock.calls[0][0];
       expect(list).toHaveLength(2);
-      expect(list.find(c => c.id === "shore-server")).toBeDefined();
-      expect(list.find(c => c.id === "sat-client")).toBeDefined();
-      expect(list.find(c => c.id === "shore-server").type).toBe("server");
-      expect(list.find(c => c.id === "sat-client").type).toBe("client");
+      expect(list.find((c) => c.id === "shore-server")).toBeDefined();
+      expect(list.find((c) => c.id === "sat-client")).toBeDefined();
+      expect(list.find((c) => c.id === "shore-server").type).toBe("server");
+      expect(list.find((c) => c.id === "sat-client").type).toBe("client");
     });
 
     test("GET /connections/:id/metrics returns 404 for unknown id", () => {
@@ -1302,7 +1466,9 @@ describe("SignalK Data Connector Plugin", () => {
       const res = makeRes();
       handler({ params: { id: "nonexistent" } }, res);
       expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining("nonexistent") }));
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.stringContaining("nonexistent") })
+      );
     });
 
     test("GET /connections/:id/network-metrics returns 404 for unknown id", () => {
@@ -1343,7 +1509,12 @@ describe("SignalK Data Connector Plugin", () => {
     test("GET /connections/:id/bonding returns 404 in server mode", async () => {
       await plugin.start({
         connections: [
-          { name: "my-server", serverType: "server", udpPort: 4482, secretKey: "12345678901234567890123456789012" }
+          {
+            name: "my-server",
+            serverType: "server",
+            udpPort: 4482,
+            secretKey: "12345678901234567890123456789012"
+          }
         ]
       });
 
@@ -1356,7 +1527,12 @@ describe("SignalK Data Connector Plugin", () => {
     test("GET /connections/:id/congestion returns 404 in server mode", async () => {
       await plugin.start({
         connections: [
-          { name: "my-server2", serverType: "server", udpPort: 4483, secretKey: "12345678901234567890123456789012" }
+          {
+            name: "my-server2",
+            serverType: "server",
+            udpPort: 4483,
+            secretKey: "12345678901234567890123456789012"
+          }
         ]
       });
 
@@ -1376,7 +1552,11 @@ describe("SignalK Data Connector Plugin", () => {
     beforeEach(() => {
       mockApp.savePluginOptions = jest.fn((config, cb) => cb(null));
       mockApp.readPluginOptions = jest.fn(() => ({
-        configuration: { serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }
+        configuration: {
+          serverType: "client",
+          udpPort: 4446,
+          secretKey: "12345678901234567890123456789012"
+        }
       }));
 
       mockRouter = {
@@ -1429,7 +1609,12 @@ describe("SignalK Data Connector Plugin", () => {
       };
       const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockApp.savePluginOptions).toHaveBeenCalled();
       const saved = mockApp.savePluginOptions.mock.calls[0][0];
@@ -1443,18 +1628,32 @@ describe("SignalK Data Connector Plugin", () => {
         headers: { "content-type": "application/json" },
         body: {
           connections: [
-            { name: "server1", serverType: "server", udpPort: 4446, secretKey: "12345678901234567890123456789012" },
             {
-              name: "client1", serverType: "client", udpPort: 4447,
+              name: "server1",
+              serverType: "server",
+              udpPort: 4446,
+              secretKey: "12345678901234567890123456789012"
+            },
+            {
+              name: "client1",
+              serverType: "client",
+              udpPort: 4447,
               secretKey: "12345678901234567890123456789012",
-              udpAddress: "10.0.0.1", testAddress: "10.0.0.1", testPort: 80
+              udpAddress: "10.0.0.1",
+              testAddress: "10.0.0.1",
+              testPort: 80
             }
           ]
         }
       };
       const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockApp.savePluginOptions).toHaveBeenCalled();
       const saved = mockApp.savePluginOptions.mock.calls[0][0];
@@ -1468,7 +1667,12 @@ describe("SignalK Data Connector Plugin", () => {
       };
       const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
     });
@@ -1480,7 +1684,12 @@ describe("SignalK Data Connector Plugin", () => {
       };
       const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
 
-      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        mockReq,
+        mockRes
+      );
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
     });

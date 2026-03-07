@@ -12,6 +12,12 @@
       "items": {
         "$ref": "#/definitions/connection"
       }
+    },
+    "managementApiToken": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 256,
+      "description": "Secures management endpoints that use lib/routes.js authorizeManagement checks."
     }
   },
   "required": ["connections"],
@@ -36,7 +42,8 @@
             "maxWindow": 32
           }
         }
-      ]
+      ],
+      "managementApiToken": "use-a-long-random-management-token"
     }
   ],
   "definitions": {
@@ -45,29 +52,68 @@
       "additionalProperties": true,
       "required": ["serverType", "udpPort", "secretKey"],
       "properties": {
-        "name": { "type": "string", "maxLength": 40 },
-        "serverType": { "type": "string", "enum": ["server", "client"] },
-        "udpAddress": { "type": "string" },
-        "udpPort": { "type": "number", "minimum": 1024, "maximum": 65535 },
-        "secretKey": { "type": "string", "minLength": 32, "maxLength": 32 },
-        "protocolVersion": { "type": "number", "enum": [1, 2], "default": 1 },
-        "useMsgpack": { "type": "boolean", "default": false },
-        "usePathDictionary": { "type": "boolean", "default": false },
+        "name": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "serverType": {
+          "type": "string",
+          "enum": ["server", "client"]
+        },
+        "udpAddress": {
+          "type": "string"
+        },
+        "udpPort": {
+          "type": "number",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "secretKey": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        },
+        "protocolVersion": {
+          "type": "number",
+          "enum": [1, 2],
+          "default": 1
+        },
+        "useMsgpack": {
+          "type": "boolean",
+          "default": false
+        },
+        "usePathDictionary": {
+          "type": "boolean",
+          "default": false
+        },
         "bonding": {
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "mode": { "type": "string", "enum": ["active-backup", "round-robin"] },
-            "failoverThreshold": { "type": "number", "minimum": 0 }
+            "enabled": {
+              "type": "boolean"
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["active-backup", "round-robin"]
+            },
+            "failoverThreshold": {
+              "type": "number",
+              "minimum": 0
+            }
           }
         },
         "congestionControl": {
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "maxWindow": { "type": "number", "minimum": 1 }
+            "enabled": {
+              "type": "boolean"
+            },
+            "maxWindow": {
+              "type": "number",
+              "minimum": 1
+            }
           }
         }
       }

@@ -33,6 +33,12 @@
       "type": "number",
       "enum": [1, 2],
       "default": 1
+    },
+    "managementApiToken": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 256,
+      "description": "Secures management endpoints that use lib/routes.js authorizeManagement checks."
     }
   },
   "allOf": [

@@ -11,12 +11,19 @@
  * - Instance ID collision disambiguation works
  */
 
-jest.mock("ping-monitor", () => jest.fn().mockImplementation(() => ({
-  on: jest.fn(),
-  stop: jest.fn()
-})), { virtual: true });
+jest.mock(
+  "ping-monitor",
+  () =>
+    jest.fn().mockImplementation(() => ({
+      on: jest.fn(),
+      stop: jest.fn()
+    })),
+  { virtual: true }
+);
 
 const { slugify } = require("../lib/instance");
+const schema = require("../schemas/config.schema.json");
+const docSchema = require("../docs/configuration-schema.json");
 
 // ── slugify ───────────────────────────────────────────────────────────────
 
@@ -43,9 +50,13 @@ describe("generateInstanceId collision disambiguation", () => {
   // importing the full plugin.
   function generateInstanceId(name, usedIds) {
     const base = slugify(name || "connection");
-    if (!usedIds.has(base)) { return base; }
+    if (!usedIds.has(base)) {
+      return base;
+    }
     let n = 1;
-    while (usedIds.has(`${base}-${n}`)) { n++; }
+    while (usedIds.has(`${base}-${n}`)) {
+      n++;
+    }
     return `${base}-${n}`;
   }
 
@@ -165,5 +176,24 @@ describe("duplicate server port detection", () => {
       { serverType: true, udpPort: 4446 }
     ];
     expect(findDuplicatePorts(conns)).toContain(4446);
+  });
+});
+
+describe("managementApiToken schema compatibility", () => {
+  test("runtime schema defines managementApiToken constraints", () => {
+    expect(schema.properties.managementApiToken).toMatchObject({
+      type: "string",
+      minLength: 16,
+      maxLength: 256
+    });
+  });
+
+  test("documentation schema mirrors managementApiToken constraints", () => {
+    expect(docSchema.properties.managementApiToken.minLength).toBe(
+      schema.properties.managementApiToken.minLength
+    );
+    expect(docSchema.properties.managementApiToken.maxLength).toBe(
+      schema.properties.managementApiToken.maxLength
+    );
   });
 });

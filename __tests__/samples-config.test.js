@@ -48,5 +48,12 @@ describe("sample configurations", () => {
     expect(docConnection.udpPort.maximum).toBe(runtimeConnection.udpPort.maximum);
     expect(docConnection.secretKey.minLength).toBe(runtimeConnection.secretKey.minLength);
     expect(docConnection.secretKey.maxLength).toBe(runtimeConnection.secretKey.maxLength);
+
+    expect(docSchema.properties.managementApiToken.minLength).toBe(
+      schema.properties.managementApiToken.minLength
+    );
+    expect(docSchema.properties.managementApiToken.maxLength).toBe(
+      schema.properties.managementApiToken.maxLength
+    );
   });
 });
