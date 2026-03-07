@@ -1098,4 +1098,105 @@ describe("management API token authorization", () => {
     expect(res.status).toHaveBeenCalledWith(401);
     expect(json).toHaveBeenCalledWith({ error: "Unauthorized management API request" });
   });
+
+  test("rejects sensitive config and control routes when token is missing", () => {
+    const app = {
+      get: jest.fn(() => false),
+      readPluginOptions: jest.fn(() => ({
+        configuration: {
+          connections: [
+            { name: "alpha", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }
+          ]
+        }
+      }))
+    };
+    const bundle = makeBundle();
+    bundle.id = "alpha";
+    bundle.name = "alpha";
+    bundle.state.options = {
+      name: "alpha",
+      serverType: "client",
+      udpPort: 4446,
+      secretKey: "12345678901234567890123456789012"
+    };
+    bundle.state.deltaTimerFile = "delta_timer.json";
+    bundle.state.subscriptionFile = "subscription.json";
+    bundle.state.sentenceFilterFile = "sentence_filter.json";
+    bundle.state.pipeline = {
+      getBondingManager: jest.fn(() => ({
+        forceFailover: jest.fn(),
+        getActiveLinkName: jest.fn(() => "primary"),
+        getLinkHealth: jest.fn(() => ({}))
+      })),
+      getCongestionControl: jest.fn(() => ({
+        enableAutoMode: jest.fn(),
+        getCurrentDeltaTimer: jest.fn(() => 200),
+        setManualDeltaTimer: jest.fn()
+      }))
+    };
+    bundle.state.monitoring = {
+      alertManager: {
+        thresholds: {},
+        getState: jest.fn(() => ({ thresholds: {}, activeAlerts: {} })),
+        setThreshold: jest.fn()
+      },
+      packetCapture: {
+        getStats: jest.fn(() => ({ enabled: false, captured: 0, dropped: 0, buffered: 0 })),
+        start: jest.fn(),
+        stop: jest.fn(),
+        exportPcap: jest.fn(() => Buffer.from("pcap"))
+      }
+    };
+
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "alpha" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const specs = [
+      { method: "get", path: "/plugin-config" },
+      { method: "post", path: "/plugin-config" },
+      { method: "get", path: "/config/:filename", req: { params: { filename: "delta_timer.json" } } },
+      { method: "post", path: "/config/:filename", req: { params: { filename: "delta_timer.json" }, body: {} } },
+      { method: "get", path: "/connections/:id/config/:filename", req: { params: { id: "alpha", filename: "delta_timer.json" } } },
+      { method: "post", path: "/connections/:id/config/:filename", req: { params: { id: "alpha", filename: "delta_timer.json" }, body: {} } },
+      { method: "get", path: "/monitoring/alerts" },
+      { method: "post", path: "/monitoring/alerts", req: { body: { metric: "rtt", warning: 1 } } },
+      { method: "get", path: "/capture" },
+      { method: "post", path: "/capture/start" },
+      { method: "post", path: "/capture/stop" },
+      { method: "get", path: "/capture/export" },
+      { method: "post", path: "/delta-timer", req: { body: { value: 200 } } },
+      { method: "post", path: "/bonding/failover" },
+      { method: "post", path: "/connections/:id/bonding/failover", req: { params: { id: "alpha" } } }
+    ];
+
+    for (const spec of specs) {
+      const route = router.routes.find((entry) => entry.method === spec.method && entry.path === spec.path);
+      expect(route).toBeDefined();
+
+      const json = jest.fn();
+      const req = {
+        headers: {},
+        ip: "127.0.0.1",
+        socket: {},
+        app: { get: () => false },
+        params: {},
+        query: {},
+        body: {},
+        ...(spec.req || {})
+      };
+      const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+      route.handlers[1](req, res, jest.fn());
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(json).toHaveBeenCalledWith({ error: "Unauthorized management API request" });
+    }
+  });
 });

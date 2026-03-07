@@ -10,7 +10,9 @@ This document captures operational security practices and implementation notes f
 
 ## Management API hardening
 
-- Protect `/instances`, `/bonding`, and `/status` with `managementApiToken`.
+- Protect management, configuration, and control endpoints with `managementApiToken`.
+- This includes `/instances*`, `/bonding*`, `/status`, `/plugin-config`, `/config/*`,
+  `/connections/:id/config/*`, `/monitoring/alerts`, `/capture/*`, and `/delta-timer`.
 - Token can be supplied via:
   - `X-Edge-Link-Token`
   - `X-Management-Token` (legacy)

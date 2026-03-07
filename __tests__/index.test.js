@@ -972,6 +972,24 @@ describe("SignalK Data Connector Plugin", () => {
       return captured;
     }
 
+    test("GET /plugin-config redacts persisted secret keys", async () => {
+      const read = await readConfig();
+
+      expect(read.success).toBe(true);
+      expect(read.configuration.connections[0].secretKey).toBe("[redacted]");
+      expect(diskFile.configuration.connections[0].secretKey).toBe("12345678901234567890123456789012");
+    });
+
+    test("POST /plugin-config preserves persisted secret keys when the redacted sentinel is submitted", async () => {
+      const read = await readConfig();
+
+      read.configuration.connections[0].udpPort = 5001;
+      await saveConfig(read.configuration);
+
+      expect(diskFile.configuration.connections[0].udpPort).toBe(5001);
+      expect(diskFile.configuration.connections[0].secretKey).toBe("12345678901234567890123456789012");
+    });
+
     test("config should not grow after multiple save cycles", async () => {
       const initialSize = JSON.stringify(diskFile).length;
 
@@ -1031,7 +1049,7 @@ describe("SignalK Data Connector Plugin", () => {
       const read3 = await readConfig();
       expect(read3.configuration.connections[0].udpPort).toBe(5000);
       expect(read3.configuration.connections[0].udpAddress).toBe("10.0.0.1");
-      expect(read3.configuration.connections[0].secretKey).toBe("12345678901234567890123456789012");
+      expect(read3.configuration.connections[0].secretKey).toBe("[redacted]");
     });
 
     test("switching modes should not leave stale fields on disk", async () => {

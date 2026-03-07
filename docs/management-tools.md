@@ -13,7 +13,10 @@ If `managementApiToken` is configured (or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` i
 - `X-Edge-Link-Token: <token>`
 - `Authorization: Bearer <token>`
 
-When a token is configured, management endpoints (`/instances`, `/bonding`, `/status`) return `401` without a valid token.
+When a token is configured, management/configuration/control endpoints return `401`
+without a valid token. This includes `/instances`, `/bonding`, `/status`,
+`/plugin-config`, `/config/*`, `/connections/:id/config/*`, `/monitoring/alerts`,
+`/capture/*`, and `/delta-timer`.
 
 CLI note: `--token` sends both `X-Edge-Link-Token` and `Authorization: Bearer <token>` for compatibility with reverse proxies.
 

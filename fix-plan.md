@@ -1,5 +1,39 @@
 # Plan to address issues identified in the `multi_test` branch
 
+## 2026-03-07 execution log
+
+### Batch 1 completed
+
+- Added shared `managementAuthMiddleware(action)` in `lib/routes.js` so sensitive route groups can enforce the configured management token before any state or file checks run.
+- Protected the previously exposed configuration, monitoring, capture, delta-timer, and failover routes:
+  - `GET/POST /plugin-config`
+  - `GET/POST /config/:filename`
+  - `GET/POST /connections/:id/config/:filename`
+  - `GET/POST /monitoring/alerts`
+  - `GET /capture`
+  - `POST /capture/start`
+  - `POST /capture/stop`
+  - `GET /capture/export`
+  - `POST /delta-timer`
+  - `POST /bonding/failover`
+  - `POST /connections/:id/bonding/failover`
+- Redacted `secretKey` values from `GET /plugin-config` responses with the `[redacted]` sentinel.
+- Preserved unchanged secrets on `POST /plugin-config` by restoring persisted `secretKey` values when the request submits the `[redacted]` sentinel for an existing connection slot.
+- Updated operator docs to reflect the expanded management-token protection scope in `README.md`, `docs/security.md`, and `docs/management-tools.md`.
+- Added a repo-local `make_pr.ps1` helper so each implementation batch can generate a PR record in `docs/pr-records/`.
+- Added regression coverage for:
+  - token enforcement on the newly protected config/control/capture routes in `__tests__/routes.rate-limit.test.js`
+  - `/plugin-config` secret redaction and unchanged-secret preservation in `__tests__/index.test.js`
+- Verification completed:
+  - `node --check lib/routes.js`
+  - `node --check lib/routes/config.js`
+  - `node --check lib/routes/monitoring.js`
+  - `node --check lib/routes/control.js`
+  - `node --check lib/routes/connections.js`
+  - `node --check __tests__/routes.rate-limit.test.js`
+  - `node --check __tests__/index.test.js`
+  - `npm test -- --runInBand __tests__/routes.rate-limit.test.js __tests__/index.test.js`
+
 ## Progress update (implemented in this branch)
 
 - ✅ Added a new management route alias `GET /instances` in `lib/routes/connections.js`.
