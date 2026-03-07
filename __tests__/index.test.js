@@ -11,6 +11,7 @@ jest.mock("@msgpack/msgpack", () => ({
   decode: jest.fn((b) => JSON.parse(b.toString()))
 }), { virtual: true });
 
+const dgram = require("node:dgram");
 const createPlugin = require("../index");
 
 describe("SignalK Data Connector Plugin", () => {
@@ -284,6 +285,36 @@ describe("SignalK Data Connector Plugin", () => {
       await plugin.start(options);
 
       expect(mockApp.debug).toHaveBeenCalledWith(expect.stringContaining("Starting server on port"));
+    });
+
+    test("should surface startup failure when the UDP port is already in use", async () => {
+      const { EventEmitter } = require("node:events");
+      const createSocketSpy = jest.spyOn(dgram, "createSocket").mockImplementation(() => {
+        const socket = new EventEmitter();
+        socket.bind = jest.fn(() => {
+          process.nextTick(() => {
+            const err = new Error("bind EADDRINUSE 0.0.0.0:4446");
+            err.code = "EADDRINUSE";
+            socket.emit("error", err);
+          });
+        });
+        socket.close = jest.fn();
+        socket.address = jest.fn(() => ({ address: "0.0.0.0", port: 4446 }));
+        return socket;
+      });
+
+      try {
+        await plugin.start({
+          secretKey: "12345678901234567890123456789012",
+          udpPort: 4446,
+          serverType: "server"
+        });
+
+        expect(mockApp.error).toHaveBeenCalledWith(expect.stringContaining("Failed to start one or more connections"));
+        expect(mockApp.setPluginStatus).toHaveBeenCalledWith(expect.stringContaining("Startup failed"));
+      } finally {
+        createSocketSpy.mockRestore();
+      }
     });
   });
 

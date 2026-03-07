@@ -1012,6 +1012,111 @@ describe("status and error summary routes", () => {
   });
 });
 
+describe("monitoring alert persistence", () => {
+  test("persists alert thresholds into the matching connection entry", () => {
+    const thresholds = {};
+    const app = {
+      get: jest.fn(() => false),
+      readPluginOptions: jest.fn(() => ({
+        configuration: {
+          connections: [
+            {
+              name: "alpha",
+              serverType: "client",
+              udpPort: 4446,
+              secretKey: "12345678901234567890123456789012",
+              udpAddress: "127.0.0.1",
+              testAddress: "8.8.8.8",
+              testPort: 53,
+              alertThresholds: {
+                packetLoss: { warning: 0.1, critical: 0.2 }
+              }
+            },
+            {
+              name: "beta",
+              serverType: "client",
+              udpPort: 4447,
+              secretKey: "12345678901234567890123456789012",
+              udpAddress: "127.0.0.2",
+              testAddress: "1.1.1.1",
+              testPort: 443
+            }
+          ]
+        }
+      })),
+      savePluginOptions: jest.fn((_config, cb) => cb(null)),
+      error: jest.fn()
+    };
+
+    const bundle = makeBundle();
+    bundle.id = "beta";
+    bundle.name = "beta";
+    bundle.state.options = {
+      name: "beta",
+      serverType: "client",
+      udpPort: 4447,
+      secretKey: "12345678901234567890123456789012",
+      udpAddress: "127.0.0.2",
+      testAddress: "1.1.1.1",
+      testPort: 443,
+      alertThresholds: {}
+    };
+    bundle.state.monitoring = {
+      alertManager: {
+        thresholds,
+        setThreshold: jest.fn((metric, update) => {
+          thresholds[metric] = { ...(thresholds[metric] || {}), ...update };
+        }),
+        getState: jest.fn(() => ({ thresholds, activeAlerts: {} }))
+      }
+    };
+
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const pluginRef = {
+      _currentOptions: {
+        connections: [
+          { name: "alpha", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" },
+          { name: "beta", serverType: "client", udpPort: 4447, secretKey: "12345678901234567890123456789012" }
+        ]
+      }
+    };
+
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const route = router.routes.find((r) => r.method === "post" && r.path === "/monitoring/alerts");
+    const req = {
+      body: { metric: "rtt", warning: 250 },
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    route.handlers[3](req, res);
+
+    expect(app.savePluginOptions).toHaveBeenCalled();
+    const savedConfig = app.savePluginOptions.mock.calls[0][0];
+    expect(savedConfig.alertThresholds).toBeUndefined();
+    expect(savedConfig.connections[0].alertThresholds).toEqual({
+      packetLoss: { warning: 0.1, critical: 0.2 }
+    });
+    expect(savedConfig.connections[1].alertThresholds).toEqual({
+      rtt: { warning: 250 }
+    });
+    expect(pluginRef._currentOptions.connections[1].alertThresholds).toEqual({
+      rtt: { warning: 250 }
+    });
+  });
+});
+
 
 describe("management API token authorization", () => {
   test("rejects /instances when managementApiToken is configured and missing", () => {

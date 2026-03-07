@@ -81,6 +81,22 @@
   - `node --check __tests__/edge-link-cli.test.js`
   - `npm test -- --runInBand __tests__/routes.rate-limit.test.js __tests__/index.test.js __tests__/migrate-config.test.js __tests__/samples-config.test.js __tests__/edge-link-cli.test.js`
 
+### Batch 3 completed
+
+- Updated server-mode startup in `lib/instance.js` so `instance.start()` now waits for the UDP socket `listening` event before resolving and rejects immediately on bind/startup errors.
+- Preserved the existing socket error cleanup behavior while fixing the startup listener cleanup to use a stable socket reference, preventing null dereferences when a bind error closes the socket before startup cleanup runs.
+- Updated `lib/routes/monitoring.js` so `POST /monitoring/alerts` persists threshold changes into the correct `connections[n].alertThresholds` entry for the active instance instead of writing a mismatched top-level `alertThresholds` object.
+- Kept legacy fallback behavior for single-instance / non-`connections[]` configs by persisting top-level `alertThresholds` only when no connection-array config exists.
+- Added regression coverage for:
+  - startup bind failures surfacing through plugin startup status/error handling in `__tests__/index.test.js`
+  - per-instance alert-threshold persistence in `__tests__/routes.rate-limit.test.js`
+- Verification completed:
+  - `node --check lib/instance.js`
+  - `node --check lib/routes/monitoring.js`
+  - `node --check __tests__/index.test.js`
+  - `node --check __tests__/routes.rate-limit.test.js`
+  - `npm test -- --runInBand __tests__/index.test.js __tests__/routes.rate-limit.test.js __tests__/instance.test.js`
+
 ## Progress update (implemented in this branch)
 
 - ✅ Added a new management route alias `GET /instances` in `lib/routes/connections.js`.
