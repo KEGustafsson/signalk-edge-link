@@ -27,7 +27,8 @@
     "secretKey": {
       "type": "string",
       "minLength": 32,
-      "maxLength": 32
+      "maxLength": 64,
+      "pattern": "^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
     },
     "protocolVersion": {
       "type": "number",
@@ -74,7 +75,8 @@
         "secretKey": {
           "type": "string",
           "minLength": 32,
-          "maxLength": 32
+          "maxLength": 64,
+          "pattern": "^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
         },
         "useMsgpack": {
           "type": "boolean",

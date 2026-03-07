@@ -102,10 +102,11 @@ describe("SignalK Data Connector Plugin", () => {
       expect(udpPort.maximum).toBe(65535);
     });
 
-    test("should validate secretKey length", () => {
+    test("should describe supported secretKey formats", () => {
       const secretKey = itemSchema.properties.secretKey;
       expect(secretKey.minLength).toBe(32);
-      expect(secretKey.maxLength).toBe(32);
+      expect(secretKey.maxLength).toBe(64);
+      expect(secretKey.pattern).toBe("^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$");
     });
 
     test("should NOT have client-only fields in connection item main properties", () => {
@@ -1454,6 +1455,52 @@ describe("SignalK Data Connector Plugin", () => {
       expect(Array.isArray(saved.connections)).toBe(true);
       expect(saved.connections[0].serverType).toBe("server");
       expect(saved.connections[0].udpPort).toBe(4446);
+    });
+
+    test("should accept a 64-character hex secretKey in /plugin-config", async () => {
+      const mockReq = {
+        headers: { "content-type": "application/json" },
+        body: {
+          connections: [
+            {
+              name: "hex-server",
+              serverType: "server",
+              udpPort: 4446,
+              secretKey: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+            }
+          ]
+        }
+      };
+      const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+
+      expect(mockApp.savePluginOptions).toHaveBeenCalled();
+      const saved = mockApp.savePluginOptions.mock.calls[0][0];
+      expect(saved.connections[0].secretKey).toBe("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff");
+    });
+
+    test("should accept a 44-character base64 secretKey in /plugin-config", async () => {
+      const mockReq = {
+        headers: { "content-type": "application/json" },
+        body: {
+          connections: [
+            {
+              name: "base64-server",
+              serverType: "server",
+              udpPort: 4446,
+              secretKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+            }
+          ]
+        }
+      };
+      const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+      await runWithMiddlewares(pluginConfigPostMiddlewares, pluginConfigPostHandler, mockReq, mockRes);
+
+      expect(mockApp.savePluginOptions).toHaveBeenCalled();
+      const saved = mockApp.savePluginOptions.mock.calls[0][0];
+      expect(saved.connections[0].secretKey).toBe("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=");
     });
 
     test("should save multiple connections in array", async () => {

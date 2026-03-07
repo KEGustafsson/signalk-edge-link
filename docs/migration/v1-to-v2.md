@@ -77,7 +77,7 @@ In the plugin configuration (Admin UI or JSON), set `protocolVersion` to `2`:
 {
   "serverType": "client",
   "udpPort": 4446,
-  "secretKey": "your-32-character-key-here......",
+  "secretKey": "your-shared-secret-here",
   "useMsgpack": false,
   "usePathDictionary": true
 }

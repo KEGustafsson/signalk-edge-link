@@ -24,7 +24,7 @@ Configuration is stored as an array of connections. A single Signal K node can r
 | Connection Name | `name` | string | `"connection"` | max 40 chars | Label used as instance ID and Signal K metrics namespace |
 | Operation Mode | `serverType` | string | `"client"` | `"server"`, `"client"` | Server receives data, Client sends data |
 | UDP Port | `udpPort` | number | `4446` | 1024 - 65535 | Must match on both ends; each server connection needs a unique port |
-| Encryption Key | `secretKey` | string | - | 32 characters | Must match on both ends, min 8 unique chars |
+| Encryption Key | `secretKey` | string | - | 32-byte secret | Use 32-character ASCII, 64-character hex, or 44-character base64; must match on both ends |
 | Use MessagePack | `useMsgpack` | boolean | `false` | - | Binary serialization (must match both ends) |
 | Use Path Dictionary | `usePathDictionary` | boolean | `false` | - | Path encoding (must match both ends) |
 

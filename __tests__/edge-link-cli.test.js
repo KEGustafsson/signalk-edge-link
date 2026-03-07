@@ -32,7 +32,10 @@ describe("edge-link-cli", () => {
     await fs.writeFile(inPath, JSON.stringify({
       serverType: "client",
       udpPort: 4446,
-      secretKey: "12345678901234567890123456789012"
+      secretKey: "12345678901234567890123456789012",
+      udpAddress: "127.0.0.1",
+      testAddress: "8.8.8.8",
+      testPort: 53
     }), "utf8");
 
     await expect(main(["migrate-config", inPath, outPath])).resolves.toBe(0);
@@ -45,6 +48,9 @@ describe("edge-link-cli", () => {
           serverType: "client",
           udpPort: 4446,
           secretKey: "12345678901234567890123456789012",
+          udpAddress: "127.0.0.1",
+          testAddress: "8.8.8.8",
+          testPort: 53,
           protocolVersion: 1
         }
       ]

@@ -34,6 +34,53 @@
   - `node --check __tests__/index.test.js`
   - `npm test -- --runInBand __tests__/routes.rate-limit.test.js __tests__/index.test.js`
 
+### Batch 2 completed
+
+- Extracted shared connection validation and sanitization into `lib/connection-config.js`.
+  - Centralized `validateConnectionConfig(...)`
+  - Centralized `sanitizeConnectionConfig(...)`
+  - Centralized duplicate server-port validation
+  - Centralized instance-id-to-connection-index lookup helpers
+- Switched `lib/routes/config.js` to the shared validator/sanitizer so `/plugin-config` save behavior and connection filtering now use the same rules as the rest of the runtime.
+- Switched `lib/routes/connections.js` to the shared validator/sanitizer:
+  - `POST /instances` now validates full client/server payloads with the same nested-object and protocol checks as `/plugin-config`
+  - `PUT /instances/:id` now validates the fully merged connection before restart instead of validating only top-level patch keys
+  - restart paths now sanitize every saved connection before persisting/restarting
+- Reworked `scripts/migrate-config.js` to use the shared connection validator/sanitizer and to preserve connection-specific legacy fields when migrating into `connections[]`.
+- Normalized secret-key handling across management/configuration entry points:
+  - `/plugin-config` now accepts 32-character ASCII, 64-character hex, and 44-character base64 secrets
+  - `/instances` now accepts the same three formats
+  - `migrate-config` now accepts the same three formats
+- Updated runtime/operator-facing schemas and docs to advertise the supported secret-key formats:
+  - `index.js`
+  - `src/components/PluginConfigurationPanel.jsx`
+  - `schemas/config.schema.json`
+  - `docs/configuration-schema.json`
+  - `README.md`
+  - `docs/api-reference.md`
+  - `docs/configuration-reference.md`
+  - `docs/protocol-v2-spec.md`
+  - `docs/migration/v1-to-v2.md`
+  - `docs/troubleshooting.md`
+- Added regression coverage for:
+  - hex/base64 secret-key acceptance in `/plugin-config`
+  - hex/base64 secret-key acceptance in `/instances`
+  - merged-update validation in `/instances/:id`
+  - hex/base64 secret-key acceptance in `migrate-config`
+  - runtime/docs schema alignment for the expanded secret-key formats
+- Verification completed:
+  - `node --check lib/connection-config.js`
+  - `node --check lib/routes/config.js`
+  - `node --check lib/routes/connections.js`
+  - `node --check scripts/migrate-config.js`
+  - `node --check index.js`
+  - `node --check __tests__/routes.rate-limit.test.js`
+  - `node --check __tests__/index.test.js`
+  - `node --check __tests__/migrate-config.test.js`
+  - `node --check __tests__/samples-config.test.js`
+  - `node --check __tests__/edge-link-cli.test.js`
+  - `npm test -- --runInBand __tests__/routes.rate-limit.test.js __tests__/index.test.js __tests__/migrate-config.test.js __tests__/samples-config.test.js __tests__/edge-link-cli.test.js`
+
 ## Progress update (implemented in this branch)
 
 - ✅ Added a new management route alias `GET /instances` in `lib/routes/connections.js`.

@@ -1,21 +1,32 @@
-#!/usr/bin/env node
 "use strict";
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-function validateLegacyConfig(serverType, udpPort, secretKey) {
-  if (serverType !== "server" && serverType !== "client") {
-    throw new Error("Legacy config must include serverType as 'server' or 'client'");
-  }
+const {
+  VALID_CONNECTION_KEYS,
+  validateConnectionConfig,
+  sanitizeConnectionConfig
+} = require("../lib/connection-config");
 
-  if (!Number.isInteger(udpPort) || udpPort < 1024 || udpPort > 65535) {
-    throw new Error("Legacy config must include udpPort as an integer between 1024 and 65535");
+function validateLegacyConfig(config) {
+  const connection = {
+    ...config,
+    name: config.name || "default",
+    protocolVersion: config.protocolVersion || 1
+  };
+  const validationError = validateConnectionConfig(connection);
+  if (validationError) {
+    throw new Error(`Legacy config ${validationError}`);
   }
+}
 
-  if (typeof secretKey !== "string" || secretKey.length !== 32) {
-    throw new Error("Legacy config must include secretKey as a 32-character string");
+function stripLegacyConnectionFields(config) {
+  const rest = { ...config };
+  for (const key of VALID_CONNECTION_KEYS) {
+    delete rest[key];
   }
+  return rest;
 }
 
 function migrateConfig(config) {
@@ -36,35 +47,18 @@ function migrateConfig(config) {
     return { ...config };
   }
 
-  const {
-    name,
-    serverType,
-    udpPort,
-    secretKey,
-    useMsgpack,
-    usePathDictionary,
-    protocolVersion,
-    ...rest
-  } = config;
+  validateLegacyConfig(config);
 
-  validateLegacyConfig(serverType, udpPort, secretKey);
+  const connection = sanitizeConnectionConfig({
+    ...config,
+    name: config.name || "default",
+    protocolVersion: config.protocolVersion || 1
+  });
 
-  const migrated = {
-    ...rest,
-    connections: [
-      {
-        name: name || "default",
-        serverType,
-        udpPort,
-        secretKey,
-        ...(useMsgpack !== undefined ? { useMsgpack: Boolean(useMsgpack) } : {}),
-        ...(usePathDictionary !== undefined ? { usePathDictionary: Boolean(usePathDictionary) } : {}),
-        protocolVersion: protocolVersion || 1
-      }
-    ]
+  return {
+    ...stripLegacyConnectionFields(config),
+    connections: [connection]
   };
-
-  return migrated;
 }
 
 async function runCli() {
@@ -90,8 +84,8 @@ async function runCli() {
 }
 
 if (require.main === module) {
-  runCli().catch((err) => {
-    console.error(`Migration failed: ${err.message}`);
+  runCli().catch((error) => {
+    console.error(`Migration failed: ${error.message}`);
     process.exitCode = 1;
   });
 }

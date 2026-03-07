@@ -42,7 +42,7 @@ Server Signal K
 
 - Two Signal K instances (source and destination)
 - UDP reachability from client to server on your chosen port
-- Shared encryption key on both ends (**exactly 32 ASCII characters**)
+- Shared encryption key on both ends (32-character ASCII, 64-character hex, or 44-character base64)
 - Node.js 16+ (if installing from source)
 
 ## Installation
@@ -74,7 +74,7 @@ In Signal K Admin UI:
 3. Set:
    - `Connection Name` (for example `shore-server`)
    - `UDP Port` (default `4446`)
-   - `Encryption Key` (same 32-character key used by client)
+   - `Encryption Key` (same shared secret used by client)
    - `Protocol Version` (`2` recommended)
 4. Save
 
@@ -145,7 +145,7 @@ Configuration is an array of independent connections:
       "name": "shore-server",
       "serverType": "server",
       "udpPort": 4446,
-      "secretKey": "<32-char key>",
+      "secretKey": "<32-byte key>",
       "protocolVersion": 2
     },
     {
@@ -153,7 +153,7 @@ Configuration is an array of independent connections:
       "serverType": "client",
       "udpPort": 4447,
       "udpAddress": "10.0.0.1",
-      "secretKey": "<32-char key>",
+      "secretKey": "<32-byte key>",
       "protocolVersion": 2
     }
   ]
@@ -175,13 +175,13 @@ Schema and migration helpers:
 ## Security notes
 
 - Uses AES-256-GCM authenticated encryption.
-- Keys must match exactly and be 32 ASCII characters.
+- Keys must match exactly and can be entered as 32-character ASCII, 64-character hex, or 44-character base64.
 - Restrict UDP ingress to trusted source addresses whenever possible.
 
 Example key generation:
 
 ```bash
-openssl rand -base64 32 | cut -c1-32
+openssl rand -hex 32
 ```
 
 ## Troubleshooting

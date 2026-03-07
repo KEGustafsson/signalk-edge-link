@@ -297,7 +297,7 @@ All DATA payloads are encrypted with AES-256-GCM:
 | Property | Detail |
 |----------|--------|
 | Algorithm | AES-256-GCM |
-| Key size | 256 bits (32 ASCII characters) |
+| Key size | 256 bits (32-byte secret: 32-character ASCII, 64-character hex, or 44-character base64) |
 | IV | 12 bytes, unique per message (random) |
 | Auth tag | 16 bytes, tamper detection |
 | Wire format | `[IV (12B)][Encrypted Data][Auth Tag (16B)]` |

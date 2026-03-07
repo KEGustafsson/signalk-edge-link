@@ -168,12 +168,14 @@ Read current plugin configuration.
         "name": "shore-server",
         "serverType": "server",
         "udpPort": 4446,
-        "secretKey": "..."
+        "secretKey": "[redacted]"
       }
     ]
   }
 }
 ```
+
+`GET /plugin-config` redacts stored `secretKey` values as `[redacted]`.
 
 ---
 
@@ -223,6 +225,10 @@ Update plugin configuration. Triggers a plugin restart to apply changes.
 ```
 
 **Required per connection:** `serverType`, `udpPort`, `secretKey`
+
+`secretKey` accepts the same formats as runtime crypto: 32-character ASCII,
+64-character hex, or 44-character base64. Submitting `[redacted]` keeps the
+stored secret for an existing connection slot unchanged.
 
 **Additional required (client mode):** `udpAddress`, `testAddress`, `testPort`
 

@@ -623,8 +623,153 @@ describe("instances management route", () => {
     await route.handlers[2](req, res);
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(json).toHaveBeenCalledWith({ error: "secretKey must be exactly 32 characters" });
+    expect(json).toHaveBeenCalledWith({
+      error: "Secret key must be exactly 32 bytes: use a 32-character ASCII string, 64-character hex string, or 44-character base64 string"
+    });
     expect(restart).not.toHaveBeenCalled();
+  });
+
+  test("POST /instances accepts 64-character hex secret keys", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const restart = jest.fn().mockResolvedValue(undefined);
+
+    const routes = createRoutes(app, {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    }, {
+      _restartPlugin: restart,
+      _currentOptions: {
+        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+      }
+    });
+
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+    const route = router.routes.find((r) => r.method === "post" && r.path === "/instances");
+
+    const req = {
+      body: {
+        name: "hex-key",
+        serverType: "server",
+        udpPort: 4501,
+        secretKey: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+      },
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    await route.handlers[2](req, res);
+
+    expect(restart).toHaveBeenCalledWith(expect.objectContaining({
+      connections: expect.arrayContaining([
+        expect.objectContaining({
+          name: "hex-key",
+          secretKey: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+        })
+      ])
+    }));
+  });
+
+  test("POST /instances accepts 44-character base64 secret keys", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const restart = jest.fn().mockResolvedValue(undefined);
+
+    const routes = createRoutes(app, {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    }, {
+      _restartPlugin: restart,
+      _currentOptions: {
+        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+      }
+    });
+
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+    const route = router.routes.find((r) => r.method === "post" && r.path === "/instances");
+
+    const req = {
+      body: {
+        name: "base64-key",
+        serverType: "server",
+        udpPort: 4502,
+        secretKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+      },
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    await route.handlers[2](req, res);
+
+    expect(restart).toHaveBeenCalledWith(expect.objectContaining({
+      connections: expect.arrayContaining([
+        expect.objectContaining({
+          name: "base64-key",
+          secretKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+        })
+      ])
+    }));
+  });
+
+  test("PUT /instances/:id validates the fully merged connection", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.name = "base";
+
+    const pluginRef = {
+      _restartPlugin: jest.fn().mockResolvedValue(undefined),
+      _currentOptions: {
+        connections: [
+          {
+            name: "base",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012",
+            udpAddress: "127.0.0.1",
+            testAddress: "127.0.0.1",
+            testPort: 80
+          }
+        ]
+      }
+    };
+
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "base" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const route = router.routes.find((r) => r.method === "put" && r.path === "/instances/:id");
+    const json = jest.fn();
+    const req = {
+      params: { id: "base" },
+      body: { bonding: { mode: "invalid-mode" } },
+      headers: { "content-type": "application/json" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    await route.handlers[2](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ error: "bonding.mode must be 'main-backup'" });
+    expect(pluginRef._restartPlugin).not.toHaveBeenCalled();
   });
 
 
@@ -769,7 +914,15 @@ describe("instances management route", () => {
 
     const json = jest.fn();
     const req = {
-      body: { name: "new", serverType: "client", udpPort: 4447, secretKey: "abcdefghijklmnopqrstuvwxyz123456" },
+      body: {
+        name: "new",
+        serverType: "client",
+        udpPort: 4447,
+        secretKey: "abcdefghijklmnopqrstuvwxyz123456",
+        udpAddress: "127.0.0.1",
+        testAddress: "8.8.8.8",
+        testPort: 53
+      },
       headers: { "content-type": "application/json" },
       ip: "127.0.0.1",
       socket: {},

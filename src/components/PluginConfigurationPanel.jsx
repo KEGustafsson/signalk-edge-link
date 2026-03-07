@@ -82,9 +82,10 @@ const commonProperties = {
   secretKey: {
     type: "string",
     title: "Encryption Key",
-    description: "32-character secret key (must match on both ends)",
+    description: "32-byte secret key: 32-character ASCII, 64-character hex, or 44-character base64",
     minLength: 32,
-    maxLength: 32
+    maxLength: 64,
+    pattern: "^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
   },
   useMsgpack: {
     type: "boolean",
@@ -398,7 +399,7 @@ const uiSchemaClient = {
     "useMsgpack", "usePathDictionary", "testAddress", "testPort", "pingIntervalTime",
     "helloMessageSender", "reliability", "congestionControl", "bonding", "enableNotifications", "alertThresholds"
   ],
-  secretKey: { "ui:widget": "password", "ui:help": "Must be exactly 32 characters long" },
+  secretKey: { "ui:widget": "password", "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64" },
   serverType: { "ui:widget": "select" },
   reliability: {
     "ui:classNames": "skel-optional-group"
@@ -419,7 +420,7 @@ const uiSchemaServer = {
     "name", "serverType", "udpPort", "secretKey", "useMsgpack", "usePathDictionary",
     "protocolVersion", "reliability"
   ],
-  secretKey: { "ui:widget": "password", "ui:help": "Must be exactly 32 characters long" },
+  secretKey: { "ui:widget": "password", "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64" },
   serverType: { "ui:widget": "select" }
 };
 
