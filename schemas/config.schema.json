@@ -26,6 +26,7 @@
     },
     "secretKey": {
       "type": "string",
+      "description": "Encryption key. Use a 64-char hex or 44-char base64 key for full 256-bit strength. A 32-char ASCII key works but provides only ~208 bits of entropy.",
       "minLength": 32,
       "maxLength": 64,
       "pattern": "^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
@@ -74,6 +75,7 @@
         },
         "secretKey": {
           "type": "string",
+          "description": "Encryption key. Use a 64-char hex or 44-char base64 key for full 256-bit strength. A 32-char ASCII key works but provides only ~208 bits of entropy.",
           "minLength": 32,
           "maxLength": 64,
           "pattern": "^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
