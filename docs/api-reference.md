@@ -416,6 +416,7 @@ Returns per-path latency tracking data with percentile statistics.
 **Available in:** Client and Server mode
 
 **Query parameters:**
+
 - `limit` (optional, default 20): Maximum paths to return
 
 **Response:**
@@ -447,6 +448,7 @@ Returns retransmission rate chart data (time series).
 **Available in:** Client and Server mode
 
 **Query parameters:**
+
 - `limit` (optional): Maximum entries to return
 
 **Response:**
@@ -485,7 +487,7 @@ Returns current alert thresholds and any active alerts.
 {
   "thresholds": {
     "rtt": { "warning": 300, "critical": 800 },
-    "packetLoss": { "warning": 0.03, "critical": 0.10 },
+    "packetLoss": { "warning": 0.03, "critical": 0.1 },
     "retransmitRate": { "warning": 0.05, "critical": 0.15 },
     "jitter": { "warning": 100, "critical": 300 },
     "queueDepth": { "warning": 100, "critical": 500 }
@@ -653,6 +655,8 @@ Returns metrics for a specific connection instance.
 
 **Available in:** Client and Server mode
 
+**Auth required:** Yes (`connection-monitoring.read`)
+
 **Response:** Same fields as `GET /metrics`, plus `instanceId` and `mode`.
 
 ---
@@ -662,6 +666,8 @@ Returns metrics for a specific connection instance.
 Returns network quality metrics for a specific connection.
 
 **Available in:** Client and Server mode
+
+**Auth required:** Yes (`connection-monitoring.read`)
 
 **Response:** Same fields as `GET /network-metrics`, plus `instanceId`.
 
@@ -673,6 +679,8 @@ Returns bonding state for a specific client connection.
 
 **Available in:** Client mode only
 
+**Auth required:** Yes (`connection-bonding.read`)
+
 **Response:** Same as `GET /bonding`.
 
 ---
@@ -683,7 +691,45 @@ Returns congestion control state for a specific client connection.
 
 **Available in:** Client mode only
 
+**Auth required:** Yes (`connection-monitoring.read`)
+
 **Response:** Same as `GET /congestion`.
+
+---
+
+### GET /connections/:id/monitoring/alerts
+
+Returns alert thresholds and active alerts for a specific connection instance.
+
+**Available in:** Client and Server mode
+
+**Auth required:** Yes (`connection-monitoring.read`)
+
+**Response:** Same as `GET /monitoring/alerts`.
+
+---
+
+### GET /connections/:id/monitoring/packet-loss
+
+Returns packet-loss heatmap data for a specific connection instance.
+
+**Available in:** Client and Server mode
+
+**Auth required:** Yes (`connection-monitoring.read`)
+
+**Response:** Same as `GET /monitoring/packet-loss`.
+
+---
+
+### GET /connections/:id/monitoring/retransmissions
+
+Returns retransmission chart data for a specific connection instance.
+
+**Available in:** Client and Server mode
+
+**Auth required:** Yes (`connection-monitoring.read`)
+
+**Response:** Same as `GET /monitoring/retransmissions`.
 
 ---
 
@@ -692,6 +738,8 @@ Returns congestion control state for a specific client connection.
 Read a runtime config file for a specific client connection.
 
 **Available in:** Client mode only
+
+**Auth required:** Yes (`connection-config.read`)
 
 **Response:** The JSON contents of the configuration file.
 
@@ -702,6 +750,8 @@ Read a runtime config file for a specific client connection.
 Update a runtime config file for a specific client connection.
 
 **Available in:** Client mode only
+
+**Auth required:** Yes (`connection-config.update`)
 
 **Content-Type:** `application/json`
 
@@ -721,30 +771,30 @@ Returns metrics in Prometheus text exposition format for scraping.
 
 **Exported metrics (30+):**
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `signalk_edge_link_uptime_seconds` | gauge | Plugin uptime |
-| `signalk_edge_link_deltas_sent_total` | counter | Total deltas sent |
-| `signalk_edge_link_deltas_received_total` | counter | Total deltas received |
-| `signalk_edge_link_udp_send_errors_total` | counter | UDP send errors |
-| `signalk_edge_link_bytes_out_total` | counter | Compressed bytes sent |
-| `signalk_edge_link_bytes_in_total` | counter | Compressed bytes received |
-| `signalk_edge_link_bytes_out_raw_total` | counter | Raw bytes sent |
-| `signalk_edge_link_packets_out_total` | counter | Packets sent |
-| `signalk_edge_link_packets_in_total` | counter | Packets received |
-| `signalk_edge_link_bandwidth_rate_out_bytes` | gauge | Outbound bytes/s |
-| `signalk_edge_link_bandwidth_rate_in_bytes` | gauge | Inbound bytes/s |
-| `signalk_edge_link_compression_ratio_percent` | gauge | Compression ratio |
-| `signalk_edge_link_rtt_milliseconds` | gauge | Round-trip time |
-| `signalk_edge_link_jitter_milliseconds` | gauge | Jitter |
-| `signalk_edge_link_retransmissions_total` | counter | Retransmissions |
-| `signalk_edge_link_queue_depth` | gauge | Retransmit queue depth |
-| `signalk_edge_link_packet_loss_rate` | gauge | Packet loss ratio |
-| `signalk_edge_link_link_quality_score` | gauge | Link quality (0-100) |
-| `signalk_edge_link_bonding_active_link` | gauge | Active link (1/2) |
-| `signalk_edge_link_bonding_link_rtt_milliseconds` | gauge | Per-link RTT |
-| `signalk_edge_link_bonding_link_loss_rate` | gauge | Per-link loss |
-| `signalk_edge_link_bonding_link_quality` | gauge | Per-link quality |
+| Metric                                            | Type    | Description               |
+| ------------------------------------------------- | ------- | ------------------------- |
+| `signalk_edge_link_uptime_seconds`                | gauge   | Plugin uptime             |
+| `signalk_edge_link_deltas_sent_total`             | counter | Total deltas sent         |
+| `signalk_edge_link_deltas_received_total`         | counter | Total deltas received     |
+| `signalk_edge_link_udp_send_errors_total`         | counter | UDP send errors           |
+| `signalk_edge_link_bytes_out_total`               | counter | Compressed bytes sent     |
+| `signalk_edge_link_bytes_in_total`                | counter | Compressed bytes received |
+| `signalk_edge_link_bytes_out_raw_total`           | counter | Raw bytes sent            |
+| `signalk_edge_link_packets_out_total`             | counter | Packets sent              |
+| `signalk_edge_link_packets_in_total`              | counter | Packets received          |
+| `signalk_edge_link_bandwidth_rate_out_bytes`      | gauge   | Outbound bytes/s          |
+| `signalk_edge_link_bandwidth_rate_in_bytes`       | gauge   | Inbound bytes/s           |
+| `signalk_edge_link_compression_ratio_percent`     | gauge   | Compression ratio         |
+| `signalk_edge_link_rtt_milliseconds`              | gauge   | Round-trip time           |
+| `signalk_edge_link_jitter_milliseconds`           | gauge   | Jitter                    |
+| `signalk_edge_link_retransmissions_total`         | counter | Retransmissions           |
+| `signalk_edge_link_queue_depth`                   | gauge   | Retransmit queue depth    |
+| `signalk_edge_link_packet_loss_rate`              | gauge   | Packet loss ratio         |
+| `signalk_edge_link_link_quality_score`            | gauge   | Link quality (0-100)      |
+| `signalk_edge_link_bonding_active_link`           | gauge   | Active link (1/2)         |
+| `signalk_edge_link_bonding_link_rtt_milliseconds` | gauge   | Per-link RTT              |
+| `signalk_edge_link_bonding_link_loss_rate`        | gauge   | Per-link loss             |
+| `signalk_edge_link_bonding_link_quality`          | gauge   | Per-link quality          |
 
 All metrics include a `mode` label (`"client"` or `"server"`). Bonding metrics include a `link` label (`"primary"` or `"backup"`).
 
@@ -752,9 +802,9 @@ All metrics include a `mode` label (`"client"` or `"server"`). Bonding metrics i
 
 ```yaml
 scrape_configs:
-  - job_name: 'signalk-edge-link'
+  - job_name: "signalk-edge-link"
     scrape_interval: 15s
-    metrics_path: '/plugins/signalk-edge-link/prometheus'
+    metrics_path: "/plugins/signalk-edge-link/prometheus"
     static_configs:
-      - targets: ['signalk-server:3000']
+      - targets: ["signalk-server:3000"]
 ```
