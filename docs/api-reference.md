@@ -614,6 +614,328 @@ The file can be opened in Wireshark or similar packet analysis tools. Uses DLT_U
 
 These endpoints are used when more than one connection is configured. Each `:id` is the slugified connection name (e.g. `shore-server`, `sat-client`).
 
+## Management & Instance Lifecycle Endpoints
+
+These endpoints are intended for operator workflows (inventory, lifecycle changes, and fleet health rollups).
+
+Authentication behavior for all endpoints in this section:
+
+- **Auth required:** Conditional. If `managementApiToken` (or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) is configured, requests must include a valid token.
+- **Accepted token headers:**
+  - `X-Edge-Link-Token: <token>`
+  - `Authorization: Bearer <token>`
+  - `X-Management-Token: <token>` (backward-compatible alias)
+- **Auth error:** `401 Unauthorized` with `{ "error": "Unauthorized management API request" }`.
+
+For CLI-focused operational examples, see `docs/management-tools.md` (`Status and error summaries`, `Instance management`, and `CLI workflows`).
+
+---
+
+### GET /status
+
+Aggregated health summary across all currently running instances.
+
+**Available in:** Client and Server mode (requires at least one started instance)
+
+**Auth required:** Conditional management token (see section auth notes above)
+
+**Query parameters:** None
+
+**Success response (`200 OK`):**
+
+```json
+{
+  "healthyInstances": 1,
+  "totalInstances": 2,
+  "instances": [
+    {
+      "id": "shore-server",
+      "name": "Shore Server",
+      "healthy": true,
+      "status": "Server listening on port 4446",
+      "lastError": null,
+      "lastErrorTime": null,
+      "errorCounts": {
+        "udpSendErrors": 0,
+        "compressionErrors": 0
+      },
+      "recentErrors": []
+    }
+  ]
+}
+```
+
+**Representative errors:**
+
+- `401` when token validation fails (if token auth is enabled).
+- `503` when plugin instances are not started:
+
+```json
+{ "error": "Plugin not started" }
+```
+
+**Operational examples:** See `docs/management-tools.md` → **Status and error summaries** and **CLI workflows**.
+
+---
+
+### GET /instances
+
+Lists instance records with optional state filtering and optional pagination.
+
+**Available in:** Client and Server mode
+
+**Auth required:** Conditional management token (see section auth notes above)
+
+**Query parameters:**
+
+- `state` (optional, string): exact (case-insensitive) match against runtime state text (for example `running`).
+- `limit` (optional, integer > 0): enables paginated output when provided.
+- `page` (optional, integer > 0, default `1` when `limit` is provided): page number.
+
+**Response shapes:**
+
+- Without `limit`: returns a plain array.
+- With `limit`: returns `{ items, pagination }`.
+
+**Success response (non-paginated, `200 OK`):**
+
+```json
+[
+  {
+    "id": "shore-server",
+    "name": "Shore Server",
+    "protocolVersion": 3,
+    "state": "Ready",
+    "currentLink": "primary",
+    "metrics": {
+      "deltasSent": 1234,
+      "deltasReceived": 0,
+      "udpSendErrors": 0,
+      "duplicatePackets": 0
+    }
+  }
+]
+```
+
+**Success response (paginated, `200 OK`):**
+
+```json
+{
+  "items": [
+    {
+      "id": "shore-server",
+      "name": "Shore Server",
+      "protocolVersion": 3,
+      "state": "Ready",
+      "currentLink": "primary",
+      "metrics": {
+        "deltasSent": 1234,
+        "deltasReceived": 0,
+        "udpSendErrors": 0,
+        "duplicatePackets": 0
+      }
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 1,
+    "totalPages": 1
+  }
+}
+```
+
+**Representative errors:**
+
+- `400` invalid pagination values:
+  - `{ "error": "limit must be a positive integer" }`
+  - `{ "error": "page must be a positive integer" }`
+- `401` unauthorized when token auth is enabled and token is missing/invalid.
+
+**Operational examples:** See `docs/management-tools.md` → **Instance management** (`List instances`, `List with filters/pagination`) and **CLI workflows**.
+
+---
+
+### GET /instances/:id
+
+Returns detailed runtime, network, bonding, metrics, and effective config view for one instance.
+
+**Available in:** Client and Server mode
+
+**Auth required:** Conditional management token (see section auth notes above)
+
+**Path parameters:**
+
+- `id` (required): slugified instance name.
+
+**Success response (`200 OK`):**
+
+```json
+{
+  "id": "shore-server",
+  "name": "Shore Server",
+  "mode": "server",
+  "protocolVersion": 3,
+  "state": "Server listening on port 4446",
+  "readyToSend": true,
+  "currentLink": "primary",
+  "network": {
+    "rtt": 0,
+    "jitter": 0,
+    "packetLoss": 0,
+    "retransmissions": 0,
+    "queueDepth": 0,
+    "dataSource": "local"
+  },
+  "metrics": {
+    "deltasSent": 1234,
+    "deltasReceived": 0,
+    "udpSendErrors": 0,
+    "duplicatePackets": 0
+  },
+  "bonding": { "enabled": false },
+  "config": {
+    "name": "Shore Server",
+    "serverType": "server",
+    "udpPort": 4446,
+    "secretKey": "[redacted]"
+  }
+}
+```
+
+**Representative errors:**
+
+- `401` unauthorized when token auth is enabled and token is missing/invalid.
+- `404` when id is unknown:
+
+```json
+{ "error": "Instance 'shore-server' not found" }
+```
+
+**Operational examples:** See `docs/management-tools.md` → **Instance management** (`Show one instance`) and **CLI workflows**.
+
+---
+
+### POST /instances
+
+Creates a new instance entry and restarts plugin runtime with the updated `connections` set.
+
+**Available in:** Client and Server mode
+
+**Auth required:** Conditional management token (see section auth notes above)
+
+**Content-Type:** `application/json`
+
+**Body schema:** Connection object validated with the same rules as plugin configuration connections.
+
+- Required fields:
+  - `name` (string, max 40 chars)
+  - `serverType` (`"server"` or `"client"`)
+  - `udpPort` (integer, 1024-65535)
+  - `secretKey` (runtime-supported key format)
+- Additional required for `serverType: "client"`:
+  - `udpAddress` (string)
+  - `testAddress` (string)
+  - `testPort` (integer, 1-65535)
+- Optional mutable config fields are the same family used in plugin config (for example `protocolVersion`, `useMsgpack`, `reliability`, `bonding`, `congestionControl`, `alertThresholds`).
+
+**Success response (`201 Created`):**
+
+```json
+{ "success": true }
+```
+
+**Representative errors:**
+
+- `400` malformed/invalid body or validation failure, for example:
+  - `{ "error": "Request body must be a JSON object" }`
+  - `{ "error": "Missing required field 'name'" }`
+  - `{ "error": "udpPort must be an integer between 1024 and 65535" }`
+- `401` unauthorized when token auth is enabled and token is missing/invalid.
+- `503` restart handler unavailable (`{ "error": "Runtime restart handler unavailable" }`).
+
+**Operational examples:** See `docs/management-tools.md` → **Instance management** (`Create instance`) and **CLI workflows**.
+
+---
+
+### PUT /instances/:id
+
+Patches one existing instance configuration and restarts plugin runtime.
+
+**Available in:** Client and Server mode
+
+**Auth required:** Conditional management token (see section auth notes above)
+
+**Content-Type:** `application/json`
+
+**Path parameters:**
+
+- `id` (required): slugified instance name.
+
+**Body schema:** JSON object with at least one supported mutable field.
+
+- Updatable keys:
+  - `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`
+  - `udpAddress`, `helloMessageSender`, `testAddress`, `testPort`, `pingIntervalTime`
+  - `reliability`, `congestionControl`, `bonding`, `alertThresholds`
+- Not updatable via this endpoint: `serverType`, `udpPort`, `secretKey`
+
+**Success response (`200 OK`):**
+
+```json
+{ "success": true }
+```
+
+**Representative errors:**
+
+- `400` invalid patch payload, for example:
+  - `{ "error": "Request body must include at least one field to update" }`
+  - `{ "error": "Field 'secretKey' is not updatable via /instances/:id" }`
+  - `{ "error": "Field 'foo' is not supported for /instances/:id updates" }`
+- `401` unauthorized when token auth is enabled and token is missing/invalid.
+- `404` instance/config missing:
+  - `{ "error": "Instance '<id>' not found" }`
+  - `{ "error": "Configuration for instance '<id>' not found" }`
+- `503` restart handler unavailable.
+
+**Operational examples:** See `docs/management-tools.md` → **Instance management** (`Update instance`) and **CLI workflows**.
+
+---
+
+### DELETE /instances/:id
+
+Deletes an existing instance from persisted connections and restarts runtime.
+
+**Available in:** Client and Server mode
+
+**Auth required:** Conditional management token (see section auth notes above)
+
+**Path parameters:**
+
+- `id` (required): slugified instance name.
+
+**Success response (`200 OK`):**
+
+```json
+{ "success": true }
+```
+
+**Representative errors:**
+
+- `401` unauthorized when token auth is enabled and token is missing/invalid.
+- `404` when instance id or stored config record is not found.
+- `400` if deletion would leave zero configured instances:
+
+```json
+{ "error": "At least one instance must remain configured" }
+```
+
+- `503` restart handler unavailable.
+
+**Operational examples:** See `docs/management-tools.md` → **Instance management** (`Delete instance`) and **CLI workflows**.
+
+---
+
 ### GET /connections
 
 List all active connections with status.
