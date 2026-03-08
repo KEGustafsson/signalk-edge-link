@@ -7,10 +7,12 @@ const {
   PacketFlags,
   HEADER_SIZE,
   PROTOCOL_VERSION,
+  PROTOCOL_VERSION_V3,
   MAX_SEQUENCE,
   crc16,
   getTypeName
 } = require("../../lib/packet");
+const { CONTROL_AUTH_TAG_LENGTH } = require("../../lib/crypto");
 
 describe("PacketBuilder", () => {
   let builder;
@@ -209,6 +211,38 @@ describe("PacketBuilder", () => {
     });
   });
 
+  describe("protocol v3 authenticated control packets", () => {
+    const secretKey = "12345678901234567890123456789012";
+
+    test("builds v3 heartbeat with trailing auth tag", () => {
+      const v3Builder = new PacketBuilder({ protocolVersion: PROTOCOL_VERSION_V3, secretKey });
+      const v3Parser = new PacketParser({ secretKey });
+      const packet = v3Builder.buildHeartbeatPacket();
+      const parsed = v3Parser.parseHeader(packet);
+
+      expect(packet[2]).toBe(PROTOCOL_VERSION_V3);
+      expect(packet.length).toBe(HEADER_SIZE + CONTROL_AUTH_TAG_LENGTH);
+      expect(packet.readUInt32BE(9)).toBe(CONTROL_AUTH_TAG_LENGTH);
+      expect(parsed.payload.length).toBe(0);
+    });
+
+    test("requires a secret key to parse v3 ACK packets", () => {
+      const v3Builder = new PacketBuilder({ protocolVersion: PROTOCOL_VERSION_V3, secretKey });
+      const packet = v3Builder.buildACKPacket(7);
+      const v3Parser = new PacketParser();
+
+      expect(() => v3Parser.parseHeader(packet)).toThrow("Control packet authentication requires secretKey");
+    });
+
+    test("rejects v3 control packets signed with the wrong key", () => {
+      const v3Builder = new PacketBuilder({ protocolVersion: PROTOCOL_VERSION_V3, secretKey });
+      const wrongParser = new PacketParser({ secretKey: "abcdefghijklmnopqrstuvwxyz123456" });
+      const packet = v3Builder.buildNAKPacket([3, 5, 7]);
+
+      expect(() => wrongParser.parseHeader(packet)).toThrow("Control packet authentication failed");
+    });
+  });
+
   describe("sequence management", () => {
     test("setSequence sets sequence explicitly", () => {
       builder.setSequence(100);
@@ -334,6 +368,12 @@ describe("PacketParser", () => {
   describe("isV2Packet", () => {
     test("returns true for valid v2 packet", () => {
       const packet = builder.buildDataPacket(Buffer.from("test"));
+      expect(parser.isV2Packet(packet)).toBe(true);
+    });
+
+    test("returns true for valid v3 packet", () => {
+      const packet = new PacketBuilder({ protocolVersion: PROTOCOL_VERSION_V3 })
+        .buildDataPacket(Buffer.from("test"));
       expect(parser.isV2Packet(packet)).toBe(true);
     });
 

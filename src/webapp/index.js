@@ -5,8 +5,8 @@ const API_BASE_PATH = "/plugins/signalk-edge-link";
 const DELTA_TIMER_MIN = 100;
 const DELTA_TIMER_MAX = 10000;
 const NOTIFICATION_TIMEOUT = 4000;
-const METRICS_REFRESH_INTERVAL = 15000; // 15 seconds (optimized from 5s to reduce server load)
-const JSON_SYNC_DEBOUNCE = 300; // Debounce delay for JSON editor sync
+const METRICS_REFRESH_INTERVAL = 15000;
+const JSON_SYNC_DEBOUNCE = 300;
 
 // HTML Template Helpers
 const renderCard = (title, subtitle, contentId, contentClass = "") => `
@@ -46,44 +46,43 @@ const renderBwStat = (label, value, isHighlight = false, isSuccess = false) => `
   </div>
 `;
 
+const renderSectionGroup = (title, description, content, id = "") => `
+  <section class="page-group"${id ? ` id="${id}"` : ""}>
+    <div class="page-group-header">
+      <h2>${title}</h2>
+      ${description ? `<p>${description}</p>` : ""}
+    </div>
+    <div class="page-group-content">
+      ${content}
+    </div>
+  </section>
+`;
+
 class DataConnectorConfig {
   constructor() {
-    this.deltaTimerConfig = null;
-    this.subscriptionConfig = null;
-    this.sentenceFilterConfig = null;
+    this.connections = [];
+    this.activeConnectionId = null;
     this.pluginConfig = null;
     this.pluginSchema = null;
     this.schemaCurrentMode = null;
-    this.isServerMode = false;
-    this.protocolVersion = 1;
     this.metricsInterval = null;
     this.syncTimeout = null;
+
+    // Per-connection state (loaded for the active tab)
+    this.deltaTimerConfig = null;
+    this.subscriptionConfig = null;
+    this.sentenceFilterConfig = null;
+    this.protocolVersion = 1;
+    this.isServerMode = false;
+
     this.init();
   }
 
   async init() {
     try {
-      await this.checkServerMode();
-
-      if (!this.pluginConfig) {
-        await this.loadPluginConfiguration(true);
-      }
-
-      if (this.isServerMode) {
-        this.showServerModeUI();
-      }
-
-      this.setupEventListeners();
-
-      if (!this.isServerMode) {
-        await this.loadConfigurations();
-        this.updateUI();
-        this.updateStatus();
-      } else {
-        this.updatePluginConfigUI();
-      }
-
-      await this.loadMetrics();
+      await this.loadPluginConfiguration(false);
+      await this.fetchConnections();
+      this.renderPage();
       this.startMetricsRefresh();
     } catch (error) {
       console.error("Initialization error:", error);
@@ -91,29 +90,339 @@ class DataConnectorConfig {
     }
   }
 
-  async checkServerMode() {
-    const hasPluginConfig = await this.loadPluginConfiguration(false);
-    if (hasPluginConfig && this.pluginConfig) {
-      const normalizedServerType = this.normalizeServerType(this.pluginConfig.serverType);
-      if (normalizedServerType) {
-        this.isServerMode = normalizedServerType === "server";
-        return;
+  // ── Connections list ───────────────────────────────────────────────────────
+
+  async fetchConnections() {
+    try {
+      const res = await fetch(`${API_BASE_PATH}/connections`);
+      if (res.ok) {
+        this.connections = await res.json();
       }
+    } catch (e) {
+      // /connections not available – fall back to legacy single-instance detection
     }
 
-    if (this.schemaCurrentMode === "server" || this.schemaCurrentMode === "client") {
-      this.isServerMode = this.schemaCurrentMode === "server";
+    if (!this.connections || this.connections.length === 0) {
+      // Fallback: detect mode from plugin config and treat as single connection
+      const type = this.detectModeFromConfig();
+      this.connections = [{ id: "_legacy", name: "Default", type }];
+    }
+
+    if (!this.activeConnectionId) {
+      this.activeConnectionId = this.connections[0].id;
+    }
+  }
+
+  detectModeFromConfig() {
+    if (this.pluginConfig) {
+      const st = this.normalizeServerType(this.pluginConfig.serverType);
+      if (st) {return st;}
+    }
+    if (this.schemaCurrentMode) {return this.schemaCurrentMode;}
+    return "client";
+  }
+
+  getActiveConnection() {
+    return this.connections.find((c) => c.id === this.activeConnectionId) || this.connections[0];
+  }
+
+  isLegacyMode() {
+    return this.connections.length === 1 && this.connections[0].id === "_legacy";
+  }
+
+  // ── API path helpers ───────────────────────────────────────────────────────
+
+  metricsPath(connId) {
+    if (connId === "_legacy") {return `${API_BASE_PATH}/metrics`;}
+    return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/metrics`;
+  }
+
+  configPath(connId, filename) {
+    if (connId === "_legacy") {return `${API_BASE_PATH}/config/${filename}`;}
+    return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/config/${filename}`;
+  }
+
+  monitoringPath(connId, sub) {
+    if (connId === "_legacy") {return `${API_BASE_PATH}/monitoring/${sub}`;}
+    return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/monitoring/${sub}`;
+  }
+
+  congestionPath(connId) {
+    if (connId === "_legacy") {return `${API_BASE_PATH}/congestion`;}
+    return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/congestion`;
+  }
+
+  bondingPath(connId) {
+    if (connId === "_legacy") {return `${API_BASE_PATH}/bonding`;}
+    return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/bonding`;
+  }
+
+  bondingFailoverPath(connId) {
+    if (connId === "_legacy") {return `${API_BASE_PATH}/bonding/failover`;}
+    return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/bonding/failover`;
+  }
+
+  // ── Page rendering ─────────────────────────────────────────────────────────
+
+  renderPage() {
+    this.renderTabs();
+    this.renderConnectionContent();
+  }
+
+  renderTabs() {
+    const tabsDiv = document.getElementById("connectionTabs");
+    if (!tabsDiv) {return;}
+
+    if (this.connections.length <= 1) {
+      tabsDiv.innerHTML = "";
+      tabsDiv.style.display = "none";
       return;
     }
 
-    try {
-      // Try to access the configuration API
-      const response = await fetch(`${API_BASE_PATH}/config/delta_timer.json`);
-      this.isServerMode = !response.ok && (response.status === 404 || response.status === 405);
-    } catch (error) {
-      // If fetch fails completely, assume server mode
-      this.isServerMode = true;
+    tabsDiv.style.display = "";
+    tabsDiv.innerHTML = `<div class="tabs-container">${this.connections.map((c) => {
+      const icon = c.type === "server" ? "&#x1F5A5;" : "&#x1F4F1;";
+      const statusDot = c.healthy === false
+        ? '<span class="tab-status-dot error"></span>'
+        : c.readyToSend || c.type === "server"
+          ? '<span class="tab-status-dot ok"></span>'
+          : '<span class="tab-status-dot warning"></span>';
+      return `<button class="connection-tab${c.id === this.activeConnectionId ? " active" : ""}"
+                data-connection-id="${this.escapeHtml(c.id)}">
+          ${statusDot}
+          <span class="tab-icon">${icon}</span>
+          <span class="tab-name">${this.escapeHtml(c.name || c.id)}</span>
+          <span class="tab-type">${this.escapeHtml(c.type)}</span>
+        </button>`;
+    }).join("")}</div>`;
+
+    // Attach tab click listeners
+    tabsDiv.querySelectorAll(".connection-tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.connectionId;
+        if (id !== this.activeConnectionId) {
+          this.activeConnectionId = id;
+          this.renderPage();
+          this.loadConnectionData();
+        }
+      });
+    });
+  }
+
+  renderConnectionContent() {
+    const contentDiv = document.getElementById("connectionContent");
+    if (!contentDiv) {return;}
+
+    const conn = this.getActiveConnection();
+    this.isServerMode = conn.type === "server";
+
+    if (this.isServerMode) {
+      this.renderServerContent(contentDiv);
+    } else {
+      this.renderClientContent(contentDiv);
     }
+
+    this.setupEventListeners();
+    this.loadConnectionData();
+  }
+
+  renderServerContent(container) {
+    const telemetryAndHealth =
+      renderCard("Performance Metrics", "Real-time reception statistics (auto-refreshes every 15 seconds)", "metrics") +
+      '<div id="monitoringSection" style="display:none;">' +
+      renderCard("Network Quality", "Link quality score and network health indicators", "networkQuality") +
+      renderCard("Bandwidth Monitor", "Network reception statistics", "bandwidth") +
+      renderCard("Path Analytics", "Incoming data volume by SignalK path", "pathAnalytics") +
+      renderCard("Monitoring & Alerts", "Packet loss, retransmission tracking, and alert thresholds", "monitoringAlerts") +
+      "</div>";
+
+    container.innerHTML =
+      renderSectionGroup(
+        "Operations & Monitoring",
+        "Track reception quality, throughput, and runtime behavior.",
+        telemetryAndHealth,
+        "operationsGroup"
+      ) +
+      renderSectionGroup(
+        "Advanced",
+        "Full plugin configurator (JSON editor).",
+        this.renderPluginConfigurationCard(),
+        "advancedGroup"
+      );
+  }
+
+  renderClientContent(container) {
+    const configuration =
+      this.renderDeltaTimerCard() +
+      this.renderSubscriptionCard() +
+      this.renderSentenceFilterCard();
+
+    const telemetryAndHealth =
+      renderCard("Performance Metrics", "Real-time transmission statistics (auto-refreshes every 15 seconds)", "metrics") +
+      '<div id="congestionSection" class="config-section" style="display:none;">' +
+      renderCard("Network Quality", "Link quality score and network health indicators", "networkQuality") +
+      renderCard("Bandwidth Monitor", "Real-time data transmission statistics", "bandwidth") +
+      renderCard("Path Analytics", "Data volume by subscription path", "pathAnalytics") +
+      renderCard("Congestion Control", "AIMD congestion control state and delta timer auto-adjustment", "congestionControl") +
+      "</div>" +
+      '<div id="bondingSection" class="config-section" style="display:none;">' +
+        renderCard("Connection Bonding", "Multi-link bonding status and failover control", "bondingStatus") +
+      "</div>" +
+      '<div id="monitoringSection" style="display:none;">' +
+        renderCard("Monitoring & Alerts", "Packet loss, retransmission tracking, and alert thresholds", "monitoringAlerts") +
+      "</div>" +
+      renderCard("Status", null, "status", "status-info");
+
+    container.innerHTML =
+      renderSectionGroup(
+        "Configuration",
+        "Set up transmission behavior and plugin-level parameters.",
+        configuration,
+        "configurationGroup"
+      ) +
+      renderSectionGroup(
+        "Operations & Monitoring",
+        "Track transmission quality, reliability, and runtime performance.",
+        telemetryAndHealth,
+        "operationsGroup"
+      ) +
+      renderSectionGroup(
+        "Advanced",
+        "Full plugin configurator (JSON editor).",
+        this.renderPluginConfigurationCard(),
+        "advancedGroup"
+      );
+  }
+
+  renderDeltaTimerCard() {
+    return `
+      <div class="config-section">
+        <div class="card">
+          <div class="card-header">
+            <h2>Delta Timer Configuration</h2>
+            <p>Controls how often deltas are collected and sent (in milliseconds)</p>
+          </div>
+          <div class="card-content">
+            <div class="form-group">
+              <label for="deltaTimer">Delta Timer (ms):</label>
+              <input type="number" id="deltaTimer" min="100" max="10000" step="100" placeholder="1000" />
+              <small class="help-text">
+                Lower values = more frequent updates, higher bandwidth usage<br>
+                Higher values = better compression ratio, lower bandwidth usage
+              </small>
+            </div>
+            <button id="saveDeltaTimer" class="btn btn-primary">Save Delta Timer</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  renderSubscriptionCard() {
+    return `
+      <div class="config-section">
+        <div class="card">
+          <div class="card-header">
+            <h2>Subscription Configuration</h2>
+            <p>Define which SignalK data paths to subscribe to</p>
+          </div>
+          <div class="card-content">
+            <div class="form-group">
+              <label for="context">Context:</label>
+              <input type="text" id="context" placeholder="*" />
+              <small class="help-text">
+                Context for the subscription (e.g., "vessels.self", "*" for all)
+              </small>
+            </div>
+            <div class="subscription-paths">
+              <h3>Subscription Paths</h3>
+              <div id="pathsList" class="paths-list"></div>
+              <button id="addPath" class="btn btn-secondary">Add Path</button>
+            </div>
+            <div class="json-editor">
+              <h3>JSON Editor</h3>
+              <textarea id="subscriptionJson" rows="10" placeholder='{"context": "*", "subscribe": [{"path": "*"}]}'></textarea>
+              <small class="help-text">Advanced: Edit the raw JSON configuration</small>
+            </div>
+            <button id="saveSubscription" class="btn btn-primary">Save Subscription</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  renderSentenceFilterCard() {
+    return `
+      <div class="config-section">
+        <div class="card">
+          <div class="card-header">
+            <h2>Sentence Filter</h2>
+            <p>Exclude NMEA sentences from transmission (reduces bandwidth)</p>
+          </div>
+          <div class="card-content">
+            <div class="form-group">
+              <label for="sentenceFilter">Excluded Sentences:</label>
+              <input type="text" id="sentenceFilter" placeholder="" autocomplete="off" />
+              <small class="help-text">
+                Comma-separated list of NMEA sentence types to exclude.
+              </small>
+            </div>
+            <button id="saveSentenceFilter" class="btn btn-primary">Save Sentence Filter</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  renderPluginConfigurationCard() {
+    return `
+      <div class="config-section">
+        <div class="card">
+          <div class="card-header">
+            <h2>Full Plugin Configuration</h2>
+            <p>All parameters from <code>/plugin-config</code> (advanced JSON editor)</p>
+          </div>
+          <div class="card-content">
+            <div id="pluginConfigSummary" class="plugin-config-summary">
+              <p>Loading plugin configuration...</p>
+            </div>
+            <div class="json-editor plugin-config-editor">
+              <h3>Plugin Config JSON</h3>
+              <textarea
+                id="pluginConfigJson"
+                rows="20"
+                placeholder='{"serverType":"client","udpPort":4446,"secretKey":"..."}'
+              ></textarea>
+              <small class="help-text">
+                This editor exposes all available plugin fields. Save triggers plugin restart when supported.
+              </small>
+            </div>
+            <div class="plugin-config-actions">
+              <button id="savePluginConfig" class="btn btn-primary">Save Full Plugin Config</button>
+              <button id="reloadPluginConfig" class="btn btn-secondary">Reload From Server</button>
+              <button id="loadDefaultPluginConfig" class="btn btn-secondary">Load Schema Defaults</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Data loading ───────────────────────────────────────────────────────────
+
+  async loadConnectionData() {
+    const conn = this.getActiveConnection();
+    const connId = conn.id;
+
+    if (!this.isServerMode) {
+      await this.loadConfigurations(connId);
+      this.updateUI();
+      this.updateStatus();
+    } else {
+      this.updatePluginConfigUI();
+    }
+
+    await this.loadMetrics(connId);
   }
 
   async loadPluginConfiguration(showErrors = true) {
@@ -156,139 +465,189 @@ class DataConnectorConfig {
     }
   }
 
-  async loadConfigurations() {
+  async loadConfigurations(connId) {
     try {
       const [deltaResponse, subResponse, filterResponse] = await Promise.all([
-        fetch(`${API_BASE_PATH}/config/delta_timer.json`),
-        fetch(`${API_BASE_PATH}/config/subscription.json`),
-        fetch(`${API_BASE_PATH}/config/sentence_filter.json`)
+        fetch(this.configPath(connId, "delta_timer.json")),
+        fetch(this.configPath(connId, "subscription.json")),
+        fetch(this.configPath(connId, "sentence_filter.json"))
       ]);
 
-      if (deltaResponse.ok) {
-        this.deltaTimerConfig = await deltaResponse.json();
-      }
-      if (subResponse.ok) {
-        this.subscriptionConfig = await subResponse.json();
-      }
-      if (filterResponse.ok) {
-        this.sentenceFilterConfig = await filterResponse.json();
-      }
+      this.deltaTimerConfig = deltaResponse.ok ? await deltaResponse.json() : null;
+      this.subscriptionConfig = subResponse.ok ? await subResponse.json() : null;
+      this.sentenceFilterConfig = filterResponse.ok ? await filterResponse.json() : null;
     } catch (error) {
       this.showNotification("Error loading configurations: " + error.message, "error");
     }
   }
 
+  async loadMetrics(connId) {
+    if (!connId) {connId = this.activeConnectionId;}
+    try {
+      const response = await fetch(this.metricsPath(connId));
+      if (response.ok) {
+        const metrics = await response.json();
+        this.protocolVersion = metrics.protocolVersion || 1;
+        this.updateMetricsDisplay(metrics);
+
+        if (this.protocolVersion >= 2) {
+          this.loadV2Data(connId);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading metrics:", error.message);
+    }
+  }
+
+  async loadV2Data(connId) {
+    const isClient = !this.isServerMode;
+
+    const fetches = [
+      fetch(this.monitoringPath(connId, "alerts")).catch(() => null),
+      fetch(this.monitoringPath(connId, "packet-loss")).catch(() => null),
+      fetch(this.monitoringPath(connId, "retransmissions")).catch(() => null)
+    ];
+
+    if (isClient) {
+      fetches.push(
+        fetch(this.congestionPath(connId)).catch(() => null),
+        fetch(this.bondingPath(connId)).catch(() => null)
+      );
+    }
+
+    const results = await Promise.all(fetches);
+    const [alertsRes, packetLossRes, retransmissionsRes, congestionRes, bondingRes] = results;
+
+    const monitoringData = {};
+    if (alertsRes && alertsRes.ok) {
+      monitoringData.alerts = await alertsRes.json();
+    }
+    if (packetLossRes && packetLossRes.ok) {
+      monitoringData.packetLoss = await packetLossRes.json();
+    }
+    if (retransmissionsRes && retransmissionsRes.ok) {
+      monitoringData.retransmissions = await retransmissionsRes.json();
+    }
+    this.updateMonitoringDisplay(monitoringData);
+
+    if (isClient && congestionRes && congestionRes.ok) {
+      const congestionData = await congestionRes.json();
+      this.updateCongestionDisplay(congestionData);
+    }
+
+    if (isClient && bondingRes && bondingRes.ok) {
+      const bondingData = await bondingRes.json();
+      this.updateBondingDisplay(bondingData);
+    }
+  }
+
+  startMetricsRefresh() {
+    if (this.metricsInterval) {
+      clearInterval(this.metricsInterval);
+    }
+
+    this.metricsInterval = setInterval(() => {
+      this.refreshActiveTab();
+    }, METRICS_REFRESH_INTERVAL);
+  }
+
+  async refreshActiveTab() {
+    // Refresh the connections list to update tab badges
+    try {
+      const res = await fetch(`${API_BASE_PATH}/connections`);
+      if (res.ok) {
+        const updated = await res.json();
+        if (updated.length > 0) {
+          this.connections = updated;
+          this.renderTabs();
+        }
+      }
+    } catch (e) { /* ignore */ }
+
+    await this.loadMetrics(this.activeConnectionId);
+  }
+
+  // ── Event listeners ────────────────────────────────────────────────────────
+
   setupEventListeners() {
-    // Delta timer save button
     const saveDeltaTimerBtn = document.getElementById("saveDeltaTimer");
     if (saveDeltaTimerBtn) {
-      saveDeltaTimerBtn.addEventListener("click", () => {
-        this.saveDeltaTimer();
-      });
+      saveDeltaTimerBtn.addEventListener("click", () => this.saveDeltaTimer());
     }
 
-    // Subscription save button
     const saveSubscriptionBtn = document.getElementById("saveSubscription");
     if (saveSubscriptionBtn) {
-      saveSubscriptionBtn.addEventListener("click", () => {
-        this.saveSubscription();
-      });
+      saveSubscriptionBtn.addEventListener("click", () => this.saveSubscription());
     }
 
-    // Sentence filter save button
     const saveSentenceFilterBtn = document.getElementById("saveSentenceFilter");
     if (saveSentenceFilterBtn) {
-      saveSentenceFilterBtn.addEventListener("click", () => {
-        this.saveSentenceFilter();
-      });
+      saveSentenceFilterBtn.addEventListener("click", () => this.saveSentenceFilter());
     }
 
-    // Add path button
     const addPathBtn = document.getElementById("addPath");
     if (addPathBtn) {
-      addPathBtn.addEventListener("click", () => {
-        this.addPathItem();
-      });
+      addPathBtn.addEventListener("click", () => this.addPathItem());
     }
 
-    // JSON editor sync (debounced to avoid rebuilding form on every keystroke)
     const subscriptionJsonEditor = document.getElementById("subscriptionJson");
     if (subscriptionJsonEditor) {
       subscriptionJsonEditor.addEventListener("input", () => {
-        if (this.syncTimeout) {
-          clearTimeout(this.syncTimeout);
-        }
-        this.syncTimeout = setTimeout(() => {
-          this.syncFromJson();
-        }, JSON_SYNC_DEBOUNCE);
+        if (this.syncTimeout) {clearTimeout(this.syncTimeout);}
+        this.syncTimeout = setTimeout(() => this.syncFromJson(), JSON_SYNC_DEBOUNCE);
       });
     }
 
-    // Context input change
     const contextInput = document.getElementById("context");
     if (contextInput) {
-      contextInput.addEventListener("input", () => {
-        this.updateJsonFromForm();
-      });
+      contextInput.addEventListener("input", () => this.updateJsonFromForm());
     }
 
-    // Full plugin config actions
     const savePluginConfigBtn = document.getElementById("savePluginConfig");
     if (savePluginConfigBtn) {
-      savePluginConfigBtn.addEventListener("click", () => {
-        this.savePluginConfig();
-      });
+      savePluginConfigBtn.addEventListener("click", () => this.savePluginConfig());
     }
 
     const reloadPluginConfigBtn = document.getElementById("reloadPluginConfig");
     if (reloadPluginConfigBtn) {
-      reloadPluginConfigBtn.addEventListener("click", () => {
-        this.reloadPluginConfiguration();
-      });
+      reloadPluginConfigBtn.addEventListener("click", () => this.reloadPluginConfiguration());
     }
 
     const loadDefaultPluginConfigBtn = document.getElementById("loadDefaultPluginConfig");
     if (loadDefaultPluginConfigBtn) {
-      loadDefaultPluginConfigBtn.addEventListener("click", () => {
-        this.loadDefaultPluginConfiguration();
-      });
+      loadDefaultPluginConfigBtn.addEventListener("click", () => this.loadDefaultPluginConfiguration());
     }
   }
+
+  // ── UI updates ─────────────────────────────────────────────────────────────
 
   updateUI() {
     this.updatePluginConfigUI();
 
-    // Update delta timer input
     if (this.deltaTimerConfig && this.deltaTimerConfig.deltaTimer) {
-      document.getElementById("deltaTimer").value = this.deltaTimerConfig.deltaTimer;
+      const el = document.getElementById("deltaTimer");
+      if (el) {el.value = this.deltaTimerConfig.deltaTimer;}
     }
 
-    // Update subscription configuration
     if (this.subscriptionConfig) {
-      document.getElementById("context").value = this.subscriptionConfig.context || "*";
+      const ctxEl = document.getElementById("context");
+      if (ctxEl) {ctxEl.value = this.subscriptionConfig.context || "*";}
 
-      // Clear existing paths
-      document.getElementById("pathsList").innerHTML = "";
-
-      // Add subscription paths
-      if (this.subscriptionConfig.subscribe && Array.isArray(this.subscriptionConfig.subscribe)) {
-        this.subscriptionConfig.subscribe.forEach((sub) => {
-          this.addPathItem(sub.path);
-        });
+      const pathsList = document.getElementById("pathsList");
+      if (pathsList) {
+        pathsList.innerHTML = "";
+        if (this.subscriptionConfig.subscribe && Array.isArray(this.subscriptionConfig.subscribe)) {
+          this.subscriptionConfig.subscribe.forEach((sub) => this.addPathItem(sub.path));
+        }
       }
 
-      // Update JSON editor
-      document.getElementById("subscriptionJson").value = JSON.stringify(
-        this.subscriptionConfig,
-        null,
-        2
-      );
+      const jsonEl = document.getElementById("subscriptionJson");
+      if (jsonEl) {jsonEl.value = JSON.stringify(this.subscriptionConfig, null, 2);}
     }
 
-    // Update sentence filter input
     if (this.sentenceFilterConfig && Array.isArray(this.sentenceFilterConfig.excludedSentences)) {
-      document.getElementById("sentenceFilter").value =
-        this.sentenceFilterConfig.excludedSentences.join(", ");
+      const el = document.getElementById("sentenceFilter");
+      if (el) {el.value = this.sentenceFilterConfig.excludedSentences.join(", ");}
     }
   }
 
@@ -296,43 +655,61 @@ class DataConnectorConfig {
     const editor = document.getElementById("pluginConfigJson");
     const summary = document.getElementById("pluginConfigSummary");
 
-    if (!editor) {
-      return;
-    }
+    if (!editor) {return;}
 
     if (!this.pluginConfig) {
       editor.value = "{}";
-      if (summary) {
-        summary.innerHTML = "<p>Plugin config unavailable.</p>";
-      }
+      if (summary) {summary.innerHTML = "<p>Plugin config unavailable.</p>";}
       return;
     }
 
     editor.value = JSON.stringify(this.pluginConfig, null, 2);
 
     if (summary) {
-      const mode = this.pluginConfig.serverType || "client";
-      const protocol = this.pluginConfig.protocolVersion || 1;
-      const keyCount = Object.keys(this.pluginConfig).length;
+      const hasConnections =
+        Array.isArray(this.pluginConfig.connections) &&
+        this.pluginConfig.connections.length > 0;
+
+      let summaryScope = "Top-level";
+      let keyLabel = "Top-Level Fields";
+      let summaryConfig = this.pluginConfig;
+
+      if (hasConnections) {
+        const totalConnections = this.pluginConfig.connections.length;
+        const runtimeIndex = this.connections.findIndex((c) => c.id === this.activeConnectionId);
+        const summaryIndex = runtimeIndex >= 0 && runtimeIndex < totalConnections ? runtimeIndex : 0;
+        const candidate = this.pluginConfig.connections[summaryIndex];
+        summaryConfig = candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate : {};
+        summaryScope = `Connection ${summaryIndex + 1}/${totalConnections}`;
+        keyLabel = "Connection Fields";
+      }
+
+      const mode = this.normalizeServerType(summaryConfig.serverType) || "client";
+      const protocol = Number(summaryConfig.protocolVersion) >= 2 ? Number(summaryConfig.protocolVersion) : 1;
+      const keyCount = Object.keys(summaryConfig).length;
       summary.innerHTML = `
         <div class="plugin-summary-grid">
+          ${renderStatItem("Scope", this.escapeHtml(summaryScope))}
           ${renderStatItem("Mode", this.escapeHtml(mode.toUpperCase()))}
           ${renderStatItem("Protocol", "v" + this.escapeHtml(String(protocol)))}
-          ${renderStatItem("Top-Level Fields", this.escapeHtml(String(keyCount)))}
+          ${renderStatItem(keyLabel, this.escapeHtml(String(keyCount)))}
         </div>
       `;
     }
   }
 
+  // ── Form helpers (subscription paths) ──────────────────────────────────────
+
   addPathItem(path = "") {
     const pathsList = document.getElementById("pathsList");
+    if (!pathsList) {return;}
+
     const pathItem = document.createElement("div");
     pathItem.className = "path-item";
 
-    // Create elements safely to prevent XSS
     const input = document.createElement("input");
     input.type = "text";
-    input.value = path; // Safe: value property is automatically escaped
+    input.value = path;
     input.placeholder = "navigation.position";
     input.className = "path-input";
 
@@ -341,11 +718,7 @@ class DataConnectorConfig {
     button.className = "btn btn-danger";
     button.textContent = "Remove";
 
-    // Add event listeners
-    input.addEventListener("input", () => {
-      this.updateJsonFromForm();
-    });
-
+    input.addEventListener("input", () => this.updateJsonFromForm());
     button.addEventListener("click", () => {
       pathItem.remove();
       this.updateJsonFromForm();
@@ -358,46 +731,45 @@ class DataConnectorConfig {
   }
 
   updateJsonFromForm() {
-    const context = document.getElementById("context").value || "*";
+    const contextEl = document.getElementById("context");
+    const context = contextEl ? contextEl.value || "*" : "*";
     const pathInputs = document.querySelectorAll(".path-input");
     const subscribe = Array.from(pathInputs)
       .map((input) => ({ path: input.value }))
       .filter((sub) => sub.path.trim() !== "");
 
-    const config = {
-      context: context,
-      subscribe: subscribe
-    };
-
-    document.getElementById("subscriptionJson").value = JSON.stringify(config, null, 2);
+    const config = { context, subscribe };
+    const jsonEl = document.getElementById("subscriptionJson");
+    if (jsonEl) {jsonEl.value = JSON.stringify(config, null, 2);}
   }
 
   syncFromJson() {
     try {
-      const jsonText = document.getElementById("subscriptionJson").value;
-      const config = JSON.parse(jsonText);
+      const jsonEl = document.getElementById("subscriptionJson");
+      if (!jsonEl) {return;}
+      const config = JSON.parse(jsonEl.value);
 
-      // Update context
-      document.getElementById("context").value = config.context || "*";
+      const ctxEl = document.getElementById("context");
+      if (ctxEl) {ctxEl.value = config.context || "*";}
 
-      // Update paths
       const pathsList = document.getElementById("pathsList");
-      pathsList.innerHTML = "";
-
-      if (config.subscribe && Array.isArray(config.subscribe)) {
-        config.subscribe.forEach((sub) => {
-          this.addPathItem(sub.path || "");
-        });
+      if (pathsList) {
+        pathsList.innerHTML = "";
+        if (config.subscribe && Array.isArray(config.subscribe)) {
+          config.subscribe.forEach((sub) => this.addPathItem(sub.path || ""));
+        }
       }
     } catch (error) {
-      // Invalid JSON, don't update form
       console.warn("Invalid JSON in editor:", error.message);
     }
   }
 
+  // ── Save operations ────────────────────────────────────────────────────────
+
   async saveConfig(filename, config, configKey, label) {
+    const connId = this.activeConnectionId;
     try {
-      const response = await fetch(`${API_BASE_PATH}/config/${filename}`, {
+      const response = await fetch(this.configPath(connId, filename), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config)
@@ -434,12 +806,8 @@ class DataConnectorConfig {
       const jsonText = document.getElementById("subscriptionJson").value;
       const config = JSON.parse(jsonText);
 
-      if (!config.context) {
-        throw new Error("Context is required");
-      }
-      if (!config.subscribe || !Array.isArray(config.subscribe)) {
-        throw new Error("Subscribe array is required");
-      }
+      if (!config.context) {throw new Error("Context is required");}
+      if (!config.subscribe || !Array.isArray(config.subscribe)) {throw new Error("Subscribe array is required");}
 
       await this.saveConfig("subscription.json", config, "subscriptionConfig", "Subscription configuration");
     } catch (error) {
@@ -459,22 +827,17 @@ class DataConnectorConfig {
 
   async savePluginConfig() {
     const editor = document.getElementById("pluginConfigJson");
-    if (!editor) {
-      return;
-    }
+    if (!editor) {return;}
 
     try {
       const parsedConfig = JSON.parse(editor.value);
       if (!parsedConfig || typeof parsedConfig !== "object" || Array.isArray(parsedConfig)) {
         throw new Error("Plugin configuration must be a JSON object");
       }
-      const previousServerMode = this.isServerMode;
 
       const requestConfig = this.deepClone(parsedConfig);
       const normalizedServerType = this.normalizeServerType(requestConfig.serverType);
-      if (normalizedServerType) {
-        requestConfig.serverType = normalizedServerType;
-      }
+      if (normalizedServerType) {requestConfig.serverType = normalizedServerType;}
 
       const response = await fetch(`${API_BASE_PATH}/plugin-config`, {
         method: "POST",
@@ -488,16 +851,11 @@ class DataConnectorConfig {
       }
 
       this.pluginConfig = this.buildCompletePluginConfig(requestConfig);
-      this.isServerMode = this.pluginConfig.serverType === "server";
       this.updatePluginConfigUI();
-      if (previousServerMode !== this.isServerMode) {
-        this.showNotification(
-          "Configuration saved. Refresh this page to load the new mode-specific controls.",
-          "warning"
-        );
-      } else {
-        this.showNotification(result.message || "Plugin configuration saved.", "success");
-      }
+      this.showNotification(
+        result.message || "Plugin configuration saved. Refresh to apply changes.",
+        "success"
+      );
     } catch (error) {
       this.showNotification("Error saving full plugin config: " + error.message, "error");
     }
@@ -506,7 +864,6 @@ class DataConnectorConfig {
   async reloadPluginConfiguration() {
     const loaded = await this.loadPluginConfiguration(true);
     if (loaded) {
-      this.isServerMode = this.pluginConfig && this.pluginConfig.serverType === "server";
       this.updatePluginConfigUI();
       this.showNotification("Plugin configuration reloaded.", "success");
     }
@@ -518,98 +875,15 @@ class DataConnectorConfig {
     this.showNotification("Loaded schema defaults into editor. Save to apply.", "warning");
   }
 
-  async loadMetrics() {
-    try {
-      const response = await fetch(`${API_BASE_PATH}/metrics`);
-      if (response.ok) {
-        const metrics = await response.json();
-        this.protocolVersion = metrics.protocolVersion || 1;
-        this.updateMetricsDisplay(metrics);
-
-        // Fetch v2-specific endpoints when protocol v2 is active
-        if (this.protocolVersion === 2) {
-          this.loadV2Data();
-        }
-      }
-    } catch (error) {
-      console.error("Error loading metrics:", error.message);
-    }
-  }
-
-  async loadV2Data() {
-    const isClient = !this.isServerMode;
-
-    // Fetch v2 endpoints in parallel
-    const fetches = [
-      fetch(`${API_BASE_PATH}/monitoring/alerts`).catch(() => null),
-      fetch(`${API_BASE_PATH}/monitoring/packet-loss`).catch(() => null),
-      fetch(`${API_BASE_PATH}/monitoring/retransmissions`).catch(() => null)
-    ];
-
-    if (isClient) {
-      fetches.push(
-        fetch(`${API_BASE_PATH}/congestion`).catch(() => null),
-        fetch(`${API_BASE_PATH}/bonding`).catch(() => null)
-      );
-    }
-
-    const results = await Promise.all(fetches);
-
-    // Parse responses
-    const [alertsRes, packetLossRes, retransmissionsRes, congestionRes, bondingRes] = results;
-
-    // Monitoring & Alerts
-    const monitoringData = {};
-    if (alertsRes && alertsRes.ok) {
-      monitoringData.alerts = await alertsRes.json();
-    }
-    if (packetLossRes && packetLossRes.ok) {
-      monitoringData.packetLoss = await packetLossRes.json();
-    }
-    if (retransmissionsRes && retransmissionsRes.ok) {
-      monitoringData.retransmissions = await retransmissionsRes.json();
-    }
-    this.updateMonitoringDisplay(monitoringData);
-
-    // Congestion control (client only)
-    if (isClient && congestionRes && congestionRes.ok) {
-      const congestionData = await congestionRes.json();
-      this.updateCongestionDisplay(congestionData);
-    }
-
-    // Bonding (client only)
-    if (isClient && bondingRes && bondingRes.ok) {
-      const bondingData = await bondingRes.json();
-      this.updateBondingDisplay(bondingData);
-    }
-  }
-
-  startMetricsRefresh() {
-    // Clear any existing interval
-    if (this.metricsInterval) {
-      clearInterval(this.metricsInterval);
-    }
-
-    this.metricsInterval = setInterval(() => {
-      this.loadMetrics();
-    }, METRICS_REFRESH_INTERVAL);
-  }
+  // ── Metrics display ────────────────────────────────────────────────────────
 
   updateMetricsDisplay(metrics) {
-    // Update network quality display
     this.updateNetworkQualityDisplay(metrics);
-
-    // Update bandwidth display
     this.updateBandwidthDisplay(metrics);
-
-    // Update path analytics display
     this.updatePathAnalyticsDisplay(metrics);
 
-    // Update general metrics
     const metricsDiv = document.getElementById("metrics");
-    if (!metricsDiv) {
-      return;
-    }
+    if (!metricsDiv) {return;}
 
     const isClient = metrics.mode === "client";
     const { stats, status, uptime } = metrics;
@@ -621,18 +895,16 @@ class DataConnectorConfig {
       stats.subscriptionErrors > 0;
 
     const protocolVersion = metrics.protocolVersion || 1;
-    const protocolLabel = protocolVersion === 2 ? "v2" : "v1";
+    const protocolLabel = protocolVersion >= 2 ? `v${protocolVersion}` : "v1";
 
-    // Build metrics grid items
     const metricsGridItems = [
       renderMetricItem("Uptime", uptime.formatted),
-      renderMetricItem("Mode", isClient ? "📱 Client" : "🖥️ Server"),
+      renderMetricItem("Mode", isClient ? "Client" : "Server"),
       renderMetricItem("Protocol", `<span class="protocol-badge protocol-${protocolLabel}">${protocolLabel.toUpperCase()}</span>`),
-      renderMetricItem("Status", status.readyToSend ? "✓ Ready" : "✗ Not Ready", status.readyToSend ? "success" : "error"),
+      renderMetricItem("Status", status.readyToSend ? "Ready" : "Not Ready", status.readyToSend ? "success" : "error"),
       isClient ? renderMetricItem("Buffered Deltas", status.deltasBuffered) : ""
     ].join("");
 
-    // Build stats items
     const statsItems = [
       isClient
         ? renderStatItem("Deltas Sent", stats.deltasSent.toLocaleString())
@@ -646,7 +918,7 @@ class DataConnectorConfig {
     ].join("");
 
     let metricsHtml = `
-      <h4>📊 Performance Metrics</h4>
+      <h4>Performance Metrics</h4>
       <div class="metrics-grid">${metricsGridItems}</div>
       <div class="metrics-stats">
         <h5>Transmission Statistics</h5>
@@ -654,7 +926,6 @@ class DataConnectorConfig {
       </div>
     `;
 
-    // Add Smart Batching section for client mode
     if (isClient && metrics.smartBatching) {
       const sb = metrics.smartBatching;
       const totalSends = sb.earlySends + sb.timerSends;
@@ -662,7 +933,7 @@ class DataConnectorConfig {
 
       metricsHtml += `
         <div class="metrics-stats">
-          <h5>📦 Smart Batching</h5>
+          <h5>Smart Batching</h5>
           <div class="stats-grid">
             ${renderStatItem("Avg Bytes/Delta", sb.avgBytesPerDelta + " bytes")}
             ${renderStatItem("Max Deltas/Batch", sb.maxDeltasPerBatch)}
@@ -682,7 +953,7 @@ class DataConnectorConfig {
 
       metricsHtml += `
         <div class="metrics-error">
-          <h5>⚠️ Last Error</h5>
+          <h5>Last Error</h5>
           <div class="error-message">${this.escapeHtml(metrics.lastError.message)}</div>
           <div class="error-time">Occurred ${timeAgoStr}</div>
         </div>
@@ -690,7 +961,7 @@ class DataConnectorConfig {
     } else if (!hasErrors) {
       metricsHtml += `
         <div class="metrics-success">
-          <div class="success-message">✓ No errors detected</div>
+          <div class="success-message">No errors detected</div>
         </div>
       `;
     }
@@ -700,33 +971,20 @@ class DataConnectorConfig {
 
   updateNetworkQualityDisplay(metrics) {
     const nqDiv = document.getElementById("networkQuality");
-    if (!nqDiv || !metrics.networkQuality) {
-      return;
-    }
+    if (!nqDiv || !metrics.networkQuality) {return;}
 
     const nq = metrics.networkQuality;
     const isClient = metrics.mode === "client";
 
-    // Determine quality level and color
     let qualityLabel = "N/A";
     let qualityColor = "#9E9E9E";
     if (nq.linkQuality !== undefined) {
-      if (nq.linkQuality >= 90) {
-        qualityLabel = "Excellent";
-        qualityColor = "#4CAF50";
-      } else if (nq.linkQuality >= 70) {
-        qualityLabel = "Good";
-        qualityColor = "#FFC107";
-      } else if (nq.linkQuality >= 50) {
-        qualityLabel = "Fair";
-        qualityColor = "#FF9800";
-      } else {
-        qualityLabel = "Poor";
-        qualityColor = "#F44336";
-      }
+      if (nq.linkQuality >= 90) { qualityLabel = "Excellent"; qualityColor = "#4CAF50"; }
+      else if (nq.linkQuality >= 70) { qualityLabel = "Good"; qualityColor = "#FFC107"; }
+      else if (nq.linkQuality >= 50) { qualityLabel = "Fair"; qualityColor = "#FF9800"; }
+      else { qualityLabel = "Poor"; qualityColor = "#F44336"; }
     }
 
-    // Build the quality gauge using SVG half-doughnut
     const qualityPct = nq.linkQuality !== undefined ? nq.linkQuality : 0;
     const gaugeAngle = (qualityPct / 100) * 180;
     const radStart = Math.PI;
@@ -753,7 +1011,6 @@ class DataConnectorConfig {
       </svg>
     `;
 
-    // Build RTT and jitter stats
     const rttDisplay = nq.rtt !== undefined ? nq.rtt + " ms" : "N/A";
     const jitterDisplay = nq.jitter !== undefined ? nq.jitter + " ms" : "N/A";
 
@@ -798,18 +1055,14 @@ class DataConnectorConfig {
 
   updateBandwidthDisplay(metrics) {
     const bandwidthDiv = document.getElementById("bandwidth");
-    if (!bandwidthDiv || !metrics.bandwidth) {
-      return;
-    }
+    if (!bandwidthDiv || !metrics.bandwidth) {return;}
 
     const bw = metrics.bandwidth;
     const isClient = metrics.mode === "client";
 
-    // Calculate savings (client uses bytesOut, server uses bytesIn)
     const savedBytes = isClient ? bw.bytesOutRaw - bw.bytesOut : bw.bytesInRaw - bw.bytesIn;
     const savedFormatted = this.formatBytes(savedBytes > 0 ? savedBytes : 0);
 
-    // Build bandwidth stats based on mode
     const bandwidthStats = isClient
       ? [
         renderBwStat("Total Sent (Compressed)", bw.bytesOutFormatted),
@@ -842,7 +1095,7 @@ class DataConnectorConfig {
         </div>
 
         <div class="bandwidth-details">
-          <h5>📊 Bandwidth Details</h5>
+          <h5>Bandwidth Details</h5>
           <div class="bandwidth-grid">${bandwidthStats.join("")}</div>
         </div>
 
@@ -862,7 +1115,6 @@ class DataConnectorConfig {
       `;
     }
 
-    // Simple SVG sparkline chart
     const width = 100;
     const height = 40;
     const maxRate = Math.max(...history.map((h) => (isClient ? h.rateOut : h.rateIn)), 1);
@@ -879,7 +1131,7 @@ class DataConnectorConfig {
 
     return `
       <div class="bandwidth-chart">
-        <h5>📈 Rate History (Last ${history.length * intervalSeconds}s)</h5>
+        <h5>Rate History (Last ${history.length * intervalSeconds}s)</h5>
         <div class="chart-container">
           <svg viewBox="0 0 ${width} ${height}" class="sparkline" preserveAspectRatio="none">
             <polyline
@@ -900,9 +1152,7 @@ class DataConnectorConfig {
 
   updatePathAnalyticsDisplay(metrics) {
     const pathDiv = document.getElementById("pathAnalytics");
-    if (!pathDiv || !metrics.pathStats) {
-      return;
-    }
+    if (!pathDiv || !metrics.pathStats) {return;}
 
     const paths = metrics.pathStats;
 
@@ -915,7 +1165,6 @@ class DataConnectorConfig {
       return;
     }
 
-    // Count unique categories
     const categoryCount = new Set(paths.map((p) => p.path.split(".")[0])).size;
 
     let pathHtml = `
@@ -944,9 +1193,8 @@ class DataConnectorConfig {
             <tbody>
     `;
 
-    // Show top 15 paths
     paths.slice(0, 15).forEach((p) => {
-      const barWidth = Math.max(p.percentage, 2); // Minimum 2% width for visibility
+      const barWidth = Math.max(p.percentage, 2);
       pathHtml += `
         <tr>
           <td class="path-name" title="${this.escapeHtml(p.path)}">${this.escapeHtml(p.path)}</td>
@@ -977,7 +1225,6 @@ class DataConnectorConfig {
     }
 
     pathHtml += "</div>";
-
     pathDiv.innerHTML = pathHtml;
   }
 
@@ -1074,7 +1321,6 @@ class DataConnectorConfig {
 
     div.innerHTML = html;
 
-    // Attach failover button listener
     const failoverBtn = document.getElementById("failoverBtn");
     if (failoverBtn) {
       failoverBtn.addEventListener("click", () => this.triggerFailover());
@@ -1082,12 +1328,13 @@ class DataConnectorConfig {
   }
 
   async triggerFailover() {
+    const connId = this.activeConnectionId;
     try {
-      const response = await fetch(`${API_BASE_PATH}/bonding/failover`, { method: "POST" });
+      const response = await fetch(this.bondingFailoverPath(connId), { method: "POST" });
       if (response.ok) {
         const result = await response.json();
         this.showNotification(`Failover complete. Active link: ${result.activeLink}`, "success");
-        this.loadMetrics();
+        this.loadMetrics(connId);
       } else {
         const err = await response.json();
         this.showNotification("Failover failed: " + (err.error || "Unknown error"), "error");
@@ -1102,7 +1349,6 @@ class DataConnectorConfig {
     const div = document.getElementById("monitoringAlerts");
     if (!section || !div) {return;}
 
-    // Show section if we have any monitoring data
     const hasData = data.alerts || data.packetLoss || data.retransmissions;
     if (!hasData) {
       section.style.display = "none";
@@ -1113,7 +1359,6 @@ class DataConnectorConfig {
 
     let html = '<div class="v2-dashboard">';
 
-    // Alerts section
     if (data.alerts) {
       const activeAlerts = data.alerts.activeAlerts || {};
       const alertEntries = Object.entries(activeAlerts).map(([metric, alert]) => {
@@ -1157,7 +1402,6 @@ class DataConnectorConfig {
       `;
     }
 
-    // Packet Loss section
     if (data.packetLoss && data.packetLoss.summary) {
       const summary = data.packetLoss.summary;
       html += `
@@ -1172,7 +1416,6 @@ class DataConnectorConfig {
       `;
     }
 
-    // Retransmissions section
     if (data.retransmissions && data.retransmissions.summary) {
       const summary = data.retransmissions.summary;
       html += `
@@ -1191,29 +1434,95 @@ class DataConnectorConfig {
     div.innerHTML = html;
   }
 
+  // ── Status display ─────────────────────────────────────────────────────────
+
+  updateStatus() {
+    const statusDiv = document.getElementById("status");
+    if (!statusDiv) {return;}
+
+    let statusHtml = "<h4>Configuration Status</h4>";
+
+    if (this.deltaTimerConfig) {
+      statusHtml += `
+        <div class="status-item">
+          <strong>Delta Timer:</strong> ${this.escapeHtml(String(this.deltaTimerConfig.deltaTimer))}ms
+          <span class="status-indicator success">Configured</span>
+        </div>
+      `;
+    } else {
+      statusHtml += `
+        <div class="status-item">
+          <strong>Delta Timer:</strong>
+          <span class="status-indicator warning">Not configured</span>
+        </div>
+      `;
+    }
+
+    if (this.subscriptionConfig && this.subscriptionConfig.subscribe) {
+      const pathCount = this.subscriptionConfig.subscribe.length;
+      const escapedContext = this.escapeHtml(this.subscriptionConfig.context || "");
+      const escapedPaths = this.subscriptionConfig.subscribe.map((s) => this.escapeHtml(s.path)).join(", ");
+      statusHtml += `
+        <div class="status-item">
+          <strong>Subscriptions:</strong> ${pathCount} path(s) configured
+          <span class="status-indicator success">Configured</span>
+        </div>
+        <div class="status-details">
+          <strong>Context:</strong> ${escapedContext}<br>
+          <strong>Paths:</strong> ${escapedPaths}
+        </div>
+      `;
+    } else {
+      statusHtml += `
+        <div class="status-item">
+          <strong>Subscriptions:</strong>
+          <span class="status-indicator warning">Not configured</span>
+        </div>
+      `;
+    }
+
+    if (
+      this.sentenceFilterConfig &&
+      this.sentenceFilterConfig.excludedSentences &&
+      this.sentenceFilterConfig.excludedSentences.length > 0
+    ) {
+      const filterCount = this.sentenceFilterConfig.excludedSentences.length;
+      const escapedFilters = this.sentenceFilterConfig.excludedSentences.map((s) => this.escapeHtml(s)).join(", ");
+      statusHtml += `
+        <div class="status-item">
+          <strong>Sentence Filter:</strong> ${filterCount} sentence(s) excluded
+          <span class="status-indicator success">Configured</span>
+        </div>
+        <div class="status-details">
+          <strong>Excluded:</strong> ${escapedFilters}
+        </div>
+      `;
+    }
+
+    statusDiv.innerHTML = statusHtml;
+  }
+
+  // ── Utility methods ────────────────────────────────────────────────────────
+
   buildCompletePluginConfig(currentConfig) {
     const defaults = this.extractSchemaDefaults(this.pluginSchema);
     const merged = this.deepMerge(defaults || {}, currentConfig || {});
+    if (Array.isArray(merged.connections)) {
+      return merged;
+    }
     const normalizedServerType = this.normalizeServerType(merged.serverType);
     merged.serverType = normalizedServerType || "client";
-
     return merged;
   }
 
   normalizeServerType(value) {
-    if (value === true || value === "server") {
-      return "server";
-    }
-    if (value === false || value === "client") {
-      return "client";
-    }
+    if (value === true || value === "server") {return "server";}
+    if (value === false || value === "client") {return "client";}
     return undefined;
   }
 
   extractSchemaDefaults(schemaNode) {
-    if (!schemaNode || typeof schemaNode !== "object") {
-      return undefined;
-    }
+    if (!schemaNode || typeof schemaNode !== "object") {return undefined;}
 
     const isObjectNode = schemaNode.type === "object" || !!schemaNode.properties;
     const merged = {};
@@ -1252,9 +1561,7 @@ class DataConnectorConfig {
 
     for (const compositeKey of ["oneOf", "anyOf", "allOf"]) {
       const composite = schemaNode[compositeKey];
-      if (!Array.isArray(composite)) {
-        continue;
-      }
+      if (!Array.isArray(composite)) {continue;}
 
       composite.forEach((item) => {
         const itemDefaults = this.extractSchemaDefaults(item);
@@ -1269,13 +1576,9 @@ class DataConnectorConfig {
       });
     }
 
-    if (hasData) {
-      return merged;
-    }
+    if (hasData) {return merged;}
 
-    if (schemaNode.default !== undefined) {
-      return this.deepClone(schemaNode.default);
-    }
+    if (schemaNode.default !== undefined) {return this.deepClone(schemaNode.default);}
 
     return undefined;
   }
@@ -1285,9 +1588,7 @@ class DataConnectorConfig {
   }
 
   deepClone(value) {
-    if (Array.isArray(value)) {
-      return value.map((item) => this.deepClone(item));
-    }
+    if (Array.isArray(value)) {return value.map((item) => this.deepClone(item));}
     if (this.isPlainObject(value)) {
       const clone = {};
       for (const [key, childValue] of Object.entries(value)) {
@@ -1299,13 +1600,8 @@ class DataConnectorConfig {
   }
 
   deepMerge(baseValue, overrideValue) {
-    if (overrideValue === undefined) {
-      return this.deepClone(baseValue);
-    }
-
-    if (Array.isArray(overrideValue)) {
-      return this.deepClone(overrideValue);
-    }
+    if (overrideValue === undefined) {return this.deepClone(baseValue);}
+    if (Array.isArray(overrideValue)) {return this.deepClone(overrideValue);}
 
     if (this.isPlainObject(baseValue) && this.isPlainObject(overrideValue)) {
       const merged = this.deepClone(baseValue);
@@ -1319,9 +1615,7 @@ class DataConnectorConfig {
   }
 
   formatBytes(bytes) {
-    if (!bytes || bytes <= 0) {
-      return "0 B";
-    }
+    if (!bytes || bytes <= 0) {return "0 B";}
     const k = 1024;
     const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
@@ -1334,157 +1628,9 @@ class DataConnectorConfig {
     return div.innerHTML;
   }
 
-  updateStatus() {
-    const statusDiv = document.getElementById("status");
-    let statusHtml = "<h4>Configuration Status</h4>";
-
-    // Delta timer status
-    if (this.deltaTimerConfig) {
-      statusHtml += `
-                <div class="status-item">
-                    <strong>Delta Timer:</strong> ${this.escapeHtml(String(this.deltaTimerConfig.deltaTimer))}ms
-                    <span class="status-indicator success">✓ Configured</span>
-                </div>
-            `;
-    } else {
-      statusHtml += `
-                <div class="status-item">
-                    <strong>Delta Timer:</strong>
-                    <span class="status-indicator warning">⚠ Not configured</span>
-                </div>
-            `;
-    }
-
-    // Subscription status
-    if (this.subscriptionConfig && this.subscriptionConfig.subscribe) {
-      const pathCount = this.subscriptionConfig.subscribe.length;
-      const escapedContext = this.escapeHtml(this.subscriptionConfig.context || "");
-      const escapedPaths = this.subscriptionConfig.subscribe.map((s) => this.escapeHtml(s.path)).join(", ");
-      statusHtml += `
-                <div class="status-item">
-                    <strong>Subscriptions:</strong> ${pathCount} path(s) configured
-                    <span class="status-indicator success">✓ Configured</span>
-                </div>
-                <div class="status-details">
-                    <strong>Context:</strong> ${escapedContext}<br>
-                    <strong>Paths:</strong> ${escapedPaths}
-                </div>
-            `;
-    } else {
-      statusHtml += `
-                <div class="status-item">
-                    <strong>Subscriptions:</strong>
-                    <span class="status-indicator warning">⚠ Not configured</span>
-                </div>
-            `;
-    }
-
-    // Sentence filter status
-    if (
-      this.sentenceFilterConfig &&
-      this.sentenceFilterConfig.excludedSentences &&
-      this.sentenceFilterConfig.excludedSentences.length > 0
-    ) {
-      const filterCount = this.sentenceFilterConfig.excludedSentences.length;
-      const escapedFilters = this.sentenceFilterConfig.excludedSentences.map((s) => this.escapeHtml(s)).join(", ");
-      statusHtml += `
-                <div class="status-item">
-                    <strong>Sentence Filter:</strong> ${filterCount} sentence(s) excluded
-                    <span class="status-indicator success">✓ Configured</span>
-                </div>
-                <div class="status-details">
-                    <strong>Excluded:</strong> ${escapedFilters}
-                </div>
-            `;
-    } else {
-      statusHtml += `
-                <div class="status-item">
-                    <strong>Sentence Filter:</strong>
-                    <span class="status-indicator info">ℹ No filters (all sentences transmitted)</span>
-                </div>
-            `;
-    }
-
-    statusDiv.innerHTML = statusHtml;
-  }
-
-  renderPluginConfigurationCard() {
-    return `
-      <div class="config-section">
-        <div class="card">
-          <div class="card-header">
-            <h2>Full Plugin Configuration</h2>
-            <p>All parameters from <code>/plugin-config</code> (advanced JSON editor)</p>
-          </div>
-          <div class="card-content">
-            <div id="pluginConfigSummary" class="plugin-config-summary">
-              <p>Loading plugin configuration...</p>
-            </div>
-            <div class="json-editor plugin-config-editor">
-              <h3>Plugin Config JSON</h3>
-              <textarea
-                id="pluginConfigJson"
-                rows="20"
-                placeholder='{"serverType":"client","udpPort":4446,"secretKey":"..."}'
-              ></textarea>
-              <small class="help-text">
-                This editor exposes all available plugin fields. Save triggers plugin restart when supported.
-              </small>
-            </div>
-            <div class="plugin-config-actions">
-              <button id="savePluginConfig" class="btn btn-primary">Save Full Plugin Config</button>
-              <button id="reloadPluginConfig" class="btn btn-secondary">Reload From Server</button>
-              <button id="loadDefaultPluginConfig" class="btn btn-secondary">Load Schema Defaults</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  showServerModeUI() {
-    const container = document.querySelector(".container");
-
-    // Server mode info card (special styling)
-    const serverModeCard = `
-      <div class="config-section">
-        <div class="card server-mode-card">
-          <div class="card-header">
-            <h2>Server Mode Active</h2>
-            <p>This plugin is running in Server Mode - receiving data from clients</p>
-          </div>
-          <div class="card-content">
-            <div class="server-mode-info">
-              <div class="info-grid compact">
-                <div class="info-item">
-                  <h4>Configuration</h4>
-                  <p>Managed through SignalK plugin settings</p>
-                </div>
-                <div class="info-item">
-                  <h4>Data Flow</h4>
-                  <p>Client Devices → Server → SignalK</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-
-    container.innerHTML =
-      serverModeCard +
-      this.renderPluginConfigurationCard() +
-      renderCard("Network Quality", "Link quality score and network health indicators", "networkQuality") +
-      renderCard("Bandwidth Monitor", "Network reception statistics", "bandwidth") +
-      renderCard("Path Analytics", "Incoming data volume by SignalK path", "pathAnalytics") +
-      renderCard("Performance Metrics", "Real-time reception statistics (auto-refreshes every 15 seconds)", "metrics") +
-      "<div id=\"monitoringSection\" style=\"display:none;\">" +
-        renderCard("Monitoring & Alerts", "Packet loss, retransmission tracking, and alert thresholds", "monitoringAlerts") +
-      "</div>";
-  }
-
   showNotification(message, type = "success") {
     const notification = document.getElementById("notification");
+    if (!notification) {return;}
     notification.textContent = message;
     notification.className = `notification ${type} show`;
 
@@ -1501,18 +1647,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Clean up metrics refresh interval when page is hidden or unloaded
 document.addEventListener("visibilitychange", () => {
-  if (!window.dataConnectorConfig) {
-    return;
-  }
+  if (!window.dataConnectorConfig) {return;}
 
   if (document.hidden) {
-    // Stop refreshing when page is hidden
     if (window.dataConnectorConfig.metricsInterval) {
       clearInterval(window.dataConnectorConfig.metricsInterval);
       window.dataConnectorConfig.metricsInterval = null;
     }
   } else if (!window.dataConnectorConfig.metricsInterval) {
-    // Load metrics immediately and restart refresh when page becomes visible
     window.dataConnectorConfig.loadMetrics();
     window.dataConnectorConfig.startMetricsRefresh();
   }
@@ -1525,5 +1667,4 @@ window.addEventListener("beforeunload", () => {
   }
 });
 
-// Export for global access
 export default DataConnectorConfig;

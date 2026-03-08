@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://signalk-edge-link/docs/configuration-schema.json",
+  "title": "Signal K Edge Link documented configuration schema",
+  "description": "Documentation-oriented schema for validating configuration payloads used by examples and operators.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "connections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/connection"
+      }
+    }
+  },
+  "required": ["connections"],
+  "examples": [
+    {
+      "connections": [
+        {
+          "name": "shore-server",
+          "serverType": "server",
+          "udpPort": 4446,
+          "secretKey": "12345678901234567890123456789012",
+          "protocolVersion": 2,
+          "useMsgpack": true,
+          "usePathDictionary": true,
+          "bonding": {
+            "enabled": true,
+            "mode": "active-backup",
+            "failoverThreshold": 500
+          },
+          "congestionControl": {
+            "enabled": true,
+            "maxWindow": 32
+          }
+        }
+      ]
+    }
+  ],
+  "definitions": {
+    "connection": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["serverType", "udpPort", "secretKey"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 40 },
+        "serverType": { "type": "string", "enum": ["server", "client"] },
+        "udpAddress": { "type": "string" },
+        "udpPort": { "type": "number", "minimum": 1024, "maximum": 65535 },
+        "secretKey": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 64,
+          "pattern": "^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
+        },
+        "protocolVersion": { "type": "number", "enum": [1, 2, 3], "default": 1 },
+        "useMsgpack": { "type": "boolean", "default": false },
+        "usePathDictionary": { "type": "boolean", "default": false },
+        "bonding": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "mode": { "type": "string", "enum": ["active-backup", "round-robin"] },
+            "failoverThreshold": { "type": "number", "minimum": 0 }
+          }
+        },
+        "congestionControl": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "maxWindow": { "type": "number", "minimum": 1 }
+          }
+        }
+      }
+    }
+  }
+}

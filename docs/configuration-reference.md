@@ -1,16 +1,32 @@
-# Signal K Edge Link v2.0 - Configuration Reference
+# Signal K Edge Link Configuration Reference
+
+Use `protocolVersion: 3` when both peers support it and you want authenticated control packets. Keep `protocolVersion: 2` only for compatibility with existing v2 peers.
 
 ## Plugin Configuration
 
 The plugin is configured through the Signal K Admin UI at **Plugin Config > Signal K Edge Link**, or via the REST API at `POST /plugins/signalk-edge-link/plugin-config`.
 
-## Common Settings (All Modes)
+Configuration is stored as an array of connections. A single Signal K node can run multiple connections in parallel — for example, a server receiving data from a remote vessel and a client forwarding data to a shore aggregator.
+
+```json
+{
+  "connections": [
+    { "name": "shore-server", "serverType": "server", ... },
+    { "name": "sat-client",   "serverType": "client", ... }
+  ]
+}
+```
+
+**Legacy flat config** (single object without `connections`) is automatically normalised to a one-item array on startup. No migration required.
+
+## Common Settings (Per Connection)
 
 | Setting | JSON Key | Type | Default | Range | Description |
 |---------|----------|------|---------|-------|-------------|
+| Connection Name | `name` | string | `"connection"` | max 40 chars | Label used as instance ID and Signal K metrics namespace |
 | Operation Mode | `serverType` | string | `"client"` | `"server"`, `"client"` | Server receives data, Client sends data |
-| UDP Port | `udpPort` | number | `4446` | 1024 - 65535 | Must match on both ends |
-| Encryption Key | `secretKey` | string | - | 32 characters | Must match on both ends, min 8 unique chars |
+| UDP Port | `udpPort` | number | `4446` | 1024 - 65535 | Must match on both ends; each server connection needs a unique port |
+| Encryption Key | `secretKey` | string | - | 32-byte secret | Use 32-character ASCII, 64-character hex, or 44-character base64; must match on both ends |
 | Use MessagePack | `useMsgpack` | boolean | `false` | - | Binary serialization (must match both ends) |
 | Use Path Dictionary | `usePathDictionary` | boolean | `false` | - | Path encoding (must match both ends) |
 
@@ -123,7 +139,9 @@ Configuration key: `bonding.failover`
 
 ## Runtime Configuration Files
 
-These JSON files are stored in the plugin data directory and support hot-reload (changes take effect automatically without restart).
+These JSON files are stored in the plugin data directory under a subdirectory named after the connection (`<name>/`). They support hot-reload — changes take effect automatically without restart.
+
+Access via `GET|POST /plugins/signalk-edge-link/connections/:id/config/:filename` (per-connection) or the legacy `GET|POST /plugins/signalk-edge-link/config/:filename` (first client connection).
 
 ### delta_timer.json
 
@@ -196,7 +214,7 @@ Alert thresholds are configured via the REST API at `POST /plugins/signalk-edge-
 | Jitter (ms) | 100 | 300 |
 | Queue Depth | 100 | 500 |
 
-Alerts emit Signal K notifications at `notifications.signalk-edge-link.<metric>` with `state` set to `"warn"` or `"alert"`. Alert cooldown is 60 seconds.
+Alerts emit Signal K notifications at `notifications.signalk-edge-link.<instanceId>.<metric>` with `state` set to `"warn"` or `"alert"`. The source label is `signalk-edge-link:<instanceId>`. Alert cooldown is 60 seconds.
 
 ## Internal Constants
 
@@ -210,7 +228,7 @@ These constants are defined in `lib/constants.js` and control internal behavior.
 | `UDP_RETRY_DELAY` | 100 ms | Base retry delay |
 | `SMART_BATCH_SAFETY_MARGIN` | 85% | Target % of MTU |
 | `SMART_BATCH_MAX_DELTAS` | 50 | Max deltas per batch |
-| `RATE_LIMIT_MAX_REQUESTS` | 20 | API rate limit per minute per IP |
+| `RATE_LIMIT_MAX_REQUESTS` | 120 | API rate limit per minute per IP |
 | `BONDING_HEARTBEAT_TIMEOUT` | 5000 ms | Link marked DOWN after this |
 | `MONITORING_ALERT_COOLDOWN` | 60000 ms | Alert cooldown period |
 | `PACKET_CAPTURE_MAX_PACKETS` | 1000 | Max packets in capture buffer |
@@ -219,41 +237,54 @@ These constants are defined in `lib/constants.js` and control internal behavior.
 
 ```json
 {
-  "serverType": "client",
-  "udpPort": 4446,
-  "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&",
-  "useMsgpack": true,
-  "usePathDictionary": true,
-  "udpAddress": "cloud-server.example.com",
-  "helloMessageSender": 60,
-  "testAddress": "8.8.8.8",
-  "testPort": 443,
-  "pingIntervalTime": 1,
-  "congestionControl": {
-    "enabled": true,
-    "targetRTT": 200,
-    "minDeltaTimer": 100,
-    "maxDeltaTimer": 5000
-  },
-  "bonding": {
-    "enabled": true,
-    "mode": "main-backup",
-    "primary": {
-      "address": "cloud-server.example.com",
-      "port": 4446,
-      "interface": "192.168.1.100"
+  "connections": [
+    {
+      "name": "shore-server",
+      "serverType": "server",
+      "udpPort": 4446,
+      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
+      "protocolVersion": 3
     },
-    "backup": {
-      "address": "cloud-server.example.com",
-      "port": 4447,
-      "interface": "10.0.0.100"
-    },
-    "failover": {
-      "rttThreshold": 500,
-      "lossThreshold": 0.10,
-      "healthCheckInterval": 1000,
-      "failbackDelay": 30000
+    {
+      "name": "sat-client",
+      "serverType": "client",
+      "udpPort": 4447,
+      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
+      "useMsgpack": true,
+      "usePathDictionary": true,
+      "udpAddress": "cloud-server.example.com",
+      "helloMessageSender": 60,
+      "testAddress": "8.8.8.8",
+      "testPort": 443,
+      "pingIntervalTime": 1,
+      "protocolVersion": 3,
+      "congestionControl": {
+        "enabled": true,
+        "targetRTT": 200,
+        "minDeltaTimer": 100,
+        "maxDeltaTimer": 5000
+      },
+      "bonding": {
+        "enabled": true,
+        "mode": "main-backup",
+        "primary": {
+          "address": "cloud-server.example.com",
+          "port": 4447,
+          "interface": "192.168.1.100"
+        },
+        "backup": {
+          "address": "cloud-server.example.com",
+          "port": 4448,
+          "interface": "10.0.0.100"
+        },
+        "failover": {
+          "rttThreshold": 500,
+          "lossThreshold": 0.10,
+          "healthCheckInterval": 1000,
+          "failbackDelay": 30000
+        }
+      }
     }
-  }
+  ]
 }
 ```

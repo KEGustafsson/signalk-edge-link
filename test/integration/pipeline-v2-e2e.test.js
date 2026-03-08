@@ -41,11 +41,30 @@ describe("V2 Pipeline End-to-End", () => {
       expect(pipeline.getPacketBuilder).toBeDefined();
     });
 
+    test("creates v3 client pipeline using reliable pipeline implementation", () => {
+      const pipeline = createPipeline(3, "client", mockApp, state, metricsApi);
+      expect(pipeline.sendDelta).toBeDefined();
+      expect(pipeline.getPacketBuilder).toBeDefined();
+    });
+
     test("creates v2 server pipeline", () => {
       const pipeline = createPipeline(2, "server", mockApp, state, metricsApi);
       expect(pipeline.receivePacket).toBeDefined();
       expect(pipeline.getSequenceTracker).toBeDefined();
       expect(pipeline.getMetrics).toBeDefined();
+    });
+
+    test("creates v3 server pipeline using reliable pipeline implementation", () => {
+      const pipeline = createPipeline(3, "server", mockApp, state, metricsApi);
+      expect(pipeline.receivePacket).toBeDefined();
+      expect(pipeline.getSequenceTracker).toBeDefined();
+      expect(pipeline.getMetrics).toBeDefined();
+    });
+
+    test("throws error for unsupported pipeline version", () => {
+      expect(() => createPipeline(99, "client", mockApp, state, metricsApi)).toThrow(
+        "Unsupported pipeline version: 99"
+      );
     });
   });
 

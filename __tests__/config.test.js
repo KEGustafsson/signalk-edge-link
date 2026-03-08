@@ -3,6 +3,22 @@ const { promises: fs } = require("fs");
 const path = require("path");
 const os = require("os");
 
+jest.mock("ping-monitor", () => {
+  const { EventEmitter } = require("events");
+
+  class MockMonitor extends EventEmitter {
+    constructor() {
+      super();
+      MockMonitor.instances.push(this);
+    }
+
+    stop() {}
+  }
+
+  MockMonitor.instances = [];
+  return MockMonitor;
+}, { virtual: true });
+
 // We'll test the config functions indirectly through the plugin
 const createPlugin = require("../index");
 
@@ -63,7 +79,7 @@ describe("Configuration File Operations", () => {
 
       await plugin.start(options);
 
-      const deltaTimerPath = path.join(tempDir, "delta_timer.json");
+      const deltaTimerPath = path.join(tempDir, "instances", "default", "delta_timer.json");
       const exists = await fs
         .access(deltaTimerPath)
         .then(() => true)
@@ -92,7 +108,7 @@ describe("Configuration File Operations", () => {
 
       await plugin.start(options);
 
-      const subscriptionPath = path.join(tempDir, "subscription.json");
+      const subscriptionPath = path.join(tempDir, "instances", "default", "subscription.json");
       const exists = await fs
         .access(subscriptionPath)
         .then(() => true)
@@ -111,7 +127,9 @@ describe("Configuration File Operations", () => {
 
     test("should not overwrite existing configuration files", async () => {
       const customConfig = { deltaTimer: 5000 };
-      const deltaTimerPath = path.join(tempDir, "delta_timer.json");
+      const instanceDir = path.join(tempDir, "instances", "default");
+      await fs.mkdir(instanceDir, { recursive: true });
+      const deltaTimerPath = path.join(instanceDir, "delta_timer.json");
 
       await fs.writeFile(deltaTimerPath, JSON.stringify(customConfig), "utf-8");
 
@@ -138,7 +156,9 @@ describe("Configuration File Operations", () => {
   describe("Configuration Loading", () => {
     test("should load existing delta_timer.json", async () => {
       const customConfig = { deltaTimer: 2500 };
-      const deltaTimerPath = path.join(tempDir, "delta_timer.json");
+      const instanceDir = path.join(tempDir, "instances", "default");
+      await fs.mkdir(instanceDir, { recursive: true });
+      const deltaTimerPath = path.join(instanceDir, "delta_timer.json");
 
       await fs.writeFile(deltaTimerPath, JSON.stringify(customConfig), "utf-8");
 
@@ -161,7 +181,9 @@ describe("Configuration File Operations", () => {
     });
 
     test("should handle corrupted JSON gracefully", async () => {
-      const deltaTimerPath = path.join(tempDir, "delta_timer.json");
+      const instanceDir = path.join(tempDir, "instances", "default");
+      await fs.mkdir(instanceDir, { recursive: true });
+      const deltaTimerPath = path.join(instanceDir, "delta_timer.json");
       await fs.writeFile(deltaTimerPath, "{ invalid json }", "utf-8");
 
       const options = {
@@ -190,8 +212,8 @@ describe("Configuration File Operations", () => {
 
       await plugin.start(options);
 
-      const deltaTimerPath = path.join(tempDir, "delta_timer.json");
-      const subscriptionPath = path.join(tempDir, "subscription.json");
+      const deltaTimerPath = path.join(tempDir, "instances", "default", "delta_timer.json");
+      const subscriptionPath = path.join(tempDir, "instances", "default", "subscription.json");
 
       const deltaExists = await fs
         .access(deltaTimerPath)
@@ -215,7 +237,9 @@ describe("Configuration File Operations", () => {
         // missing context
       };
 
-      const subscriptionPath = path.join(tempDir, "subscription.json");
+      const instanceDir = path.join(tempDir, "instances", "default");
+      await fs.mkdir(instanceDir, { recursive: true });
+      const subscriptionPath = path.join(instanceDir, "subscription.json");
       await fs.writeFile(subscriptionPath, JSON.stringify(invalidSub), "utf-8");
 
       const options = {
@@ -239,7 +263,9 @@ describe("Configuration File Operations", () => {
         // missing subscribe
       };
 
-      const subscriptionPath = path.join(tempDir, "subscription.json");
+      const instanceDir = path.join(tempDir, "instances", "default");
+      await fs.mkdir(instanceDir, { recursive: true });
+      const subscriptionPath = path.join(instanceDir, "subscription.json");
       await fs.writeFile(subscriptionPath, JSON.stringify(invalidSub), "utf-8");
 
       const options = {

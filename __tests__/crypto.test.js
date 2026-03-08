@@ -54,7 +54,7 @@ describe("Crypto Module", () => {
         expect(() => encryptBinary(data, "short")).toThrow(
           "Secret key must be exactly 32 bytes"
         );
-        expect(() => encryptBinary(data, null)).toThrow("Secret key must be exactly 32 bytes");
+        expect(() => encryptBinary(data, null)).toThrow("Secret key must be a non-empty string");
       });
 
       test("should throw error for empty data", () => {
@@ -197,9 +197,9 @@ describe("Crypto Module", () => {
     });
 
     test("should throw error for null/undefined key", () => {
-      expect(() => validateSecretKey(null)).toThrow("Secret key must be exactly 32 bytes");
+      expect(() => validateSecretKey(null)).toThrow("Secret key must be a non-empty string");
       expect(() => validateSecretKey(undefined)).toThrow(
-        "Secret key must be exactly 32 bytes"
+        "Secret key must be a non-empty string"
       );
     });
 

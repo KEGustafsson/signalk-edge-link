@@ -225,6 +225,7 @@ describe("PacketInspector", () => {
         if (!ws._handlers[event]) {ws._handlers[event] = [];}
         ws._handlers[event].push(handler);
       }),
+      removeAllListeners: jest.fn(),
       _emit(event) {
         if (ws._handlers && ws._handlers[event]) {
           ws._handlers[event].forEach(fn => fn());

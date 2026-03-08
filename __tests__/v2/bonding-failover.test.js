@@ -53,6 +53,7 @@ function createDefaultConfig(overrides = {}) {
       address: "10.0.1.1",
       port: 4447
     },
+    notificationsEnabled: true,
     failover: {
       rttThreshold: 500,
       lossThreshold: 0.10,
@@ -424,7 +425,7 @@ describe("Bonding Failover Scenarios", () => {
       bm._checkHealth();
 
       expect(app.handleMessage).toHaveBeenCalledWith(
-        "vessels.self",
+        "signalk-edge-link",
         expect.objectContaining({
           updates: expect.arrayContaining([
             expect.objectContaining({
@@ -465,7 +466,7 @@ describe("Bonding Failover Scenarios", () => {
       bm.failback();
 
       expect(app.handleMessage).toHaveBeenCalledWith(
-        "vessels.self",
+        "signalk-edge-link",
         expect.objectContaining({
           updates: expect.arrayContaining([
             expect.objectContaining({

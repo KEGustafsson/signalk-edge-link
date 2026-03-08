@@ -1,0 +1,21 @@
+{
+  "connections": [
+    {
+      "name": "lab-server",
+      "serverType": "server",
+      "udpPort": 4446,
+      "secretKey": "fedcba9876543210fedcba9876543210",
+      "protocolVersion": 2,
+      "useMsgpack": false,
+      "usePathDictionary": true
+    },
+    {
+      "name": "lab-client",
+      "serverType": "client",
+      "udpAddress": "127.0.0.1",
+      "udpPort": 4446,
+      "secretKey": "0123456789abcdef0123456789abcdef",
+      "protocolVersion": 2
+    }
+  ]
+}

@@ -286,7 +286,7 @@ Failback from backup to primary requires ALL conditions:
 
 ### Signal K Notifications
 
-Failover events emit Signal K notifications at `notifications.signalk-edge-link.linkFailover` with state `alert` and both visual and sound methods.
+Failover events emit Signal K notifications at `notifications.signalk-edge-link.<instanceId>.linkFailover` with state `alert` and both visual and sound methods. The source label is `signalk-edge-link:<instanceId>`.
 
 ## 10. Security
 
@@ -297,7 +297,7 @@ All DATA payloads are encrypted with AES-256-GCM:
 | Property | Detail |
 |----------|--------|
 | Algorithm | AES-256-GCM |
-| Key size | 256 bits (32 ASCII characters) |
+| Key size | 256 bits (32-byte secret: 32-character ASCII, 64-character hex, or 44-character base64) |
 | IV | 12 bytes, unique per message (random) |
 | Auth tag | 16 bytes, tamper detection |
 | Wire format | `[IV (12B)][Encrypted Data][Auth Tag (16B)]` |
@@ -405,4 +405,4 @@ The v2 protocol publishes the following metrics to the Signal K data model:
 | `networking.edgeLink.bonding.activeLink` | string | Active bonding link name |
 | `networking.edgeLink.bonding.primary.*` | object | Primary link health metrics |
 | `networking.edgeLink.bonding.backup.*` | object | Backup link health metrics |
-| `notifications.signalk-edge-link.*` | notification | Alert notifications |
+| `notifications.signalk-edge-link.<instanceId>.*` | notification | Alert notifications (per-instance) |

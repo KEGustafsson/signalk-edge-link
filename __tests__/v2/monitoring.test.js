@@ -438,13 +438,15 @@ describe("AlertManager", () => {
         rtt: { warning: 200, critical: 500 },
         packetLoss: { warning: 0.05, critical: 0.10 }
       },
-      cooldown: 0 // No cooldown for testing
+      cooldown: 0, // No cooldown for testing
+      enabled: true
     });
   });
 
   describe("Construction", () => {
     test("initializes with default thresholds", () => {
       const am = new AlertManager(mockApp);
+      expect(am.notificationsEnabled).toBe(false);
       expect(am.thresholds.rtt).toBeDefined();
       expect(am.thresholds.packetLoss).toBeDefined();
       expect(am.thresholds.jitter).toBeDefined();
@@ -489,7 +491,7 @@ describe("AlertManager", () => {
     test("emits Signal K notification on alert", () => {
       alertManager.check("rtt", 600);
       expect(mockApp.handleMessage).toHaveBeenCalledWith(
-        "vessels.self",
+        "signalk-edge-link",
         expect.objectContaining({
           updates: expect.any(Array)
         })
@@ -582,7 +584,8 @@ describe("AlertManager", () => {
     test("respects cooldown period", () => {
       const am = new AlertManager(mockApp, {
         thresholds: { rtt: { warning: 200, critical: 500 } },
-        cooldown: 60000 // 1 minute
+        cooldown: 60000, // 1 minute
+        enabled: true
       });
 
       // First alert should trigger
@@ -597,7 +600,8 @@ describe("AlertManager", () => {
     test("alerts again when level changes even during cooldown", () => {
       const am = new AlertManager(mockApp, {
         thresholds: { rtt: { warning: 200, critical: 500 } },
-        cooldown: 60000
+        cooldown: 60000,
+        enabled: true
       });
 
       am.check("rtt", 300); // warning

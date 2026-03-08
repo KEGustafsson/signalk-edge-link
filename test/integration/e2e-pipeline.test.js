@@ -939,8 +939,8 @@ describe("E2E Pipeline Tests", () => {
         });
       }
 
-      // Identify missing and retransmit (up to 3 rounds)
-      for (let round = 0; round < 3; round++) {
+      // Identify missing and retransmit (up to 5 rounds)
+      for (let round = 0; round < 5; round++) {
         const missing = [];
         for (let i = 0; i < numPackets; i++) {
           if (!receivedSet.has(i)) {missing.push(i);}

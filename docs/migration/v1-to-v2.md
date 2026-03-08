@@ -71,19 +71,19 @@ This script:
 
 ### Step 3: Configure Protocol Version
 
-In the plugin configuration (Admin UI or JSON), set `protocolVersion` to `2`:
+In the plugin configuration (Admin UI or JSON), set `protocolVersion` to `2` or `3`:
 
 ```json
 {
   "serverType": "client",
   "udpPort": 4446,
-  "secretKey": "your-32-character-key-here......",
+  "secretKey": "your-shared-secret-here",
   "useMsgpack": false,
   "usePathDictionary": true
 }
 ```
 
-**Both client and server must run v2.0.** The server auto-detects v2 packets by magic bytes, but both sides need the v2 software installed.
+**Both client and server must use the same reliable protocol version.** Use `2` for backward compatibility with already deployed v2 peers, or `3` when both sides can be upgraded together and you want authenticated control packets.
 
 ### Step 4: Verify
 

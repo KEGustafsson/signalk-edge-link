@@ -5,7 +5,7 @@
 Before diving into specific issues, check these common items:
 
 1. **Both sides running same version?** Client and server must both be on v2.0
-2. **Encryption keys match?** Must be identical 32-character strings
+2. **Encryption keys match?** Must be identical 32-byte secrets (32-character ASCII, 64-character hex, or 44-character base64)
 3. **UDP port open?** Firewall must allow UDP traffic on configured port
 4. **Plugin enabled?** Check Admin UI > Plugin Config
 5. **Node.js >= 14.0.0?** Run `node --version` to verify
