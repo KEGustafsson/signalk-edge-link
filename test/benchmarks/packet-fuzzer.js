@@ -35,7 +35,7 @@ for (let i = 0; i < ITERATIONS; i++) {
     // Occasionally inject valid magic bytes to exercise deeper code paths
     if (i % 4 === 0 && len >= 2) {
       buf[0] = 0x53; // 'S'
-      buf[1] = 0x4B; // 'K'
+      buf[1] = 0x4b; // 'K'
     }
 
     // Occasionally inject valid version byte
@@ -65,7 +65,7 @@ for (let i = 0; i < ITERATIONS; i++) {
 
 const elapsed = Date.now() - start;
 
-console.log(`\nResults:`);
+console.log("\nResults:");
 console.log(`  Iterations: ${ITERATIONS}`);
 console.log(`  Handled:    ${handled}`);
 console.log(`  Crashes:    ${crashes}`);
@@ -76,5 +76,5 @@ if (crashes > 0) {
   console.error(`\nFAILED: ${crashes} crash(es) detected`);
   process.exit(1);
 } else {
-  console.log(`\nPASSED: No crashes detected`);
+  console.log("\nPASSED: No crashes detected");
 }
