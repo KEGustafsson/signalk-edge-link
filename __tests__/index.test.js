@@ -1420,6 +1420,48 @@ describe("SignalK Data Connector Plugin", () => {
       handler({ params: { id: "my-server2" } }, res);
       expect(res.status).toHaveBeenCalledWith(404);
     });
+
+    test("POST /instances preserves top-level plugin options during restart", async () => {
+      const restartPlugin = jest.fn().mockResolvedValue(undefined);
+      await plugin.start({
+        managementApiToken: "super-secret-token",
+        enableCaptureByDefault: true,
+        connections: [
+          {
+            name: "existing-client",
+            serverType: "client",
+            udpPort: 4484,
+            secretKey: "12345678901234567890123456789012",
+            udpAddress: "127.0.0.1",
+            testAddress: "127.0.0.1",
+            testPort: 80
+          }
+        ]
+      }, restartPlugin);
+
+      const handler = routeHandlers["POST /instances"];
+      const res = makeRes();
+
+      await handler({
+        headers: {
+          "x-edge-link-token": "super-secret-token"
+        },
+        body: {
+          name: "added-server",
+          serverType: "server",
+          udpPort: 4485,
+          secretKey: "12345678901234567890123456789012"
+        }
+      }, res);
+
+      expect(restartPlugin).toHaveBeenCalledTimes(1);
+      const restartOptions = restartPlugin.mock.calls[0][0];
+      expect(restartOptions.managementApiToken).toBe("super-secret-token");
+      expect(restartOptions.enableCaptureByDefault).toBe(true);
+      expect(Array.isArray(restartOptions.connections)).toBe(true);
+      expect(restartOptions.connections).toHaveLength(2);
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
   });
 
   // ── POST /plugin-config with connections[] array format ───────────────────
