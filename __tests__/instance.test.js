@@ -91,6 +91,11 @@ describe("createInstance", () => {
     monitorInstances.length = 0;
   });
 
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
   test("returns expected API surface", () => {
     const app = makeMockApp();
     const inst = createInstance(app, makeClientOptions(), "test", "signalk-edge-link", jest.fn());
@@ -211,38 +216,33 @@ describe("createInstance", () => {
 
 
   test("marks client unhealthy when post-connectivity ping timeout elapses", async () => {
+    jest.useFakeTimers();
     const app = makeMockApp();
-    const inst = createInstance(app, makeClientOptions(), "x", "plugin", jest.fn());
-
-    const originalSetTimeout = global.setTimeout;
-    const originalClearTimeout = global.clearTimeout;
-    const timeoutCallbacks = [];
-
-    global.setTimeout = jest.fn((cb) => {
-      timeoutCallbacks.push(cb);
-      return timeoutCallbacks.length;
-    });
-    global.clearTimeout = jest.fn();
+    const inst = createInstance(
+      app,
+      makeClientOptions({ pingIntervalTime: 0.001 }),
+      "x",
+      "plugin",
+      jest.fn()
+    );
 
     try {
       await inst.start();
       const monitor = monitorInstances[0];
+      expect(monitor).toBeDefined();
       monitor.emit("up", { time: 18 });
 
       const before = inst.getStatus().text;
       expect(before).toBe("Connected");
 
-      const lastTimeoutCb = timeoutCallbacks[timeoutCallbacks.length - 1];
-      expect(typeof lastTimeoutCb).toBe("function");
-      lastTimeoutCb();
+      await jest.advanceTimersByTimeAsync(12000);
 
       expect(inst.getState().isHealthy).toBe(false);
       expect(inst.getStatus().text).toBe("Connection monitor timeout");
       expect(inst.getState().readyToSend).toBe(false);
     } finally {
       inst.stop();
-      global.setTimeout = originalSetTimeout;
-      global.clearTimeout = originalClearTimeout;
+      jest.useRealTimers();
     }
   });
 

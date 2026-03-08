@@ -27,6 +27,26 @@ const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
 const SECRET_KEY = "12345678901234567890123456789012";
 
+async function waitForCondition(conditionFn, {
+  timeoutMs = 2000,
+  pollIntervalMs = 20,
+  failureMessage = "Timed out waiting for condition"
+} = {}) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (conditionFn()) {
+      return;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  if (!conditionFn()) {
+    throw new Error(failureMessage);
+  }
+}
+
 function generateDelta(index) {
   return {
     updates: [{
@@ -181,8 +201,15 @@ describe("System Validation - Sequence Tracking", () => {
       });
     }
 
-    // Wait for all delayed deliveries
-    await new Promise(resolve => setTimeout(resolve, 200));
+    // Wait for all delayed deliveries (with scheduling headroom under full-suite load)
+    await waitForCondition(
+      () => receivedOrder.length === TOTAL,
+      {
+        timeoutMs: 3000,
+        pollIntervalMs: 20,
+        failureMessage: `Expected ${TOTAL} packets, received ${receivedOrder.length}`
+      }
+    );
 
     // All packets should eventually arrive
     expect(receivedOrder.length).toBe(TOTAL);
@@ -425,13 +452,21 @@ describe("System Validation - Network Transitions", () => {
       });
     }
 
-    // Wait for delayed packets
-    await new Promise(resolve => setTimeout(resolve, 200));
+    // Wait for delayed packets (allow slower CI scheduling under full suite execution)
+    await waitForCondition(
+      () => received.size >= 70,
+      {
+        timeoutMs: 3000,
+        pollIntervalMs: 20,
+        failureMessage: `Expected initial delivery progress, got ${received.size}/${TOTAL}`
+      }
+    );
 
     // Retransmit missing
     let rounds = 0;
     while (received.size < TOTAL && rounds < 5) {
       rounds++;
+      const beforeRound = received.size;
       const missing = [];
       for (let i = 0; i < TOTAL; i++) {
         if (!received.has(i)) {missing.push(i);}
@@ -443,6 +478,17 @@ describe("System Validation - Network Transitions", () => {
           received.add(parsed.sequence);
         });
       }
+
+      await waitForCondition(
+        () => received.size > beforeRound,
+        {
+          timeoutMs: 300,
+          pollIntervalMs: 20,
+          failureMessage: "No retransmit progress in this round"
+        }
+      ).catch(() => {
+        // No progress in this round is acceptable; subsequent rounds can still recover.
+      });
     }
 
     expect(received.size / TOTAL).toBeGreaterThanOrEqual(0.95);
@@ -474,7 +520,14 @@ describe("System Validation - Network Transitions", () => {
     }
 
     // Wait for delayed packets
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await waitForCondition(
+      () => received.size > 0,
+      {
+        timeoutMs: 2000,
+        pollIntervalMs: 20,
+        failureMessage: "No packets delivered before outage assertions"
+      }
+    );
 
     // Should have lost packets 30-49
     expect(received.size).toBeLessThan(TOTAL);
@@ -493,7 +546,14 @@ describe("System Validation - Network Transitions", () => {
       });
     }
 
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await waitForCondition(
+      () => received.size === TOTAL,
+      {
+        timeoutMs: 3000,
+        pollIntervalMs: 20,
+        failureMessage: `Expected full recovery after retransmit, got ${received.size}/${TOTAL}`
+      }
+    );
 
     // Should recover all packets after retransmit
     expect(received.size).toBe(TOTAL);
