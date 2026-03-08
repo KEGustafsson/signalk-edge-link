@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+// eslint-disable-next-line no-unused-vars
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 
@@ -550,6 +551,7 @@ const css = `
 
 // ── ConnectionCard ────────────────────────────────────────────────────────────
 
+// eslint-disable-next-line no-unused-vars
 function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange, onRemove }) {
   const isClient = conn.serverType !== "server";
   const schema = buildSchema(isClient, conn.protocolVersion);
