@@ -532,7 +532,12 @@ class DataConnectorConfig {
       return true;
     } catch (error) {
       if (showErrors) {
-        this.showNotification(error.isUnauthorized ? this.authFailureMessage("loading plugin config") : "Error loading plugin config: " + error.message, "warning");
+        this.showNotification(
+          error.isUnauthorized
+            ? this.authFailureMessage("loading plugin config")
+            : "Error loading plugin config: " + error.message,
+          "warning"
+        );
       }
       return false;
     }
@@ -550,7 +555,12 @@ class DataConnectorConfig {
       this.subscriptionConfig = subResponse.ok ? await subResponse.json() : null;
       this.sentenceFilterConfig = filterResponse.ok ? await filterResponse.json() : null;
     } catch (error) {
-      this.showNotification(error.isUnauthorized ? this.authFailureMessage("loading connection configuration") : "Error loading configurations: " + error.message, "error");
+      this.showNotification(
+        error.isUnauthorized
+          ? this.authFailureMessage("loading connection configuration")
+          : "Error loading configurations: " + error.message,
+        "error"
+      );
     }
   }
 
@@ -892,7 +902,12 @@ class DataConnectorConfig {
         throw new Error("Failed to save configuration");
       }
     } catch (error) {
-      this.showNotification(error.isUnauthorized ? this.authFailureMessage(`saving ${label.toLowerCase()}`) : `Error saving ${label.toLowerCase()}: ` + error.message, "error");
+      this.showNotification(
+        error.isUnauthorized
+          ? this.authFailureMessage(`saving ${label.toLowerCase()}`)
+          : `Error saving ${label.toLowerCase()}: ` + error.message,
+        "error"
+      );
     }
   }
 
@@ -989,7 +1004,12 @@ class DataConnectorConfig {
         "success"
       );
     } catch (error) {
-      this.showNotification(error.isUnauthorized ? this.authFailureMessage("saving full plugin config") : "Error saving full plugin config: " + error.message, "error");
+      this.showNotification(
+        error.isUnauthorized
+          ? this.authFailureMessage("saving full plugin config")
+          : "Error saving full plugin config: " + error.message,
+        "error"
+      );
     }
   }
 
@@ -1523,10 +1543,20 @@ class DataConnectorConfig {
         this.loadMetrics(connId);
       } else {
         const err = await response.json();
-        this.showNotification(response.status === 401 ? this.authFailureMessage("triggering failover") : "Failover failed: " + (err.error || "Unknown error"), "error");
+        this.showNotification(
+          response.status === 401
+            ? this.authFailureMessage("triggering failover")
+            : "Failover failed: " + (err.error || "Unknown error"),
+          "error"
+        );
       }
     } catch (error) {
-      this.showNotification(error.isUnauthorized ? this.authFailureMessage("triggering failover") : "Failover failed: " + error.message, "error");
+      this.showNotification(
+        error.isUnauthorized
+          ? this.authFailureMessage("triggering failover")
+          : "Failover failed: " + error.message,
+        "error"
+      );
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -1781,14 +1811,21 @@ class DataConnectorConfig {
 
       composite.forEach((item) => {
         const itemDefaults = this.extractSchemaDefaults(item);
-        if (itemDefaults !== undefined) {
-          if (this.isPlainObject(itemDefaults)) {
-            Object.assign(merged, this.deepMerge(merged, itemDefaults));
-          } else if (!hasData && schemaNode.default === undefined) {
-            return;
-          }
-          hasData = true;
+        if (itemDefaults === undefined) {
+          return;
         }
+
+        if (this.isPlainObject(itemDefaults)) {
+          Object.assign(merged, this.deepMerge(merged, itemDefaults));
+          hasData = true;
+          return;
+        }
+
+        if (!hasData && schemaNode.default === undefined) {
+          return;
+        }
+
+        hasData = true;
       });
     }
 
