@@ -1029,6 +1029,11 @@ class DataConnectorConfig {
       isClient ? renderMetricItem("Buffered Deltas", status.deltasBuffered) : ""
     ].join("");
 
+    const subErrors = stats.subscriptionErrors;
+    const subscriptionErrorStat = isClient
+      ? renderStatItem("Subscription Errors", subErrors, subErrors > 0)
+      : "";
+
     const statsItems = [
       isClient
         ? renderStatItem("Deltas Sent", stats.deltasSent.toLocaleString())
@@ -1039,13 +1044,7 @@ class DataConnectorConfig {
       isClient ? renderStatItem("UDP Retries", stats.udpRetries) : "",
       renderStatItem("Compression Errors", stats.compressionErrors, stats.compressionErrors > 0),
       renderStatItem("Encryption Errors", stats.encryptionErrors, stats.encryptionErrors > 0),
-      isClient
-        ? renderStatItem(
-            "Subscription Errors",
-            stats.subscriptionErrors,
-            stats.subscriptionErrors > 0
-          )
-        : "",
+      subscriptionErrorStat,
       !isClient && stats.duplicatePackets > 0
         ? renderStatItem("Duplicate Packets", stats.duplicatePackets.toLocaleString())
         : ""
@@ -1144,16 +1143,17 @@ class DataConnectorConfig {
     const y2 = cy + r * Math.sin(radEnd);
     const largeArc = gaugeAngle > 180 ? 1 : 0;
 
+    const gaugeArcPath =
+      qualityPct > 0
+        ? `<path d="M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}"
+              fill="none" stroke="${qualityColor}" stroke-width="8" stroke-linecap="round"/>`
+        : "";
+
     const gaugeSvg = `
       <svg viewBox="0 0 100 55" class="quality-gauge" preserveAspectRatio="xMidYMid meet">
         <path d="M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}"
               fill="none" stroke="#E0E0E0" stroke-width="8" stroke-linecap="round"/>
-        ${
-          qualityPct > 0
-            ? `<path d="M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}"
-              fill="none" stroke="${qualityColor}" stroke-width="8" stroke-linecap="round"/>`
-            : ""
-        }
+        ${gaugeArcPath}
         <text x="${cx}" y="${cy - 5}" text-anchor="middle" font-size="16" font-weight="bold" fill="${qualityColor}">
           ${qualityPct}
         </text>
@@ -1217,19 +1217,22 @@ class DataConnectorConfig {
     const savedBytes = isClient ? bw.bytesOutRaw - bw.bytesOut : bw.bytesInRaw - bw.bytesIn;
     const savedFormatted = this.formatBytes(savedBytes > 0 ? savedBytes : 0);
 
-    const bandwidthStats = isClient
-      ? [
-          renderBwStat("Total Sent (Compressed)", bw.bytesOutFormatted),
-          renderBwStat("Total Raw (Before Compression)", bw.bytesOutRawFormatted),
-          renderBwStat("Bandwidth Saved", savedFormatted, true, true),
-          renderBwStat("Packets Sent", bw.packetsOut.toLocaleString())
-        ]
-      : [
-          renderBwStat("Total Received (Compressed)", bw.bytesInFormatted),
-          renderBwStat("Total Raw (After Decompression)", this.formatBytes(bw.bytesInRaw || 0)),
-          renderBwStat("Bandwidth Saved", savedFormatted, true, true),
-          renderBwStat("Packets Received", bw.packetsIn.toLocaleString())
-        ];
+    let bandwidthStats;
+    if (isClient) {
+      bandwidthStats = [
+        renderBwStat("Total Sent (Compressed)", bw.bytesOutFormatted),
+        renderBwStat("Total Raw (Before Compression)", bw.bytesOutRawFormatted),
+        renderBwStat("Bandwidth Saved", savedFormatted, true, true),
+        renderBwStat("Packets Sent", bw.packetsOut.toLocaleString())
+      ];
+    } else {
+      bandwidthStats = [
+        renderBwStat("Total Received (Compressed)", bw.bytesInFormatted),
+        renderBwStat("Total Raw (After Decompression)", this.formatBytes(bw.bytesInRaw || 0)),
+        renderBwStat("Bandwidth Saved", savedFormatted, true, true),
+        renderBwStat("Packets Received", bw.packetsIn.toLocaleString())
+      ];
+    }
 
     const bandwidthHtml = `
       <div class="bandwidth-dashboard">
