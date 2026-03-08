@@ -627,7 +627,7 @@ List all active connections with status.
     "name": "Shore Server",
     "type": "server",
     "port": 4446,
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "status": "Server listening on port 4446",
     "healthy": true,
     "readyToSend": true
@@ -637,7 +637,7 @@ List all active connections with status.
     "name": "Sat Client",
     "type": "client",
     "port": 4447,
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "status": "Ready",
     "healthy": true,
     "readyToSend": true

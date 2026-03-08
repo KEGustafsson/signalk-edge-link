@@ -13,7 +13,7 @@ It is designed for links where latency, packet loss, and bandwidth usage matter 
 - **Two operating modes**:
   - **Client**: subscribes to local deltas and sends packets
   - **Server**: receives packets, decrypts, and forwards to local Signal K
-- **Protocol v2 features** for difficult links:
+- **Protocol v2/v3 features** for difficult links:
   - ACK/NAK-based reliability
   - congestion control
   - optional primary/backup bonding
@@ -110,8 +110,9 @@ Check that:
 |---|---|---|
 | v1 | stable local links, simplest setup | lower overhead, no ACK/NAK reliability layer |
 | v2 | packet loss, variable latency, WAN links | adds retransmission, congestion control, bonding, richer monitoring |
+| v3 | same use cases as v2 when both peers can upgrade together | keeps v2 features and authenticates ACK/NAK/HEARTBEAT/HELLO control packets |
 
-For unstable links, start with **v2 defaults** and tune only after checking metrics.
+For unstable links, start with **v3** when both peers support it; fall back to **v2** only when you need compatibility with an already deployed v2 peer.
 
 ## Runtime UI and API
 
@@ -146,7 +147,7 @@ Configuration is an array of independent connections:
       "serverType": "server",
       "udpPort": 4446,
       "secretKey": "<32-byte key>",
-      "protocolVersion": 2
+      "protocolVersion": 3
     },
     {
       "name": "sat-client",
@@ -154,7 +155,7 @@ Configuration is an array of independent connections:
       "udpPort": 4447,
       "udpAddress": "10.0.0.1",
       "secretKey": "<32-byte key>",
-      "protocolVersion": 2
+      "protocolVersion": 3
     }
   ]
 }
@@ -190,7 +191,7 @@ Common checks:
 
 - Verify `udpAddress`, `udpPort`, and `secretKey` match both ends.
 - Confirm server UDP port is reachable and not already in use.
-- If link quality is poor, switch to `protocolVersion: 2` and monitor retransmissions/RTT before tuning.
+- If link quality is poor, switch to `protocolVersion: 3` when both peers can upgrade together, or `2` if you must stay compatible with an existing v2 peer.
 
 For issue-oriented diagnostics, use `docs/troubleshooting.md`.
 
@@ -223,7 +224,8 @@ Management API security: set `managementApiToken` in plugin options (or environm
 - `docs/architecture-overview.md` (system architecture and lifecycle)
 - `docs/configuration-reference.md` (settings and defaults)
 - `docs/api-reference.md` (REST endpoints)
-- `docs/protocol-v2.md` (v2 protocol operational overview)
+- `docs/protocol-v2.md` (reliable protocol operational overview)
+- `docs/protocol-v3-spec.md` (authenticated control-plane details)
 - `docs/bonding.md` (bonding concepts and API usage)
 - `docs/congestion-control.md` (congestion-control behavior and tuning)
 - `docs/metrics.md` (metrics and monitoring reference)

@@ -248,11 +248,12 @@ module.exports = function createPlugin(app) {
       protocolVersion: {
         type: "number",
         title: "Protocol Version",
-        description: "v1: encrypted UDP. v2 adds: reliability (ACK/NAK/retransmit), congestion control, bonding, metrics. Must match on both ends.",
+        description: "v1: encrypted UDP. v2 adds reliable delivery and metrics. v3 keeps the v2 data path and authenticates control packets (ACK/NAK/HEARTBEAT/HELLO). Must match on both ends.",
         default: 1,
         oneOf: [
           { const: 1, title: "v1 – Standard encrypted UDP" },
-          { const: 2, title: "v2 – Reliability, congestion control, bonding, metrics" }
+          { const: 2, title: "v2 – Reliability, congestion control, bonding, metrics" },
+          { const: 3, title: "v3 - v2 features with authenticated control packets" }
         ]
       }
     },
@@ -264,8 +265,8 @@ module.exports = function createPlugin(app) {
               serverType: { enum: ["server"] },
               reliability: {
                 type: "object",
-                title: "Reliability Settings (v2 only)",
-                description: "Requires Protocol v2. Controls ACK/NAK timing for reliable delivery",
+                title: "Reliability Settings (v2/v3 only)",
+                description: "Requires Protocol v2 or v3. Controls ACK/NAK timing for reliable delivery",
                 properties: {
                   ackInterval: {
                     type: "number",
@@ -336,8 +337,8 @@ module.exports = function createPlugin(app) {
               },
               reliability: {
                 type: "object",
-                title: "Reliability Settings (v2 only)",
-                description: "Requires Protocol v2. Controls retransmit queue behavior and packet retry limits",
+                title: "Reliability Settings (v2/v3 only)",
+                description: "Requires Protocol v2 or v3. Controls retransmit queue behavior and packet retry limits",
                 properties: {
                   retransmitQueueSize: {
                     type: "number",
@@ -435,8 +436,8 @@ module.exports = function createPlugin(app) {
               },
               congestionControl: {
                 type: "object",
-                title: "Dynamic Congestion Control (v2 only)",
-                description: "Requires Protocol v2. AIMD algorithm to dynamically adjust send rate based on network conditions",
+                title: "Dynamic Congestion Control (v2/v3 only)",
+                description: "Requires Protocol v2 or v3. AIMD algorithm to dynamically adjust send rate based on network conditions",
                 properties: {
                   enabled: {
                     type: "boolean",
@@ -480,8 +481,8 @@ module.exports = function createPlugin(app) {
               },
               bonding: {
                 type: "object",
-                title: "Connection Bonding (v2 only)",
-                description: "Requires Protocol v2. Dual-link bonding with automatic failover between primary and backup connections",
+                title: "Connection Bonding (v2/v3 only)",
+                description: "Requires Protocol v2 or v3. Dual-link bonding with automatic failover between primary and backup connections",
                 properties: {
                   enabled: {
                     type: "boolean",
@@ -534,7 +535,7 @@ module.exports = function createPlugin(app) {
               },
               alertThresholds: {
                 type: "object",
-                title: "Monitoring Alert Thresholds (v2 only)",
+                title: "Monitoring Alert Thresholds (v2/v3 only)",
                 description: "Customize warning/critical thresholds for network monitoring alerts",
                 properties: {
                   rtt: {

@@ -2,6 +2,8 @@
 
 Signal K Edge Link protocol v2 extends the original encrypted UDP transport with reliability and adaptive link behavior suited for unstable networks.
 
+Protocol v3 keeps this same reliable transport model but authenticates control packets. Use v3 when both peers can be upgraded together and the link should not trust unauthenticated ACK/NAK/HEARTBEAT/HELLO traffic.
+
 ## Packet and transport model
 
 - **Transport:** UDP.
@@ -41,6 +43,7 @@ When bonding is enabled, v2 can use primary/backup links with failover logic bas
 ## Operational guidance
 
 - Use v2 for cellular/satellite/high-loss links.
+- Prefer v3 over v2 on untrusted networks or whenever you want authenticated control packets.
 - Start with defaults; tune failover and congestion thresholds after observing metrics.
 - Keep both endpoints aligned on protocol version and compatible options.
 
@@ -48,6 +51,7 @@ When bonding is enabled, v2 can use primary/backup links with failover logic bas
 
 - `docs/architecture-overview.md`
 - `docs/configuration-reference.md`
+- `docs/protocol-v3-spec.md`
 - `docs/bonding.md`
 - `docs/congestion-control.md`
 - `docs/api-reference.md`

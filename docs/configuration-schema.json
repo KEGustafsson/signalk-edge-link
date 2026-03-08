@@ -55,7 +55,7 @@
           "maxLength": 64,
           "pattern": "^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
         },
-        "protocolVersion": { "type": "number", "enum": [1, 2], "default": 1 },
+        "protocolVersion": { "type": "number", "enum": [1, 2, 3], "default": 1 },
         "useMsgpack": { "type": "boolean", "default": false },
         "usePathDictionary": { "type": "boolean", "default": false },
         "bonding": {

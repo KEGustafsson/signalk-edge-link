@@ -97,6 +97,48 @@
   - `node --check __tests__/routes.rate-limit.test.js`
   - `npm test -- --runInBand __tests__/index.test.js __tests__/routes.rate-limit.test.js __tests__/instance.test.js`
 
+### Batch 4 completed
+
+- Added protocol v3 authenticated control packets while preserving wire compatibility for existing v2 peers:
+  - `lib/crypto.js` now creates/verifies a truncated HMAC-SHA256 tag for v3 control packets.
+  - `lib/packet.js` now supports reliable packet versions `2` and `3`, signs ACK/NAK/HEARTBEAT/HELLO packets in v3, and requires the shared secret when parsing authenticated control packets.
+  - `lib/pipeline-v2-client.js` and `lib/pipeline-v2-server.js` now instantiate packet builders/parsers with the configured protocol version and shared secret so forged control packets are rejected before they can affect retransmit or keepalive state.
+  - `lib/instance.js` now treats protocol version `3` as part of the reliable transport path (same congestion/bonding/monitoring features as v2).
+- Extended protocol coverage with adversarial regression tests:
+  - `__tests__/v2/packet.test.js` now covers v3 heartbeat auth tags, secret-key requirements for parsing v3 ACKs, wrong-key rejection, and quick detection of v3 packets.
+  - Added `__tests__/v2/pipeline-v2-client-auth.test.js` to verify signed ACK acceptance and forged NAK rejection in the client pipeline.
+  - `__tests__/v2/pipeline-v2-server.test.js` now verifies that v3 NAK packets are signed and that forged v3 heartbeat packets are rejected server-side.
+- Expanded runtime/config validation for protocol version `3`:
+  - `lib/connection-config.js`
+  - `index.js`
+  - `src/components/PluginConfigurationPanel.jsx`
+  - `schemas/config.schema.json`
+  - `docs/configuration-schema.json`
+  - `__tests__/index.test.js`
+  - `__tests__/samples-config.test.js`
+- Added operator-facing protocol v3 documentation and samples:
+  - New `docs/protocol-v3-spec.md`
+  - Updated `README.md`, `docs/README.md`, `docs/protocol-v2.md`, `docs/configuration-reference.md`, `docs/api-reference.md`, `docs/migration/v1-to-v2.md`, and `docs/performance-tuning.md`
+  - Added `samples/v3-authenticated-control.json`
+- Restored a clean lint baseline for the files called out in the review:
+  - Removed the duplicate `malformedPackets` key in `lib/metrics.js`
+  - Removed dead/commented-out webapp template fragments in `src/webapp/index.js`
+  - Applied formatting cleanup to `lib/routes/connections.js`, `lib/routes/control.js`, `lib/routes/monitoring.js`, `lib/metrics.js`, and `src/webapp/index.js`
+- Verification completed:
+  - `node --check lib/crypto.js`
+  - `node --check lib/packet.js`
+  - `node --check lib/pipeline-v2-client.js`
+  - `node --check lib/pipeline-v2-server.js`
+  - `node --check lib/instance.js`
+  - `node --check __tests__/v2/packet.test.js`
+  - `node --check __tests__/v2/pipeline-v2-client-auth.test.js`
+  - `node --check __tests__/v2/pipeline-v2-server.test.js`
+  - `npm test -- --runInBand __tests__/v2/packet.test.js __tests__/v2/pipeline-v2-client-auth.test.js __tests__/v2/pipeline-v2-server.test.js __tests__/index.test.js __tests__/samples-config.test.js`
+  - `npx eslint --fix lib/routes/connections.js lib/routes/control.js lib/routes/monitoring.js lib/metrics.js src/webapp/index.js`
+  - `npm run lint`
+  - `npm test -- --runInBand`
+  - `npm run build`
+
 ## Progress update (implemented in this branch)
 
 - ✅ Added a new management route alias `GET /instances` in `lib/routes/connections.js`.

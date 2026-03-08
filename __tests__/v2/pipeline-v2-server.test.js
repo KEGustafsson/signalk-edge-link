@@ -42,8 +42,8 @@ function makeMetricsApi() {
   };
 }
 
-function buildDataPacket(sequence, payloadObj, key) {
-  const builder = new PacketBuilder({ initialSequence: sequence });
+function buildDataPacket(sequence, payloadObj, key, protocolVersion = 2) {
+  const builder = new PacketBuilder({ initialSequence: sequence, protocolVersion });
   const json = Buffer.from(JSON.stringify([payloadObj]));
   const compressed = zlib.brotliCompressSync(json);
   const encrypted = encryptBinary(compressed, key);
@@ -153,5 +153,79 @@ describe("pipeline-v2-server", () => {
 
     expect(nakPackets.length).toBeGreaterThan(0);
     expect(metricsApi.metrics.naksSent).toBeGreaterThan(0);
+  });
+
+  test("signs v3 NAK packets so clients can authenticate them", async () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      handleMessage: jest.fn()
+    };
+    const send = jest.fn((_pkt, _port, _addr, cb) => cb && cb(null));
+    const state = {
+      options: {
+        protocolVersion: 3,
+        secretKey,
+        reliability: { nakTimeout: 10 }
+      },
+      socketUdp: { send },
+      instanceId: "test"
+    };
+    const metricsApi = makeMetricsApi();
+    const pipeline = createPipelineV2Server(app, state, metricsApi);
+
+    const seq10 = buildDataPacket(10, {
+      context: "vessels.self",
+      updates: [{ values: [{ path: "navigation.headingTrue", value: 1.2 }] }]
+    }, secretKey, 3);
+    const seq12 = buildDataPacket(12, {
+      context: "vessels.self",
+      updates: [{ values: [{ path: "navigation.headingMagnetic", value: 1.3 }] }]
+    }, secretKey, 3);
+
+    await pipeline.receivePacket(seq10, secretKey, { address: "127.0.0.1", port: 12002 });
+    await pipeline.receivePacket(seq12, secretKey, { address: "127.0.0.1", port: 12002 });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const parser = new PacketParser({ secretKey });
+    const nakPacket = send.mock.calls
+      .map((c) => c[0])
+      .find((pkt) => {
+        try {
+          return parser.parseHeader(pkt).type === PacketType.NAK;
+        } catch (_e) {
+          return false;
+        }
+      });
+
+    expect(nakPacket).toBeDefined();
+    expect(parser.parseNAKPayload(parser.parseHeader(nakPacket).payload)).toEqual([11]);
+  });
+
+  test("rejects forged v3 heartbeat packets", async () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      handleMessage: jest.fn()
+    };
+    const state = {
+      options: {
+        protocolVersion: 3,
+        secretKey,
+        reliability: { nakTimeout: 10 }
+      },
+      socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
+      instanceId: "test"
+    };
+    const metricsApi = makeMetricsApi();
+    const pipeline = createPipelineV2Server(app, state, metricsApi);
+
+    const forgedHeartbeat = new PacketBuilder({ protocolVersion: 3, secretKey: "abcdefghijklmnopqrstuvwxyz123456" })
+      .buildHeartbeatPacket();
+
+    await pipeline.receivePacket(forgedHeartbeat, secretKey, { address: "127.0.0.1", port: 12003 });
+
+    expect(app.error).toHaveBeenCalledWith("v2 authentication failed: packet tampered or wrong key");
   });
 });

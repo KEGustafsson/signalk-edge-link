@@ -12,6 +12,7 @@ If you are configuring or operating the plugin, start with the user docs below.
 - `troubleshooting.md` - Diagnostic workflows and symptom-based fixes
 - `migration/v1-to-v2.md` - Practical migration path from protocol v1 to v2
 - `protocol-v2-spec.md` - Protocol behavior and packet-level specification
+- `protocol-v3-spec.md` - Authenticated control-plane additions for protocol v3
 - `protocol-v2.md` - Operational v2 overview (reliability, ACK/NAK, congestion, bonding)
 - `bonding.md` - Bonding concepts, endpoint usage, and tuning notes
 - `congestion-control.md` - Congestion-control behavior and tuning workflow
@@ -59,9 +60,9 @@ These are architecture/design notes retained for contributors and maintainers.
 
 ### Operators tuning unstable links
 
-1. `../README.md` (Protocol v2 guidance)
+1. `../README.md` (Protocol v2/v3 guidance)
 2. `api-reference.md` (metrics and monitoring endpoints)
-3. `protocol-v2-spec.md` (deeper behavior details)
+3. `protocol-v3-spec.md` (control-plane hardening details)
 
 ### Contributors
 

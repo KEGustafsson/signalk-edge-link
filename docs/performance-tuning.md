@@ -16,7 +16,7 @@ Use the existing benchmark reports as a starting point:
 |---|---|---|
 | `deltaTimer` interval | Lower values reduce latency, raise CPU/network overhead | 100-1000 ms |
 | Batch size | Larger batches improve throughput, can increase tail latency | 10-100 deltas |
-| `protocolVersion` | v2 adds reliability/flow control overhead with better loss handling | `1` or `2` |
+| `protocolVersion` | v2/v3 add reliability/flow control overhead with better loss handling; v3 also authenticates control packets | `1`, `2`, or `3` |
 | `congestionControl.maxWindow` | Higher window can increase throughput on stable links | 8-64 |
 | `bonding.failoverThreshold` | Lower values react faster but can flap on unstable links | 300-1000 ms |
 
@@ -34,7 +34,8 @@ Use the existing benchmark reports as a starting point:
 ### Raspberry Pi 3/4
 
 - Prefer `deltaTimer` 250-500 ms for balanced CPU.
-- Enable v2 only when lossy links need ACK/NAK reliability.
+- Enable v2/v3 only when lossy links need ACK/NAK reliability.
+- Prefer v3 when the remote network should not trust unauthenticated control traffic.
 - Keep `maxWindow` conservative (8-24).
 
 ### x86 shore server

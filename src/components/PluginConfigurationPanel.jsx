@@ -108,11 +108,12 @@ const commonProperties = {
   protocolVersion: {
     type: "number",
     title: "Protocol Version",
-    description: "v1: encrypted UDP.  v2 adds reliability (ACK/NAK/retransmit), congestion control, bonding, metrics.  Must match on both ends.",
+    description: "v1: encrypted UDP. v2 adds reliable delivery and metrics. v3 keeps the v2 data path and authenticates control packets (ACK/NAK/HEARTBEAT/HELLO). Must match on both ends.",
     default: 1,
     oneOf: [
       { const: 1, title: "v1 – Standard encrypted UDP" },
-      { const: 2, title: "v2 – Reliability, congestion control, bonding, metrics" }
+      { const: 2, title: "v2 – Reliability, congestion control, bonding, metrics" },
+      { const: 3, title: "v3 - v2 features with authenticated control packets" }
     ]
   }
 };
@@ -157,7 +158,7 @@ const clientProperties = {
   reliability: {
     type: "object",
     title: "Reliability Settings",
-    description: "Advanced. Requires Protocol v2. Controls retransmit queue behavior and retry limits.",
+    description: "Advanced. Requires Protocol v2 or v3. Controls retransmit queue behavior and retry limits.",
     properties: {
       retransmitQueueSize: {
         type: "number", title: "Retransmit Queue Size",
@@ -224,7 +225,7 @@ const clientProperties = {
   congestionControl: {
     type: "object",
     title: "Dynamic Congestion Control",
-    description: "Advanced. Requires Protocol v2. AIMD logic can adapt send rate based on RTT and packet loss.",
+    description: "Advanced. Requires Protocol v2 or v3. AIMD logic can adapt send rate based on RTT and packet loss.",
     properties: {
       enabled: {
         type: "boolean", title: "Enable Congestion Control",
@@ -256,7 +257,7 @@ const clientProperties = {
   bonding: {
     type: "object",
     title: "Connection Bonding",
-    description: "Advanced. Requires Protocol v2. Configure dual-link operation with automatic failover.",
+    description: "Advanced. Requires Protocol v2 or v3. Configure dual-link operation with automatic failover.",
     properties: {
       enabled: {
         type: "boolean", title: "Enable Connection Bonding",
@@ -345,7 +346,7 @@ const serverProperties = {
   reliability: {
     type: "object",
     title: "Reliability Settings",
-    description: "Requires Protocol v2. Controls ACK/NAK timing for reliable delivery.",
+    description: "Requires Protocol v2 or v3. Controls ACK/NAK timing for reliable delivery.",
     properties: {
       ackInterval: {
         type: "number", title: "ACK Interval (ms)",
@@ -370,13 +371,13 @@ const CLIENT_V2_SETTING_KEYS = ["reliability", "congestionControl", "bonding", "
 const SERVER_V2_SETTING_KEYS = ["reliability"];
 
 function buildSchema(isClient, protocolVersion) {
-  const isV2 = Number(protocolVersion) === 2;
+  const isReliableProtocol = Number(protocolVersion) >= 2;
   const props = { ...commonProperties };
   const required = ["serverType", "udpPort", "secretKey"];
   if (isClient) {
     Object.assign(props, clientProperties);
     required.push("udpAddress", "testAddress", "testPort");
-    if (!isV2) {
+    if (!isReliableProtocol) {
       for (const key of CLIENT_V2_SETTING_KEYS) {
         delete props[key];
       }
@@ -384,7 +385,7 @@ function buildSchema(isClient, protocolVersion) {
   } else {
     Object.assign(props, serverProperties);
     delete props.enableNotifications;
-    if (!isV2) {
+    if (!isReliableProtocol) {
       for (const key of SERVER_V2_SETTING_KEYS) {
         delete props[key];
       }

@@ -13,7 +13,7 @@ function validateConnection(conn) {
   expect(typeof conn.secretKey).toBe("string");
   expect(conn.secretKey.length).toBe(32);
   if (conn.protocolVersion !== undefined) {
-    expect([1, 2]).toContain(conn.protocolVersion);
+    expect([1, 2, 3]).toContain(conn.protocolVersion);
   }
 }
 
@@ -46,6 +46,7 @@ describe("sample configurations", () => {
     expect(docConnection.serverType.enum).toEqual(runtimeConnection.serverType.enum);
     expect(docConnection.udpPort.minimum).toBe(runtimeConnection.udpPort.minimum);
     expect(docConnection.udpPort.maximum).toBe(runtimeConnection.udpPort.maximum);
+    expect(docConnection.protocolVersion.enum).toEqual(runtimeConnection.protocolVersion.enum);
     expect(docConnection.secretKey.minLength).toBe(runtimeConnection.secretKey.minLength);
     expect(docConnection.secretKey.maxLength).toBe(runtimeConnection.secretKey.maxLength);
     expect(docConnection.secretKey.pattern).toBe(runtimeConnection.secretKey.pattern);

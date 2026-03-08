@@ -1,4 +1,6 @@
-# Signal K Edge Link v2.0 - Configuration Reference
+# Signal K Edge Link Configuration Reference
+
+Use `protocolVersion: 3` when both peers support it and you want authenticated control packets. Keep `protocolVersion: 2` only for compatibility with existing v2 peers.
 
 ## Plugin Configuration
 
@@ -240,14 +242,14 @@ These constants are defined in `lib/constants.js` and control internal behavior.
       "name": "shore-server",
       "serverType": "server",
       "udpPort": 4446,
-      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&",
-      "protocolVersion": 2
+      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
+      "protocolVersion": 3
     },
     {
       "name": "sat-client",
       "serverType": "client",
       "udpPort": 4447,
-      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&",
+      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
       "useMsgpack": true,
       "usePathDictionary": true,
       "udpAddress": "cloud-server.example.com",
@@ -255,7 +257,7 @@ These constants are defined in `lib/constants.js` and control internal behavior.
       "testAddress": "8.8.8.8",
       "testPort": 443,
       "pingIntervalTime": 1,
-      "protocolVersion": 2,
+      "protocolVersion": 3,
       "congestionControl": {
         "enabled": true,
         "targetRTT": 200,

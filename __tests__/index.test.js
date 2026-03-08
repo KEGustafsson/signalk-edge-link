@@ -110,6 +110,11 @@ describe("SignalK Data Connector Plugin", () => {
       expect(secretKey.pattern).toBe("^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$");
     });
 
+    test("should expose protocol versions 1, 2, and 3", () => {
+      const protocolVersion = itemSchema.properties.protocolVersion;
+      expect(protocolVersion.oneOf.map((entry) => entry.const)).toEqual([1, 2, 3]);
+    });
+
     test("should NOT have client-only fields in connection item main properties", () => {
       // Client-only fields live inside dependencies.serverType.oneOf, not top-level
       expect(itemSchema.properties.udpAddress).toBeUndefined();

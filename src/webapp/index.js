@@ -58,30 +58,6 @@ const renderSectionGroup = (title, description, content, id = "") => `
   </section>
 `;
 
-const renderModeBanner = (mode, details = []) => {
-  const modeLabel = mode === "server" ? "Server" : "Client";
-  const modeDescription =
-    mode === "server"
-      ? "Receiving and processing updates from connected clients"
-      : "Collecting, filtering, and transmitting local updates";
-  const detailHtml = details.map((detail) => `
-    <div class="mode-banner-item">${detail}</div>`).join("");
-
-  return `
-    <div class="config-section">
-      <div class="card mode-banner-card mode-${mode}">
-        <div class="card-header">
-          <h2>${modeLabel} Mode</h2>
-          <p>${modeDescription}</p>
-        </div>
-        <div class="card-content">
-          <div class="mode-banner-grid">${detailHtml}</div>
-        </div>
-      </div>
-    </div>
-  `;
-};
-
 class DataConnectorConfig {
   constructor() {
     this.connections = [];
@@ -251,12 +227,6 @@ class DataConnectorConfig {
   }
 
   renderServerContent(container) {
-    const configuration =
-      renderModeBanner("server", [
-        "Configuration is managed through shared plugin settings.",
-        "Data flow: Client Devices &rarr; Server &rarr; SignalK"
-      ]);
-
     const telemetryAndHealth =
       renderCard("Performance Metrics", "Real-time reception statistics (auto-refreshes every 15 seconds)", "metrics") +
       '<div id="monitoringSection" style="display:none;">' +
@@ -267,14 +237,6 @@ class DataConnectorConfig {
       "</div>";
 
     container.innerHTML =
-/*
-      renderSectionGroup(
-        "Configuration",
-        "Review mode context and manage plugin-level settings.",
-        configuration,
-        "configurationGroup"
-      ) +
-*/
       renderSectionGroup(
         "Operations & Monitoring",
         "Track reception quality, throughput, and runtime behavior.",
@@ -291,12 +253,6 @@ class DataConnectorConfig {
 
   renderClientContent(container) {
     const configuration =
-/*
-      renderModeBanner("client", [
-        "Tune collection frequency, subscriptions, and sentence filters.",
-        "Use full plugin config editor for advanced multi-field changes."
-      ]) +
-*/
       this.renderDeltaTimerCard() +
       this.renderSubscriptionCard() +
       this.renderSentenceFilterCard();
@@ -534,7 +490,7 @@ class DataConnectorConfig {
         this.protocolVersion = metrics.protocolVersion || 1;
         this.updateMetricsDisplay(metrics);
 
-        if (this.protocolVersion === 2) {
+        if (this.protocolVersion >= 2) {
           this.loadV2Data(connId);
         }
       }
@@ -729,7 +685,7 @@ class DataConnectorConfig {
       }
 
       const mode = this.normalizeServerType(summaryConfig.serverType) || "client";
-      const protocol = summaryConfig.protocolVersion === 2 ? 2 : 1;
+      const protocol = Number(summaryConfig.protocolVersion) >= 2 ? Number(summaryConfig.protocolVersion) : 1;
       const keyCount = Object.keys(summaryConfig).length;
       summary.innerHTML = `
         <div class="plugin-summary-grid">
@@ -939,7 +895,7 @@ class DataConnectorConfig {
       stats.subscriptionErrors > 0;
 
     const protocolVersion = metrics.protocolVersion || 1;
-    const protocolLabel = protocolVersion === 2 ? "v2" : "v1";
+    const protocolLabel = protocolVersion >= 2 ? `v${protocolVersion}` : "v1";
 
     const metricsGridItems = [
       renderMetricItem("Uptime", uptime.formatted),
