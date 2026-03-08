@@ -121,7 +121,7 @@ describe("Web UI Helper Functions", () => {
     });
 
     test("should escape quotes", () => {
-      expect(escapeHtml('say "hello"')).toBe("say \"hello\"");
+      expect(escapeHtml('say "hello"')).toBe('say "hello"');
     });
 
     test("should handle empty string", () => {
@@ -138,9 +138,7 @@ describe("Web UI Helper Functions", () => {
 
     test("should handle SignalK paths safely", () => {
       expect(escapeHtml("navigation.position")).toBe("navigation.position");
-      expect(escapeHtml("environment.wind.speedApparent")).toBe(
-        "environment.wind.speedApparent"
-      );
+      expect(escapeHtml("environment.wind.speedApparent")).toBe("environment.wind.speedApparent");
     });
   });
 
@@ -334,5 +332,151 @@ describe("Web UI Debounce Behavior", () => {
 
     jest.advanceTimersByTime(100); // Now 300ms since last call
     expect(mockFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("extractSchemaDefaults composite handling", () => {
+  const isPlainObject = (value) =>
+    value !== null && typeof value === "object" && !Array.isArray(value);
+
+  const deepClone = (value) => {
+    if (Array.isArray(value)) {
+      return value.map((item) => deepClone(item));
+    }
+    if (isPlainObject(value)) {
+      const clone = {};
+      for (const [key, childValue] of Object.entries(value)) {
+        clone[key] = deepClone(childValue);
+      }
+      return clone;
+    }
+    return value;
+  };
+
+  const deepMerge = (baseValue, overrideValue) => {
+    if (overrideValue === undefined) {
+      return deepClone(baseValue);
+    }
+    if (Array.isArray(overrideValue)) {
+      return deepClone(overrideValue);
+    }
+
+    if (isPlainObject(baseValue) && isPlainObject(overrideValue)) {
+      const merged = deepClone(baseValue);
+      for (const [key, value] of Object.entries(overrideValue)) {
+        merged[key] = deepMerge(baseValue[key], value);
+      }
+      return merged;
+    }
+
+    return deepClone(overrideValue);
+  };
+
+  const extractSchemaDefaults = (schemaNode) => {
+    if (!schemaNode || typeof schemaNode !== "object") {
+      return undefined;
+    }
+
+    const isObjectNode = schemaNode.type === "object" || !!schemaNode.properties;
+    const merged = {};
+    let hasData = false;
+
+    if (isObjectNode && schemaNode.default && isPlainObject(schemaNode.default)) {
+      Object.assign(merged, deepClone(schemaNode.default));
+      hasData = true;
+    }
+
+    if (schemaNode.properties && isPlainObject(schemaNode.properties)) {
+      for (const [key, value] of Object.entries(schemaNode.properties)) {
+        const childDefaults = extractSchemaDefaults(value);
+        if (childDefaults !== undefined) {
+          merged[key] = childDefaults;
+          hasData = true;
+        } else if (value && value.type === "object") {
+          merged[key] = {};
+          hasData = true;
+        } else if (value && value.type === "string") {
+          merged[key] = "";
+          hasData = true;
+        }
+      }
+    }
+
+    if (schemaNode.dependencies && isPlainObject(schemaNode.dependencies)) {
+      for (const dependencyValue of Object.values(schemaNode.dependencies)) {
+        const dependencyDefaults = extractSchemaDefaults(dependencyValue);
+        if (dependencyDefaults && isPlainObject(dependencyDefaults)) {
+          Object.assign(merged, deepMerge(merged, dependencyDefaults));
+          hasData = true;
+        }
+      }
+    }
+
+    for (const compositeKey of ["oneOf", "anyOf", "allOf"]) {
+      const composite = schemaNode[compositeKey];
+      if (!Array.isArray(composite)) {
+        continue;
+      }
+
+      composite.forEach((item) => {
+        const itemDefaults = extractSchemaDefaults(item);
+        if (itemDefaults === undefined) {
+          return;
+        }
+
+        if (isPlainObject(itemDefaults)) {
+          Object.assign(merged, deepMerge(merged, itemDefaults));
+          hasData = true;
+          return;
+        }
+
+        if (!hasData && schemaNode.default === undefined) {
+          return;
+        }
+
+        hasData = true;
+      });
+    }
+
+    if (hasData) {
+      return merged;
+    }
+
+    if (schemaNode.default !== undefined) {
+      return deepClone(schemaNode.default);
+    }
+
+    return undefined;
+  };
+
+  test("merges object defaults from oneOf branches", () => {
+    const schema = {
+      type: "object",
+      oneOf: [
+        { type: "object", properties: { host: { type: "string", default: "edge.local" } } },
+        { type: "object", properties: { port: { type: "number", default: 3030 } } }
+      ]
+    };
+
+    expect(extractSchemaDefaults(schema)).toEqual({ host: "edge.local", port: 3030 });
+  });
+
+  test("returns undefined when composite items do not provide defaults", () => {
+    const schema = {
+      oneOf: [{ type: "number" }, { type: "boolean" }]
+    };
+
+    expect(extractSchemaDefaults(schema)).toBeUndefined();
+  });
+
+  test("does not skip valid object defaults after primitive branch in oneOf", () => {
+    const schema = {
+      oneOf: [
+        { type: "number", default: 10 },
+        { type: "object", properties: { mode: { type: "string", default: "auto" } } }
+      ]
+    };
+
+    expect(extractSchemaDefaults(schema)).toEqual({ mode: "auto" });
   });
 });
