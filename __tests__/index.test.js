@@ -914,6 +914,7 @@ describe("SignalK Data Connector Plugin", () => {
         enabled: true,
         configuration: {
           connections: [{
+            name: "base",
             serverType: "client",
             udpPort: 4446,
             secretKey: "12345678901234567890123456789012",
@@ -1020,11 +1021,103 @@ describe("SignalK Data Connector Plugin", () => {
     test("POST /plugin-config preserves persisted secret keys when the redacted sentinel is submitted", async () => {
       const read = await readConfig();
 
-      read.configuration.connections[0].udpPort = 5001;
-      await saveConfig(read.configuration);
+      read.configuration.connections[0].pingIntervalTime = 5;
+      const response = await saveConfig(read.configuration);
 
-      expect(diskFile.configuration.connections[0].udpPort).toBe(5001);
+      expect(response.success).toBe(true);
+      expect(diskFile.configuration.connections[0].pingIntervalTime).toBe(5);
       expect(diskFile.configuration.connections[0].secretKey).toBe("12345678901234567890123456789012");
+    });
+
+
+    test("POST /plugin-config restores redacted secrets by stable identity when connections are reordered", async () => {
+      diskFile.configuration = {
+        connections: [
+          { name: "alpha", serverType: "client", udpPort: 4446, secretKey: "abcdefghijklmnopqrstuvwxyz123456", udpAddress: "10.0.0.1", testAddress: "10.0.0.1", testPort: 80 },
+          { name: "beta", serverType: "client", udpPort: 4447, secretKey: "ZYXWVUTSRQPONMLKJIHGFEDCBA654321", udpAddress: "10.0.0.2", testAddress: "10.0.0.2", testPort: 80 }
+        ]
+      };
+
+      const read = await readConfig();
+      const reordered = {
+        connections: [
+          { ...read.configuration.connections[1], secretKey: "[redacted]" },
+          { ...read.configuration.connections[0], secretKey: "[redacted]" }
+        ]
+      };
+
+      const response = await saveConfig(reordered);
+
+      expect(response.success).toBe(true);
+      expect(diskFile.configuration.connections[0].name).toBe("beta");
+      expect(diskFile.configuration.connections[0].secretKey).toBe("ZYXWVUTSRQPONMLKJIHGFEDCBA654321");
+      expect(diskFile.configuration.connections[1].name).toBe("alpha");
+      expect(diskFile.configuration.connections[1].secretKey).toBe("abcdefghijklmnopqrstuvwxyz123456");
+    });
+
+    test("POST /plugin-config supports partial redacted-secret updates", async () => {
+      diskFile.configuration = {
+        connections: [
+          { name: "alpha", serverType: "server", udpPort: 4501, secretKey: "abcdefghijklmnopqrstuvwxyz123456" },
+          { name: "beta", serverType: "server", udpPort: 4502, secretKey: "ZYXWVUTSRQPONMLKJIHGFEDCBA654321" }
+        ]
+      };
+
+      const read = await readConfig();
+      const update = {
+        connections: [
+          { ...read.configuration.connections[0], secretKey: "[redacted]" },
+          { ...read.configuration.connections[1], secretKey: "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6" }
+        ]
+      };
+
+      const response = await saveConfig(update);
+
+      expect(response.success).toBe(true);
+      expect(diskFile.configuration.connections[0].secretKey).toBe("abcdefghijklmnopqrstuvwxyz123456");
+      expect(diskFile.configuration.connections[1].secretKey).toBe("A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6");
+    });
+
+
+    test("POST /plugin-config returns a clear validation error for unmatched redacted secrets", async () => {
+      diskFile.configuration = {
+        connections: [
+          { name: "alpha", serverType: "server", udpPort: 4701, secretKey: "abcdefghijklmnopqrstuvwxyz123456" }
+        ]
+      };
+
+      const read = await readConfig();
+      const response = await saveConfig({
+        connections: [
+          { ...read.configuration.connections[0], udpPort: 4702, secretKey: "[redacted]" }
+        ]
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain("alpha");
+      expect(response.error).toContain("4702");
+      expect(response.error).toContain("no stored secretKey");
+    });
+
+    test("POST /plugin-config rejects ambiguous redacted-secret identity matches", async () => {
+      diskFile.configuration = {
+        connections: [
+          { name: "dup", serverType: "client", udpPort: 4600, secretKey: "abcdefghijklmnopqrstuvwxyz123456", udpAddress: "10.0.0.1", testAddress: "10.0.0.1", testPort: 80 },
+          { name: "dup", serverType: "client", udpPort: 4600, secretKey: "ZYXWVUTSRQPONMLKJIHGFEDCBA654321", udpAddress: "10.0.0.2", testAddress: "10.0.0.2", testPort: 80 }
+        ]
+      };
+
+      const read = await readConfig();
+      const response = await saveConfig({
+        connections: [
+          { ...read.configuration.connections[0], secretKey: "[redacted]" }
+        ]
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain("ambiguous");
+      expect(diskFile.configuration.connections[0].secretKey).toBe("abcdefghijklmnopqrstuvwxyz123456");
+      expect(diskFile.configuration.connections[1].secretKey).toBe("ZYXWVUTSRQPONMLKJIHGFEDCBA654321");
     });
 
     test("config should not grow after multiple save cycles", async () => {
@@ -1068,23 +1161,23 @@ describe("SignalK Data Connector Plugin", () => {
     });
 
     test("config values should survive multiple read-modify-save cycles", async () => {
-      // Round-trip 1: read, modify port inside connections[0], save
+      // Round-trip 1: read, modify non-identity field, save
       const read1 = await readConfig();
-      read1.configuration.connections[0].udpPort = 5000;
+      read1.configuration.connections[0].pingIntervalTime = 2;
       await saveConfig(read1.configuration);
-      expect(diskFile.configuration.connections[0].udpPort).toBe(5000);
+      expect(diskFile.configuration.connections[0].pingIntervalTime).toBe(2);
 
       // Round-trip 2: read, modify address, save
       const read2 = await readConfig();
-      expect(read2.configuration.connections[0].udpPort).toBe(5000);
+      expect(read2.configuration.connections[0].pingIntervalTime).toBe(2);
       read2.configuration.connections[0].udpAddress = "10.0.0.1";
       await saveConfig(read2.configuration);
-      expect(diskFile.configuration.connections[0].udpPort).toBe(5000);
+      expect(diskFile.configuration.connections[0].pingIntervalTime).toBe(2);
       expect(diskFile.configuration.connections[0].udpAddress).toBe("10.0.0.1");
 
       // Round-trip 3: read, verify all changes persisted
       const read3 = await readConfig();
-      expect(read3.configuration.connections[0].udpPort).toBe(5000);
+      expect(read3.configuration.connections[0].pingIntervalTime).toBe(2);
       expect(read3.configuration.connections[0].udpAddress).toBe("10.0.0.1");
       expect(read3.configuration.connections[0].secretKey).toBe("[redacted]");
     });
@@ -1098,6 +1191,7 @@ describe("SignalK Data Connector Plugin", () => {
       // Switch to server mode — client fields should be stripped
       const read2 = await readConfig();
       read2.configuration.connections[0].serverType = "server";
+      read2.configuration.connections[0].secretKey = "12345678901234567890123456789012";
       await saveConfig(read2.configuration);
 
       expect(diskFile.configuration.connections[0].serverType).toBe("server");
@@ -1110,6 +1204,7 @@ describe("SignalK Data Connector Plugin", () => {
       // Switch back to client mode — add client fields back
       const read3 = await readConfig();
       read3.configuration.connections[0].serverType = "client";
+      read3.configuration.connections[0].secretKey = "12345678901234567890123456789012";
       read3.configuration.connections[0].udpAddress = "192.168.1.200";
       read3.configuration.connections[0].testAddress = "1.1.1.1";
       read3.configuration.connections[0].testPort = 443;
