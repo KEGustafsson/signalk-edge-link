@@ -136,7 +136,7 @@
               { "color": "green", "value": null },
               { "color": "yellow", "value": 0.01 },
               { "color": "orange", "value": 0.05 },
-              { "color": "red", "value": 0.10 }
+              { "color": "red", "value": 0.1 }
             ]
           }
         }
@@ -335,7 +335,10 @@
           "fieldConfig": {
             "defaults": {
               "mappings": [
-                { "type": "value", "options": { "1": { "text": "Primary" }, "2": { "text": "Backup" } } }
+                {
+                  "type": "value",
+                  "options": { "1": { "text": "Primary" }, "2": { "text": "Backup" } }
+                }
               ]
             }
           }
