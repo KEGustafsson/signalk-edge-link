@@ -106,11 +106,11 @@ Check that:
 
 ## Protocol version guidance
 
-| Version | Use when | Notes |
-|---|---|---|
-| v1 | stable local links, simplest setup | lower overhead, no ACK/NAK reliability layer |
-| v2 | packet loss, variable latency, WAN links | adds retransmission, congestion control, bonding, richer monitoring |
-| v3 | same use cases as v2 when both peers can upgrade together | keeps v2 features and authenticates ACK/NAK/HEARTBEAT/HELLO control packets |
+| Version | Use when                                                  | Notes                                                                       |
+| ------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
+| v1      | stable local links, simplest setup                        | lower overhead, no ACK/NAK reliability layer                                |
+| v2      | packet loss, variable latency, WAN links                  | adds retransmission, congestion control, bonding, richer monitoring         |
+| v3      | same use cases as v2 when both peers can upgrade together | keeps v2 features and authenticates ACK/NAK/HEARTBEAT/HELLO control packets |
 
 For unstable links, start with **v3** when both peers support it; fall back to **v2** only when you need compatibility with an already deployed v2 peer.
 
@@ -216,7 +216,7 @@ npm run cli -- bonding update --patch '{"failoverThreshold":300}' --token=$EDGE_
 npm run cli -- status --token=$EDGE_LINK_TOKEN --format=table
 ```
 
-Management API security: set `managementApiToken` in plugin options (or environment variable `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) and send it as `X-Edge-Link-Token` or `Authorization: Bearer <token>` for management/configuration/control routes such as `/instances`, `/bonding`, `/status`, `/plugin-config`, `/config/*`, `/connections/:id/config/*`, `/monitoring/alerts`, `/capture/*`, and `/delta-timer`. CLI commands support this via `--token=<token>` or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`.
+Management API security: set `managementApiToken` in plugin options (or environment variable `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) and send it as `X-Edge-Link-Token` or `Authorization: Bearer <token>` for management/configuration/control routes such as `/instances`, `/bonding`, `/status`, `/plugin-config`, `/config/*`, `/connections/:id/config/*`, `/connections/:id/metrics`, `/connections/:id/network-metrics`, `/connections/:id/bonding`, `/connections/:id/congestion`, `/connections/:id/monitoring/*`, `/monitoring/alerts`, `/capture/*`, and `/delta-timer`. CLI commands support this via `--token=<token>` or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`.
 
 ## Documentation map
 
@@ -237,7 +237,6 @@ Management API security: set `managementApiToken` in plugin options (or environm
 - `schemas/config.schema.json` (unified plugin config schema)
 - `scripts/migrate-config.js` (legacy config migration utility)
 - `bin/edge-link-cli.js` (CLI wrapper for migration and instance/bonding management)
-
 
 ## License
 
