@@ -133,7 +133,7 @@ Most used endpoints:
 - `GET /bonding`
 - `POST /bonding`
 
-For full endpoint details, use `docs/api-reference.md`.
+For full endpoint details, use `docs/api-reference.md` (current: 2.1.0-beta).
 
 ## Configuration model (summary)
 
@@ -225,7 +225,7 @@ Web UI token entry: management pages automatically attach auth headers when a to
 - `docs/README.md` (documentation index)
 - `docs/architecture-overview.md` (system architecture and lifecycle)
 - `docs/configuration-reference.md` (settings and defaults)
-- `docs/api-reference.md` (REST endpoints)
+- `docs/api-reference.md` (REST endpoints, current: 2.1.0-beta)
 - `docs/protocol-v2.md` (reliable protocol operational overview)
 - `docs/protocol-v3-spec.md` (authenticated control-plane details)
 - `docs/bonding.md` (bonding concepts and API usage)

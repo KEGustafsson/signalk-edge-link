@@ -1,4 +1,6 @@
-# Signal K Edge Link v2.0 - API Reference
+# Signal K Edge Link API Reference (current: 2.1.0-beta)
+
+This reference tracks the **current release line**. For endpoint additions/removals between minor or beta releases, see `docs/pr-records/` for change history.
 
 All REST API endpoints are served under the base path `/plugins/signalk-edge-link/`.
 
