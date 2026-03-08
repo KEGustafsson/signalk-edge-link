@@ -628,6 +628,7 @@ function PluginConfigurationPanel(_props) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null); // { type, message }
+  const [inlineValidationMessage, setInlineValidationMessage] = useState(null);
   const [expandedIndex, setExpandedIndex] = useState(0);
   const [isDirty, setIsDirty] = useState(false);
   const tokenHelpText = getTokenHelpText();
@@ -682,6 +683,7 @@ function PluginConfigurationPanel(_props) {
   const markDirty = useCallback(() => {
     setIsDirty(true);
     setSaveStatus(null);
+    setInlineValidationMessage(null);
   }, []);
 
   const updateConnection = useCallback((idx, data) => {
@@ -708,8 +710,15 @@ function PluginConfigurationPanel(_props) {
   }, [markDirty]);
 
   const removeConnection = useCallback((idx) => {
-    setConnections((prev) => prev.filter((_, i) => i !== idx));
-    setExpandedIndex((prev) => (prev >= idx && prev > 0 ? prev - 1 : prev));
+    setConnections((prev) => {
+      // Enforce at least one connection in UI state.
+      if (prev.length <= 1) {
+        return prev;
+      }
+      const next = prev.filter((_, i) => i !== idx);
+      setExpandedIndex((prevExpanded) => (prevExpanded >= idx && prevExpanded > 0 ? prevExpanded - 1 : prevExpanded));
+      return next;
+    });
     markDirty();
   }, [markDirty]);
 
@@ -721,6 +730,16 @@ function PluginConfigurationPanel(_props) {
     // Synchronous guard (M2 fix) – prevents concurrent saves even before React
     // re-renders to set saveStatus to "saving".
     if (savingRef.current) { return; }
+    if (connections.length === 0) {
+      setInlineValidationMessage("At least one connection is required before saving.");
+      setSaveStatus({
+        type: "error",
+        message: "Cannot save an empty configuration. Add at least one connection."
+      });
+      return;
+    }
+
+    setInlineValidationMessage(null);
     if (duplicatePortSet.size > 0) {
       setSaveStatus({
         type: "error",
@@ -819,10 +838,15 @@ function PluginConfigurationPanel(_props) {
         <button
           className="skel-btn skel-btn-primary"
           onClick={handleSave}
-          disabled={saveStatus && saveStatus.type === "saving"}
+          disabled={(saveStatus && saveStatus.type === "saving") || connections.length === 0}
         >
           {isDirty ? "Save Changes" : "Save Configuration"}
         </button>
+        {inlineValidationMessage && (
+          <span style={{ color: "#dc3545", fontSize: "0.85rem", fontWeight: 500 }}>
+            {inlineValidationMessage}
+          </span>
+        )}
         <span style={{ fontSize: "0.85rem", color: "#6c757d" }}>
           {connections.length} connection{connections.length !== 1 ? "s" : ""}
           {" · "}
