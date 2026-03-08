@@ -218,6 +218,8 @@ npm run cli -- status --token=$EDGE_LINK_TOKEN --format=table
 
 Management API security: set `managementApiToken` in plugin options (or environment variable `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) and send it as `X-Edge-Link-Token` or `Authorization: Bearer <token>` for management/configuration/control routes such as `/instances`, `/bonding`, `/status`, `/plugin-config`, `/config/*`, `/connections/:id/config/*`, `/connections/:id/metrics`, `/connections/:id/network-metrics`, `/connections/:id/bonding`, `/connections/:id/congestion`, `/connections/:id/monitoring/*`, `/monitoring/alerts`, `/capture/*`, and `/delta-timer`. CLI commands support this via `--token=<token>` or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`.
 
+Web UI token entry: management pages automatically attach auth headers when a token is available. Provide a token using one of: `window.__EDGE_LINK_AUTH__.token` (injected global), URL query parameter `?edgeLinkToken=<token>`, or `localStorage.setItem("signalkEdgeLinkManagementToken", "<token>")`. By default the UI sends both `X-Edge-Link-Token` and `Authorization: Bearer <token>`. You can override behavior with `window.__EDGE_LINK_AUTH__ = { token, queryParam, localStorageKey, headerMode }` where `headerMode` can be `both`, `authorization`, or `x-edge-link-token`.
+
 ## Documentation map
 
 - `docs/README.md` (documentation index)

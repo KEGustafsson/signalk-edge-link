@@ -1,4 +1,5 @@
 import "./styles.css";
+import { apiFetch, getTokenHelpText, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
 
 // Constants
 const API_BASE_PATH = "/plugins/signalk-edge-link";
@@ -67,6 +68,7 @@ class DataConnectorConfig {
     this.schemaCurrentMode = null;
     this.metricsInterval = null;
     this.syncTimeout = null;
+    this.tokenHelpText = getTokenHelpText();
 
     // Per-connection state (loaded for the active tab)
     this.deltaTimerConfig = null;
@@ -94,7 +96,7 @@ class DataConnectorConfig {
 
   async fetchConnections() {
     try {
-      const res = await fetch(`${API_BASE_PATH}/connections`);
+      const res = await this.request(`${API_BASE_PATH}/connections`);
       if (res.ok) {
         this.connections = await res.json();
       }
@@ -176,6 +178,20 @@ class DataConnectorConfig {
       return `${API_BASE_PATH}/bonding/failover`;
     }
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/bonding/failover`;
+  }
+
+  async request(input, init = {}) {
+    const response = await apiFetch(input, init);
+    if (response.status === 401) {
+      const error = new Error(MANAGEMENT_TOKEN_ERROR_MESSAGE);
+      error.isUnauthorized = true;
+      throw error;
+    }
+    return response;
+  }
+
+  authFailureMessage(context) {
+    return `${MANAGEMENT_TOKEN_ERROR_MESSAGE} Failed while ${context}. ${this.tokenHelpText}`;
   }
 
   // ── Page rendering ─────────────────────────────────────────────────────────
@@ -449,6 +465,7 @@ class DataConnectorConfig {
               <small class="help-text">
                 This editor exposes all available plugin fields. Save triggers plugin restart when supported.
               </small>
+              <small class="help-text">${this.escapeHtml(this.tokenHelpText)}</small>
             </div>
             <div class="plugin-config-actions">
               <button id="savePluginConfig" class="btn btn-primary">Save Full Plugin Config</button>
@@ -481,8 +498,8 @@ class DataConnectorConfig {
   async loadPluginConfiguration(showErrors = true) {
     try {
       const [configResponse, schemaResponse] = await Promise.all([
-        fetch(`${API_BASE_PATH}/plugin-config`),
-        fetch(`${API_BASE_PATH}/plugin-schema`)
+        this.request(`${API_BASE_PATH}/plugin-config`),
+        this.request(`${API_BASE_PATH}/plugin-schema`)
       ]);
 
       if (!configResponse.ok) {
@@ -515,7 +532,7 @@ class DataConnectorConfig {
       return true;
     } catch (error) {
       if (showErrors) {
-        this.showNotification("Error loading plugin config: " + error.message, "warning");
+        this.showNotification(error.isUnauthorized ? this.authFailureMessage("loading plugin config") : "Error loading plugin config: " + error.message, "warning");
       }
       return false;
     }
@@ -524,16 +541,16 @@ class DataConnectorConfig {
   async loadConfigurations(connId) {
     try {
       const [deltaResponse, subResponse, filterResponse] = await Promise.all([
-        fetch(this.configPath(connId, "delta_timer.json")),
-        fetch(this.configPath(connId, "subscription.json")),
-        fetch(this.configPath(connId, "sentence_filter.json"))
+        this.request(this.configPath(connId, "delta_timer.json")),
+        this.request(this.configPath(connId, "subscription.json")),
+        this.request(this.configPath(connId, "sentence_filter.json"))
       ]);
 
       this.deltaTimerConfig = deltaResponse.ok ? await deltaResponse.json() : null;
       this.subscriptionConfig = subResponse.ok ? await subResponse.json() : null;
       this.sentenceFilterConfig = filterResponse.ok ? await filterResponse.json() : null;
     } catch (error) {
-      this.showNotification("Error loading configurations: " + error.message, "error");
+      this.showNotification(error.isUnauthorized ? this.authFailureMessage("loading connection configuration") : "Error loading configurations: " + error.message, "error");
     }
   }
 
@@ -542,7 +559,7 @@ class DataConnectorConfig {
       connId = this.activeConnectionId;
     }
     try {
-      const response = await fetch(this.metricsPath(connId));
+      const response = await this.request(this.metricsPath(connId));
       if (response.ok) {
         const metrics = await response.json();
         this.protocolVersion = metrics.protocolVersion || 1;
@@ -561,15 +578,15 @@ class DataConnectorConfig {
     const isClient = !this.isServerMode;
 
     const fetches = [
-      fetch(this.monitoringPath(connId, "alerts")).catch(() => null),
-      fetch(this.monitoringPath(connId, "packet-loss")).catch(() => null),
-      fetch(this.monitoringPath(connId, "retransmissions")).catch(() => null)
+      this.request(this.monitoringPath(connId, "alerts")).catch(() => null),
+      this.request(this.monitoringPath(connId, "packet-loss")).catch(() => null),
+      this.request(this.monitoringPath(connId, "retransmissions")).catch(() => null)
     ];
 
     if (isClient) {
       fetches.push(
-        fetch(this.congestionPath(connId)).catch(() => null),
-        fetch(this.bondingPath(connId)).catch(() => null)
+        this.request(this.congestionPath(connId)).catch(() => null),
+        this.request(this.bondingPath(connId)).catch(() => null)
       );
     }
 
@@ -618,7 +635,7 @@ class DataConnectorConfig {
   async refreshActiveTab() {
     // Refresh the connections list to update tab badges
     try {
-      const res = await fetch(`${API_BASE_PATH}/connections`);
+      const res = await this.request(`${API_BASE_PATH}/connections`);
       if (res.ok) {
         const updated = await res.json();
         if (updated.length > 0) {
@@ -861,7 +878,7 @@ class DataConnectorConfig {
   async saveConfig(filename, config, configKey, label) {
     const connId = this.activeConnectionId;
     try {
-      const response = await fetch(this.configPath(connId, filename), {
+      const response = await this.request(this.configPath(connId, filename), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config)
@@ -875,7 +892,7 @@ class DataConnectorConfig {
         throw new Error("Failed to save configuration");
       }
     } catch (error) {
-      this.showNotification(`Error saving ${label.toLowerCase()}: ` + error.message, "error");
+      this.showNotification(error.isUnauthorized ? this.authFailureMessage(`saving ${label.toLowerCase()}`) : `Error saving ${label.toLowerCase()}: ` + error.message, "error");
     }
   }
 
@@ -954,7 +971,7 @@ class DataConnectorConfig {
         requestConfig.serverType = normalizedServerType;
       }
 
-      const response = await fetch(`${API_BASE_PATH}/plugin-config`, {
+      const response = await this.request(`${API_BASE_PATH}/plugin-config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestConfig)
@@ -972,7 +989,7 @@ class DataConnectorConfig {
         "success"
       );
     } catch (error) {
-      this.showNotification("Error saving full plugin config: " + error.message, "error");
+      this.showNotification(error.isUnauthorized ? this.authFailureMessage("saving full plugin config") : "Error saving full plugin config: " + error.message, "error");
     }
   }
 
@@ -1499,17 +1516,17 @@ class DataConnectorConfig {
       btn.disabled = true;
     }
     try {
-      const response = await fetch(this.bondingFailoverPath(connId), { method: "POST" });
+      const response = await this.request(this.bondingFailoverPath(connId), { method: "POST" });
       if (response.ok) {
         const result = await response.json();
         this.showNotification(`Failover complete. Active link: ${result.activeLink}`, "success");
         this.loadMetrics(connId);
       } else {
         const err = await response.json();
-        this.showNotification("Failover failed: " + (err.error || "Unknown error"), "error");
+        this.showNotification(response.status === 401 ? this.authFailureMessage("triggering failover") : "Failover failed: " + (err.error || "Unknown error"), "error");
       }
     } catch (error) {
-      this.showNotification("Failover failed: " + error.message, "error");
+      this.showNotification(error.isUnauthorized ? this.authFailureMessage("triggering failover") : "Failover failed: " + error.message, "error");
     } finally {
       if (btn) {
         btn.disabled = false;

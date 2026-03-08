@@ -20,6 +20,37 @@ without a valid token. This includes `/instances`, `/bonding`, `/status`,
 
 CLI note: `--token` sends both `X-Edge-Link-Token` and `Authorization: Bearer <token>` for compatibility with reverse proxies.
 
+### Web UI token entry
+
+The bundled management UI (`src/webapp` and plugin configuration panel) can attach management tokens automatically.
+
+Supported token sources (checked in priority order):
+
+1. `window.__EDGE_LINK_AUTH__.token` (injected global)
+2. URL query parameter `?edgeLinkToken=<token>` (name configurable)
+3. Browser localStorage key `signalkEdgeLinkManagementToken` (name configurable)
+
+By default, UI requests send both headers when a token is available:
+
+- `X-Edge-Link-Token: <token>`
+- `Authorization: Bearer <token>`
+
+Optional runtime override:
+
+```js
+window.__EDGE_LINK_AUTH__ = {
+  token: "<token>",
+  queryParam: "edgeLinkToken",
+  localStorageKey: "signalkEdgeLinkManagementToken",
+  headerMode: "both" // both | authorization | x-edge-link-token
+};
+```
+
+When token validation fails, the UI reports `Management token required/invalid.` to help operators distinguish auth failures from generic load/save issues.
+
+For local static preview/testing of the built UI, serve the repository root and open `/public/index.html` (for example `python -m http.server 8001` then browse `http://localhost:8001/public/index.html`) so asset paths resolve consistently.
+
+
 ## Instance management
 
 ### List instances

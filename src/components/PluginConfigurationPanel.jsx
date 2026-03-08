@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 // eslint-disable-next-line no-unused-vars
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
+import { apiFetch, getTokenHelpText, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
 
 const API_BASE = "/plugins/signalk-edge-link";
 
@@ -629,6 +630,7 @@ function PluginConfigurationPanel(_props) {
   const [saveStatus, setSaveStatus] = useState(null); // { type, message }
   const [expandedIndex, setExpandedIndex] = useState(0);
   const [isDirty, setIsDirty] = useState(false);
+  const tokenHelpText = getTokenHelpText();
 
   // Synchronous save lock prevents double-submits even if React batching delays
   // the button's disabled state update (M2 fix).
@@ -638,7 +640,10 @@ function PluginConfigurationPanel(_props) {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`${API_BASE}/plugin-config`);
+        const res = await apiFetch(`${API_BASE}/plugin-config`);
+        if (res.status === 401) {
+          throw new Error(MANAGEMENT_TOKEN_ERROR_MESSAGE);
+        }
         if (!res.ok) { throw new Error(`HTTP ${res.status}: ${res.statusText}`); }
         const body = await res.json();
         if (!body.success) { throw new Error(body.error || "Failed to load configuration"); }
@@ -729,11 +734,14 @@ function PluginConfigurationPanel(_props) {
     try {
       // Strip the frontend-only _id before sending to the backend
       const payload = connections.map(({ _id, ...rest }) => rest);
-      const res = await fetch(`${API_BASE}/plugin-config`, {
+      const res = await apiFetch(`${API_BASE}/plugin-config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ connections: payload })
       });
+      if (res.status === 401) {
+        throw new Error(MANAGEMENT_TOKEN_ERROR_MESSAGE);
+      }
       const body = await res.json();
       if (res.ok && body.success) {
         setSaveStatus({ type: "success", message: body.message || "Configuration saved. Plugin restarting..." });
@@ -823,6 +831,9 @@ function PluginConfigurationPanel(_props) {
           {", "}
           {connections.filter((c) => c.serverType !== "server").length} client
           {connections.filter((c) => c.serverType !== "server").length !== 1 ? "s" : ""}
+        </span>
+        <span style={{ fontSize: "0.8rem", color: "#6c757d", flexBasis: "100%" }}>
+          {tokenHelpText}
         </span>
       </div>
     </div>
