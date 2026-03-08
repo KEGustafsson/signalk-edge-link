@@ -423,7 +423,7 @@ describe("instances management route", () => {
 
     const req = {
       body: { unsupported: 1 },
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-edge-link-token": "secret-token" },
       ip: "127.0.0.1",
       socket: {},
       app: { get: () => false }
@@ -491,7 +491,7 @@ describe("instances management route", () => {
     const route = router.routes.find((r) => r.method === "post" && r.path === "/instances");
     const req = {
       body: { name: "new", serverType: "server", udpPort: 4500, secretKey: "abcdefghijklmnopqrstuvwxyz123456" },
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-edge-link-token": "secret-token" },
       ip: "127.0.0.1",
       socket: {},
       app: { get: () => false }
@@ -507,6 +507,55 @@ describe("instances management route", () => {
       ])
     }));
   });
+
+  test("POST /instances preserves managementApiToken across restart and keeps auth enforced", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const restart = jest.fn().mockResolvedValue(undefined);
+    const pluginRef = {
+      _restartPlugin: restart,
+      _currentOptions: {
+        managementApiToken: "secret-token",
+        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+      }
+    };
+
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const createRoute = router.routes.find((r) => r.method === "post" && r.path === "/instances");
+    const createReq = {
+      body: { name: "new", serverType: "server", udpPort: 4500, secretKey: "abcdefghijklmnopqrstuvwxyz123456" },
+      headers: { "content-type": "application/json", "x-edge-link-token": "secret-token" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const createRes = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    await createRoute.handlers[2](createReq, createRes);
+
+    expect(restart).toHaveBeenCalledWith(expect.objectContaining({ managementApiToken: "secret-token" }));
+    expect(pluginRef._currentOptions.managementApiToken).toBe("secret-token");
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    const deniedReq = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false }, query: {} };
+    const deniedJson = jest.fn();
+    const deniedRes = { json: jest.fn(), status: jest.fn(() => ({ json: deniedJson })) };
+
+    instancesRoute.handlers[1](deniedReq, deniedRes);
+
+    expect(deniedRes.status).toHaveBeenCalledWith(401);
+    expect(deniedJson).toHaveBeenCalledWith({ error: "Unauthorized management API request" });
+  });
+
 
   test("PUT /instances/:id rejects immutable field updates", async () => {
     const app = { get: jest.fn(() => false) };
@@ -535,7 +584,7 @@ describe("instances management route", () => {
     const req = {
       params: { id: "base" },
       body: { udpPort: 9000 },
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-edge-link-token": "secret-token" },
       ip: "127.0.0.1",
       socket: {},
       app: { get: () => false }
@@ -770,6 +819,111 @@ describe("instances management route", () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(json).toHaveBeenCalledWith({ error: "bonding.mode must be 'main-backup'" });
     expect(pluginRef._restartPlugin).not.toHaveBeenCalled();
+  });
+
+
+  test("PUT /instances/:id preserves managementApiToken across restart and keeps auth enforced", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.name = "base";
+    const restart = jest.fn().mockResolvedValue(undefined);
+
+    const pluginRef = {
+      _restartPlugin: restart,
+      _currentOptions: {
+        managementApiToken: "secret-token",
+        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012", protocolVersion: 2, udpAddress: "127.0.0.1", testAddress: "127.0.0.1", testPort: 80, pingIntervalTime: 10, helloMessageSender: 60 }]
+      }
+    };
+
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "base" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const updateRoute = router.routes.find((r) => r.method === "put" && r.path === "/instances/:id");
+    const updateReq = {
+      params: { id: "base" },
+      body: { protocolVersion: 3 },
+      headers: { "content-type": "application/json", "x-edge-link-token": "secret-token" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const updateRes = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    await updateRoute.handlers[2](updateReq, updateRes);
+
+    expect(restart).toHaveBeenCalledWith(expect.objectContaining({ managementApiToken: "secret-token" }));
+    expect(pluginRef._currentOptions.managementApiToken).toBe("secret-token");
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    const deniedReq = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false }, query: {} };
+    const deniedJson = jest.fn();
+    const deniedRes = { json: jest.fn(), status: jest.fn(() => ({ json: deniedJson })) };
+
+    instancesRoute.handlers[1](deniedReq, deniedRes);
+
+    expect(deniedRes.status).toHaveBeenCalledWith(401);
+    expect(deniedJson).toHaveBeenCalledWith({ error: "Unauthorized management API request" });
+  });
+
+  test("DELETE /instances/:id preserves managementApiToken across restart and keeps auth enforced", async () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    bundle.name = "alpha";
+
+    const restart = jest.fn().mockResolvedValue(undefined);
+    const pluginRef = {
+      _restartPlugin: restart,
+      _currentOptions: {
+        managementApiToken: "secret-token",
+        connections: [
+          { name: "alpha", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" },
+          { name: "beta", serverType: "client", udpPort: 4447, secretKey: "12345678901234567890123456789012" }
+        ]
+      }
+    };
+
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "alpha" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const deleteRoute = router.routes.find((r) => r.method === "delete" && r.path === "/instances/:id");
+    const deleteReq = {
+      params: { id: "alpha" },
+      headers: { "x-edge-link-token": "secret-token" },
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const deleteRes = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    await deleteRoute.handlers[1](deleteReq, deleteRes);
+
+    expect(restart).toHaveBeenCalledWith(expect.objectContaining({ managementApiToken: "secret-token" }));
+    expect(pluginRef._currentOptions.managementApiToken).toBe("secret-token");
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    const deniedReq = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false }, query: {} };
+    const deniedJson = jest.fn();
+    const deniedRes = { json: jest.fn(), status: jest.fn(() => ({ json: deniedJson })) };
+
+    instancesRoute.handlers[1](deniedReq, deniedRes);
+
+    expect(deniedRes.status).toHaveBeenCalledWith(401);
+    expect(deniedJson).toHaveBeenCalledWith({ error: "Unauthorized management API request" });
   });
 
 
