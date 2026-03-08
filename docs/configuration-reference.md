@@ -21,14 +21,14 @@ Configuration is stored as an array of connections. A single Signal K node can r
 
 ## Common Settings (Per Connection)
 
-| Setting | JSON Key | Type | Default | Range | Description |
-|---------|----------|------|---------|-------|-------------|
-| Connection Name | `name` | string | `"connection"` | max 40 chars | Label used as instance ID and Signal K metrics namespace |
-| Operation Mode | `serverType` | string | `"client"` | `"server"`, `"client"` | Server receives data, Client sends data |
-| UDP Port | `udpPort` | number | `4446` | 1024 - 65535 | Must match on both ends; each server connection needs a unique port |
-| Encryption Key | `secretKey` | string | - | 32-byte secret | Use 32-character ASCII, 64-character hex, or 44-character base64; must match on both ends |
-| Use MessagePack | `useMsgpack` | boolean | `false` | - | Binary serialization (must match both ends) |
-| Use Path Dictionary | `usePathDictionary` | boolean | `false` | - | Path encoding (must match both ends) |
+| Setting             | JSON Key            | Type    | Default        | Range                  | Description                                                                               |
+| ------------------- | ------------------- | ------- | -------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
+| Connection Name     | `name`              | string  | `"connection"` | max 40 chars           | Label used as instance ID and Signal K metrics namespace                                  |
+| Operation Mode      | `serverType`        | string  | `"client"`     | `"server"`, `"client"` | Server receives data, Client sends data                                                   |
+| UDP Port            | `udpPort`           | number  | `4446`         | 1024 - 65535           | Must match on both ends; each server connection needs a unique port                       |
+| Encryption Key      | `secretKey`         | string  | -              | 32-byte secret         | Use 32-character ASCII, 64-character hex, or 44-character base64; must match on both ends |
+| Use MessagePack     | `useMsgpack`        | boolean | `false`        | -                      | Binary serialization (must match both ends)                                               |
+| Use Path Dictionary | `usePathDictionary` | boolean | `false`        | -                      | Path encoding (must match both ends)                                                      |
 
 ## Client Mode Settings
 
@@ -36,24 +36,24 @@ These settings are only available when `serverType` is `"client"`.
 
 ### Network
 
-| Setting | JSON Key | Type | Default | Range | Description |
-|---------|----------|------|---------|-------|-------------|
-| Server Address | `udpAddress` | string | `"127.0.0.1"` | valid IP/hostname | Server to send data to |
-| Heartbeat Interval | `helloMessageSender` | integer | `60` | 10 - 3600 s | Keep-alive message frequency |
-| Test Address | `testAddress` | string | `"127.0.0.1"` | valid IP/hostname | Ping target for RTT monitoring |
-| Test Port | `testPort` | number | `80` | 1 - 65535 | TCP port for connectivity test |
-| Check Interval | `pingIntervalTime` | number | `1` | 0.1 - 60 min | Network test frequency |
+| Setting            | JSON Key             | Type    | Default       | Range             | Description                    |
+| ------------------ | -------------------- | ------- | ------------- | ----------------- | ------------------------------ |
+| Server Address     | `udpAddress`         | string  | `"127.0.0.1"` | valid IP/hostname | Server to send data to         |
+| Heartbeat Interval | `helloMessageSender` | integer | `60`          | 10 - 3600 s       | Keep-alive message frequency   |
+| Test Address       | `testAddress`        | string  | `"127.0.0.1"` | valid IP/hostname | Ping target for RTT monitoring |
+| Test Port          | `testPort`           | number  | `80`          | 1 - 65535         | TCP port for connectivity test |
+| Check Interval     | `pingIntervalTime`   | number  | `1`           | 0.1 - 60 min      | Network test frequency         |
 
 ### Dynamic Congestion Control
 
 Configuration key: `congestionControl`
 
-| Setting | JSON Key | Type | Default | Range | Description |
-|---------|----------|------|---------|-------|-------------|
-| Enable | `enabled` | boolean | `false` | - | Activate AIMD algorithm |
-| Target RTT | `targetRTT` | number | `200` | 50 - 2000 ms | RTT above this triggers rate decrease |
-| Min Delta Timer | `minDeltaTimer` | number | `100` | 50 - 1000 ms | Fastest send interval |
-| Max Delta Timer | `maxDeltaTimer` | number | `5000` | 1000 - 30000 ms | Slowest send interval |
+| Setting         | JSON Key        | Type    | Default | Range           | Description                           |
+| --------------- | --------------- | ------- | ------- | --------------- | ------------------------------------- |
+| Enable          | `enabled`       | boolean | `false` | -               | Activate AIMD algorithm               |
+| Target RTT      | `targetRTT`     | number  | `200`   | 50 - 2000 ms    | RTT above this triggers rate decrease |
+| Min Delta Timer | `minDeltaTimer` | number  | `100`   | 50 - 1000 ms    | Fastest send interval                 |
+| Max Delta Timer | `maxDeltaTimer` | number  | `5000`  | 1000 - 30000 ms | Slowest send interval                 |
 
 **Example:**
 
@@ -74,41 +74,41 @@ Configuration key: `congestionControl`
 
 Configuration key: `bonding`
 
-| Setting | JSON Key | Type | Default | Range | Description |
-|---------|----------|------|---------|-------|-------------|
-| Enable | `enabled` | boolean | `false` | - | Activate dual-link bonding |
-| Mode | `mode` | string | `"main-backup"` | `"main-backup"` | Bonding operating mode |
+| Setting | JSON Key  | Type    | Default         | Range           | Description                |
+| ------- | --------- | ------- | --------------- | --------------- | -------------------------- |
+| Enable  | `enabled` | boolean | `false`         | -               | Activate dual-link bonding |
+| Mode    | `mode`    | string  | `"main-backup"` | `"main-backup"` | Bonding operating mode     |
 
 #### Primary Link
 
 Configuration key: `bonding.primary`
 
-| Setting | JSON Key | Type | Default | Description |
-|---------|----------|------|---------|-------------|
-| Address | `address` | string | `"127.0.0.1"` | Server IP/hostname for primary link |
-| Port | `port` | number | `4446` | UDP port for primary link |
-| Interface | `interface` | string | (none) | Bind to specific network interface IP |
+| Setting   | JSON Key    | Type   | Default       | Description                           |
+| --------- | ----------- | ------ | ------------- | ------------------------------------- |
+| Address   | `address`   | string | `"127.0.0.1"` | Server IP/hostname for primary link   |
+| Port      | `port`      | number | `4446`        | UDP port for primary link             |
+| Interface | `interface` | string | (none)        | Bind to specific network interface IP |
 
 #### Backup Link
 
 Configuration key: `bonding.backup`
 
-| Setting | JSON Key | Type | Default | Description |
-|---------|----------|------|---------|-------------|
-| Address | `address` | string | `"127.0.0.1"` | Server IP/hostname for backup link |
-| Port | `port` | number | `4447` | UDP port for backup link |
-| Interface | `interface` | string | (none) | Bind to specific network interface IP |
+| Setting   | JSON Key    | Type   | Default       | Description                           |
+| --------- | ----------- | ------ | ------------- | ------------------------------------- |
+| Address   | `address`   | string | `"127.0.0.1"` | Server IP/hostname for backup link    |
+| Port      | `port`      | number | `4447`        | UDP port for backup link              |
+| Interface | `interface` | string | (none)        | Bind to specific network interface IP |
 
 #### Failover Thresholds
 
 Configuration key: `bonding.failover`
 
-| Setting | JSON Key | Type | Default | Range | Description |
-|---------|----------|------|---------|-------|-------------|
-| RTT Threshold | `rttThreshold` | number | `500` | 100 - 5000 ms | Failover when RTT exceeds this |
-| Loss Threshold | `lossThreshold` | number | `0.1` | 0.01 - 0.5 | Failover when loss exceeds this ratio |
-| Health Check Interval | `healthCheckInterval` | number | `1000` | 500 - 10000 ms | Link health check frequency |
-| Failback Delay | `failbackDelay` | number | `30000` | 5000 - 300000 ms | Wait time before returning to primary |
+| Setting               | JSON Key              | Type   | Default | Range            | Description                           |
+| --------------------- | --------------------- | ------ | ------- | ---------------- | ------------------------------------- |
+| RTT Threshold         | `rttThreshold`        | number | `500`   | 100 - 5000 ms    | Failover when RTT exceeds this        |
+| Loss Threshold        | `lossThreshold`       | number | `0.1`   | 0.01 - 0.5       | Failover when loss exceeds this ratio |
+| Health Check Interval | `healthCheckInterval` | number | `1000`  | 500 - 10000 ms   | Link health check frequency           |
+| Failback Delay        | `failbackDelay`       | number | `30000` | 5000 - 300000 ms | Wait time before returning to primary |
 
 **Example (LTE + Starlink):**
 
@@ -129,7 +129,7 @@ Configuration key: `bonding.failover`
     },
     "failover": {
       "rttThreshold": 500,
-      "lossThreshold": 0.10,
+      "lossThreshold": 0.1,
       "healthCheckInterval": 1000,
       "failbackDelay": 30000
     }
@@ -153,9 +153,9 @@ Controls the data collection interval.
 }
 ```
 
-| Field | Type | Default | Range | Description |
-|-------|------|---------|-------|-------------|
-| `deltaTimer` | number | `1000` | 100 - 10000 ms | Data batching interval |
+| Field        | Type   | Default | Range          | Description            |
+| ------------ | ------ | ------- | -------------- | ---------------------- |
+| `deltaTimer` | number | `1000`  | 100 - 10000 ms | Data batching interval |
 
 Lower values = more frequent sends, higher bandwidth, lower latency.
 Higher values = less frequent sends, better compression ratio.
@@ -175,10 +175,10 @@ Controls which Signal K paths are transmitted.
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `context` | string | Signal K context filter (`"*"` = all vessels) |
-| `subscribe` | array | Array of path subscription objects |
+| Field              | Type   | Description                                   |
+| ------------------ | ------ | --------------------------------------------- |
+| `context`          | string | Signal K context filter (`"*"` = all vessels) |
+| `subscribe`        | array  | Array of path subscription objects            |
 | `subscribe[].path` | string | Signal K path pattern (supports `*` wildcard) |
 
 ### sentence_filter.json
@@ -187,15 +187,16 @@ Excludes NMEA sentences from transmission to reduce bandwidth.
 
 ```json
 {
-  "sentences": ["GSV", "GSA", "VTG"]
+  "excludedSentences": ["GSV", "GSA", "VTG"]
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `sentences` | array | NMEA sentence types to filter out |
+| Field               | Type  | Description                       |
+| ------------------- | ----- | --------------------------------- |
+| `excludedSentences` | array | NMEA sentence types to filter out |
 
 Common sentences to filter:
+
 - `GSV` - GPS satellites in view (large, repetitive)
 - `GSA` - GPS DOP and active satellites
 - `VTG` - Track and ground speed (redundant with COG/SOG)
@@ -206,13 +207,13 @@ Alert thresholds are configured via the REST API at `POST /plugins/signalk-edge-
 
 ### Default Thresholds
 
-| Metric | Warning | Critical |
-|--------|---------|----------|
-| RTT (ms) | 300 | 800 |
-| Packet Loss (ratio) | 0.03 | 0.10 |
-| Retransmit Rate (ratio) | 0.05 | 0.15 |
-| Jitter (ms) | 100 | 300 |
-| Queue Depth | 100 | 500 |
+| Metric                  | Warning | Critical |
+| ----------------------- | ------- | -------- |
+| RTT (ms)                | 300     | 800      |
+| Packet Loss (ratio)     | 0.03    | 0.10     |
+| Retransmit Rate (ratio) | 0.05    | 0.15     |
+| Jitter (ms)             | 100     | 300      |
+| Queue Depth             | 100     | 500      |
 
 Alerts emit Signal K notifications at `notifications.signalk-edge-link.<instanceId>.<metric>` with `state` set to `"warn"` or `"alert"`. The source label is `signalk-edge-link:<instanceId>`. Alert cooldown is 60 seconds.
 
@@ -220,18 +221,18 @@ Alerts emit Signal K notifications at `notifications.signalk-edge-link.<instance
 
 These constants are defined in `lib/constants.js` and control internal behavior. They are not configurable via the UI but can be modified in the source code.
 
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `MAX_SAFE_UDP_PAYLOAD` | 1400 bytes | MTU limit for UDP packets |
-| `BROTLI_QUALITY_HIGH` | 10 | Brotli compression quality |
-| `UDP_RETRY_MAX` | 3 | Max UDP send retries |
-| `UDP_RETRY_DELAY` | 100 ms | Base retry delay |
-| `SMART_BATCH_SAFETY_MARGIN` | 85% | Target % of MTU |
-| `SMART_BATCH_MAX_DELTAS` | 50 | Max deltas per batch |
-| `RATE_LIMIT_MAX_REQUESTS` | 120 | API rate limit per minute per IP |
-| `BONDING_HEARTBEAT_TIMEOUT` | 5000 ms | Link marked DOWN after this |
-| `MONITORING_ALERT_COOLDOWN` | 60000 ms | Alert cooldown period |
-| `PACKET_CAPTURE_MAX_PACKETS` | 1000 | Max packets in capture buffer |
+| Constant                     | Value      | Description                                                         |
+| ---------------------------- | ---------- | ------------------------------------------------------------------- |
+| `MAX_SAFE_UDP_PAYLOAD`       | 1400 bytes | MTU limit for UDP packets                                           |
+| `BROTLI_QUALITY_HIGH`        | 6          | Brotli compression quality (balanced: ~90% of max at ~10% CPU cost) |
+| `UDP_RETRY_MAX`              | 3          | Max UDP send retries                                                |
+| `UDP_RETRY_DELAY`            | 100 ms     | Base retry delay                                                    |
+| `SMART_BATCH_SAFETY_MARGIN`  | 85%        | Target % of MTU                                                     |
+| `SMART_BATCH_MAX_DELTAS`     | 50         | Max deltas per batch                                                |
+| `RATE_LIMIT_MAX_REQUESTS`    | 120        | API rate limit per minute per IP                                    |
+| `BONDING_HEARTBEAT_TIMEOUT`  | 5000 ms    | Link marked DOWN after this                                         |
+| `MONITORING_ALERT_COOLDOWN`  | 60000 ms   | Alert cooldown period                                               |
+| `PACKET_CAPTURE_MAX_PACKETS` | 1000       | Max packets in capture buffer                                       |
 
 ## Complete Example Configuration
 
@@ -279,7 +280,7 @@ These constants are defined in `lib/constants.js` and control internal behavior.
         },
         "failover": {
           "rttThreshold": 500,
-          "lossThreshold": 0.10,
+          "lossThreshold": 0.1,
           "healthCheckInterval": 1000,
           "failbackDelay": 30000
         }
