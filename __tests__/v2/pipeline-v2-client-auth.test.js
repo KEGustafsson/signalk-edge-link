@@ -66,4 +66,24 @@ describe("pipeline-v2-client authenticated control packets", () => {
     expect(pipeline.getRetransmitQueue().getSize()).toBe(1);
     expect(metricsApi.metrics.malformedPackets).toBe(1);
   });
+  test("rethrows sendDelta errors after recording udp send failure", async () => {
+    const app = makeApp();
+    const state = makeState({
+      socketUdp: {
+        send: jest.fn((_message, _port, _host, cb) => cb(Object.assign(new Error("forced UDP send failure"), { code: "EIO" })))
+      }
+    });
+    const metricsApi = createMetrics();
+    const pipeline = createPipelineV2Client(app, state, metricsApi);
+
+    await expect(
+      pipeline.sendDelta([{ updates: [{ values: [{ path: "navigation.courseOverGroundTrue", value: 3.1 }] }] }], state.options.secretKey, "127.0.0.1", 4446)
+    ).rejects.toThrow("forced UDP send failure");
+
+    expect(metricsApi.metrics.udpSendErrors).toBeGreaterThanOrEqual(1);
+    expect(metricsApi.metrics.errorCounts.udpSend).toBeGreaterThanOrEqual(1);
+    expect(metricsApi.metrics.errorCounts.general).toBe(1);
+    expect(app.error).toHaveBeenCalledWith(expect.stringContaining("v2 sendDelta error"));
+  });
+
 });

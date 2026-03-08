@@ -51,7 +51,7 @@ describe("slugify", () => {
 // ── createInstance ────────────────────────────────────────────────────────
 
 function makeMockApp() {
-  return {
+  const app = {
     debug: jest.fn(),
     error: jest.fn(),
     setPluginStatus: jest.fn(),
@@ -61,12 +61,13 @@ function makeMockApp() {
     reportOutputMessages: jest.fn(),
     getDataDirPath: jest.fn(() => "/tmp/test-instance-" + Math.random().toString(36).slice(2)),
     subscriptionmanager: {
-      subscribe: jest.fn((_sub, unsubs, _onError, _onDelta) => {
-        // store onDelta so tests can trigger it
+      subscribe: jest.fn((_sub, unsubs, _onError, onDelta) => {
+        app.__onDelta = onDelta;
         unsubs.push(() => {});
       })
     }
   };
+  return app;
 }
 
 function makeClientOptions(overrides = {}) {
@@ -267,4 +268,53 @@ describe("createInstance", () => {
 
     inst.stop();
   });
+  test("retries one failed batch then drops it with explicit metrics", async () => {
+    jest.useFakeTimers();
+    const app = makeMockApp();
+    const inst = createInstance(
+      app,
+      makeClientOptions({ protocolVersion: 2 }),
+      "retry-test",
+      "plugin",
+      jest.fn()
+    );
+
+    try {
+      await inst.start();
+      jest.advanceTimersByTime(500);
+      await Promise.resolve();
+
+      const state = inst.getState();
+      const metrics = inst.getMetricsApi().metrics;
+      state.readyToSend = true;
+      state.maxDeltasPerBatch = 1;
+
+      const sendError = new Error("forced UDP send failure");
+      state.pipeline.sendDelta = jest.fn()
+        .mockRejectedValueOnce(sendError)
+        .mockRejectedValueOnce(sendError);
+
+      state.processDelta({
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.speedOverGround", value: 1.2 }] }]
+      });
+
+      await Promise.resolve();
+      expect(state.pipeline.sendDelta).toHaveBeenCalledTimes(1);
+      expect(state.deltas.length).toBe(1);
+
+      await jest.advanceTimersByTimeAsync(100);
+
+      expect(state.pipeline.sendDelta).toHaveBeenCalledTimes(2);
+      expect(state.deltas.length).toBe(0);
+      expect(metrics.droppedDeltaBatches).toBe(1);
+      expect(metrics.droppedDeltaCount).toBe(1);
+      expect(metrics.errorCounts.sendFailure).toBeGreaterThan(0);
+      expect(app.error).toHaveBeenCalledWith(expect.stringContaining("Dropped delta batch"));
+    } finally {
+      inst.stop();
+      jest.useRealTimers();
+    }
+  });
+
 });
