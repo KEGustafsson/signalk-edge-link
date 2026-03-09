@@ -65,7 +65,7 @@ function register(router: any, ctx: any): void {
         return res.status(503).json({ error: "Plugin not started" });
       }
 
-      const sharedMeta = new Set();
+      const sharedMeta = new Set<string>();
       const parts: string[] = [];
 
       for (const bundle of allBundles) {

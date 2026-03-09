@@ -118,7 +118,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
   let monitoringHooks: any = null;
 
   // RTT tracking for jitter calculation (CircularBuffer gives O(1) push with auto-eviction)
-  const rttSamples = new CircularBuffer(10);
+  const rttSamples = new CircularBuffer<number>(10);
   let lastAckedSeq: number | null = null;
   let lastAckAt = Date.now();
   let lastAckRinfo: { address: string; port: number } | null = null;

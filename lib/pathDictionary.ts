@@ -429,7 +429,7 @@ function transformDelta(
 
         if (shouldTransform(value)) {
           const transformedPath = pathTransform(value.path);
-          transformedValues[j] = { ...value, path: transformedPath };
+          transformedValues[j] = { ...value, path: transformedPath as string };
         } else {
           transformedValues[j] = { ...value };
         }

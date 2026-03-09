@@ -18,7 +18,7 @@
  */
 
 import * as dgram from "dgram";
-import { CircularBuffer } from "./CircularBuffer";
+import CircularBuffer from "./CircularBuffer";
 import {
   BONDING_HEALTH_CHECK_INTERVAL,
   BONDING_RTT_THRESHOLD,

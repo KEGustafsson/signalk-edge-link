@@ -348,7 +348,7 @@ export class PacketParser {
 
     // Parse type
     const type = packet[3];
-    if (!VALID_PACKET_TYPES.has(type)) {
+    if (!VALID_PACKET_TYPES.has(type as (typeof PacketType)[keyof typeof PacketType])) {
       throw new Error(`Unknown packet type: 0x${type.toString(16)}`);
     }
 
