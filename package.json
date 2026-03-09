@@ -32,6 +32,7 @@
     "test:integration": "jest test/integration/",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "build:ts": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{js,json,md}\"",
