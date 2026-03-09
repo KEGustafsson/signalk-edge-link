@@ -1,0 +1,309 @@
+"use strict";
+
+/**
+ * Signal K Edge Link v2.0 - Metrics Publisher
+ *
+ * Publishes network quality metrics to Signal K paths.
+ * Calculates link quality score from multiple factors.
+ *
+ * @module lib/metrics-publisher
+ */
+
+import CircularBuffer = require("./CircularBuffer");
+
+class MetricsPublisher {
+  app: any;
+  config: any;
+  pathPrefix: string;
+  sourceLabel: string;
+  windowSize: number;
+  rttWindow: any;
+  jitterWindow: any;
+  lossWindow: any;
+  lastPublished: Record<string, any>;
+
+  /**
+   * @param {Object} app - Signal K app instance
+   * @param {Object} config - Configuration
+   * @param {string} [config.pathPrefix] - Base Signal K path prefix
+   *   (default: "networking.edgeLink"). Set to
+   *   "networking.edgeLink.<instanceId>" when running multiple instances so
+   *   each instance publishes to its own namespace.
+   */
+  constructor(app: any, config: any = {}) {
+    this.app = app;
+    this.config = config;
+    this.pathPrefix = config.pathPrefix || "networking.edgeLink";
+    // sourceLabel identifies this instance in Signal K source tracking.
+    // Pass a per-instance label so Signal K can distinguish between multiple
+    // concurrently running instances of this plugin.
+    this.sourceLabel = config.sourceLabel || "signalk-edge-link";
+
+    // Moving average windows (CircularBuffer for O(1) push, no splice overhead)
+    this.windowSize = 10; // 10 seconds
+    this.rttWindow = new CircularBuffer(this.windowSize);
+    this.jitterWindow = new CircularBuffer(this.windowSize);
+    this.lossWindow = new CircularBuffer(this.windowSize);
+
+    // Last published values (for deduplication)
+    this.lastPublished = {};
+  }
+
+  /**
+   * Publish metrics to Signal K
+   *
+   * @param {Object} metrics - Metrics object
+   */
+  publish(metrics: any): void {
+    const values: Array<{ path: string; value: any }> = [];
+
+    // Core metrics
+    if (metrics.rtt !== undefined) {
+      this._addToWindow(this.rttWindow, metrics.rtt);
+      const avgRtt = this._calculateAverage(this.rttWindow);
+      values.push({ path: `${this.pathPrefix}.rtt`, value: parseFloat(avgRtt.toFixed(1)) });
+    }
+
+    if (metrics.jitter !== undefined) {
+      this._addToWindow(this.jitterWindow, metrics.jitter);
+      const avgJitter = this._calculateAverage(this.jitterWindow);
+      values.push({ path: `${this.pathPrefix}.jitter`, value: parseFloat(avgJitter.toFixed(1)) });
+    }
+
+    if (metrics.packetLoss !== undefined) {
+      this._addToWindow(this.lossWindow, metrics.packetLoss);
+      const avgLoss = this._calculateAverage(this.lossWindow);
+      values.push({ path: `${this.pathPrefix}.packetLoss`, value: parseFloat(avgLoss.toFixed(3)) });
+    }
+
+    // Bandwidth
+    if (typeof metrics.uploadBandwidth === "number") {
+      values.push({
+        path: `${this.pathPrefix}.bandwidth.upload`,
+        value: parseFloat(metrics.uploadBandwidth.toFixed(2))
+      });
+    }
+
+    if (typeof metrics.downloadBandwidth === "number") {
+      values.push({
+        path: `${this.pathPrefix}.bandwidth.download`,
+        value: parseFloat(metrics.downloadBandwidth.toFixed(2))
+      });
+    }
+
+    // Performance
+    if (typeof metrics.packetsSentPerSec === "number") {
+      values.push({
+        path: `${this.pathPrefix}.packetsPerSecond.sent`,
+        value: parseFloat(metrics.packetsSentPerSec.toFixed(2))
+      });
+    }
+
+    if (typeof metrics.packetsReceivedPerSec === "number") {
+      values.push({
+        path: `${this.pathPrefix}.packetsPerSecond.received`,
+        value: parseFloat(metrics.packetsReceivedPerSec.toFixed(0))
+      });
+    }
+
+    if (typeof metrics.retransmissions === "number") {
+      values.push({
+        path: `${this.pathPrefix}.retransmissions`,
+        value: parseFloat(metrics.retransmissions.toFixed(0))
+      });
+    }
+
+    if (typeof metrics.sequenceNumber === "number") {
+      values.push({
+        path: `${this.pathPrefix}.sequenceNumber`,
+        value: parseFloat(metrics.sequenceNumber.toFixed(0))
+      });
+    }
+
+    if (typeof metrics.queueDepth === "number") {
+      values.push({
+        path: `${this.pathPrefix}.queueDepth`,
+        value: parseFloat(metrics.queueDepth.toFixed(0))
+      });
+    }
+
+    // Calculate and publish link quality
+    const quality = this.calculateLinkQuality({
+      rtt: this._calculateAverage(this.rttWindow),
+      jitter: this._calculateAverage(this.jitterWindow),
+      packetLoss: this._calculateAverage(this.lossWindow),
+      retransmitRate: metrics.retransmitRate || 0
+    });
+
+    values.push({
+      path: `${this.pathPrefix}.linkQuality`,
+      value: parseFloat(quality.toFixed(0))
+    });
+
+    // Active link
+    if (metrics.activeLink) {
+      values.push({
+        path: `${this.pathPrefix}.activeLink`,
+        value: metrics.activeLink
+      });
+    }
+
+    // Compression ratio (from v1)
+    if (typeof metrics.compressionRatio === "number") {
+      values.push({
+        path: `${this.pathPrefix}.compressionRatio`,
+        value: parseFloat(metrics.compressionRatio.toFixed(2))
+      });
+    }
+
+    // Only publish if values changed
+    if (this._hasChanged(values)) {
+      this.app.handleMessage(this.sourceLabel, {
+        context: "vessels.self",
+        updates: [{
+          source: {
+            label: this.sourceLabel,
+            type: "plugin"
+          },
+          timestamp: new Date().toISOString(),
+          values: values
+        }]
+      });
+
+      this._updateLastPublished(values);
+    }
+  }
+
+  /**
+   * Calculate link quality score (0-100)
+   *
+   * @param {Object} params
+   * @returns {number} Quality score
+   */
+  calculateLinkQuality({ rtt, jitter, packetLoss, retransmitRate }: {
+    rtt: number;
+    jitter: number;
+    packetLoss: number;
+    retransmitRate: number;
+  }): number {
+    // Normalize to 0-1 scores
+    const rttScore = this._clamp(1 - (rtt / 1000), 0, 1);
+    const jitterScore = this._clamp(1 - (jitter / 500), 0, 1);
+    const lossScore = this._clamp(1 - packetLoss, 0, 1);
+    const retransmitScore = this._clamp(1 - (retransmitRate / 0.1), 0, 1);
+
+    // Weighted average
+    const quality = (
+      lossScore * 40 +
+      rttScore * 30 +
+      jitterScore * 20 +
+      retransmitScore * 10
+    );
+
+    return Math.round(quality);
+  }
+
+  /**
+   * Publish per-link metrics (for bonding)
+   *
+   * @param {string} linkName - "primary" or "backup"
+   * @param {Object} linkMetrics - Link-specific metrics
+   */
+  publishLinkMetrics(linkName: string, linkMetrics: any): void {
+    const basePath = `${this.pathPrefix}.links.${linkName}`;
+    const linkLoss = linkMetrics.loss !== undefined
+      ? linkMetrics.loss
+      : (linkMetrics.packetLoss !== undefined ? linkMetrics.packetLoss : 0);
+
+    const values = [
+      { path: `${basePath}.status`, value: linkMetrics.status },
+      { path: `${basePath}.rtt`, value: linkMetrics.rtt },
+      { path: `${basePath}.loss`, value: linkLoss },
+      {
+        path: `${basePath}.quality`,
+        value: this.calculateLinkQuality({
+          rtt: linkMetrics.rtt || 0,
+          jitter: linkMetrics.jitter || 0,
+          packetLoss: linkLoss,
+          retransmitRate: linkMetrics.retransmitRate || 0
+        })
+      }
+    ];
+
+    this.app.handleMessage(this.sourceLabel, {
+      context: "vessels.self",
+      updates: [{
+        source: { label: this.sourceLabel, type: "plugin" },
+        timestamp: new Date().toISOString(),
+        values: values
+      }]
+    });
+  }
+
+  /**
+   * Add value to moving average window
+   *
+   * @private
+   */
+  _addToWindow(window: any, value: number): void {
+    window.push(value);
+  }
+
+  /**
+   * Calculate average of window
+   *
+   * @private
+   */
+  _calculateAverage(window: any): number {
+    if (window.length === 0) {return 0;}
+    const arr = window.toArray();
+    const sum = arr.reduce((a: number, b: number) => a + b, 0);
+    return sum / arr.length;
+  }
+
+  /**
+   * Clamp value between min and max
+   *
+   * @private
+   */
+  _clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  /**
+   * Check if values have changed since last publish
+   *
+   * @private
+   */
+  _hasChanged(values: Array<{ path: string; value: any }>): boolean {
+    for (const { path, value } of values) {
+      if (!Object.is(this.lastPublished[path], value)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Update last published values
+   *
+   * @private
+   */
+  _updateLastPublished(values: Array<{ path: string; value: any }>): void {
+    for (const { path, value } of values) {
+      this.lastPublished[path] = value;
+    }
+  }
+
+  /**
+   * Reset all metrics
+   */
+  reset(): void {
+    this.rttWindow = new CircularBuffer(this.windowSize);
+    this.jitterWindow = new CircularBuffer(this.windowSize);
+    this.lossWindow = new CircularBuffer(this.windowSize);
+    this.lastPublished = {};
+  }
+}
+
+export { MetricsPublisher };
