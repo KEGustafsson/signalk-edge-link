@@ -81,8 +81,8 @@
     "testEnvironment": "node",
     "coverageDirectory": "coverage",
     "collectCoverageFrom": [
-      "*.js",
-      "lib/**/*.js",
+      "*.{js,ts}",
+      "lib/**/*.{js,ts}",
       "!webpack.config.js",
       "!.eslintrc.js"
     ],
@@ -91,7 +91,10 @@
       "**/*.test.js",
       "**/*.spec.js"
     ],
-    "transform": {},
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "moduleFileExtensions": ["ts", "js", "json", "node"],
     "testPathIgnorePatterns": [
       "/node_modules/",
       "/public/"
