@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "outDir": ".",
+    "rootDir": ".",
+    "strict": false,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmitOnError": false,
+    "allowJs": false
+  },
+  "include": [
+    "index.ts",
+    "lib/**/*.ts",
+    "bin/**/*.ts",
+    "scripts/migrate-config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "public",
+    "src",
+    "__tests__",
+    "test",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+}
