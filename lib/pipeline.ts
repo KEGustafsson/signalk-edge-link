@@ -1,41 +1,42 @@
 "use strict";
 
-const msgpack = require("@msgpack/msgpack");
-const { encryptBinary, decryptBinary } = require("./crypto");
-const { encodeDelta, decodeDelta } = require("./pathDictionary");
-const {
+import * as msgpack from "@msgpack/msgpack";
+import { encryptBinary, decryptBinary } from "./crypto";
+import { encodeDelta, decodeDelta } from "./pathDictionary";
+import {
   deltaBuffer, compressPayload, brotliDecompressAsync,
-  udpSendAsync: _udpSendAsyncShared
-} = require("./pipeline-utils");
-const {
+  udpSendAsync as _udpSendAsyncShared
+} from "./pipeline-utils";
+import {
   MAX_SAFE_UDP_PAYLOAD,
   MAX_DECOMPRESSED_SIZE,
   MAX_DELTAS_PER_PACKET,
   SMART_BATCH_SMOOTHING,
   calculateMaxDeltasPerBatch
-} = require("./constants");
+} from "./constants";
+import type { SignalKApp, MetricsApi, InstanceState, Delta } from "./types";
 
 /**
  * Creates the data processing pipeline (compress, encrypt, send / receive, decrypt, decompress).
- * @param {Object} app - SignalK app object (for logging)
- * @param {Object} state - Shared mutable state (options, socketUdp, batching vars, lastPacketTime)
- * @param {Object} metricsApi - Metrics API from lib/metrics.js
- * @returns {Object} Pipeline API: { packCrypt, unpackDecrypt }
+ * @param app - SignalK app object (for logging)
+ * @param state - Shared mutable state (options, socketUdp, batching vars, lastPacketTime)
+ * @param metricsApi - Metrics API from lib/metrics.js
+ * @returns Pipeline API: { packCrypt, unpackDecrypt }
  */
-function createPipeline(app, state, metricsApi) {
+function createPipeline(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi): { packCrypt: any; unpackDecrypt: any } {
   const { metrics, recordError, trackPathStats } = metricsApi;
-  const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
+  const setStatus = (app as any).setPluginStatus || (app as any).setProviderStatus || (() => {});
 
   /**
    * Compresses, encrypts, and sends delta data via UDP.
    * Pipeline: Serialize -> Compress -> Encrypt (AES-256-GCM) -> Send
-   * @param {Object|Array} delta - Delta data to send
-   * @param {string} secretKey - 32-character encryption key
-   * @param {string} udpAddress - Destination IP address
-   * @param {number} udpPort - Destination UDP port
-   * @returns {Promise<void>}
    */
-  async function packCrypt(delta, secretKey, udpAddress, udpPort) {
+  async function packCrypt(
+    delta: Delta | Delta[],
+    secretKey: string,
+    udpAddress: string,
+    udpPort: number
+  ): Promise<void> {
     try {
       // Guard against calls after plugin stop
       if (!state.options) {
@@ -62,7 +63,7 @@ function createPipeline(app, state, metricsApi) {
       }
 
       // Single compression stage (before encryption)
-      const compressed = await compressPayload(serialized, state.options.useMsgpack);
+      const compressed = await compressPayload(serialized, state.options.useMsgpack || false);
 
       // Encrypt with AES-256-GCM (binary format with built-in authentication)
       const packet = encryptBinary(compressed, secretKey);
@@ -106,7 +107,7 @@ function createPipeline(app, state, metricsApi) {
 
       // Update last packet time for hello message suppression
       state.lastPacketTime = Date.now();
-    } catch (error) {
+    } catch (error: any) {
       const msg = error.message || "";
       const code = error.code || "";
       if (code.startsWith("ERR_ZLIB") || code === "ERR_BUFFER_OUT_OF_RANGE" || msg.includes("compress")) {
@@ -125,11 +126,8 @@ function createPipeline(app, state, metricsApi) {
   /**
    * Decompresses, decrypts, and processes received UDP data.
    * Pipeline: Receive -> Decrypt (AES-256-GCM) -> Decompress -> Parse -> Process
-   * @param {Buffer} packet - Binary packet with encrypted data
-   * @param {string} secretKey - 32-character decryption key
-   * @returns {Promise<void>}
    */
-  async function unpackDecrypt(packet, secretKey) {
+  async function unpackDecrypt(packet: Buffer, secretKey: string): Promise<void> {
     try {
       // Guard against calls after plugin stop
       if (!state.options) {
@@ -147,13 +145,13 @@ function createPipeline(app, state, metricsApi) {
       // Decompress (single decompression stage, capped to prevent decompression bombs)
       const decompressed = await brotliDecompressAsync(decrypted, {
         maxOutputLength: MAX_DECOMPRESSED_SIZE
-      });
+      }) as Buffer;
 
       // Track raw bytes
       metrics.bandwidth.bytesInRaw += decompressed.length;
 
       // Parse content (JSON or MessagePack)
-      let jsonContent;
+      let jsonContent: unknown;
       if (state.options.useMsgpack) {
         try {
           jsonContent = msgpack.decode(decompressed);
@@ -172,12 +170,10 @@ function createPipeline(app, state, metricsApi) {
         return;
       }
 
-      // Process deltas: payload may be an Array of deltas or an indexed
-      // object ({0: delta, 1: delta, ...}).  Normalise to an array so
-      // iteration is safe for both shapes.
+      // Process deltas: payload may be an Array of deltas or an indexed object.
       const deltas = Array.isArray(jsonContent)
-        ? jsonContent
-        : Object.values(jsonContent);
+        ? jsonContent as Delta[]
+        : Object.values(jsonContent as Record<string, Delta>);
       const deltaCount = Math.min(deltas.length, MAX_DELTAS_PER_PACKET);
 
       if (deltas.length > MAX_DELTAS_PER_PACKET) {
@@ -185,7 +181,7 @@ function createPipeline(app, state, metricsApi) {
       }
 
       for (let i = 0; i < deltaCount; i++) {
-        let deltaMessage = deltas[i];
+        let deltaMessage: Delta | null = deltas[i];
 
         // Skip null or undefined delta messages
         if (deltaMessage === null || deltaMessage === undefined) {
@@ -193,8 +189,7 @@ function createPipeline(app, state, metricsApi) {
           continue;
         }
 
-        // Decode path dictionary IDs and ensure source is never null/undefined
-        // decodeDelta via transformDelta always applies source ?? {}, handling both cases
+        // Decode path dictionary IDs
         deltaMessage = decodeDelta(deltaMessage);
 
         // Skip if decoding returned null
@@ -210,7 +205,7 @@ function createPipeline(app, state, metricsApi) {
         app.debug(JSON.stringify(deltaMessage, null, 2));
         metrics.deltasReceived++;
       }
-    } catch (error) {
+    } catch (error: any) {
       const msg = error.message || "";
       const code = error.code || "";
       if (msg.includes("Unsupported state") || msg.includes("auth") || code === "ERR_CRYPTO_INVALID_STATE") {
@@ -231,12 +226,8 @@ function createPipeline(app, state, metricsApi) {
 
   /**
    * Sends a message via UDP with retry logic (delegates to shared utility)
-   * @param {Buffer} message - Message to send
-   * @param {string} host - Destination host address
-   * @param {number} port - Destination port number
-   * @returns {Promise<void>}
    */
-  function udpSendAsync(message, host, port) {
+  function udpSendAsync(message: Buffer, host: string, port: number): Promise<void> {
     if (!state.socketUdp) {
       const error = new Error("UDP socket not initialized, cannot send message");
       app.error(error.message);
@@ -245,11 +236,11 @@ function createPipeline(app, state, metricsApi) {
     }
 
     return _udpSendAsyncShared(state.socketUdp, message, host, port, {
-      onRetry(retryCount, err) {
+      onRetry(retryCount: number, err: NodeJS.ErrnoException) {
         metrics.udpRetries++;
         app.debug(`UDP send error (${err.code}), retry ${retryCount}/${3}`);
       },
-      onError(err, retryCount) {
+      onError(err: NodeJS.ErrnoException, retryCount: number) {
         metrics.udpSendErrors++;
         app.error(`UDP send error to ${host}:${port} - ${err.message} (code: ${err.code})`);
         recordError("udpSend", `UDP send error: ${err.message} (${err.code})`);
@@ -263,4 +254,4 @@ function createPipeline(app, state, metricsApi) {
   return { packCrypt, unpackDecrypt };
 }
 
-module.exports = createPipeline;
+export = createPipeline;

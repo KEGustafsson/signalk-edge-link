@@ -1,6 +1,4 @@
-"use strict";
-
-function validateRuntimeConfigBody(filename, body) {
+function validateRuntimeConfigBody(filename: string, body: any): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return "Request body must be a JSON object";
   }
@@ -25,6 +23,4 @@ function validateRuntimeConfigBody(filename, body) {
   return null;
 }
 
-module.exports = {
-  validateRuntimeConfigBody
-};
+export { validateRuntimeConfigBody };

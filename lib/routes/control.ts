@@ -1,18 +1,16 @@
-"use strict";
-
 /**
  * Registers control routes: /congestion, /delta-timer, /bonding, /bonding/failover
  *
- * @param {Object} router - Express router
- * @param {Object} ctx - Shared route context
+ * @param router - Express router
+ * @param ctx - Shared route context
  */
-function register(router, ctx) {
+function register(router: any, ctx: any): void {
   const {
     rateLimitMiddleware, requireJson, getFirstBundle, instanceRegistry,
     authorizeManagement, managementAuthMiddleware
   } = ctx;
 
-  router.get("/congestion", rateLimitMiddleware, (req, res) => {
+  router.get("/congestion", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -27,7 +25,7 @@ function register(router, ctx) {
 
       const cc = state.pipeline.getCongestionControl();
       res.json(cc.getState());
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -37,7 +35,7 @@ function register(router, ctx) {
     rateLimitMiddleware,
     managementAuthMiddleware("delta-timer.update"),
     requireJson,
-    (req, res) => {
+    (req: any, res: any) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -74,13 +72,13 @@ function register(router, ctx) {
         state.deltaTimerTime = value;
 
         res.json({ deltaTimer: value, mode: "manual" });
-      } catch (err) {
+      } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
     }
   );
 
-  router.get("/bonding", rateLimitMiddleware, (req, res) => {
+  router.get("/bonding", rateLimitMiddleware, (req: any, res: any) => {
     try {
       if (!authorizeManagement(req, res, "bonding.read")) { return; }
       const all = instanceRegistry.getAll();
@@ -88,7 +86,7 @@ function register(router, ctx) {
         return res.status(503).json({ error: "Plugin not started" });
       }
 
-      const instances = all.map((bundle) => {
+      const instances = all.map((bundle: any) => {
         const { state } = bundle;
         const bondingManager = (state.pipeline && state.pipeline.getBondingManager)
           ? state.pipeline.getBondingManager()
@@ -101,18 +99,18 @@ function register(router, ctx) {
         };
       });
 
-      const enabledCount = instances.filter((item) => item.enabled).length;
+      const enabledCount = instances.filter((item: any) => item.enabled).length;
       res.json({
         totalInstances: instances.length,
         bondingEnabledInstances: enabledCount,
         instances
       });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post("/bonding", rateLimitMiddleware, requireJson, (req, res) => {
+  router.post("/bonding", rateLimitMiddleware, requireJson, (req: any, res: any) => {
     try {
       if (!authorizeManagement(req, res, "bonding.update")) { return; }
       const allowedKeys = new Set(["rttThreshold", "lossThreshold", "healthCheckInterval", "failbackDelay", "heartbeatTimeout"]);
@@ -122,7 +120,7 @@ function register(router, ctx) {
         return res.status(400).json({ error: "Request body must be a JSON object" });
       }
 
-      const updates = {};
+      const updates: any = {};
       for (const [key, value] of Object.entries(body)) {
         if (!allowedKeys.has(key)) {
           return res.status(400).json({ error: `Unsupported bonding setting '${key}'` });
@@ -138,7 +136,7 @@ function register(router, ctx) {
         return res.status(400).json({ error: "At least one bonding setting must be provided" });
       }
 
-      const updatedInstances = [];
+      const updatedInstances: any[] = [];
       for (const bundle of instanceRegistry.getAll()) {
         const { state } = bundle;
         const bondingManager = (state.pipeline && state.pipeline.getBondingManager)
@@ -156,12 +154,12 @@ function register(router, ctx) {
       }
 
       res.json({ success: true, updated: updates, instances: updatedInstances });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post("/bonding/failover", rateLimitMiddleware, managementAuthMiddleware("bonding.failover"), (req, res) => {
+  router.post("/bonding/failover", rateLimitMiddleware, managementAuthMiddleware("bonding.failover"), (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -186,10 +184,10 @@ function register(router, ctx) {
         activeLink: bonding.getActiveLinkName(),
         links: bonding.getLinkHealth()
       });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 }
 
-module.exports = { register };
+export { register };

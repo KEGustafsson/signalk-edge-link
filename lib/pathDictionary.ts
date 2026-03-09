@@ -1,12 +1,15 @@
 "use strict";
+
 /**
  * Signal K Path Dictionary for bandwidth optimization
  * Maps common SignalK paths to short numeric IDs for transmission
  * Based on official Signal K specification: https://github.com/SignalK/specification
  */
 
+import type { Delta } from "./types";
+
 // Path to ID mapping (encode)
-const PATH_TO_ID = {
+export const PATH_TO_ID: Record<string, number> = {
   // Navigation paths (0x01xx)
   "navigation.position": 0x0101,
   "navigation.position.latitude": 0x0102,
@@ -279,12 +282,22 @@ const PATH_TO_ID = {
 };
 
 // ID to Path mapping (decode) - generated from PATH_TO_ID
-const ID_TO_PATH = Object.fromEntries(Object.entries(PATH_TO_ID).map(([k, v]) => [v, k]));
+export const ID_TO_PATH: Record<number, string> = Object.fromEntries(
+  Object.entries(PATH_TO_ID).map(([k, v]) => [v, k])
+) as Record<number, string>;
+
 const ALL_PATHS = Object.keys(PATH_TO_ID);
 const DICTIONARY_SIZE = ALL_PATHS.length;
 
+interface PathCategory {
+  name: string;
+  description: string;
+  icon: string;
+  prefix: string;
+}
+
 // Path categories for UI grouping
-const PATH_CATEGORIES = {
+export const PATH_CATEGORIES: Record<string, PathCategory> = {
   navigation: {
     name: "Navigation",
     description: "Position, speed, heading, and course data",
@@ -359,7 +372,7 @@ const PATH_CATEGORIES = {
   }
 };
 
-const PATHS_BY_CATEGORY = Object.fromEntries(
+const PATHS_BY_CATEGORY: Record<string, string[]> = Object.fromEntries(
   Object.entries(PATH_CATEGORIES).map(([category, info]) => [
     category,
     ALL_PATHS.filter((path) => path.startsWith(info.prefix))
@@ -368,39 +381,37 @@ const PATHS_BY_CATEGORY = Object.fromEntries(
 
 /**
  * Encodes a path string to its numeric ID
- * @param {string} path - The SignalK path
- * @returns {number|string} The numeric ID if found, otherwise the original path
+ * @param path - The SignalK path
+ * @returns The numeric ID if found, otherwise the original path
  */
-function encodePath(path) {
+export function encodePath(path: string): number | string {
   if (PATH_TO_ID[path] !== undefined) {
     return PATH_TO_ID[path];
   }
   // No exact match -- return original path string to preserve instance IDs
-  // (e.g., "electrical.batteries.1.voltage" keeps the bank number intact)
   return path;
 }
 
 /**
  * Decodes a numeric ID to its path string
- * @param {number|string} id - The numeric ID or original path
- * @returns {string} The SignalK path
+ * @param id - The numeric ID or original path
+ * @returns The SignalK path
  */
-function decodePath(id) {
+export function decodePath(id: number | string): string {
   if (typeof id === "number" && ID_TO_PATH[id] !== undefined) {
     return ID_TO_PATH[id];
   }
-  return id;
+  return id as string;
 }
 
 /**
  * Transforms paths in a delta object using the provided path transform function
- * Shared implementation for both encoding and decoding
- * @param {Object} delta - SignalK delta object
- * @param {Function} pathTransform - Function to transform each path value
- * @param {Function} shouldTransform - Predicate to check if a value should be transformed
- * @returns {Object} Delta with transformed paths
  */
-function transformDelta(delta, pathTransform, shouldTransform) {
+function transformDelta(
+  delta: Delta,
+  pathTransform: (path: string) => number | string,
+  shouldTransform: (value: any) => boolean
+): Delta {
   if (!delta || !delta.updates) {
     return delta;
   }
@@ -418,7 +429,7 @@ function transformDelta(delta, pathTransform, shouldTransform) {
 
         if (shouldTransform(value)) {
           const transformedPath = pathTransform(value.path);
-          transformedValues[j] = { ...value, path: transformedPath };
+          transformedValues[j] = { ...value, path: transformedPath as string };
         } else {
           transformedValues[j] = { ...value };
         }
@@ -426,11 +437,10 @@ function transformDelta(delta, pathTransform, shouldTransform) {
     }
 
     transformedUpdates[i] = {
-      // Ensure source is always an object (never null/undefined) to prevent
-      // "Cannot set properties of null (setting 'label')" errors in SignalK
+      // Ensure source is always an object (never null/undefined)
       source: update.source ?? {},
       timestamp: update.timestamp,
-      $source: update.$source,
+      $source: (update as any).$source,
       values: transformedValues
     };
   }
@@ -443,56 +453,43 @@ function transformDelta(delta, pathTransform, shouldTransform) {
 
 /**
  * Encodes paths in a delta object (optimized - no JSON stringify/parse)
- * @param {Object} delta - SignalK delta object
- * @returns {Object} Delta with encoded paths
+ * @param delta - SignalK delta object
+ * @returns Delta with encoded paths
  */
-function encodeDelta(delta) {
+export function encodeDelta(delta: Delta): Delta {
   return transformDelta(delta, encodePath, (value) => !!value.path);
 }
 
 /**
  * Decodes paths in a delta object (optimized - no JSON stringify/parse)
- * @param {Object} delta - SignalK delta object with encoded paths
- * @returns {Object} Delta with decoded paths
+ * @param delta - SignalK delta object with encoded paths
+ * @returns Delta with decoded paths
  */
-function decodeDelta(delta) {
+export function decodeDelta(delta: Delta): Delta {
   return transformDelta(delta, decodePath, (value) => value.path !== undefined);
 }
 
 /**
  * Get all known paths as an array
- * @returns {string[]} Array of all known SignalK paths
+ * @returns Array of all known SignalK paths
  */
-function getAllPaths() {
+export function getAllPaths(): string[] {
   return ALL_PATHS;
 }
 
 /**
  * Get paths by category
- * @param {string} category - Category name (e.g., 'navigation', 'environment')
- * @returns {string[]} Array of paths in that category
+ * @param category - Category name (e.g., 'navigation', 'environment')
+ * @returns Array of paths in that category
  */
-function getPathsByCategory(category) {
+export function getPathsByCategory(category: string): string[] {
   return PATHS_BY_CATEGORY[category] ?? [];
 }
 
 /**
  * Get the dictionary size (number of known paths)
- * @returns {number} Number of paths in dictionary
+ * @returns Number of paths in dictionary
  */
-function getDictionarySize() {
+export function getDictionarySize(): number {
   return DICTIONARY_SIZE;
 }
-
-module.exports = {
-  PATH_TO_ID,
-  ID_TO_PATH,
-  PATH_CATEGORIES,
-  encodePath,
-  decodePath,
-  encodeDelta,
-  decodeDelta,
-  getAllPaths,
-  getPathsByCategory,
-  getDictionarySize
-};

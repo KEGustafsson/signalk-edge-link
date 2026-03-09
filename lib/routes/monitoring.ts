@@ -1,6 +1,4 @@
-"use strict";
-
-const { findConnectionIndexByInstanceId } = require("../connection-config");
+import { findConnectionIndexByInstanceId } from "../connection-config";
 
 /**
  * Registers monitoring and capture routes:
@@ -8,20 +6,20 @@ const { findConnectionIndexByInstanceId } = require("../connection-config");
  *   /monitoring/alerts (GET+POST), /monitoring/inspector, /monitoring/simulation,
  *   /capture, /capture/start, /capture/stop, /capture/export
  *
- * @param {Object} router - Express router
- * @param {Object} ctx - Shared route context
+ * @param router - Express router
+ * @param ctx - Shared route context
  */
-function register(router, ctx) {
+function register(router: any, ctx: any): void {
   const {
     app, rateLimitMiddleware, requireJson, getFirstBundle,
     managementAuthMiddleware, pluginRef
   } = ctx;
 
-  function getPersistedConfigConnections(configuration, bundle) {
+  function getPersistedConfigConnections(configuration: any, bundle: any): any {
     if (Array.isArray(configuration.connections)) {
       return {
         usesConnectionsArray: true,
-        connections: configuration.connections.map((connection) => ({ ...connection }))
+        connections: configuration.connections.map((connection: any) => ({ ...connection }))
       };
     }
 
@@ -38,7 +36,7 @@ function register(router, ctx) {
     };
   }
 
-  function persistAlertThresholds(bundle, thresholds) {
+  function persistAlertThresholds(bundle: any, thresholds: any): void {
     if (typeof app.readPluginOptions !== "function" || typeof app.savePluginOptions !== "function") {
       return;
     }
@@ -56,7 +54,7 @@ function register(router, ctx) {
         }
 
         if (index !== -1) {
-          const nextConnections = persisted.connections.map((connection) => ({ ...connection }));
+          const nextConnections = persisted.connections.map((connection: any) => ({ ...connection }));
           nextConnections[index] = {
             ...nextConnections[index],
             alertThresholds: {
@@ -95,17 +93,17 @@ function register(router, ctx) {
         };
       }
 
-      app.savePluginOptions(nextConfig, (saveErr) => {
+      app.savePluginOptions(nextConfig, (saveErr: any) => {
         if (saveErr) {
           app.error(`Failed to persist alert thresholds: ${saveErr.message}`);
         }
       });
-    } catch (persistErr) {
+    } catch (persistErr: any) {
       app.error(`Failed to persist alert thresholds: ${persistErr.message}`);
     }
   }
 
-  router.get("/monitoring/packet-loss", rateLimitMiddleware, (req, res) => {
+  router.get("/monitoring/packet-loss", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -117,12 +115,12 @@ function register(router, ctx) {
         heatmap: state.monitoring.packetLossTracker.getHeatmapData(),
         summary: state.monitoring.packetLossTracker.getSummary()
       });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get("/monitoring/path-latency", rateLimitMiddleware, (req, res) => {
+  router.get("/monitoring/path-latency", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -134,12 +132,12 @@ function register(router, ctx) {
       res.json({
         paths: state.monitoring.pathLatencyTracker.getAllStats(topN)
       });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get("/monitoring/retransmissions", rateLimitMiddleware, (req, res) => {
+  router.get("/monitoring/retransmissions", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -152,12 +150,12 @@ function register(router, ctx) {
         chartData: state.monitoring.retransmissionTracker.getChartData(limit),
         summary: state.monitoring.retransmissionTracker.getSummary()
       });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get("/monitoring/alerts", rateLimitMiddleware, managementAuthMiddleware("monitoring.alerts.read"), (req, res) => {
+  router.get("/monitoring/alerts", rateLimitMiddleware, managementAuthMiddleware("monitoring.alerts.read"), (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -166,7 +164,7 @@ function register(router, ctx) {
         return res.json({ thresholds: {}, activeAlerts: {} });
       }
       res.json(state.monitoring.alertManager.getState());
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -176,7 +174,7 @@ function register(router, ctx) {
     rateLimitMiddleware,
     managementAuthMiddleware("monitoring.alerts.update"),
     requireJson,
-    (req, res) => {
+    (req: any, res: any) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -194,7 +192,7 @@ function register(router, ctx) {
           return res.status(400).json({ error: `metric must be one of: ${validAlertMetrics.join(", ")}` });
         }
 
-        const update = {};
+        const update: any = {};
         if (warning !== undefined) {
           if (typeof warning !== "number" || !Number.isFinite(warning)) {
             return res.status(400).json({ error: "warning must be a finite number" });
@@ -236,14 +234,14 @@ function register(router, ctx) {
           success: true,
           thresholds: state.monitoring.alertManager.getState().thresholds
         });
-      } catch (err) {
+      } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
     }
   );
 
   // Packet capture routes
-  router.get("/capture", rateLimitMiddleware, managementAuthMiddleware("capture.read"), (req, res) => {
+  router.get("/capture", rateLimitMiddleware, managementAuthMiddleware("capture.read"), (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -252,12 +250,12 @@ function register(router, ctx) {
         return res.json({ enabled: false, captured: 0, dropped: 0, buffered: 0 });
       }
       res.json(state.monitoring.packetCapture.getStats());
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post("/capture/start", rateLimitMiddleware, managementAuthMiddleware("capture.update"), (req, res) => {
+  router.post("/capture/start", rateLimitMiddleware, managementAuthMiddleware("capture.update"), (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -267,12 +265,12 @@ function register(router, ctx) {
       }
       state.monitoring.packetCapture.start();
       res.json({ success: true, enabled: true });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post("/capture/stop", rateLimitMiddleware, managementAuthMiddleware("capture.update"), (req, res) => {
+  router.post("/capture/stop", rateLimitMiddleware, managementAuthMiddleware("capture.update"), (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -282,12 +280,12 @@ function register(router, ctx) {
       }
       state.monitoring.packetCapture.stop();
       res.json({ success: true, enabled: false });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get("/capture/export", rateLimitMiddleware, managementAuthMiddleware("capture.export"), (req, res) => {
+  router.get("/capture/export", rateLimitMiddleware, managementAuthMiddleware("capture.export"), (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -299,12 +297,12 @@ function register(router, ctx) {
       res.set("Content-Type", "application/vnd.tcpdump.pcap");
       res.set("Content-Disposition", `attachment; filename="edge-link-capture-${Date.now()}.pcap"`);
       res.send(pcapBuffer);
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get("/monitoring/inspector", rateLimitMiddleware, (req, res) => {
+  router.get("/monitoring/inspector", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -313,12 +311,12 @@ function register(router, ctx) {
         return res.json({ enabled: false, packetsInspected: 0, clientsConnected: 0 });
       }
       res.json(state.monitoring.packetInspector.getStats());
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get("/monitoring/simulation", rateLimitMiddleware, (req, res) => {
+  router.get("/monitoring/simulation", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
@@ -331,10 +329,10 @@ function register(router, ctx) {
         conditions: state.networkSimulator.getConditions(),
         stats: state.networkSimulator.getStats()
       });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 }
 
-module.exports = { register };
+export { register };

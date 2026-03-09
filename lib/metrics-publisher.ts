@@ -1,7 +1,5 @@
 "use strict";
 
-const CircularBuffer = require("./CircularBuffer");
-
 /**
  * Signal K Edge Link v2.0 - Metrics Publisher
  *
@@ -11,7 +9,19 @@ const CircularBuffer = require("./CircularBuffer");
  * @module lib/metrics-publisher
  */
 
+import CircularBuffer = require("./CircularBuffer");
+
 class MetricsPublisher {
+  app: any;
+  config: any;
+  pathPrefix: string;
+  sourceLabel: string;
+  windowSize: number;
+  rttWindow: any;
+  jitterWindow: any;
+  lossWindow: any;
+  lastPublished: Record<string, any>;
+
   /**
    * @param {Object} app - Signal K app instance
    * @param {Object} config - Configuration
@@ -20,7 +30,7 @@ class MetricsPublisher {
    *   "networking.edgeLink.<instanceId>" when running multiple instances so
    *   each instance publishes to its own namespace.
    */
-  constructor(app, config = {}) {
+  constructor(app: any, config: any = {}) {
     this.app = app;
     this.config = config;
     this.pathPrefix = config.pathPrefix || "networking.edgeLink";
@@ -44,8 +54,8 @@ class MetricsPublisher {
    *
    * @param {Object} metrics - Metrics object
    */
-  publish(metrics) {
-    const values = [];
+  publish(metrics: any): void {
+    const values: Array<{ path: string; value: any }> = [];
 
     // Core metrics
     if (metrics.rtt !== undefined) {
@@ -170,7 +180,12 @@ class MetricsPublisher {
    * @param {Object} params
    * @returns {number} Quality score
    */
-  calculateLinkQuality({ rtt, jitter, packetLoss, retransmitRate }) {
+  calculateLinkQuality({ rtt, jitter, packetLoss, retransmitRate }: {
+    rtt: number;
+    jitter: number;
+    packetLoss: number;
+    retransmitRate: number;
+  }): number {
     // Normalize to 0-1 scores
     const rttScore = this._clamp(1 - (rtt / 1000), 0, 1);
     const jitterScore = this._clamp(1 - (jitter / 500), 0, 1);
@@ -194,7 +209,7 @@ class MetricsPublisher {
    * @param {string} linkName - "primary" or "backup"
    * @param {Object} linkMetrics - Link-specific metrics
    */
-  publishLinkMetrics(linkName, linkMetrics) {
+  publishLinkMetrics(linkName: string, linkMetrics: any): void {
     const basePath = `${this.pathPrefix}.links.${linkName}`;
     const linkLoss = linkMetrics.loss !== undefined
       ? linkMetrics.loss
@@ -230,7 +245,7 @@ class MetricsPublisher {
    *
    * @private
    */
-  _addToWindow(window, value) {
+  _addToWindow(window: any, value: number): void {
     window.push(value);
   }
 
@@ -239,10 +254,10 @@ class MetricsPublisher {
    *
    * @private
    */
-  _calculateAverage(window) {
+  _calculateAverage(window: any): number {
     if (window.length === 0) {return 0;}
     const arr = window.toArray();
-    const sum = arr.reduce((a, b) => a + b, 0);
+    const sum = arr.reduce((a: number, b: number) => a + b, 0);
     return sum / arr.length;
   }
 
@@ -251,7 +266,7 @@ class MetricsPublisher {
    *
    * @private
    */
-  _clamp(value, min, max) {
+  _clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
   }
 
@@ -260,7 +275,7 @@ class MetricsPublisher {
    *
    * @private
    */
-  _hasChanged(values) {
+  _hasChanged(values: Array<{ path: string; value: any }>): boolean {
     for (const { path, value } of values) {
       if (!Object.is(this.lastPublished[path], value)) {
         return true;
@@ -274,7 +289,7 @@ class MetricsPublisher {
    *
    * @private
    */
-  _updateLastPublished(values) {
+  _updateLastPublished(values: Array<{ path: string; value: any }>): void {
     for (const { path, value } of values) {
       this.lastPublished[path] = value;
     }
@@ -283,7 +298,7 @@ class MetricsPublisher {
   /**
    * Reset all metrics
    */
-  reset() {
+  reset(): void {
     this.rttWindow = new CircularBuffer(this.windowSize);
     this.jitterWindow = new CircularBuffer(this.windowSize);
     this.lossWindow = new CircularBuffer(this.windowSize);
@@ -291,4 +306,4 @@ class MetricsPublisher {
   }
 }
 
-module.exports = { MetricsPublisher };
+export { MetricsPublisher };

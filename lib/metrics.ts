@@ -1,19 +1,44 @@
 "use strict";
 
-const CircularBuffer = require("./CircularBuffer");
-const {
+import CircularBuffer = require("./CircularBuffer");
+import {
   BANDWIDTH_HISTORY_MAX,
   PATH_STATS_MAX_SIZE,
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch
-} = require("./constants");
+} from "./constants";
+import type { Metrics, MetricsApi } from "./types";
+
+interface PathStat {
+  count: number;
+  bytes: number;
+  lastUpdate: number;
+}
+
+interface PathStatEntry {
+  path: string;
+  count: number;
+  bytes: number;
+  bytesFormatted: string;
+  lastUpdate: number;
+  updatesPerMinute: number;
+}
+
+type ErrorCategory =
+  | "compression"
+  | "encryption"
+  | "subscription"
+  | "udpSend"
+  | "pingTimeout"
+  | "sendFailure"
+  | "crypto"
+  | "general";
 
 /**
  * Creates the metrics tracking subsystem.
  * All metrics state and related functions are encapsulated here.
- * @returns {Object} Metrics API
  */
-function createMetrics() {
+function createMetrics(): MetricsApi {
   const RECENT_ERRORS_LIMIT = 20;
   const DEFAULT_ERROR_COUNTS = {
     compression: 0,
@@ -26,7 +51,7 @@ function createMetrics() {
     crypto: 0
   };
 
-  const metrics = {
+  const metrics: Metrics = {
     startTime: Date.now(),
     deltasSent: 0,
     deltasReceived: 0,
@@ -41,7 +66,6 @@ function createMetrics() {
     lastError: null,
     lastErrorTime: null,
     packetLoss: 0,
-    // Latest client-reported network quality snapshot (used in server mode UI/API)
     remoteNetworkQuality: {
       rtt: 0,
       jitter: 0,
@@ -52,26 +76,23 @@ function createMetrics() {
       activeLink: "primary",
       lastUpdate: 0
     },
-    // Bandwidth tracking
     bandwidth: {
-      bytesOut: 0, // Compressed bytes sent
-      bytesIn: 0, // Compressed bytes received
-      bytesOutRaw: 0, // Raw bytes before compression
-      bytesInRaw: 0, // Raw bytes after decompression
+      bytesOut: 0,
+      bytesIn: 0,
+      bytesOutRaw: 0,
+      bytesInRaw: 0,
       packetsOut: 0,
       packetsIn: 0,
-      lastBytesOut: 0, // For rate calculation
+      lastBytesOut: 0,
       lastBytesIn: 0,
       lastRateCalcTime: Date.now(),
-      rateOut: 0, // bytes per second
+      rateOut: 0,
       rateIn: 0,
-      compressionRatio: 0, // percentage saved
+      compressionRatio: 0,
       history: new CircularBuffer(BANDWIDTH_HISTORY_MAX)
     },
-    // Path-level analytics
-    pathStats: new Map(), // path -> { count, bytes, lastUpdate }
-    _pathStatsStalest: null, // cached { path, ts } for O(1) eviction
-    // Smart batching metrics
+    pathStats: new Map<string, PathStat>(),
+    _pathStatsStalest: null,
     smartBatching: {
       earlySends: 0,
       timerSends: 0,
@@ -79,15 +100,10 @@ function createMetrics() {
       avgBytesPerDelta: SMART_BATCH_INITIAL_ESTIMATE,
       maxDeltasPerBatch: calculateMaxDeltasPerBatch(SMART_BATCH_INITIAL_ESTIMATE)
     }
-  };
+  } as any;
 
-  /**
-   * Records an error in metrics tracking
-   * @param {string} category - Error category ('compression', 'encryption', 'subscription', 'udpSend', 'general')
-   * @param {string} message - Error message
-   */
-  function recordError(category, message) {
-    const counterMap = {
+  function recordError(category: string, message: string): void {
+    const counterMap: Record<string, keyof Metrics> = {
       compression: "compressionErrors",
       encryption: "encryptionErrors",
       subscription: "subscriptionErrors",
@@ -95,16 +111,16 @@ function createMetrics() {
     };
     const counter = counterMap[category];
     if (counter) {
-      metrics[counter]++;
+      (metrics as any)[counter]++;
     }
 
     const normalizedCategory = normalizeErrorCategory(category);
-    if (metrics.errorCounts[normalizedCategory] === undefined) {
-      metrics.errorCounts[normalizedCategory] = 0;
+    if ((metrics.errorCounts as any)[normalizedCategory] === undefined) {
+      (metrics.errorCounts as any)[normalizedCategory] = 0;
     }
-    metrics.errorCounts[normalizedCategory]++;
+    (metrics.errorCounts as any)[normalizedCategory]++;
 
-    metrics.recentErrors.push({
+    (metrics.recentErrors as any[]).push({
       category: normalizedCategory,
       message,
       timestamp: Date.now()
@@ -117,7 +133,7 @@ function createMetrics() {
     metrics.lastErrorTime = Date.now();
   }
 
-  function normalizeErrorCategory(category) {
+  function normalizeErrorCategory(category: string): ErrorCategory {
     switch (category) {
       case "compression":
       case "encryption":
@@ -127,16 +143,13 @@ function createMetrics() {
       case "sendFailure":
       case "crypto":
       case "general":
-        return category;
+        return category as ErrorCategory;
       default:
         return "general";
     }
   }
 
-  /**
-   * Resets all metrics to initial state (used during plugin stop for clean restart)
-   */
-  function resetMetrics() {
+  function resetMetrics(): void {
     Object.assign(metrics, {
       startTime: Date.now(),
       deltasSent: 0,
@@ -151,7 +164,6 @@ function createMetrics() {
       recentErrors: [],
       lastError: null,
       lastErrorTime: null,
-      // v2 runtime metrics
       retransmissions: 0,
       queueDepth: 0,
       rtt: 0,
@@ -178,7 +190,7 @@ function createMetrics() {
       lastRateCalcTime: Date.now(), rateOut: 0, rateIn: 0, compressionRatio: 0,
       history: new CircularBuffer(BANDWIDTH_HISTORY_MAX)
     });
-    metrics.pathStats.clear();
+    (metrics.pathStats as Map<string, PathStat>).clear();
     metrics._pathStatsStalest = null;
     Object.assign(metrics.smartBatching, {
       earlySends: 0,
@@ -189,11 +201,7 @@ function createMetrics() {
     });
   }
 
-  /**
-   * Calculates bandwidth rates and updates history
-   * @param {boolean} isServerMode - Whether plugin is in server mode
-   */
-  function updateBandwidthRates(isServerMode) {
+  function updateBandwidthRates(isServerMode: boolean): void {
     const now = Date.now();
     const elapsed = (now - metrics.bandwidth.lastRateCalcTime) / 1000;
 
@@ -204,7 +212,6 @@ function createMetrics() {
       metrics.bandwidth.rateOut = Math.round(bytesDeltaOut / elapsed);
       metrics.bandwidth.rateIn = Math.round(bytesDeltaIn / elapsed);
 
-      // Update compression ratio (server: bytesIn/bytesInRaw, client: bytesOut/bytesOutRaw)
       const compressed = isServerMode ? metrics.bandwidth.bytesIn : metrics.bandwidth.bytesOut;
       const raw = isServerMode ? metrics.bandwidth.bytesInRaw : metrics.bandwidth.bytesOutRaw;
       if (raw > 0) {
@@ -224,18 +231,13 @@ function createMetrics() {
     }
   }
 
-  /**
-   * Tracks path-level statistics
-   * @param {Object} delta - The delta object to analyze
-   * @param {number} deltaSize - Precomputed delta size (optional)
-   */
-  function trackPathStats(delta, deltaSize = null) {
+  function trackPathStats(delta: any, deltaSize: number | null = null): void {
     if (!delta || !delta.updates) {
       return;
     }
 
     const size = deltaSize !== null ? deltaSize : JSON.stringify(delta).length;
-    const pathStats = metrics.pathStats;
+    const pathStats = metrics.pathStats as Map<string, PathStat>;
 
     for (const update of delta.updates) {
       const values = update.values;
@@ -262,11 +264,8 @@ function createMetrics() {
         }
 
         if (pathStats.size >= PATH_STATS_MAX_SIZE) {
-          // Evict stalest entry using cached pointer for O(1) amortized cost.
-          // If the cached entry was already updated/deleted, do a full scan
-          // to refresh the cache — this happens rarely (once per eviction miss).
-          let stalestPath = null;
-          const cached = metrics._pathStatsStalest;
+          let stalestPath: string | null = null;
+          const cached = metrics._pathStatsStalest as { path: string; ts: number } | null;
 
           if (cached) {
             const entry = pathStats.get(cached.path);
@@ -298,21 +297,15 @@ function createMetrics() {
           lastUpdate: now
         });
 
-        // Track stalest candidate for next eviction
-        if (!metrics._pathStatsStalest || now < metrics._pathStatsStalest.ts) {
+        const stalest = metrics._pathStatsStalest as { path: string; ts: number } | null;
+        if (!stalest || now < stalest.ts) {
           metrics._pathStatsStalest = { path, ts: now };
         }
       }
     }
   }
 
-
-  /**
-   * Formats bytes to human readable string
-   * @param {number} bytes - Number of bytes
-   * @returns {string} Formatted string
-   */
-  function formatBytes(bytes) {
+  function formatBytes(bytes: number): string {
     if (bytes === 0) {
       return "0 B";
     }
@@ -325,18 +318,13 @@ function createMetrics() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   }
 
-  /**
-   * Get top N paths by bytes (optimized partial sort)
-   * @param {number} n - Number of top paths to return
-   * @param {number} uptimeSeconds - Plugin uptime in seconds
-   * @returns {Array} Top N paths sorted by bytes
-   */
-  function getTopNPaths(n, uptimeSeconds) {
-    const entries = Array.from(metrics.pathStats.entries());
-    const result = [];
+  function getTopNPaths(n: number, uptimeSeconds: number): PathStatEntry[] {
+    const pathStats = metrics.pathStats as Map<string, PathStat>;
+    const entries = Array.from(pathStats.entries());
+    const result: PathStatEntry[] = [];
 
     for (const [path, stats] of entries) {
-      const item = {
+      const item: PathStatEntry = {
         path,
         count: stats.count,
         bytes: stats.bytes,
@@ -376,4 +364,4 @@ function createMetrics() {
   };
 }
 
-module.exports = createMetrics;
+export = createMetrics;

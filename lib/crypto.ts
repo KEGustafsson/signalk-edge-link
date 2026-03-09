@@ -1,12 +1,12 @@
 "use strict";
 
-const crypto = require("crypto");
+import * as crypto from "crypto";
 
 // Use AES-256-GCM for authenticated encryption (encryption + authentication in one)
 const ALGORITHM = "aes-256-gcm";
-const IV_LENGTH = 12; // GCM standard IV length
-const AUTH_TAG_LENGTH = 16; // GCM authentication tag length
-const CONTROL_AUTH_TAG_LENGTH = 16; // Truncated HMAC-SHA256 tag for v3 control packets
+export const IV_LENGTH = 12; // GCM standard IV length
+export const AUTH_TAG_LENGTH = 16; // GCM authentication tag length
+export const CONTROL_AUTH_TAG_LENGTH = 16; // Truncated HMAC-SHA256 tag for v3 control packets
 
 /**
  * Normalize a secret key string into a 32-byte Buffer.
@@ -16,11 +16,11 @@ const CONTROL_AUTH_TAG_LENGTH = 16; // Truncated HMAC-SHA256 tag for v3 control 
  * - 44-character base64 string → decoded to 32 bytes (full 256-bit entropy)
  * - 32-character ASCII string → used as-is (~208 bits effective entropy)
  *
- * @param {string} secretKey - Secret key in any supported format
- * @returns {Buffer} 32-byte key buffer
- * @throws {Error} If key cannot be normalized to exactly 32 bytes
+ * @param secretKey - Secret key in any supported format
+ * @returns 32-byte key buffer
+ * @throws Error if key cannot be normalized to exactly 32 bytes
  */
-function normalizeKey(secretKey) {
+export function normalizeKey(secretKey: string): Buffer {
   if (!secretKey || typeof secretKey !== "string") {
     throw new Error("Secret key must be a non-empty string");
   }
@@ -54,12 +54,12 @@ function normalizeKey(secretKey) {
 /**
  * Encrypts data using AES-256-GCM with binary output
  * Binary format: [IV (12 bytes)][Encrypted Data][Auth Tag (16 bytes)]
- * @param {Buffer} data - Data to encrypt
- * @param {string} secretKey - Secret key (32-char ASCII, 64-char hex, or 44-char base64)
- * @returns {Buffer} Binary packet with IV, encrypted data, and auth tag
- * @throws {Error} If secretKey is invalid or data is empty
+ * @param data - Data to encrypt
+ * @param secretKey - Secret key (32-char ASCII, 64-char hex, or 44-char base64)
+ * @returns Binary packet with IV, encrypted data, and auth tag
+ * @throws Error if secretKey is invalid or data is empty
  */
-const encryptBinary = (data, secretKey) => {
+export const encryptBinary = (data: Buffer | string, secretKey: string): Buffer => {
   const keyBuffer = normalizeKey(secretKey);
 
   if (!data || (Buffer.isBuffer(data) && data.length === 0)) {
@@ -71,7 +71,7 @@ const encryptBinary = (data, secretKey) => {
 
   // Generate random IV for each encryption (critical for GCM security)
   const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGORITHM, keyBuffer, iv);
+  const cipher = crypto.createCipheriv(ALGORITHM, keyBuffer, iv) as crypto.CipherGCM;
 
   const encrypted = Buffer.concat([cipher.update(dataBuffer), cipher.final()]);
   const authTag = cipher.getAuthTag();
@@ -82,12 +82,12 @@ const encryptBinary = (data, secretKey) => {
 
 /**
  * Decrypts data encrypted with AES-256-GCM
- * @param {Buffer} packet - Binary packet with IV, encrypted data, and auth tag
- * @param {string} secretKey - Secret key (32-char ASCII, 64-char hex, or 44-char base64)
- * @returns {Buffer} Decrypted data as Buffer
- * @throws {Error} If secretKey or packet is invalid, or authentication fails
+ * @param packet - Binary packet with IV, encrypted data, and auth tag
+ * @param secretKey - Secret key (32-char ASCII, 64-char hex, or 44-char base64)
+ * @returns Decrypted data as Buffer
+ * @throws Error if secretKey or packet is invalid, or authentication fails
  */
-const decryptBinary = (packet, secretKey) => {
+export const decryptBinary = (packet: Buffer, secretKey: string): Buffer => {
   const keyBuffer = normalizeKey(secretKey);
 
   if (!Buffer.isBuffer(packet) || packet.length <= IV_LENGTH + AUTH_TAG_LENGTH) {
@@ -99,7 +99,7 @@ const decryptBinary = (packet, secretKey) => {
   const authTag = packet.subarray(packet.length - AUTH_TAG_LENGTH);
   const encrypted = packet.subarray(IV_LENGTH, packet.length - AUTH_TAG_LENGTH);
 
-  const decipher = crypto.createDecipheriv(ALGORITHM, keyBuffer, iv);
+  const decipher = crypto.createDecipheriv(ALGORITHM, keyBuffer, iv) as crypto.DecipherGCM;
   decipher.setAuthTag(authTag);
 
   // This will throw if authentication fails (tampered data)
@@ -108,11 +108,11 @@ const decryptBinary = (packet, secretKey) => {
 
 /**
  * Validates secret key strength
- * @param {string} key - Secret key to validate
- * @returns {boolean} True if key is valid
- * @throws {Error} If key is weak or invalid
+ * @param key - Secret key to validate
+ * @returns True if key is valid
+ * @throws Error if key is weak or invalid
  */
-function validateSecretKey(key) {
+export function validateSecretKey(key: string): boolean {
   // First verify the key can be normalized to 32 bytes
   normalizeKey(key);
 
@@ -148,12 +148,16 @@ function validateSecretKey(key) {
  * Creates an authentication tag for a v3 control packet.
  * The tag covers the header bytes 0..12 and the unhashed control payload.
  *
- * @param {Buffer} headerData - Header bytes 0..12
- * @param {Buffer} payload - Control payload without trailing auth tag
- * @param {string} secretKey - Secret key in any supported format
- * @returns {Buffer} Truncated HMAC tag
+ * @param headerData - Header bytes 0..12
+ * @param payload - Control payload without trailing auth tag
+ * @param secretKey - Secret key in any supported format
+ * @returns Truncated HMAC tag
  */
-function createControlPacketAuthTag(headerData, payload, secretKey) {
+export function createControlPacketAuthTag(
+  headerData: Buffer,
+  payload: Buffer | string | null,
+  secretKey: string
+): Buffer {
   if (!Buffer.isBuffer(headerData)) {
     throw new Error("Control packet header must be a Buffer");
   }
@@ -171,13 +175,18 @@ function createControlPacketAuthTag(headerData, payload, secretKey) {
 /**
  * Verifies the authentication tag for a v3 control packet.
  *
- * @param {Buffer} headerData - Header bytes 0..12
- * @param {Buffer} payload - Control payload without trailing auth tag
- * @param {Buffer} authTag - Trailing auth tag from the packet
- * @param {string} secretKey - Secret key in any supported format
- * @returns {boolean} True when authentication succeeds
+ * @param headerData - Header bytes 0..12
+ * @param payload - Control payload without trailing auth tag
+ * @param authTag - Trailing auth tag from the packet
+ * @param secretKey - Secret key in any supported format
+ * @returns True when authentication succeeds
  */
-function verifyControlPacketAuthTag(headerData, payload, authTag, secretKey) {
+export function verifyControlPacketAuthTag(
+  headerData: Buffer,
+  payload: Buffer | string | null,
+  authTag: Buffer,
+  secretKey: string
+): boolean {
   if (!Buffer.isBuffer(authTag) || authTag.length !== CONTROL_AUTH_TAG_LENGTH) {
     throw new Error("Control packet authentication tag missing");
   }
@@ -189,15 +198,3 @@ function verifyControlPacketAuthTag(headerData, payload, authTag, secretKey) {
 
   return true;
 }
-
-module.exports = {
-  encryptBinary,
-  decryptBinary,
-  validateSecretKey,
-  normalizeKey,
-  createControlPacketAuthTag,
-  verifyControlPacketAuthTag,
-  IV_LENGTH,
-  AUTH_TAG_LENGTH,
-  CONTROL_AUTH_TAG_LENGTH
-};

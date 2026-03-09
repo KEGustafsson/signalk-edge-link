@@ -1,34 +1,32 @@
-"use strict";
-
-const { formatPrometheusMetrics } = require("../prometheus");
+import { formatPrometheusMetrics } from "../prometheus";
 
 /**
  * Registers metrics-related routes: /metrics, /network-metrics, /prometheus
  *
- * @param {Object} router - Express router
- * @param {Object} ctx - Shared route context (helpers, middleware, registry)
+ * @param router - Express router
+ * @param ctx - Shared route context (helpers, middleware, registry)
  */
-function register(router, ctx) {
+function register(router: any, ctx: any): void {
   const {
     rateLimitMiddleware, instanceRegistry,
     getFirstBundle, getEffectiveNetworkQuality,
     getActiveMetricsPublisher, buildFullMetricsResponse
   } = ctx;
 
-  router.get("/metrics", rateLimitMiddleware, (req, res) => {
+  router.get("/metrics", rateLimitMiddleware, (req: any, res: any) => {
     const bundle = getFirstBundle();
     if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
     res.json(buildFullMetricsResponse(bundle));
   });
 
-  router.get("/network-metrics", rateLimitMiddleware, (req, res) => {
+  router.get("/network-metrics", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
       const { state } = bundle;
       const { metrics } = bundle.metricsApi;
       const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
-      const networkMetrics = {
+      const networkMetrics: any = {
         rtt: effectiveNetwork.rtt,
         jitter: effectiveNetwork.jitter,
         packetLoss: effectiveNetwork.packetLoss,
@@ -55,20 +53,20 @@ function register(router, ctx) {
       }
 
       res.json(networkMetrics);
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get("/prometheus", rateLimitMiddleware, (req, res) => {
+  router.get("/prometheus", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const allBundles = instanceRegistry.getAll();
       if (!allBundles || allBundles.length === 0) {
         return res.status(503).json({ error: "Plugin not started" });
       }
 
-      const sharedMeta = new Set();
-      const parts = [];
+      const sharedMeta = new Set<string>();
+      const parts: string[] = [];
 
       for (const bundle of allBundles) {
         const { state } = bundle;
@@ -76,7 +74,7 @@ function register(router, ctx) {
         updateBandwidthRates(state.isServerMode);
         const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
 
-        const extra = {};
+        const extra: any = {};
         if (state.monitoring) {
           if (state.monitoring.packetLossTracker) {
             const summary = state.monitoring.packetLossTracker.getSummary();
@@ -124,10 +122,10 @@ function register(router, ctx) {
 
       res.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
       res.send(parts.join(""));
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 }
 
-module.exports = { register };
+export { register };

@@ -9,13 +9,37 @@
  * @module lib/retransmit-queue
  */
 
-class RetransmitQueue {
-  /**
-   * @param {Object} [config]
-   * @param {number} [config.maxSize=5000] - Max packets to store
-   * @param {number} [config.maxRetransmits=3] - Max retransmit attempts per packet
-   */
-  constructor(config = {}) {
+interface QueueEntry {
+  packet: Buffer;
+  timestamp: number;
+  originalTimestamp: number;
+  attempts: number;
+}
+
+interface RetransmitQueueConfig {
+  maxSize?: number;
+  maxRetransmits?: number;
+}
+
+interface RetransmitPacket {
+  sequence: number;
+  packet: Buffer;
+  attempt: number;
+}
+
+interface QueueStats {
+  size: number;
+  totalAttempts: number;
+  maxAttempts: number;
+  avgAttempts: number;
+}
+
+export class RetransmitQueue {
+  maxSize: number;
+  maxRetransmits: number;
+  queue: Map<number, QueueEntry>;
+
+  constructor(config: RetransmitQueueConfig = {}) {
     this.maxSize = config.maxSize ?? 5000;
     this.maxRetransmits = config.maxRetransmits ?? 3;
     this.queue = new Map(); // sequence -> {packet, timestamp, attempts}
@@ -24,10 +48,10 @@ class RetransmitQueue {
   /**
    * Add packet to queue
    *
-   * @param {number} sequence - Packet sequence number
-   * @param {Buffer} packet - Complete packet data
+   * @param sequence - Packet sequence number
+   * @param packet - Complete packet data
    */
-  add(sequence, packet) {
+  add(sequence: number, packet: Buffer): void {
     // Remove oldest if at capacity
     if (this.queue.size >= this.maxSize) {
       this._evictOldest();
@@ -45,10 +69,10 @@ class RetransmitQueue {
   /**
    * Get packet entry by sequence
    *
-   * @param {number} sequence
-   * @returns {Object|undefined} Queue entry or undefined
+   * @param sequence
+   * @returns Queue entry or undefined
    */
-  get(sequence) {
+  get(sequence: number): QueueEntry | undefined {
     return this.queue.get(sequence);
   }
 
@@ -56,10 +80,10 @@ class RetransmitQueue {
    * Acknowledge packets up to sequence (inclusive).
    * Removes all acknowledged packets from the queue.
    *
-   * @param {number} cumulativeSeq - All packets <= this are acknowledged
-   * @returns {number} Number of packets removed
+   * @param cumulativeSeq - All packets <= this are acknowledged
+   * @returns Number of packets removed
    */
-  acknowledge(cumulativeSeq) {
+  acknowledge(cumulativeSeq: number): number {
     cumulativeSeq = cumulativeSeq >>> 0;
     if (this.queue.size === 0) {
       return 0;
@@ -98,11 +122,11 @@ class RetransmitQueue {
    * Acknowledge packets in the circular range (previousAckSeq, cumulativeSeq].
    * Handles uint32 sequence wraparound correctly.
    *
-   * @param {number|null|undefined} previousAckSeq - Previously processed cumulative ACK
-   * @param {number} cumulativeSeq - New cumulative ACK
-   * @returns {number} Number of packets removed
+   * @param previousAckSeq - Previously processed cumulative ACK
+   * @param cumulativeSeq - New cumulative ACK
+   * @returns Number of packets removed
    */
-  acknowledgeRange(previousAckSeq, cumulativeSeq) {
+  acknowledgeRange(previousAckSeq: number | null | undefined, cumulativeSeq: number): number {
     cumulativeSeq = cumulativeSeq >>> 0;
 
     // Backward-compatible behavior for first ACK in a session.
@@ -110,12 +134,12 @@ class RetransmitQueue {
       return this.acknowledge(cumulativeSeq);
     }
 
-    previousAckSeq = previousAckSeq >>> 0;
-    if (previousAckSeq === cumulativeSeq) {
+    const prevSeq = previousAckSeq >>> 0;
+    if (prevSeq === cumulativeSeq) {
       return 0;
     }
 
-    const distanceStartToEnd = (cumulativeSeq - previousAckSeq) >>> 0;
+    const distanceStartToEnd = (cumulativeSeq - prevSeq) >>> 0;
     // If cumulative ACK is behind the previous ACK in serial space,
     // it's stale/out-of-order and should not remove queued packets.
     if (distanceStartToEnd >= 0x80000000) {
@@ -124,7 +148,7 @@ class RetransmitQueue {
     let removed = 0;
 
     for (const seq of this.queue.keys()) {
-      const distanceStartToSeq = (seq - previousAckSeq) >>> 0;
+      const distanceStartToSeq = (seq - prevSeq) >>> 0;
       if (distanceStartToSeq > 0 && distanceStartToSeq <= distanceStartToEnd) {
         this.queue.delete(seq);
         removed++;
@@ -141,15 +165,15 @@ class RetransmitQueue {
    * Get packets for retransmission.
    * Increments attempt counter and removes packets that exceed maxRetransmits.
    *
-   * @param {number[]} sequences - Sequences to retransmit
-   * @returns {Array<{sequence: number, packet: Buffer, attempt: number}>}
+   * @param sequences - Sequences to retransmit
+   * @returns Array of retransmit packet descriptors
    */
-  retransmit(sequences) {
-    const packets = [];
+  retransmit(sequences: number[]): RetransmitPacket[] {
+    const packets: RetransmitPacket[] = [];
 
     for (const seq of sequences) {
       const entry = this.queue.get(seq);
-      if (!entry) {continue;}
+      if (!entry) { continue; }
 
       // Check max attempts
       if (entry.attempts >= this.maxRetransmits) {
@@ -175,11 +199,11 @@ class RetransmitQueue {
    * Get up to N oldest queued sequence numbers.
    * Map preserves insertion order, which reflects send order.
    *
-   * @param {number} [limit=100] - Max number of sequences to return
-   * @returns {number[]} Sequence numbers
+   * @param limit - Max number of sequences to return
+   * @returns Sequence numbers
    */
-  getOldestSequences(limit = 100) {
-    const result = [];
+  getOldestSequences(limit = 100): number[] {
+    const result: number[] = [];
     for (const seq of this.queue.keys()) {
       result.push(seq);
       if (result.length >= limit) {
@@ -192,18 +216,18 @@ class RetransmitQueue {
   /**
    * Get current queue size
    *
-   * @returns {number} Number of packets in queue
+   * @returns Number of packets in queue
    */
-  getSize() {
+  getSize(): number {
     return this.queue.size;
   }
 
   /**
    * Get queue statistics
    *
-   * @returns {Object} Statistics
+   * @returns Statistics
    */
-  getStats() {
+  getStats(): QueueStats {
     let totalAttempts = 0;
     let maxAttempts = 0;
 
@@ -223,17 +247,17 @@ class RetransmitQueue {
   /**
    * Clear all packets from queue
    */
-  clear() {
+  clear(): void {
     this.queue.clear();
   }
 
   /**
    * Remove packets older than age (ms)
    *
-   * @param {number} maxAge - Maximum age in milliseconds
-   * @returns {number} Number of packets removed
+   * @param maxAge - Maximum age in milliseconds
+   * @returns Number of packets removed
    */
-  expireOld(maxAge) {
+  expireOld(maxAge: number): number {
     const now = Date.now();
     let removed = 0;
 
@@ -251,13 +275,11 @@ class RetransmitQueue {
    * Evict the oldest entry from the queue
    * @private
    */
-  _evictOldest() {
-    if (this.queue.size === 0) {return;}
+  private _evictOldest(): void {
+    if (this.queue.size === 0) { return; }
 
     // Map preserves insertion order: first key is oldest queued packet.
-    const oldest = this.queue.keys().next().value;
+    const oldest = this.queue.keys().next().value as number;
     this.queue.delete(oldest);
   }
 }
-
-module.exports = { RetransmitQueue };

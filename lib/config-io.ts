@@ -8,27 +8,32 @@
  * @module lib/config-io
  */
 
-const { promises: fs } = require("fs");
-const path = require("path");
+import { promises as fs } from "fs";
+import * as path from "path";
+
+interface Logger {
+  debug?: (msg: string) => void;
+  error?: (msg: string) => void;
+}
 
 /**
  * Loads a JSON configuration file from disk.
- * @param {string} filePath - Full path to the config file
- * @param {Object} [logger] - Optional logger with debug/error methods
- * @returns {Promise<Object|null>} Parsed JSON or null on failure
+ * @param filePath - Full path to the config file
+ * @param logger - Optional logger with debug/error methods
+ * @returns Parsed JSON or null on failure
  */
-async function loadConfigFile(filePath, logger) {
+export async function loadConfigFile(filePath: string, logger?: Logger): Promise<unknown | null> {
   try {
     const content = await fs.readFile(filePath, "utf-8");
     try {
       return JSON.parse(content);
-    } catch (err) {
+    } catch (err: any) {
       if (logger && logger.error) {
         logger.error(`Error parsing JSON in ${filePath}: ${err.message}`);
       }
       return null;
     }
-  } catch (err) {
+  } catch (err: any) {
     if (err && err.code === "ENOENT") {
       if (logger && logger.debug) {
         logger.debug(`Config file not found ${filePath}`);
@@ -42,23 +47,27 @@ async function loadConfigFile(filePath, logger) {
 
 /**
  * Saves configuration data to a JSON file.
- * @param {string} filePath - Full path to the config file
- * @param {Object} data - Configuration data to save
- * @param {Object} [logger] - Optional logger with debug/error methods
- * @returns {Promise<boolean>} True if successful
+ * @param filePath - Full path to the config file
+ * @param data - Configuration data to save
+ * @param logger - Optional logger with debug/error methods
+ * @returns True if successful
  */
-async function saveConfigFile(filePath, data, logger) {
+export async function saveConfigFile(
+  filePath: string,
+  data: unknown,
+  logger?: Logger
+): Promise<boolean> {
   const dir = path.dirname(filePath);
   const baseName = path.basename(filePath);
   const tempPath = path.join(dir, `.${baseName}.tmp`);
-  let fileHandle;
+  let fileHandle: fs.FileHandle | undefined;
 
   try {
     fileHandle = await fs.open(tempPath, "w");
     await fileHandle.writeFile(JSON.stringify(data, null, 2), "utf-8");
     await fileHandle.sync();
     await fileHandle.close();
-    fileHandle = null;
+    fileHandle = undefined;
 
     await fs.rename(tempPath, filePath);
 
@@ -66,7 +75,7 @@ async function saveConfigFile(filePath, data, logger) {
       logger.debug(`Configuration saved to ${filePath}`);
     }
     return true;
-  } catch (err) {
+  } catch (err: any) {
     if (fileHandle) {
       try {
         await fileHandle.close();
@@ -86,5 +95,3 @@ async function saveConfigFile(filePath, data, logger) {
     return false;
   }
 }
-
-module.exports = { loadConfigFile, saveConfigFile };

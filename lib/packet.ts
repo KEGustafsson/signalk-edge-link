@@ -26,11 +26,11 @@
  * @module lib/packet
  */
 
-const {
+import {
   createControlPacketAuthTag,
   verifyControlPacketAuthTag,
   CONTROL_AUTH_TAG_LENGTH
-} = require("./crypto");
+} from "./crypto";
 
 // --- Constants ---
 
@@ -74,7 +74,7 @@ const MAX_SEQUENCE = 0xffffffff;
 /** Pre-computed Set of valid packet type values for O(1) validation */
 const VALID_PACKET_TYPES = new Set(Object.values(PacketType));
 
-function normalizeProtocolVersion(version) {
+function normalizeProtocolVersion(version: number | undefined | null): number {
   if (version === undefined || version === null) {
     return PROTOCOL_VERSION;
   }
@@ -84,7 +84,7 @@ function normalizeProtocolVersion(version) {
   return version;
 }
 
-function usesAuthenticatedControl(version) {
+function usesAuthenticatedControl(version: number | undefined | null): boolean {
   return normalizeProtocolVersion(version) >= PROTOCOL_VERSION_V3;
 }
 
@@ -94,7 +94,7 @@ function usesAuthenticatedControl(version) {
  * Precomputed CRC16-CCITT lookup table (polynomial 0x1021)
  * @type {Uint16Array}
  */
-const CRC16_TABLE = (() => {
+const CRC16_TABLE: Uint16Array = (() => {
   const table = new Uint16Array(256);
   for (let i = 0; i < 256; i++) {
     let crc = i << 8;
@@ -111,7 +111,7 @@ const CRC16_TABLE = (() => {
  * @param {Buffer} data - Data to checksum
  * @returns {number} 16-bit CRC value
  */
-function crc16(data) {
+function crc16(data: Buffer): number {
   let crc = 0xffff;
   for (let i = 0; i < data.length; i++) {
     crc = ((crc << 8) ^ CRC16_TABLE[((crc >> 8) ^ data[i]) & 0xff]) & 0xffff;
@@ -124,12 +124,16 @@ function crc16(data) {
 /**
  * Builds v2 protocol packets with headers
  */
-class PacketBuilder {
+export class PacketBuilder {
+  _sequence: number;
+  _protocolVersion: number;
+  _secretKey: Buffer | string | null;
+
   /**
    * @param {Object} [config]
    * @param {number} [config.initialSequence=0] - Starting sequence number
    */
-  constructor(config = {}) {
+  constructor(config: { initialSequence?: number; protocolVersion?: number; secretKey?: Buffer | string } = {}) {
     this._sequence = config.initialSequence ?? 0;
     this._protocolVersion = normalizeProtocolVersion(config.protocolVersion);
     this._secretKey = config.secretKey || null;
@@ -145,7 +149,7 @@ class PacketBuilder {
    * @param {boolean} [flags.pathDictionary=false]
    * @returns {Buffer} Complete packet with header and payload
    */
-  buildDataPacket(payload, flags = {}) {
+  buildDataPacket(payload: Buffer, flags: { compressed?: boolean; encrypted?: boolean; messagepack?: boolean; pathDictionary?: boolean } = {}): Buffer {
     const packet = this._buildPacket(PacketType.DATA, payload, flags);
     this._advanceSequence();
     return packet;
@@ -158,12 +162,12 @@ class PacketBuilder {
    * @param {number} [options.receiveWindow] - Receiver's available buffer capacity (packets)
    * @returns {Buffer} ACK packet
    */
-  buildACKPacket(ackedSequence, options = {}) {
+  buildACKPacket(ackedSequence: number, options: { receiveWindow?: number; secretKey?: Buffer | string; protocolVersion?: number } = {}): Buffer {
     const hasWindow = options.receiveWindow !== undefined;
     const payload = Buffer.alloc(hasWindow ? 8 : 4);
     payload.writeUInt32BE(ackedSequence >>> 0, 0);
     if (hasWindow) {
-      payload.writeUInt32BE(options.receiveWindow >>> 0, 4);
+      payload.writeUInt32BE(options.receiveWindow! >>> 0, 4);
     }
     return this._buildPacket(PacketType.ACK, payload, {}, options);
   }
@@ -173,7 +177,7 @@ class PacketBuilder {
    * @param {number[]} missingSequences - Array of missing sequence numbers
    * @returns {Buffer} NAK packet
    */
-  buildNAKPacket(missingSequences, options = {}) {
+  buildNAKPacket(missingSequences: number[], options: { secretKey?: Buffer | string; protocolVersion?: number } = {}): Buffer {
     const payload = Buffer.alloc(missingSequences.length * 4);
     for (let i = 0; i < missingSequences.length; i++) {
       payload.writeUInt32BE(missingSequences[i] >>> 0, i * 4);
@@ -185,7 +189,7 @@ class PacketBuilder {
    * Build a HEARTBEAT packet
    * @returns {Buffer} Heartbeat packet (no payload)
    */
-  buildHeartbeatPacket(options = {}) {
+  buildHeartbeatPacket(options: { secretKey?: Buffer | string; protocolVersion?: number } = {}): Buffer {
     return this._buildPacket(PacketType.HEARTBEAT, Buffer.alloc(0), {}, options);
   }
 
@@ -197,7 +201,7 @@ class PacketBuilder {
    * @param {string[]} [info.capabilities] - Supported capabilities
    * @returns {Buffer} Hello packet
    */
-  buildHelloPacket(info = {}, options = {}) {
+  buildHelloPacket(info: { protocolVersion?: number; clientId?: string; capabilities?: string[] } = {}, options: { secretKey?: Buffer | string; protocolVersion?: number } = {}): Buffer {
     const protocolVersion = normalizeProtocolVersion(options.protocolVersion ?? info.protocolVersion ?? this._protocolVersion);
     const payload = Buffer.from(JSON.stringify({
       protocolVersion,
@@ -216,7 +220,7 @@ class PacketBuilder {
    * Get current sequence number
    * @returns {number}
    */
-  getCurrentSequence() {
+  getCurrentSequence(): number {
     return this._sequence;
   }
 
@@ -224,7 +228,7 @@ class PacketBuilder {
    * Manually set the sequence number (for testing/retransmission)
    * @param {number} seq
    */
-  setSequence(seq) {
+  setSequence(seq: number): void {
     this._sequence = seq >>> 0; // ensure uint32
   }
 
@@ -236,7 +240,7 @@ class PacketBuilder {
    * @param {Object} flags - Flag options
    * @returns {Buffer} Complete packet
    */
-  _buildPacket(type, payload, flags, options = {}) {
+  _buildPacket(type: number, payload: Buffer | string, flags: { compressed?: boolean; encrypted?: boolean; messagepack?: boolean; pathDictionary?: boolean }, options: { secretKey?: Buffer | string | null; protocolVersion?: number } = {}): Buffer {
     const header = Buffer.alloc(HEADER_SIZE);
     const payloadBuffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload || "");
     const protocolVersion = normalizeProtocolVersion(options.protocolVersion ?? this._protocolVersion);
@@ -274,7 +278,7 @@ class PacketBuilder {
           throw new Error("Protocol v3 control packets require a secretKey");
         }
         header.writeUInt32BE(payloadBuffer.length + CONTROL_AUTH_TAG_LENGTH, 9);
-        const authTag = createControlPacketAuthTag(header.subarray(0, 13), payloadBuffer, secretKey);
+        const authTag = createControlPacketAuthTag(header.subarray(0, 13), payloadBuffer, secretKey as any);
         finalPayload = Buffer.concat([payloadBuffer, authTag]);
       } else if (payloadBuffer.length > 0) {
         const payloadCrc = Buffer.alloc(2);
@@ -297,7 +301,7 @@ class PacketBuilder {
    * Advance sequence number with wraparound
    * @private
    */
-  _advanceSequence() {
+  _advanceSequence(): void {
     this._sequence = (this._sequence + 1) >>> 0;
   }
 }
@@ -307,8 +311,10 @@ class PacketBuilder {
 /**
  * Parses v2 protocol packets
  */
-class PacketParser {
-  constructor(config = {}) {
+export class PacketParser {
+  _secretKey: Buffer | string | null;
+
+  constructor(config: { secretKey?: Buffer | string } = {}) {
     this._secretKey = config.secretKey || null;
   }
 
@@ -321,7 +327,7 @@ class PacketParser {
    * @returns {Object} Parsed packet information
    * @throws {Error} If packet is invalid
    */
-  parseHeader(packet, options = {}) {
+  parseHeader(packet: Buffer, options: { secretKey?: Buffer | string; allowUnauthenticatedControl?: boolean } = {}): any {
     if (!Buffer.isBuffer(packet)) {
       throw new Error("Packet must be a Buffer");
     }
@@ -342,7 +348,7 @@ class PacketParser {
 
     // Parse type
     const type = packet[3];
-    if (!VALID_PACKET_TYPES.has(type)) {
+    if (!VALID_PACKET_TYPES.has(type as (typeof PacketType)[keyof typeof PacketType])) {
       throw new Error(`Unknown packet type: 0x${type.toString(16)}`);
     }
 
@@ -389,7 +395,7 @@ class PacketParser {
           if (!secretKey) {
             throw new Error("Control packet authentication requires secretKey");
           }
-          verifyControlPacketAuthTag(packet.subarray(0, 13), payloadData, authTag, secretKey);
+          verifyControlPacketAuthTag(packet.subarray(0, 13), payloadData, authTag, secretKey as any);
         }
         payload = payloadData;
       } else if (payload.length >= 2) {
@@ -422,7 +428,7 @@ class PacketParser {
    * @param {Buffer} data - Data to check
    * @returns {boolean} True if data starts with a supported packet header
    */
-  isV2Packet(data) {
+  isV2Packet(data: Buffer): boolean {
     return Buffer.isBuffer(data) &&
       data.length >= HEADER_SIZE &&
       data[0] === MAGIC[0] &&
@@ -435,7 +441,7 @@ class PacketParser {
    * @param {Buffer} payload - ACK packet payload
    * @returns {number} Acknowledged sequence number
    */
-  parseACKPayload(payload) {
+  parseACKPayload(payload: Buffer): number {
     if (payload.length < 4) {
       throw new Error("ACK payload too small");
     }
@@ -447,11 +453,11 @@ class PacketParser {
    * @param {Buffer} payload - ACK packet payload
    * @returns {Object} Parsed ACK with sequence and optional receiveWindow
    */
-  parseACKPayloadFull(payload) {
+  parseACKPayloadFull(payload: Buffer): { sequence: number; receiveWindow?: number } {
     if (payload.length < 4) {
       throw new Error("ACK payload too small");
     }
-    const result = { sequence: payload.readUInt32BE(0) };
+    const result: { sequence: number; receiveWindow?: number } = { sequence: payload.readUInt32BE(0) };
     if (payload.length >= 8) {
       result.receiveWindow = payload.readUInt32BE(4);
     }
@@ -463,11 +469,11 @@ class PacketParser {
    * @param {Buffer} payload - NAK packet payload
    * @returns {number[]} Array of missing sequence numbers
    */
-  parseNAKPayload(payload) {
+  parseNAKPayload(payload: Buffer): number[] {
     if (payload.length % 4 !== 0) {
       throw new Error("NAK payload length must be a multiple of 4");
     }
-    const missing = [];
+    const missing: number[] = [];
     for (let i = 0; i < payload.length; i += 4) {
       missing.push(payload.readUInt32BE(i));
     }
@@ -482,8 +488,8 @@ class PacketParser {
  * @param {number} type - Packet type value
  * @returns {string} Type name
  */
-function getTypeName(type) {
-  const names = {
+function getTypeName(type: number): string {
+  const names: Record<number, string> = {
     [PacketType.DATA]: "DATA",
     [PacketType.ACK]: "ACK",
     [PacketType.NAK]: "NAK",
@@ -493,9 +499,7 @@ function getTypeName(type) {
   return names[type] || "UNKNOWN";
 }
 
-module.exports = {
-  PacketBuilder,
-  PacketParser,
+export {
   PacketType,
   PacketFlags,
   HEADER_SIZE,

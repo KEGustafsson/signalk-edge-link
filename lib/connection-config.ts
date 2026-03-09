@@ -1,6 +1,9 @@
-const { validateSecretKey } = require("./crypto");
+"use strict";
 
-const VALID_CONNECTION_KEYS = [
+import { validateSecretKey } from "./crypto";
+import type { ConnectionConfig, BondingConfig, CongestionControlConfig, ReliabilityConfig, AlertThresholds } from "./types";
+
+export const VALID_CONNECTION_KEYS: string[] = [
   "name",
   "serverType",
   "udpPort",
@@ -20,143 +23,151 @@ const VALID_CONNECTION_KEYS = [
   "alertThresholds"
 ];
 
-function isFiniteNumber(value) {
+function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function isValidPort(value, min = 1) {
-  return Number.isInteger(value) && value >= min && value <= 65535;
+function isValidPort(value: unknown, min = 1): boolean {
+  return Number.isInteger(value) && (value as number) >= min && (value as number) <= 65535;
 }
 
-function numberRangeError(object, key, min, max, label) {
+function numberRangeError(
+  object: Record<string, unknown> | undefined,
+  key: string,
+  min: number,
+  max: number,
+  label: string
+): string | null {
   if (object && object[key] !== undefined) {
-    if (!isFiniteNumber(object[key]) || object[key] < min || object[key] > max) {
+    if (!isFiniteNumber(object[key]) || (object[key] as number) < min || (object[key] as number) > max) {
       return `${label} must be a number between ${min} and ${max}`;
     }
   }
   return null;
 }
 
-function normalizeServerType(serverType) {
+export function normalizeServerType(serverType: unknown): string | undefined {
   if (serverType === true) {
     return "server";
   }
   if (serverType === false) {
     return "client";
   }
-  return serverType;
+  return serverType as string | undefined;
 }
 
-function validateConnectionConfig(connection, prefix = "") {
+export function validateConnectionConfig(connection: unknown, prefix = ""): string | null {
   if (!connection || typeof connection !== "object" || Array.isArray(connection)) {
     return `${prefix || "connection"} must be an object`;
   }
 
+  const conn = connection as Record<string, unknown>;
   const p = prefix;
-  const serverType = normalizeServerType(connection.serverType);
+  const serverType = normalizeServerType(conn.serverType);
 
   if (serverType !== "server" && serverType !== "client") {
     return `${p}serverType must be 'server' or 'client'`;
   }
 
   if (serverType === "server") {
-    if (connection.congestionControl !== undefined) {
+    if (conn.congestionControl !== undefined) {
       return `${p}congestionControl is not supported in server mode`;
     }
-    if (connection.bonding !== undefined) {
+    if (conn.bonding !== undefined) {
       return `${p}bonding is not supported in server mode`;
     }
-    if (connection.alertThresholds !== undefined) {
+    if (conn.alertThresholds !== undefined) {
       return `${p}alertThresholds is not supported in server mode`;
     }
   }
 
-  if (!isValidPort(connection.udpPort, 1024)) {
+  if (!isValidPort(conn.udpPort, 1024)) {
     return `${p}udpPort must be an integer between 1024 and 65535`;
   }
 
   try {
-    validateSecretKey(connection.secretKey);
-  } catch (error) {
+    validateSecretKey(conn.secretKey as string);
+  } catch (error: any) {
     return `${p}${error.message}`;
   }
 
   if (
-    connection.protocolVersion !== undefined &&
-    connection.protocolVersion !== 1 &&
-    connection.protocolVersion !== 2 &&
-    connection.protocolVersion !== 3
+    conn.protocolVersion !== undefined &&
+    conn.protocolVersion !== 1 &&
+    conn.protocolVersion !== 2 &&
+    conn.protocolVersion !== 3
   ) {
     return `${p}protocolVersion must be 1, 2, or 3`;
   }
-  if (connection.useMsgpack !== undefined && typeof connection.useMsgpack !== "boolean") {
+  if (conn.useMsgpack !== undefined && typeof conn.useMsgpack !== "boolean") {
     return `${p}useMsgpack must be a boolean`;
   }
-  if (connection.usePathDictionary !== undefined && typeof connection.usePathDictionary !== "boolean") {
+  if (conn.usePathDictionary !== undefined && typeof conn.usePathDictionary !== "boolean") {
     return `${p}usePathDictionary must be a boolean`;
   }
-  if (connection.enableNotifications !== undefined && typeof connection.enableNotifications !== "boolean") {
+  if (conn.enableNotifications !== undefined && typeof conn.enableNotifications !== "boolean") {
     return `${p}enableNotifications must be a boolean`;
   }
-  if (connection.name !== undefined && (typeof connection.name !== "string" || connection.name.length > 40)) {
+  if (conn.name !== undefined && (typeof conn.name !== "string" || (conn.name as string).length > 40)) {
     return `${p}name must be a string of at most 40 characters`;
   }
 
   if (serverType === "client") {
-    if (!connection.udpAddress || typeof connection.udpAddress !== "string") {
+    if (!conn.udpAddress || typeof conn.udpAddress !== "string") {
       return `${p}udpAddress is required in client mode`;
     }
-    if (!connection.testAddress || typeof connection.testAddress !== "string") {
+    if (!conn.testAddress || typeof conn.testAddress !== "string") {
       return `${p}testAddress is required in client mode`;
     }
-    if (!isValidPort(connection.testPort, 1)) {
+    if (!isValidPort(conn.testPort, 1)) {
       return `${p}testPort must be between 1 and 65535 in client mode`;
     }
-    const helloError = numberRangeError(connection, "helloMessageSender", 10, 3600, `${p}helloMessageSender`);
+    const helloError = numberRangeError(conn as Record<string, unknown>, "helloMessageSender", 10, 3600, `${p}helloMessageSender`);
     if (helloError) {
       return helloError;
     }
-    const pingError = numberRangeError(connection, "pingIntervalTime", 0.1, 60, `${p}pingIntervalTime`);
+    const pingError = numberRangeError(conn as Record<string, unknown>, "pingIntervalTime", 0.1, 60, `${p}pingIntervalTime`);
     if (pingError) {
       return pingError;
     }
   }
 
-  if (connection.alertThresholds !== undefined) {
-    if (!connection.alertThresholds || typeof connection.alertThresholds !== "object" || Array.isArray(connection.alertThresholds)) {
+  if (conn.alertThresholds !== undefined) {
+    if (!conn.alertThresholds || typeof conn.alertThresholds !== "object" || Array.isArray(conn.alertThresholds)) {
       return `${p}alertThresholds must be an object`;
     }
     const validMetrics = ["rtt", "packetLoss", "retransmitRate", "jitter", "queueDepth"];
-    for (const [metric, threshold] of Object.entries(connection.alertThresholds)) {
+    for (const [metric, threshold] of Object.entries(conn.alertThresholds as Record<string, unknown>)) {
       if (!validMetrics.includes(metric)) {
         return `${p}alertThresholds: unknown metric '${metric}'`;
       }
       if (!threshold || typeof threshold !== "object" || Array.isArray(threshold)) {
         return `${p}alertThresholds.${metric} must be an object`;
       }
-      if (threshold.warning !== undefined && !isFiniteNumber(threshold.warning)) {
+      const t = threshold as Record<string, unknown>;
+      if (t.warning !== undefined && !isFiniteNumber(t.warning)) {
         return `${p}alertThresholds.${metric}.warning must be a finite number`;
       }
-      if (threshold.critical !== undefined && !isFiniteNumber(threshold.critical)) {
+      if (t.critical !== undefined && !isFiniteNumber(t.critical)) {
         return `${p}alertThresholds.${metric}.critical must be a finite number`;
       }
-      if (threshold.warning !== undefined && threshold.critical !== undefined && threshold.warning > threshold.critical) {
+      if (t.warning !== undefined && t.critical !== undefined && (t.warning as number) > (t.critical as number)) {
         return `${p}alertThresholds.${metric}.warning must be <= critical`;
       }
     }
   }
 
-  if (connection.reliability !== undefined) {
-    if (!connection.reliability || typeof connection.reliability !== "object" || Array.isArray(connection.reliability)) {
+  if (conn.reliability !== undefined) {
+    if (!conn.reliability || typeof conn.reliability !== "object" || Array.isArray(conn.reliability)) {
       return `${p}reliability must be an object`;
     }
-    const reliability = connection.reliability;
+    const reliability = conn.reliability as Record<string, unknown>;
     const reliabilityChecks = serverType === "server"
       ? [
         ["ackInterval", 20, 5000, `${p}reliability.ackInterval`],
         ["ackResendInterval", 100, 10000, `${p}reliability.ackResendInterval`],
         ["nakTimeout", 20, 5000, `${p}reliability.nakTimeout`]
-      ]
+      ] as [string, number, number, string][]
       : [
         ["retransmitQueueSize", 100, 50000, `${p}reliability.retransmitQueueSize`],
         ["maxRetransmits", 1, 20, `${p}reliability.maxRetransmits`],
@@ -168,7 +179,7 @@ function validateConnectionConfig(connection, prefix = "") {
         ["recoveryBurstSize", 10, 1000, `${p}reliability.recoveryBurstSize`],
         ["recoveryBurstIntervalMs", 50, 5000, `${p}reliability.recoveryBurstIntervalMs`],
         ["recoveryAckGapMs", 500, 120000, `${p}reliability.recoveryAckGapMs`]
-      ];
+      ] as [string, number, number, string][];
     for (const [key, min, max, label] of reliabilityChecks) {
       const error = numberRangeError(reliability, key, min, max, label);
       if (error) {
@@ -184,17 +195,17 @@ function validateConnectionConfig(connection, prefix = "") {
     if (
       reliability.retransmitMinAge !== undefined &&
       reliability.retransmitMaxAge !== undefined &&
-      reliability.retransmitMinAge > reliability.retransmitMaxAge
+      (reliability.retransmitMinAge as number) > (reliability.retransmitMaxAge as number)
     ) {
       return `${p}reliability.retransmitMinAge must be <= retransmitMaxAge`;
     }
   }
 
-  if (connection.bonding !== undefined) {
-    if (!connection.bonding || typeof connection.bonding !== "object" || Array.isArray(connection.bonding)) {
+  if (conn.bonding !== undefined) {
+    if (!conn.bonding || typeof conn.bonding !== "object" || Array.isArray(conn.bonding)) {
       return `${p}bonding must be an object`;
     }
-    const bonding = connection.bonding;
+    const bonding = conn.bonding as Record<string, unknown>;
     if (bonding.enabled !== undefined && typeof bonding.enabled !== "boolean") {
       return `${p}bonding.enabled must be a boolean`;
     }
@@ -203,7 +214,7 @@ function validateConnectionConfig(connection, prefix = "") {
     }
     for (const linkKey of ["primary", "backup"]) {
       if (bonding[linkKey] !== undefined) {
-        const link = bonding[linkKey];
+        const link = bonding[linkKey] as Record<string, unknown>;
         if (!link || typeof link !== "object" || Array.isArray(link)) {
           return `${p}bonding.${linkKey} must be an object`;
         }
@@ -222,7 +233,7 @@ function validateConnectionConfig(connection, prefix = "") {
       if (!bonding.failover || typeof bonding.failover !== "object" || Array.isArray(bonding.failover)) {
         return `${p}bonding.failover must be an object`;
       }
-      const failoverChecks = [
+      const failoverChecks: [string, number, number, string][] = [
         ["rttThreshold", 100, 5000, `${p}bonding.failover.rttThreshold`],
         ["lossThreshold", 0.01, 0.5, `${p}bonding.failover.lossThreshold`],
         ["healthCheckInterval", 500, 10000, `${p}bonding.failover.healthCheckInterval`],
@@ -230,7 +241,7 @@ function validateConnectionConfig(connection, prefix = "") {
         ["heartbeatTimeout", 1000, 30000, `${p}bonding.failover.heartbeatTimeout`]
       ];
       for (const [key, min, max, label] of failoverChecks) {
-        const error = numberRangeError(bonding.failover, key, min, max, label);
+        const error = numberRangeError(bonding.failover as Record<string, unknown>, key, min, max, label);
         if (error) {
           return error;
         }
@@ -238,12 +249,12 @@ function validateConnectionConfig(connection, prefix = "") {
     }
   }
 
-  if (connection.congestionControl !== undefined) {
-    if (!connection.congestionControl || typeof connection.congestionControl !== "object" || Array.isArray(connection.congestionControl)) {
+  if (conn.congestionControl !== undefined) {
+    if (!conn.congestionControl || typeof conn.congestionControl !== "object" || Array.isArray(conn.congestionControl)) {
       return `${p}congestionControl must be an object`;
     }
-    const congestionControl = connection.congestionControl;
-    const congestionChecks = [
+    const congestionControl = conn.congestionControl as Record<string, unknown>;
+    const congestionChecks: [string, number, number, string][] = [
       ["targetRTT", 50, 2000, `${p}congestionControl.targetRTT`],
       ["nominalDeltaTimer", 100, 10000, `${p}congestionControl.nominalDeltaTimer`],
       ["minDeltaTimer", 50, 1000, `${p}congestionControl.minDeltaTimer`],
@@ -261,7 +272,7 @@ function validateConnectionConfig(connection, prefix = "") {
     if (
       congestionControl.minDeltaTimer !== undefined &&
       congestionControl.maxDeltaTimer !== undefined &&
-      congestionControl.minDeltaTimer > congestionControl.maxDeltaTimer
+      (congestionControl.minDeltaTimer as number) > (congestionControl.maxDeltaTimer as number)
     ) {
       return `${p}congestionControl.minDeltaTimer must be <= maxDeltaTimer`;
     }
@@ -270,16 +281,17 @@ function validateConnectionConfig(connection, prefix = "") {
   return null;
 }
 
-function sanitizeConnectionConfig(connection) {
+export function sanitizeConnectionConfig(connection: unknown): Partial<ConnectionConfig> {
   if (!connection || typeof connection !== "object") {
     return {};
   }
 
-  const serverType = normalizeServerType(connection.serverType);
-  const out = {};
+  const conn = connection as Record<string, unknown>;
+  const serverType = normalizeServerType(conn.serverType);
+  const out: Record<string, unknown> = {};
   for (const key of VALID_CONNECTION_KEYS) {
-    if (connection[key] !== undefined) {
-      out[key] = connection[key];
+    if (conn[key] !== undefined) {
+      out[key] = conn[key];
     }
   }
 
@@ -298,23 +310,25 @@ function sanitizeConnectionConfig(connection) {
     delete out.alertThresholds;
   }
 
-  return out;
+  return out as Partial<ConnectionConfig>;
 }
 
-function slugifyConnectionName(name) {
+export function slugifyConnectionName(name: unknown): string {
   if (!name || typeof name !== "string") {
     return "connection";
   }
 
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "connection";
+  return (
+    (name as string)
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "connection"
+  );
 }
 
-function deriveConnectionIds(connections) {
-  const used = new Set();
+export function deriveConnectionIds(connections: Array<Partial<ConnectionConfig>>): string[] {
+  const used = new Set<string>();
   return connections.map((config) => {
     const base = slugifyConnectionName(config && config.name ? config.name : "connection");
     if (!used.has(base)) {
@@ -333,12 +347,15 @@ function deriveConnectionIds(connections) {
   });
 }
 
-function findConnectionIndexByInstanceId(connections, instanceId) {
+export function findConnectionIndexByInstanceId(
+  connections: Array<Partial<ConnectionConfig>>,
+  instanceId: string
+): number {
   const ids = deriveConnectionIds(connections);
   return ids.findIndex((id) => id === instanceId);
 }
 
-function validateUniqueServerPorts(connections) {
+export function validateUniqueServerPorts(connections: Array<Partial<ConnectionConfig>>): string | null {
   const serverPorts = connections
     .filter((connection) => connection && normalizeServerType(connection.serverType) === "server")
     .map((connection) => Number(connection.udpPort))
@@ -350,14 +367,3 @@ function validateUniqueServerPorts(connections) {
   }
   return null;
 }
-
-module.exports = {
-  VALID_CONNECTION_KEYS,
-  validateConnectionConfig,
-  sanitizeConnectionConfig,
-  validateUniqueServerPorts,
-  normalizeServerType,
-  slugifyConnectionName,
-  deriveConnectionIds,
-  findConnectionIndexByInstanceId
-};

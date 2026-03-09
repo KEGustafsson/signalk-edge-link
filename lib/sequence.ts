@@ -9,14 +9,33 @@
  * @module lib/sequence
  */
 
-class SequenceTracker {
-  /**
-   * @param {Object} [config]
-   * @param {number} [config.maxOutOfOrder=100] - Max sequences to track for reordering
-   * @param {number} [config.nakTimeout=100] - Delay (ms) before NAK callback fires
-   * @param {function} [config.onLossDetected] - Callback when packet loss is confirmed
-   */
-  constructor(config = {}) {
+interface SequenceTrackerConfig {
+  maxOutOfOrder?: number;
+  nakTimeout?: number;
+  maxGapTracking?: number;
+  behindResyncThreshold?: number;
+  onLossDetected?: (sequences: number[]) => void;
+}
+
+interface ProcessSequenceResult {
+  inOrder: boolean;
+  missing: number[];
+  duplicate: boolean;
+  resynced: boolean;
+}
+
+export class SequenceTracker {
+  expectedSeq: number | null;
+  private _firstSeq: number | null;
+  receivedSeqs: Set<number>;
+  maxOutOfOrder: number;
+  nakTimeout: number;
+  maxGapTracking: number;
+  behindResyncThreshold: number;
+  nakTimers: Map<number, ReturnType<typeof setTimeout>>;
+  onLossDetected: (sequences: number[]) => void;
+
+  constructor(config: SequenceTrackerConfig = {}) {
     this.expectedSeq = null;
     this._firstSeq = null;
     this.receivedSeqs = new Set();
@@ -33,7 +52,7 @@ class SequenceTracker {
    * Uses half-range comparison (RFC-style serial arithmetic).
    * @private
    */
-  _isAhead(seq, reference) {
+  private _isAhead(seq: number, reference: number): boolean {
     const distance = (seq - reference) >>> 0;
     return distance !== 0 && distance < 0x80000000;
   }
@@ -42,7 +61,7 @@ class SequenceTracker {
    * Returns true if seq is behind reference in uint32 serial number space.
    * @private
    */
-  _isBehind(seq, reference) {
+  private _isBehind(seq: number, reference: number): boolean {
     const distance = (reference - seq) >>> 0;
     return distance !== 0 && distance < 0x80000000;
   }
@@ -51,19 +70,19 @@ class SequenceTracker {
    * Forward uint32 distance from `from` to `to` (modulo 2^32).
    * @private
    */
-  _distanceForward(from, to) {
+  private _distanceForward(from: number, to: number): number {
     return (to - from) >>> 0;
   }
 
   /**
    * Process a received sequence number
-   * @param {number} sequence - The received sequence number
-   * @returns {Object} Result with inOrder, missing, and duplicate flags
+   * @param sequence - The received sequence number
+   * @returns Result with inOrder, missing, and duplicate flags
    */
-  processSequence(sequence) {
+  processSequence(sequence: number): ProcessSequenceResult {
     sequence = sequence >>> 0;
 
-    const result = {
+    const result: ProcessSequenceResult = {
       inOrder: false,
       missing: [],
       duplicate: false,
@@ -71,7 +90,6 @@ class SequenceTracker {
     };
 
     // Initialize baseline from the first packet we actually receive.
-    // This prevents deadlock when sender/receiver restart out of sequence.
     if (this.expectedSeq === null) {
       this.receivedSeqs.add(sequence);
       this.expectedSeq = (sequence + 1) >>> 0;
@@ -101,7 +119,7 @@ class SequenceTracker {
 
       // Cancel NAK timer if one was scheduled
       if (this.nakTimers.has(sequence)) {
-        clearTimeout(this.nakTimers.get(sequence));
+        clearTimeout(this.nakTimers.get(sequence)!);
         this.nakTimers.delete(sequence);
       }
 
@@ -110,8 +128,7 @@ class SequenceTracker {
 
     this.receivedSeqs.add(sequence);
 
-    // Proactively clean up if the set grows too large (defensive against
-    // sustained out-of-order delivery where in-order cleanup never runs)
+    // Proactively clean up if the set grows too large
     if (this.receivedSeqs.size > this.maxGapTracking * 2) {
       this._cleanupOldSequences();
     }
@@ -125,7 +142,7 @@ class SequenceTracker {
       while (this.receivedSeqs.has(this.expectedSeq)) {
         // Cancel NAK timer for this sequence since it arrived
         if (this.nakTimers.has(this.expectedSeq)) {
-          clearTimeout(this.nakTimers.get(this.expectedSeq));
+          clearTimeout(this.nakTimers.get(this.expectedSeq)!);
           this.nakTimers.delete(this.expectedSeq);
         }
         this.expectedSeq = (this.expectedSeq + 1) >>> 0;
@@ -151,8 +168,6 @@ class SequenceTracker {
         candidate = (candidate + 1) >>> 0;
       }
 
-      // Cleanup on gap detection too, so stale entries don't accumulate
-      // between in-order arrivals
       this._cleanupOldSequences();
     }
 
@@ -161,16 +176,13 @@ class SequenceTracker {
 
   /**
    * Get list of known missing sequences in the tracking window
-   * @returns {number[]} Array of missing sequence numbers
+   * @returns Array of missing sequence numbers
    */
-  getMissingSequences() {
+  getMissingSequences(): number[] {
     if (this.expectedSeq === null) {
       return [];
     }
-    const missing = [];
-    // Scan backward up to maxOutOfOrder positions from expectedSeq,
-    // but never past _firstSeq (the earliest sequence we started tracking).
-    // Uses modular uint32 arithmetic so wrap-around at 2^32 is handled.
+    const missing: number[] = [];
     const trackingSpan = this._firstSeq !== null
       ? this._distanceForward(this._firstSeq, this.expectedSeq)
       : this.expectedSeq;
@@ -187,7 +199,7 @@ class SequenceTracker {
   /**
    * Reset all state and cancel pending timers
    */
-  reset() {
+  reset(): void {
     this.expectedSeq = null;
     this._firstSeq = null;
     this.receivedSeqs.clear();
@@ -196,11 +208,9 @@ class SequenceTracker {
 
   /**
    * Re-baseline tracking to a newly observed sequence after major discontinuity.
-   * This prevents timer storms and prolonged desynchronization.
    * @private
-   * @param {number} sequence
    */
-  _resync(sequence) {
+  private _resync(sequence: number): void {
     this._clearNAKTimers();
     this.receivedSeqs.clear();
     this.receivedSeqs.add(sequence);
@@ -212,7 +222,7 @@ class SequenceTracker {
    * Cancel and clear all outstanding NAK timers.
    * @private
    */
-  _clearNAKTimers() {
+  private _clearNAKTimers(): void {
     for (const timer of this.nakTimers.values()) {
       clearTimeout(timer);
     }
@@ -222,14 +232,10 @@ class SequenceTracker {
   /**
    * Schedule a NAK callback for a missing sequence
    * @private
-   * @param {number} sequence
    */
-  _scheduleNAK(sequence) {
-    if (this.nakTimers.has(sequence)) {return;}
-    // Guard against accumulating an unbounded number of timers under extreme
-    // packet loss.  maxGapTracking already triggers a resync when the gap is
-    // larger than that threshold, but this provides an additional hard cap.
-    if (this.nakTimers.size >= this.maxGapTracking) {return;}
+  private _scheduleNAK(sequence: number): void {
+    if (this.nakTimers.has(sequence)) { return; }
+    if (this.nakTimers.size >= this.maxGapTracking) { return; }
 
     const timer = setTimeout(() => {
       if (!this.receivedSeqs.has(sequence)) {
@@ -243,19 +249,14 @@ class SequenceTracker {
 
   /**
    * Remove old sequences from the tracking set to prevent memory growth.
-   * Uses a cutoff sequence to avoid per-entry distance computation:
-   * any seq behind (expectedSeq - maxOutOfOrder) in serial space is stale.
    * @private
    */
-  _cleanupOldSequences() {
-    const cutoff = (this.expectedSeq - this.maxOutOfOrder) >>> 0;
+  private _cleanupOldSequences(): void {
+    const cutoff = (this.expectedSeq! - this.maxOutOfOrder) >>> 0;
     for (const seq of this.receivedSeqs) {
-      // seq is behind cutoff → stale, delete it
       if (this._isBehind(seq, cutoff)) {
         this.receivedSeqs.delete(seq);
       }
     }
   }
 }
-
-module.exports = { SequenceTracker };

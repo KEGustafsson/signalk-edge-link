@@ -13,7 +13,7 @@
  * @module lib/congestion
  */
 
-const {
+import {
   CONGESTION_MIN_DELTA_TIMER,
   CONGESTION_MAX_DELTA_TIMER,
   CONGESTION_TARGET_RTT,
@@ -25,9 +25,37 @@ const {
   CONGESTION_RTT_MULTIPLIER_HIGH,
   CONGESTION_INCREASE_FACTOR,
   CONGESTION_DECREASE_FACTOR
-} = require("./constants");
+} from "./constants";
 
-class CongestionControl {
+interface CongestionConfig {
+  enabled?: boolean;
+  minDeltaTimer?: number;
+  maxDeltaTimer?: number;
+  targetRTT?: number;
+  adjustInterval?: number;
+  maxAdjustment?: number;
+  initialDeltaTimer?: number;
+  nominalDeltaTimer?: number;
+  smoothingFactor?: number;
+}
+
+export class CongestionControl {
+  private enabled: boolean;
+  private minDeltaTimer: number;
+  private maxDeltaTimer: number;
+  private targetRTT: number;
+  private adjustInterval: number;
+  private maxAdjustment: number;
+  private currentDeltaTimer: number;
+  private nominalDeltaTimer: number;
+  private lastAdjustment: number;
+  private avgRTT: number;
+  private avgLoss: number;
+  private alpha: number;
+  private hasRTTSample: boolean;
+  private hasLossSample: boolean;
+  private _manualMode: boolean;
+
   /**
    * @param {Object} config
    * @param {boolean} [config.enabled=false] - Whether congestion control is active
@@ -38,7 +66,7 @@ class CongestionControl {
    * @param {number} [config.maxAdjustment] - Maximum adjustment per step (fraction)
    * @param {number} [config.initialDeltaTimer] - Starting delta timer (ms)
    */
-  constructor(config = {}) {
+  constructor(config: CongestionConfig = {}) {
     this.enabled = config.enabled ?? false;
     this.minDeltaTimer = config.minDeltaTimer ?? CONGESTION_MIN_DELTA_TIMER;
     this.maxDeltaTimer = config.maxDeltaTimer ?? CONGESTION_MAX_DELTA_TIMER;
@@ -68,7 +96,7 @@ class CongestionControl {
    * @param {number} params.rtt - Latest RTT measurement (ms)
    * @param {number} params.packetLoss - Latest packet loss ratio (0-1)
    */
-  updateMetrics({ rtt, packetLoss }) {
+  updateMetrics({ rtt, packetLoss }: { rtt: number; packetLoss: number }): void {
     if (rtt !== undefined && Number.isFinite(rtt) && rtt >= 0) {
       this.avgRTT = !this.hasRTTSample
         ? rtt
@@ -89,7 +117,7 @@ class CongestionControl {
    *
    * @returns {boolean}
    */
-  shouldAdjust() {
+  shouldAdjust(): boolean {
     if (!this.enabled || this._manualMode) {return false;}
     if (!this.hasRTTSample && !this.hasLossSample) {return false;}
     return (Date.now() - this.lastAdjustment) >= this.adjustInterval;
@@ -104,7 +132,7 @@ class CongestionControl {
    *
    * @returns {number} The (potentially adjusted) delta timer value
    */
-  adjust() {
+  adjust(): number {
     if (!this.shouldAdjust()) {return this.currentDeltaTimer;}
 
     const oldTimer = this.currentDeltaTimer;
@@ -176,7 +204,7 @@ class CongestionControl {
    *
    * @returns {number} Current delta timer in ms
    */
-  getCurrentDeltaTimer() {
+  getCurrentDeltaTimer(): number {
     return this.currentDeltaTimer;
   }
 
@@ -185,7 +213,7 @@ class CongestionControl {
    *
    * @returns {number} Smoothed average RTT
    */
-  getAvgRTT() {
+  getAvgRTT(): number {
     return this.avgRTT;
   }
 
@@ -194,7 +222,7 @@ class CongestionControl {
    *
    * @returns {number} Smoothed average loss ratio
    */
-  getAvgLoss() {
+  getAvgLoss(): number {
     return this.avgLoss;
   }
 
@@ -203,7 +231,7 @@ class CongestionControl {
    *
    * @returns {boolean}
    */
-  isManualMode() {
+  isManualMode(): boolean {
     return this._manualMode;
   }
 
@@ -213,7 +241,7 @@ class CongestionControl {
    *
    * @param {number} value - Manual delta timer value (ms)
    */
-  setManualDeltaTimer(value) {
+  setManualDeltaTimer(value: number): void {
     this._manualMode = true;
     this.currentDeltaTimer = value;
   }
@@ -221,7 +249,7 @@ class CongestionControl {
   /**
    * Re-enable automatic congestion control after manual override.
    */
-  enableAutoMode() {
+  enableAutoMode(): void {
     this._manualMode = false;
     this.lastAdjustment = Date.now();
   }
@@ -231,7 +259,7 @@ class CongestionControl {
    *
    * @returns {Object} Current congestion control state
    */
-  getState() {
+  getState(): any {
     return {
       enabled: this.enabled,
       manualMode: this._manualMode,
@@ -248,4 +276,6 @@ class CongestionControl {
   }
 }
 
-module.exports = { CongestionControl };
+export function createCongestionControl(config: CongestionConfig = {}): CongestionControl {
+  return new CongestionControl(config);
+}

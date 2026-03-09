@@ -12,13 +12,13 @@
  * @module lib/monitoring
  */
 
-const {
+import {
   MONITORING_HEATMAP_BUCKETS,
   MONITORING_HEATMAP_BUCKET_DURATION,
   MONITORING_RETRANSMIT_HISTORY_SIZE,
   MONITORING_PATH_LATENCY_WINDOW,
   MONITORING_ALERT_COOLDOWN
-} = require("./constants");
+} from "./constants";
 
 // ── Packet Loss Heatmap Tracker ──
 
@@ -26,13 +26,19 @@ const {
  * Tracks packet loss data in time buckets for heatmap visualization.
  * Each bucket covers a configurable time window and tracks loss ratio.
  */
-class PacketLossTracker {
+export class PacketLossTracker {
+  maxBuckets: number;
+  bucketDuration: number;
+  buckets: Array<{ timestamp: number; total: number; lost: number }>;
+  _currentBucket: { timestamp: number; total: number; lost: number } | null;
+  _lastBucketTime: number;
+
   /**
    * @param {Object} [config]
    * @param {number} [config.maxBuckets] - Number of time buckets to retain
    * @param {number} [config.bucketDuration] - Duration of each bucket (ms)
    */
-  constructor(config = {}) {
+  constructor(config: { maxBuckets?: number; bucketDuration?: number } = {}) {
     this.maxBuckets = config.maxBuckets || MONITORING_HEATMAP_BUCKETS;
     this.bucketDuration = config.bucketDuration || MONITORING_HEATMAP_BUCKET_DURATION;
     this.buckets = [];
@@ -44,12 +50,12 @@ class PacketLossTracker {
    * Record a packet event (sent or lost)
    * @param {boolean} lost - Whether the packet was lost
    */
-  record(lost) {
+  record(lost: boolean): void {
     const now = Date.now();
     this._ensureBucket(now);
-    this._currentBucket.total++;
+    this._currentBucket!.total++;
     if (lost) {
-      this._currentBucket.lost++;
+      this._currentBucket!.lost++;
     }
   }
 
@@ -58,18 +64,18 @@ class PacketLossTracker {
    * @param {number} sent - Packets sent in this period
    * @param {number} lost - Packets lost in this period
    */
-  recordBatch(sent, lost) {
+  recordBatch(sent: number, lost: number): void {
     const now = Date.now();
     this._ensureBucket(now);
-    this._currentBucket.total += sent;
-    this._currentBucket.lost += lost;
+    this._currentBucket!.total += sent;
+    this._currentBucket!.lost += lost;
   }
 
   /**
    * Get heatmap data for visualization
    * @returns {Array<Object>} Array of { timestamp, total, lost, lossRate }
    */
-  getHeatmapData() {
+  getHeatmapData(): Array<{ timestamp: number; total: number; lost: number; lossRate: number }> {
     // Finalize current bucket
     this._ensureBucket(Date.now());
 
@@ -85,7 +91,7 @@ class PacketLossTracker {
    * Get summary statistics
    * @returns {Object} Summary with overall loss rate and trends
    */
-  getSummary() {
+  getSummary(): { overallLossRate: number; maxLossRate: number; trend: string; bucketCount: number } {
     const data = this.getHeatmapData();
     const bucketCount = data.length;
     if (bucketCount === 0) {
@@ -138,7 +144,7 @@ class PacketLossTracker {
    * Ensure a valid current bucket exists for the given timestamp
    * @private
    */
-  _ensureBucket(now) {
+  _ensureBucket(now: number): void {
     if (!this._currentBucket || now - this._lastBucketTime >= this.bucketDuration) {
       // Finalize previous bucket
       if (this._currentBucket) {
@@ -160,7 +166,7 @@ class PacketLossTracker {
   /**
    * Reset all tracking data
    */
-  reset() {
+  reset(): void {
     this.buckets = [];
     this._currentBucket = null;
     this._lastBucketTime = 0;
@@ -173,13 +179,17 @@ class PacketLossTracker {
  * Tracks latency metrics per Signal K path.
  * Maintains a sliding window of latency samples per path.
  */
-class PathLatencyTracker {
+export class PathLatencyTracker {
+  windowSize: number;
+  maxPaths: number;
+  paths: Map<string, { samples: number[]; lastUpdate: number }>;
+
   /**
    * @param {Object} [config]
    * @param {number} [config.windowSize] - Number of samples per path
    * @param {number} [config.maxPaths] - Maximum paths to track (prevent memory leaks)
    */
-  constructor(config = {}) {
+  constructor(config: { windowSize?: number; maxPaths?: number } = {}) {
     this.windowSize = config.windowSize ?? MONITORING_PATH_LATENCY_WINDOW;
     this.maxPaths = config.maxPaths ?? 200;
     this.paths = new Map(); // path -> { samples: [], stats: {} }
@@ -190,7 +200,7 @@ class PathLatencyTracker {
    * @param {string} path - Signal K path
    * @param {number} latencyMs - Latency in milliseconds
    */
-  record(path, latencyMs) {
+  record(path: string, latencyMs: number): void {
     let entry = this.paths.get(path);
     if (!entry) {
       // Evict oldest if at capacity
@@ -214,7 +224,7 @@ class PathLatencyTracker {
    * @param {string} path - Signal K path
    * @returns {Object|null} Latency stats or null
    */
-  getPathStats(path) {
+  getPathStats(path: string): any | null {
     const entry = this.paths.get(path);
     if (!entry || entry.samples.length === 0) {return null;}
 
@@ -226,13 +236,13 @@ class PathLatencyTracker {
    * @param {number} [topN=20] - Maximum number of paths to return
    * @returns {Array<Object>} Sorted by average latency (descending)
    */
-  getAllStats(topN = 20) {
+  getAllStats(topN: number = 20): any[] {
     const limit = Math.max(0, topN);
     if (limit === 0) {
       return [];
     }
 
-    const stats = [];
+    const stats: any[] = [];
     for (const [path, entry] of this.paths) {
       if (entry.samples.length === 0) {
         continue;
@@ -266,7 +276,7 @@ class PathLatencyTracker {
    * Calculate statistics for a path entry
    * @private
    */
-  _calculateStats(path, entry) {
+  _calculateStats(path: string, entry: { samples: number[]; lastUpdate: number }): any {
     const samples = entry.samples;
     const sampleCount = samples.length;
     const sorted = new Array(sampleCount);
@@ -278,7 +288,7 @@ class PathLatencyTracker {
       sorted[i] = value;
     }
 
-    sorted.sort((a, b) => a - b);
+    sorted.sort((a: number, b: number) => a - b);
     const avg = sum / sampleCount;
 
     return {
@@ -297,7 +307,7 @@ class PathLatencyTracker {
   /**
    * Reset all tracking data
    */
-  reset() {
+  reset(): void {
     this.paths.clear();
   }
 }
@@ -308,12 +318,22 @@ class PathLatencyTracker {
  * Tracks retransmission rates over time for chart visualization.
  * Records periodic snapshots of retransmission activity.
  */
-class RetransmissionTracker {
+export class RetransmissionTracker {
+  maxEntries: number;
+  history: Array<{
+    timestamp: number;
+    rate: number;
+    retransmitsPerSec: number;
+    periodPackets: number;
+    periodRetransmissions: number;
+  }>;
+  _lastSnapshot: { packetsSent: number; retransmissions: number; timestamp: number };
+
   /**
    * @param {Object} [config]
    * @param {number} [config.maxEntries] - Max history entries to retain
    */
-  constructor(config = {}) {
+  constructor(config: { maxEntries?: number } = {}) {
     this.maxEntries = config.maxEntries || MONITORING_RETRANSMIT_HISTORY_SIZE;
     this.history = [];
     this._lastSnapshot = {
@@ -328,7 +348,7 @@ class RetransmissionTracker {
    * @param {number} totalPacketsSent - Total packets sent since start
    * @param {number} totalRetransmissions - Total retransmissions since start
    */
-  snapshot(totalPacketsSent, totalRetransmissions) {
+  snapshot(totalPacketsSent: number, totalRetransmissions: number): void {
     const now = Date.now();
     const elapsed = (now - this._lastSnapshot.timestamp) / 1000;
     if (elapsed <= 0) {return;}
@@ -364,7 +384,7 @@ class RetransmissionTracker {
    * @param {number} [limit] - Maximum entries to return
    * @returns {Array<Object>} Time series data
    */
-  getChartData(limit) {
+  getChartData(limit?: number): any[] {
     if (limit && limit < this.history.length) {
       return this.history.slice(-limit);
     }
@@ -375,7 +395,7 @@ class RetransmissionTracker {
    * Get summary statistics
    * @returns {Object}
    */
-  getSummary() {
+  getSummary(): { avgRate: number; maxRate: number; currentRate: number; entries: number } {
     if (this.history.length === 0) {
       return { avgRate: 0, maxRate: 0, currentRate: 0, entries: 0 };
     }
@@ -400,7 +420,7 @@ class RetransmissionTracker {
   /**
    * Reset all tracking data
    */
-  reset() {
+  reset(): void {
     this.history = [];
     this._lastSnapshot = {
       packetsSent: 0,
@@ -416,13 +436,22 @@ class RetransmissionTracker {
  * Manages alert thresholds and emits Signal K notifications
  * when network metrics exceed configured limits.
  */
-class AlertManager {
+export class AlertManager {
+  app: any;
+  instanceId: string;
+  sourceLabel: string;
+  thresholds: any;
+  cooldown: number;
+  notificationsEnabled: boolean;
+  activeAlerts: Map<string, { metric: string; level: string; value: number; threshold: number; timestamp: number }>;
+  _lastAlertTime: Map<string, number>;
+
   /**
    * @param {Object} app - Signal K app instance
    * @param {Object} [config]
    * @param {Object} [config.thresholds] - Alert thresholds
    */
-  constructor(app, config = {}) {
+  constructor(app: any, config: any = {}) {
     this.app = app;
     // instanceId is used to namespace notification paths so multiple instances
     // don't overwrite each other's alerts in Signal K.
@@ -455,11 +484,11 @@ class AlertManager {
    * @param {number} value - Current metric value
    * @returns {Object|null} Alert object if threshold exceeded, null otherwise
    */
-  check(metricName, value) {
+  check(metricName: string, value: number): any | null {
     const threshold = this.thresholds[metricName];
     if (!threshold) {return null;}
 
-    let level = null;
+    let level: string | null = null;
     if (value >= threshold.critical) {
       level = "critical";
     } else if (value >= threshold.warning) {
@@ -502,8 +531,8 @@ class AlertManager {
    * @param {Object} metrics - { rtt, packetLoss, retransmitRate, jitter, queueDepth }
    * @returns {Array<Object>} Array of triggered alerts
    */
-  checkAll(metrics) {
-    const alerts = [];
+  checkAll(metrics: Record<string, number | undefined>): any[] {
+    const alerts: any[] = [];
     for (const [name, value] of Object.entries(metrics)) {
       if (value !== undefined && this.thresholds[name]) {
         const alert = this.check(name, value);
@@ -518,7 +547,7 @@ class AlertManager {
    * @param {string} metricName - Metric name
    * @param {Object} thresholds - { warning, critical }
    */
-  setThreshold(metricName, thresholds) {
+  setThreshold(metricName: string, thresholds: { warning?: number; critical?: number }): void {
     if (!this.thresholds[metricName]) {
       this.thresholds[metricName] = {};
     }
@@ -534,8 +563,8 @@ class AlertManager {
    * Get current alert state
    * @returns {Object} Active alerts and thresholds
    */
-  getState() {
-    const alerts = {};
+  getState(): { thresholds: any; activeAlerts: Record<string, any> } {
+    const alerts: Record<string, any> = {};
     for (const [name, alert] of this.activeAlerts) {
       alerts[name] = { ...alert };
     }
@@ -549,7 +578,7 @@ class AlertManager {
    * Send a Signal K notification for a given path and state
    * @private
    */
-  _emitNotification(path, state, message, method) {
+  _emitNotification(path: string, state: string, message: string, method: string[]): void {
     if (!this.notificationsEnabled) {return;}
     try {
       this.app.handleMessage(this.sourceLabel, {
@@ -560,7 +589,7 @@ class AlertManager {
           values: [{ path, value: { state, message, method } }]
         }]
       });
-    } catch (err) {
+    } catch (err: any) {
       this.app.debug(`[Alert] Failed to emit notification: ${err.message}`);
     }
   }
@@ -569,8 +598,8 @@ class AlertManager {
    * Emit an alert notification via Signal K
    * @private
    */
-  _emitAlert(alert) {
-    const stateMap = { warning: "warn", critical: "alert" };
+  _emitAlert(alert: { metric: string; level: string; value: number; threshold: number; timestamp: number }): void {
+    const stateMap: Record<string, string> = { warning: "warn", critical: "alert" };
     const ns = this.instanceId ? `${this.instanceId}.` : "";
     this._emitNotification(
       `notifications.signalk-edge-link.${ns}${alert.metric}`,
@@ -584,7 +613,7 @@ class AlertManager {
    * Emit a clear notification when alert condition resolves
    * @private
    */
-  _emitClear(metricName) {
+  _emitClear(metricName: string): void {
     const ns = this.instanceId ? `${this.instanceId}.` : "";
     this._emitNotification(
       `notifications.signalk-edge-link.${ns}${metricName}`,
@@ -597,15 +626,8 @@ class AlertManager {
   /**
    * Reset all active alerts
    */
-  reset() {
+  reset(): void {
     this.activeAlerts.clear();
     this._lastAlertTime.clear();
   }
 }
-
-module.exports = {
-  PacketLossTracker,
-  PathLatencyTracker,
-  RetransmissionTracker,
-  AlertManager
-};

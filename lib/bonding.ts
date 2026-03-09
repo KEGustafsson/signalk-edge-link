@@ -17,9 +17,9 @@
  * @module lib/bonding
  */
 
-const dgram = require("dgram");
-const CircularBuffer = require("./CircularBuffer");
-const {
+import * as dgram from "dgram";
+import CircularBuffer from "./CircularBuffer";
+import {
   BONDING_HEALTH_CHECK_INTERVAL,
   BONDING_RTT_THRESHOLD,
   BONDING_LOSS_THRESHOLD,
@@ -29,7 +29,7 @@ const {
   BONDING_FAILBACK_LOSS_HYSTERESIS,
   BONDING_HEALTH_WINDOW_SIZE,
   BONDING_RTT_EMA_ALPHA
-} = require("./constants");
+} from "./constants";
 
 /**
  * Link status values
@@ -50,13 +50,60 @@ const BondingMode = Object.freeze({
   MAIN_BACKUP: "main-backup"
 });
 
+interface LinkConfig {
+  address: string;
+  port: number;
+  interface?: string;
+}
+
+interface LinkHealth {
+  rtt: number;
+  loss: number;
+  quality: number;
+  status: string;
+}
+
+interface LinkState {
+  name: string;
+  address: string;
+  port: number;
+  interface: string | null;
+  socket: dgram.Socket | null;
+  health: LinkHealth;
+  heartbeatSeq: number;
+  pendingHeartbeats: Map<number, number>;
+  heartbeatResponses: number;
+  heartbeatsSent: number;
+  lossSamples: CircularBuffer;
+  rttSamples: CircularBuffer;
+  lastHeartbeatResponse: number;
+  _recoveryTimer?: ReturnType<typeof setTimeout> | null;
+}
+
+interface FailoverConfig {
+  rttThreshold?: number;
+  lossThreshold?: number;
+  healthCheckInterval?: number;
+  failbackDelay?: number;
+  heartbeatTimeout?: number;
+}
+
+interface BondingConfig {
+  mode?: string;
+  primary: LinkConfig;
+  backup: LinkConfig;
+  failover?: FailoverConfig;
+  instanceId?: string;
+  notificationsEnabled?: boolean;
+}
+
 /**
  * Create initial state for a single link
  * @param {string} name - Link name
  * @param {Object} linkConfig - Link configuration {address, port, interface}
  * @returns {Object} Link state object
  */
-function _createLinkState(name, linkConfig) {
+function _createLinkState(name: string, linkConfig: LinkConfig): LinkState {
   return {
     name,
     address: linkConfig.address,
@@ -79,7 +126,31 @@ function _createLinkState(name, linkConfig) {
   };
 }
 
-class BondingManager {
+export class BondingManager {
+  private app: any;
+  private config: BondingConfig;
+  private mode: string;
+  private instanceId: string;
+  private sourceLabel: string;
+  private notificationsEnabled: boolean;
+  private links: { primary: LinkState; backup: LinkState };
+  private activeLink: string;
+  private failoverThresholds: {
+    rttThreshold: number;
+    lossThreshold: number;
+    healthCheckInterval: number;
+    failbackDelay: number;
+    heartbeatTimeout: number;
+  };
+  private lastFailoverTime: number;
+  private healthCheckTimer: ReturnType<typeof setInterval> | null;
+  private _initialized: boolean;
+  private _stopped: boolean;
+  public metricsPublisher: any;
+  private _onFailover: ((from: string, to: string) => void) | null;
+  private _onFailback: ((from: string, to: string) => void) | null;
+  private _onControlPacket?: ((linkName: string, msg: Buffer) => void) | null;
+
   /**
    * @param {Object} config - Bonding configuration
    * @param {string} [config.mode='main-backup'] - Bonding mode
@@ -94,7 +165,7 @@ class BondingManager {
    * @param {Object} [config.failover] - Failover thresholds
    * @param {Object} app - Signal K app instance (for logging and messaging)
    */
-  constructor(config, app) {
+  constructor(config: BondingConfig, app: any) {
     this.app = app;
     this.config = config;
     this.mode = config.mode || BondingMode.MAIN_BACKUP;
@@ -141,17 +212,17 @@ class BondingManager {
    * Initialize bonding manager - create UDP sockets and start health monitoring
    * @returns {Promise<void>}
    */
-  async initialize() {
+  async initialize(): Promise<void> {
     if (this._initialized) {return;}
 
     for (const [name, link] of Object.entries(this.links)) {
       link.socket = dgram.createSocket("udp4");
 
       if (link.interface) {
-        await new Promise((resolve, reject) => {
-          link.socket.bind({ address: link.interface, port: 0 }, (err) => {
+        await new Promise<void>((resolve, reject) => {
+          link.socket!.bind({ address: link.interface!, port: 0 }, (err?: Error) => {
             if (err) {
-              link.socket.close();
+              link.socket!.close();
               link.socket = null;
               reject(err);
             } else {
@@ -162,11 +233,11 @@ class BondingManager {
       }
 
       // Set up message handler for heartbeat responses
-      link.socket.on("message", (msg, _rinfo) => {
+      link.socket.on("message", (msg: Buffer, _rinfo: dgram.RemoteInfo) => {
         this._handleHeartbeatResponse(name, msg);
       });
 
-      link.socket.on("error", (err) => {
+      link.socket.on("error", (err: Error) => {
         this.app.debug(`[Bonding] ${name} socket error: ${err.message}`);
         link.health.status = LinkStatus.DOWN;
         // Attempt socket recreation after a short delay
@@ -188,7 +259,7 @@ class BondingManager {
   /**
    * Start periodic health check monitoring
    */
-  startHealthMonitoring() {
+  startHealthMonitoring(): void {
     if (this.healthCheckTimer) {return;}
 
     this.healthCheckTimer = setInterval(() => {
@@ -199,7 +270,7 @@ class BondingManager {
   /**
    * Stop health monitoring
    */
-  stopHealthMonitoring() {
+  stopHealthMonitoring(): void {
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer);
       this.healthCheckTimer = null;
@@ -210,7 +281,7 @@ class BondingManager {
    * Perform health check on all links
    * @private
    */
-  _checkHealth() {
+  private _checkHealth(): void {
     for (const [name, link] of Object.entries(this.links)) {
       this._measureLinkHealth(name, link);
     }
@@ -230,7 +301,7 @@ class BondingManager {
    * @param {string} name - Link name ('primary' or 'backup')
    * @param {Object} link - Link object
    */
-  _measureLinkHealth(name, link) {
+  private _measureLinkHealth(name: string, link: LinkState): void {
     if (!link.socket) {return;}
 
     // Send heartbeat probe
@@ -245,12 +316,12 @@ class BondingManager {
     link.heartbeatsSent++;
 
     try {
-      link.socket.send(probe, link.port, link.address, (err) => {
+      link.socket.send(probe, link.port, link.address, (err?: Error | null) => {
         if (err) {
           this.app.debug(`[Bonding] ${name} heartbeat send error: ${err.message}`);
         }
       });
-    } catch (err) {
+    } catch (err: any) {
       this.app.debug(`[Bonding] ${name} heartbeat send exception: ${err.message}`);
     }
 
@@ -292,8 +363,8 @@ class BondingManager {
    * @param {string} name - Link name
    * @param {Buffer} msg - Response message
    */
-  _handleHeartbeatResponse(name, msg) {
-    const link = this.links[name];
+  private _handleHeartbeatResponse(name: string, msg: Buffer): void {
+    const link = (this.links as any)[name] as LinkState | undefined;
     if (!link) {return;}
 
     // Validate response format
@@ -340,7 +411,7 @@ class BondingManager {
    * @param {string} name - Link name
    * @param {Object} link - Link object
    */
-  _updateLinkMetrics(name, link) {
+  private _updateLinkMetrics(name: string, link: LinkState): void {
     // Calculate loss ratio from recent heartbeat outcomes when available.
     if (link.lossSamples && link.lossSamples.length > 0) {
       const samples = link.lossSamples.toArray();
@@ -363,7 +434,7 @@ class BondingManager {
    * @param {Object} health - Health metrics {rtt, loss}
    * @returns {number} Quality score 0-100
    */
-  _calculateQuality(health) {
+  private _calculateQuality(health: LinkHealth): number {
     // RTT component: 0-1 (1 = perfect, 0 = worst)
     const rttScore = Math.max(0, Math.min(1, 1 - (health.rtt / 1000)));
 
@@ -382,7 +453,7 @@ class BondingManager {
    * @param {string} name - Link name
    * @param {Object} link - Link state object
    */
-  _scheduleSocketRecovery(name, link) {
+  private _scheduleSocketRecovery(name: string, link: LinkState): void {
     if (this._stopped) {return;}
     // Avoid scheduling multiple recoveries
     if (link._recoveryTimer) {return;}
@@ -398,18 +469,18 @@ class BondingManager {
         }
         link.socket = dgram.createSocket("udp4");
 
-        link.socket.on("message", (msg, _rinfo) => {
+        link.socket.on("message", (msg: Buffer, _rinfo: dgram.RemoteInfo) => {
           this._handleHeartbeatResponse(name, msg);
         });
 
-        link.socket.on("error", (err) => {
+        link.socket.on("error", (err: Error) => {
           this.app.debug(`[Bonding] ${name} socket error after recovery: ${err.message}`);
           link.health.status = LinkStatus.DOWN;
           this._scheduleSocketRecovery(name, link);
         });
 
         if (link.interface) {
-          link.socket.bind({ address: link.interface, port: 0 }, (err) => {
+          link.socket.bind({ address: link.interface, port: 0 }, (err?: Error) => {
             if (err) {
               this.app.debug(`[Bonding] ${name} bind failed after recovery: ${err.message}`);
               link.health.status = LinkStatus.DOWN;
@@ -422,7 +493,7 @@ class BondingManager {
           link.health.status = LinkStatus.STANDBY;
           this.app.debug(`[Bonding] ${name} socket recovered`);
         }
-      } catch (err) {
+      } catch (err: any) {
         this.app.debug(`[Bonding] ${name} socket recovery failed: ${err.message}`);
         link.health.status = LinkStatus.DOWN;
       }
@@ -434,7 +505,7 @@ class BondingManager {
    * @private
    * @returns {boolean}
    */
-  _shouldFailover() {
+  private _shouldFailover(): boolean {
     if (this.activeLink !== "primary") {return false;}
 
     const primary = this.links.primary.health;
@@ -455,7 +526,7 @@ class BondingManager {
    * @private
    * @returns {boolean}
    */
-  _shouldFailback() {
+  private _shouldFailback(): boolean {
     if (this.activeLink !== "backup") {return false;}
 
     const primary = this.links.primary.health;
@@ -477,7 +548,7 @@ class BondingManager {
   /**
    * Execute failover from primary to backup
    */
-  failover() {
+  failover(): void {
     if (this.activeLink === "backup") {return;}
 
     this.app.error("[FAILOVER] Switching from primary to backup link");
@@ -500,7 +571,7 @@ class BondingManager {
   /**
    * Execute failback from backup to primary
    */
-  failback() {
+  failback(): void {
     if (this.activeLink === "primary") {return;}
 
     this.app.debug("[FAILBACK] Switching from backup to primary link");
@@ -523,7 +594,7 @@ class BondingManager {
    * @param {string} from - Source link name
    * @param {string} to - Destination link name
    */
-  _emitFailoverNotification(from, to) {
+  private _emitFailoverNotification(from: string, to: string): void {
     if (!this.notificationsEnabled) {return;}
     try {
       this.app.handleMessage(this.sourceLabel, {
@@ -544,7 +615,7 @@ class BondingManager {
           }]
         }]
       });
-    } catch (err) {
+    } catch (err: any) {
       this.app.debug(`[Bonding] Failed to emit failover notification: ${err.message}`);
     }
   }
@@ -553,16 +624,16 @@ class BondingManager {
    * Get the active link's UDP socket
    * @returns {Object|null} dgram socket or null
    */
-  getActiveSocket() {
-    return this.links[this.activeLink].socket;
+  getActiveSocket(): dgram.Socket | null {
+    return (this.links as any)[this.activeLink].socket;
   }
 
   /**
    * Get the active link's destination address and port
    * @returns {Object} { address, port }
    */
-  getActiveAddress() {
-    const link = this.links[this.activeLink];
+  getActiveAddress(): { address: string; port: number } {
+    const link = (this.links as any)[this.activeLink] as LinkState;
     return { address: link.address, port: link.port };
   }
 
@@ -570,7 +641,7 @@ class BondingManager {
    * Get the name of the currently active link
    * @returns {string} 'primary' or 'backup'
    */
-  getActiveLinkName() {
+  getActiveLinkName(): string {
     return this.activeLink;
   }
 
@@ -578,8 +649,8 @@ class BondingManager {
    * Get health information for all links
    * @returns {Object} Link health data
    */
-  getLinkHealth() {
-    const result = {};
+  getLinkHealth(): Record<string, any> {
+    const result: Record<string, any> = {};
     for (const [name, link] of Object.entries(this.links)) {
       result[name] = {
         address: link.address,
@@ -599,7 +670,7 @@ class BondingManager {
    * Get full bonding state for API/diagnostics
    * @returns {Object} Bonding state
    */
-  getState() {
+  getState(): any {
     return {
       enabled: true,
       mode: this.mode,
@@ -615,7 +686,7 @@ class BondingManager {
    * (e.g., ACK/NAK packets that should be forwarded to the pipeline)
    * @param {Function} handler - (linkName, msg) handler
    */
-  onControlPacket(handler) {
+  onControlPacket(handler: (linkName: string, msg: Buffer) => void): void {
     this._onControlPacket = handler;
   }
 
@@ -623,7 +694,7 @@ class BondingManager {
    * Set callback for failover events
    * @param {Function} handler - (fromLink, toLink) handler
    */
-  onFailover(handler) {
+  onFailover(handler: (from: string, to: string) => void): void {
     this._onFailover = handler;
   }
 
@@ -631,7 +702,7 @@ class BondingManager {
    * Set callback for failback events
    * @param {Function} handler - (fromLink, toLink) handler
    */
-  onFailback(handler) {
+  onFailback(handler: (from: string, to: string) => void): void {
     this._onFailback = handler;
   }
 
@@ -639,14 +710,14 @@ class BondingManager {
    * Set the metrics publisher for per-link metrics
    * @param {Object} publisher - MetricsPublisher instance
    */
-  setMetricsPublisher(publisher) {
+  setMetricsPublisher(publisher: any): void {
     this.metricsPublisher = publisher;
   }
 
   /**
    * Manually force a failover (for testing/API)
    */
-  forceFailover() {
+  forceFailover(): void {
     if (this.activeLink === "primary") {
       this.failover();
     } else {
@@ -657,7 +728,7 @@ class BondingManager {
   /**
    * Stop bonding manager and clean up all resources
    */
-  stop() {
+  stop(): void {
     this._stopped = true;
 
     this.stopHealthMonitoring();
@@ -684,4 +755,8 @@ class BondingManager {
   }
 }
 
-module.exports = { BondingManager, LinkStatus, BondingMode };
+export function createBondingManager(config: BondingConfig, app: any): BondingManager {
+  return new BondingManager(config, app);
+}
+
+export { LinkStatus, BondingMode };

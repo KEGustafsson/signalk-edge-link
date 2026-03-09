@@ -9,43 +9,64 @@
  * @module lib/config-watcher
  */
 
-const { readFile, writeFile, mkdir } = require("fs").promises;
-const { watch } = require("fs");
-const { join } = require("path");
-const crypto = require("crypto");
-const { loadConfigFile, saveConfigFile } = require("./config-io");
-const {
+import { promises as fsPromises, watch, FSWatcher } from "fs";
+import { join } from "path";
+import * as crypto from "crypto";
+import { loadConfigFile, saveConfigFile } from "./config-io";
+import {
   DEFAULT_DELTA_TIMER,
   FILE_WATCH_DEBOUNCE_DELAY,
   CONTENT_HASH_ALGORITHM,
   WATCHER_RECOVERY_DELAY
-} = require("./constants");
+} from "./constants";
+import type { SignalKApp } from "./types";
+
+const { readFile, writeFile, mkdir } = fsPromises;
+
+interface DebounceHandlerOpts {
+  name: string;
+  getFilePath: () => string | null;
+  processConfig: (config: unknown) => void | Promise<void>;
+  state: {
+    configDebounceTimers: Record<string, ReturnType<typeof setTimeout>>;
+    configContentHashes: Record<string, string>;
+    stopped?: boolean;
+  };
+  instanceId: string;
+  app: SignalKApp;
+  readFallback?: unknown;
+}
+
+interface WatcherRecoveryOpts {
+  filePath: string | null;
+  onChange: () => void;
+  name: string;
+  instanceId: string;
+  app: SignalKApp;
+  state: { stopped?: boolean };
+}
+
+interface WatcherHandle {
+  readonly watcher: FSWatcher | null;
+  close(): void;
+}
 
 /**
  * Create a debounced config-change handler.
- *
- * @param {Object}   opts
- * @param {string}   opts.name           - Human-readable name (e.g. "Delta timer")
- * @param {Function} opts.getFilePath    - Returns current file path
- * @param {Function} opts.processConfig  - Async callback receiving parsed config
- * @param {Object}   opts.state          - Shared mutable state (debounce timers, hashes)
- * @param {string}   opts.instanceId     - Instance identifier for log prefixes
- * @param {Object}   opts.app            - Signal K app (for logging)
- * @param {*}        [opts.readFallback] - Default value when file is missing
- * @returns {Function} Change handler
  */
-function createDebouncedConfigHandler(opts) {
+export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): () => void {
   const { name, getFilePath, processConfig, state, instanceId, app, readFallback } = opts;
 
   return function handleChange() {
     clearTimeout(state.configDebounceTimers[name]);
     state.configDebounceTimers[name] = setTimeout(async () => {
       try {
-        let content;
+        let content: string | null;
+        const filePath = getFilePath();
         if (readFallback !== undefined) {
-          content = await readFile(getFilePath(), "utf-8").catch(() => null);
+          content = filePath ? await readFile(filePath, "utf-8").catch(() => null) : null;
         } else {
-          content = await readFile(getFilePath(), "utf-8");
+          content = filePath ? await readFile(filePath, "utf-8") : null;
         }
 
         const hashSource = content || JSON.stringify(readFallback) || "";
@@ -62,7 +83,7 @@ function createDebouncedConfigHandler(opts) {
         const parsed = content ? JSON.parse(content) : readFallback;
         await processConfig(parsed);
         state.configContentHashes[name] = contentHash;
-      } catch (err) {
+      } catch (err: any) {
         app.error(`[${instanceId}] Error handling ${name} change: ${err.message}`);
       }
     }, FILE_WATCH_DEBOUNCE_DELAY);
@@ -71,23 +92,18 @@ function createDebouncedConfigHandler(opts) {
 
 /**
  * Create a file-system watcher with automatic recovery on error or rename.
- *
- * @param {Object}   opts
- * @param {string}   opts.filePath   - Absolute path to watch
- * @param {Function} opts.onChange    - Callback on change event
- * @param {string}   opts.name       - Human-readable name for logging
- * @param {string}   opts.instanceId - Instance identifier
- * @param {Object}   opts.app        - Signal K app
- * @param {Object}   opts.state      - Shared mutable state (to check stopped flag)
- * @returns {Object} Watcher handle with a close() method
  */
-function createWatcherWithRecovery(opts) {
+export function createWatcherWithRecovery(opts: WatcherRecoveryOpts): WatcherHandle {
   const { filePath, onChange, name, instanceId, app, state } = opts;
   const MAX_RECOVERY_ATTEMPTS = 10;
   const MAX_RECOVERY_DELAY = 60000;
-  const watcherObj = { watcher: null, recoveryTimer: null, recoveryAttempts: 0 };
+  const watcherObj: {
+    watcher: FSWatcher | null;
+    recoveryTimer: ReturnType<typeof setTimeout> | null;
+    recoveryAttempts: number;
+  } = { watcher: null, recoveryTimer: null, recoveryAttempts: 0 };
 
-  function scheduleWatcherRecreate() {
+  function scheduleWatcherRecreate(): void {
     if (watcherObj.recoveryTimer) {
       clearTimeout(watcherObj.recoveryTimer);
     }
@@ -119,11 +135,14 @@ function createWatcherWithRecovery(opts) {
     }, delay);
   }
 
-  function createWatcher() {
+  function createWatcher(): boolean {
     try {
       if (watcherObj.watcher) {
         watcherObj.watcher.close();
         watcherObj.watcher = null;
+      }
+      if (!filePath) {
+        return false;
       }
       watcherObj.watcher = watch(filePath, (eventType) => {
         if (eventType === "change" || eventType === "rename") {
@@ -135,7 +154,7 @@ function createWatcherWithRecovery(opts) {
         }
       });
 
-      watcherObj.watcher.on("error", (error) => {
+      watcherObj.watcher.on("error", (error: Error) => {
         app.error(`[${instanceId}] ${name} watcher error: ${error.message}`);
         if (watcherObj.watcher) {
           watcherObj.watcher.close();
@@ -145,7 +164,7 @@ function createWatcherWithRecovery(opts) {
       });
 
       return true;
-    } catch (err) {
+    } catch (err: any) {
       app.error(`[${instanceId}] Failed to create ${name} watcher: ${err.message}`);
       return false;
     }
@@ -170,17 +189,23 @@ function createWatcherWithRecovery(opts) {
   };
 }
 
+interface MigrateLegacyOpts {
+  instanceId: string;
+  dataDir: string;
+  instanceDir: string;
+  app: SignalKApp;
+}
+
 /**
  * Migrate legacy root-level config files to the instance-namespaced directory
  * when upgrading from single-instance to multi-instance mode.
- *
- * @param {Object} opts
- * @param {string} opts.instanceId  - Instance identifier
- * @param {string} opts.dataDir     - Signal K data directory
- * @param {string} opts.instanceDir - Per-instance config directory
- * @param {Object} opts.app         - Signal K app
  */
-async function migrateLegacyConfigFiles({ instanceId, dataDir, instanceDir, app }) {
+export async function migrateLegacyConfigFiles({
+  instanceId,
+  dataDir,
+  instanceDir,
+  app
+}: MigrateLegacyOpts): Promise<void> {
   if (instanceId !== "default") {
     return;
   }
@@ -192,7 +217,7 @@ async function migrateLegacyConfigFiles({ instanceId, dataDir, instanceDir, app 
       const data = await readFile(legacy, "utf-8");
       await writeFile(target, data, { encoding: "utf-8", flag: "wx" });
       app.debug(`[${instanceId}] Migrated legacy ${file} → instances/default/${file}`);
-    } catch (err) {
+    } catch (err: any) {
       if (err.code !== "ENOENT" && err.code !== "EEXIST") {
         app.error(`[${instanceId}] Migration failed for ${file}: ${err.message}`);
       }
@@ -200,16 +225,25 @@ async function migrateLegacyConfigFiles({ instanceId, dataDir, instanceDir, app 
   }
 }
 
+interface InitPersistentStorageOpts {
+  instanceId: string;
+  app: SignalKApp;
+  state: {
+    deltaTimerFile: string | null;
+    subscriptionFile: string | null;
+    sentenceFilterFile: string | null;
+    excludedSentences: string[];
+  };
+}
+
 /**
  * Initialize per-instance persistent storage (config files and defaults).
- *
- * @param {Object} opts
- * @param {string} opts.instanceId - Instance identifier
- * @param {Object} opts.app        - Signal K app
- * @param {Object} opts.state      - Shared mutable state
- * @returns {Promise<void>}
  */
-async function initializePersistentStorage({ instanceId, app, state }) {
+export async function initializePersistentStorage({
+  instanceId,
+  app,
+  state
+}: InitPersistentStorageOpts): Promise<void> {
   const instanceDir = join(app.getDataDirPath(), "instances", instanceId);
   await mkdir(instanceDir, { recursive: true });
 
@@ -224,7 +258,7 @@ async function initializePersistentStorage({ instanceId, app, state }) {
   state.subscriptionFile = join(instanceDir, "subscription.json");
   state.sentenceFilterFile = join(instanceDir, "sentence_filter.json");
 
-  const defaults = [
+  const defaults: Array<{ file: string; data: unknown; name: string }> = [
     {
       file: state.deltaTimerFile,
       data: { deltaTimer: DEFAULT_DELTA_TIMER },
@@ -243,7 +277,7 @@ async function initializePersistentStorage({ instanceId, app, state }) {
   ];
 
   for (const { file, data, name } of defaults) {
-    const existing = await loadConfigFile(file);
+    const existing = await loadConfigFile(file) as any;
     if (!existing) {
       await saveConfigFile(file, data);
       app.debug(`[${instanceId}] Initialized ${name} with defaults`);
@@ -252,10 +286,3 @@ async function initializePersistentStorage({ instanceId, app, state }) {
     }
   }
 }
-
-module.exports = {
-  createDebouncedConfigHandler,
-  createWatcherWithRecovery,
-  migrateLegacyConfigFiles,
-  initializePersistentStorage
-};

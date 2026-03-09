@@ -9,31 +9,42 @@
  * @module lib/prometheus
  */
 
+import type { Metrics } from "./types";
+
+interface PrometheusOpts {
+  sharedMeta?: Set<string>;
+}
+
+interface PrometheusExtra {
+  packetLoss?: number;
+  linkQuality?: number;
+  retransmitRate?: number;
+  activeAlerts?: Record<string, { level: string }>;
+  bonding?: {
+    activeLink: string;
+    links?: Record<string, { status: string; rtt?: number; loss?: number; quality?: number }>;
+  };
+}
+
 /**
  * Generates Prometheus-formatted metrics text from plugin state.
- *
- * @param {Object} metrics - The metrics object from lib/metrics.js
- * @param {Object} state - Plugin shared state
- * @param {Object} [extra] - Extra metrics from monitoring modules
- * @param {Object} [opts]
- * @param {Set}    [opts.sharedMeta] - Shared Set of already-declared metric names.
- *   When aggregating multiple instances, pass the same Set across calls so that
- *   # HELP / # TYPE lines are emitted only once per metric family.
- * @returns {string} Prometheus text exposition format
  */
-function formatPrometheusMetrics(metrics, state, extra = {}, opts = {}) {
-  const lines = [];
+export function formatPrometheusMetrics(
+  metrics: Metrics,
+  state: any,
+  extra: PrometheusExtra = {},
+  opts: PrometheusOpts = {}
+): string {
+  const lines: string[] = [];
   const prefix = "signalk_edge_link";
   const mode = state.isServerMode ? "server" : "client";
-  const metricMeta = opts.sharedMeta instanceof Set ? opts.sharedMeta : new Set();
-  const instanceId = state.instanceId || null;
+  const metricMeta = opts.sharedMeta instanceof Set ? opts.sharedMeta : new Set<string>();
+  const instanceId: string | null = state.instanceId || null;
 
-  // Base labels present on every time-series. Include `instance` when the
-  // plugin is running multiple connections so Prometheus can distinguish them.
-  const baseLabels = instanceId ? { mode, instance: instanceId } : { mode };
+  // Base labels present on every time-series.
+  const baseLabels: Record<string, string> = instanceId ? { mode, instance: instanceId } : { mode };
 
-  // Helper to add a metric with HELP and TYPE
-  function gauge(name, help, value, labels = {}) {
+  function gauge(name: string, help: string, value: number, labels: Record<string, string> = {}): void {
     const fullName = `${prefix}_${name}`;
     if (!metricMeta.has(fullName)) {
       lines.push(`# HELP ${fullName} ${help}`);
@@ -44,7 +55,7 @@ function formatPrometheusMetrics(metrics, state, extra = {}, opts = {}) {
     lines.push(`${fullName}${labelStr} ${value}`);
   }
 
-  function counter(name, help, value, labels = {}) {
+  function counter(name: string, help: string, value: number, labels: Record<string, string> = {}): void {
     const fullName = `${prefix}_${name}`;
     if (!metricMeta.has(fullName)) {
       lines.push(`# HELP ${fullName} ${help}`);
@@ -156,52 +167,57 @@ function formatPrometheusMetrics(metrics, state, extra = {}, opts = {}) {
 
 /**
  * Format Prometheus label set
- * @param {Object} labels - Label key-value pairs
- * @returns {string} Formatted label string like {key="value",key2="value2"}
+ * @param labels - Label key-value pairs
+ * @returns Formatted label string like {key="value",key2="value2"}
  */
-function formatLabels(labels) {
+export function formatLabels(labels: Record<string, string>): string {
   const entries = Object.entries(labels);
-  if (entries.length === 0) {return "";}
+  if (entries.length === 0) { return ""; }
   const parts = entries.map(([k, v]) => `${k}="${escapeLabelValue(v)}"`);
   return `{${parts.join(",")}}`;
 }
 
-function escapeLabelValue(value) {
+export function escapeLabelValue(value: unknown): string {
   return String(value)
     .replace(/\\/g, "\\\\")
     .replace(/\n/g, "\\n")
     .replace(/"/g, "\\\"");
 }
 
-function sanitizeMetricNameComponent(name) {
+export function sanitizeMetricNameComponent(name: unknown): string {
   const replaced = String(name).replace(/[^a-zA-Z0-9_]/g, "_");
   return replaced.length > 0 ? replaced : "unknown";
 }
 
+interface PrometheusValidationResult {
+  valid: boolean;
+  errors: string[];
+  metricCount: number;
+  uniqueMetrics: number;
+}
+
 /**
  * Validate that Prometheus metrics output is well-formed
- * @param {string} metricsText - Prometheus text output
- * @returns {Object} Validation result { valid, errors, metricCount }
+ * @param metricsText - Prometheus text output
+ * @returns Validation result
  */
-function validatePrometheusFormat(metricsText) {
+export function validatePrometheusFormat(metricsText: string): PrometheusValidationResult {
   const lines = metricsText.split("\n");
-  const errors = [];
+  const errors: string[] = [];
   let metricCount = 0;
-  const seenMetrics = new Set();
-  let lastType = null;
+  const seenMetrics = new Set<string>();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (line === "") {continue;}
+    if (line === "") { continue; }
 
     if (line.startsWith("# HELP ")) {
       // HELP line - validated by presence check
     } else if (line.startsWith("# TYPE ")) {
       const parts = line.substring(7).split(" ");
-      lastType = parts[0];
       const typeValue = parts.slice(1).join(" ");
       if (!["counter", "gauge", "histogram", "summary", "untyped"].includes(typeValue)) {
-        errors.push(`Line ${i + 1}: Invalid type "${typeValue}" for ${lastType}`);
+        errors.push(`Line ${i + 1}: Invalid type "${typeValue}" for ${parts[0]}`);
       }
     } else if (line.startsWith("#")) {
       // Other comment - ok
@@ -231,11 +247,3 @@ function validatePrometheusFormat(metricsText) {
     uniqueMetrics: seenMetrics.size
   };
 }
-
-module.exports = {
-  formatPrometheusMetrics,
-  formatLabels,
-  validatePrometheusFormat,
-  escapeLabelValue,
-  sanitizeMetricNameComponent
-};

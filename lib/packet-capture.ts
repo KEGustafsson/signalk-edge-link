@@ -10,11 +10,11 @@
  * @module lib/packet-capture
  */
 
-const { HEADER_SIZE, getTypeName } = require("./packet");
-const {
+import { HEADER_SIZE, getTypeName } from "./packet";
+import {
   PACKET_CAPTURE_MAX_PACKETS,
   PACKET_INSPECTOR_MAX_CLIENTS
-} = require("./constants");
+} from "./constants";
 
 // ── PCAP Format Constants ──
 
@@ -35,12 +35,27 @@ const PCAP_LINKTYPE_USER0 = 147; // User-defined (DLT_USER0) - for custom protoc
  * application-level protocol packets, not raw network frames.
  */
 class PacketCapture {
+  maxPackets: number;
+  enabled: boolean;
+  packets: Array<{
+    timestamp: number;
+    data: Buffer;
+    direction: string;
+    address: string;
+    port: number;
+    length: number;
+  }>;
+  stats: {
+    captured: number;
+    dropped: number;
+  };
+
   /**
    * @param {Object} [config]
    * @param {number} [config.maxPackets] - Max packets in buffer
    * @param {boolean} [config.enabled] - Whether capture is active
    */
-  constructor(config = {}) {
+  constructor(config: { maxPackets?: number; enabled?: boolean } = {}) {
     this.maxPackets = config.maxPackets || PACKET_CAPTURE_MAX_PACKETS;
     this.enabled = config.enabled || false;
     this.packets = [];
@@ -56,7 +71,7 @@ class PacketCapture {
    * @param {string} direction - "send" or "recv"
    * @param {Object} [meta] - Optional metadata {address, port}
    */
-  capture(data, direction, meta = {}) {
+  capture(data: Buffer, direction: string, meta: { address?: string; port?: number } = {}): void {
     if (!this.enabled) {return;}
 
     const entry = {
@@ -83,7 +98,7 @@ class PacketCapture {
    * Export captured packets to pcap format
    * @returns {Buffer} pcap file data
    */
-  exportPcap() {
+  exportPcap(): Buffer {
     // Global header (24 bytes)
     const globalHeader = Buffer.alloc(24);
     globalHeader.writeUInt32LE(PCAP_MAGIC, 0);
@@ -95,7 +110,7 @@ class PacketCapture {
     globalHeader.writeUInt32LE(PCAP_LINKTYPE_USER0, 20);
 
     // Packet records
-    const records = [];
+    const records: Buffer[] = [];
     let totalSize = 24;
 
     for (const pkt of this.packets) {
@@ -125,7 +140,13 @@ class PacketCapture {
    * Get capture statistics
    * @returns {Object}
    */
-  getStats() {
+  getStats(): {
+    enabled: boolean;
+    captured: number;
+    dropped: number;
+    buffered: number;
+    maxPackets: number;
+  } {
     return {
       enabled: this.enabled,
       captured: this.stats.captured,
@@ -138,21 +159,21 @@ class PacketCapture {
   /**
    * Start capturing
    */
-  start() {
+  start(): void {
     this.enabled = true;
   }
 
   /**
    * Stop capturing
    */
-  stop() {
+  stop(): void {
     this.enabled = false;
   }
 
   /**
    * Clear capture buffer
    */
-  clear() {
+  clear(): void {
     this.packets = [];
     this.stats = { captured: 0, dropped: 0 };
   }
@@ -160,7 +181,7 @@ class PacketCapture {
   /**
    * Reset (stop + clear)
    */
-  reset() {
+  reset(): void {
     this.stop();
     this.clear();
   }
@@ -173,11 +194,19 @@ class PacketCapture {
  * Designed to work with WebSocket connections for real-time monitoring.
  */
 class PacketInspector {
+  maxClients: number;
+  clients: Set<any>;
+  enabled: boolean;
+  stats: {
+    packetsInspected: number;
+    clientsConnected: number;
+  };
+
   /**
    * @param {Object} [config]
    * @param {number} [config.maxClients] - Max concurrent inspector clients
    */
-  constructor(config = {}) {
+  constructor(config: { maxClients?: number } = {}) {
     this.maxClients = config.maxClients || PACKET_INSPECTOR_MAX_CLIENTS;
     this.clients = new Set();
     this.enabled = false;
@@ -192,7 +221,7 @@ class PacketInspector {
    * @param {Object} ws - WebSocket connection
    * @returns {boolean} Whether the client was accepted
    */
-  addClient(ws) {
+  addClient(ws: any): boolean {
     if (this.clients.size >= this.maxClients) {
       return false;
     }
@@ -223,7 +252,7 @@ class PacketInspector {
    * @param {string} direction - "send" or "recv"
    * @param {Object} [meta] - Optional metadata {address, port}
    */
-  inspect(data, direction, meta = {}) {
+  inspect(data: Buffer, direction: string, meta: { address?: string; port?: number } = {}): void {
     if (!this.enabled || this.clients.size === 0) {return;}
 
     this.stats.packetsInspected++;
@@ -232,7 +261,7 @@ class PacketInspector {
     const message = JSON.stringify(summary);
 
     // Broadcast to all clients
-    const deadClients = [];
+    const deadClients: any[] = [];
     for (const ws of this.clients) {
       try {
         if (ws.readyState === 1) { // WebSocket.OPEN
@@ -261,8 +290,8 @@ class PacketInspector {
    * @param {Object} meta - Metadata
    * @returns {Object} Packet summary
    */
-  _buildSummary(data, direction, meta) {
-    const summary = {
+  _buildSummary(data: Buffer, direction: string, meta: { address?: string; port?: number }): any {
+    const summary: any = {
       timestamp: Date.now(),
       direction,
       length: data.length,
@@ -292,7 +321,7 @@ class PacketInspector {
    * Get inspector statistics
    * @returns {Object}
    */
-  getStats() {
+  getStats(): { enabled: boolean; packetsInspected: number; clientsConnected: number } {
     return {
       enabled: this.enabled,
       ...this.stats
@@ -302,7 +331,7 @@ class PacketInspector {
   /**
    * Disconnect all clients and reset
    */
-  reset() {
+  reset(): void {
     for (const ws of this.clients) {
       try {
         ws.removeAllListeners("close");
@@ -318,4 +347,4 @@ class PacketInspector {
   }
 }
 
-module.exports = { PacketCapture, PacketInspector };
+export { PacketCapture, PacketInspector };
