@@ -14,34 +14,34 @@
  * @module lib/pipeline-v2-server
  */
 
-const { promisify } = require("util");
-const zlib = require("node:zlib");
-const msgpack = require("@msgpack/msgpack");
-const { decryptBinary } = require("./crypto");
-const { decodeDelta } = require("./pathDictionary");
-const { PacketBuilder, PacketParser, PacketType } = require("./packet");
-const { SequenceTracker } = require("./sequence");
-const { MetricsPublisher } = require("./metrics-publisher");
+import { promisify } from "util";
+import zlib from "node:zlib";
+import * as msgpack from "@msgpack/msgpack";
+import { decryptBinary } from "./crypto";
+import { decodeDelta } from "./pathDictionary";
+import { PacketBuilder, PacketParser, PacketType } from "./packet";
+import { SequenceTracker } from "./sequence";
+import { MetricsPublisher } from "./metrics-publisher";
 
-const {
+import {
   MAX_DECOMPRESSED_SIZE,
   MAX_DELTAS_PER_PACKET,
   MAX_CLIENT_SESSIONS,
   METRICS_PUBLISH_INTERVAL,
   UDP_RATE_LIMIT_WINDOW,
   UDP_RATE_LIMIT_MAX_PACKETS
-} = require("./constants");
+} from "./constants";
 
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
 /**
  * Creates the v2 server pipeline
- * @param {Object} app - SignalK app object (for logging)
- * @param {Object} state - Shared mutable state
- * @param {Object} metricsApi - Metrics API from lib/metrics.js
- * @returns {Object} Pipeline API
+ * @param app       - SignalK app object (for logging)
+ * @param state     - Shared mutable state
+ * @param metricsApi - Metrics API from lib/metrics.js
+ * @returns Pipeline API
  */
-function createPipelineV2Server(app, state, metricsApi) {
+function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
   const { metrics, recordError, trackPathStats, updateBandwidthRates } = metricsApi;
   const protocolVersion = state.options && state.options.protocolVersion === 3 ? 3 : 2;
   const packetParser = new PacketParser({
@@ -65,34 +65,26 @@ function createPipelineV2Server(app, state, metricsApi) {
 
   // Reliability: ACK/NAK state
   const reliabilityConfig = (state.options && state.options.reliability) || {};
-  const ackInterval = reliabilityConfig.ackInterval ?? 100;
-  const ackResendInterval = reliabilityConfig.ackResendInterval ?? 1000;
+  const ackInterval: number = reliabilityConfig.ackInterval ?? 100;
+  const ackResendInterval: number = reliabilityConfig.ackResendInterval ?? 1000;
   // Session idle timeout: expire sessions that have not sent a packet for this long (ms)
   const SESSION_IDLE_TTL_MS = 300000; // 5 minutes
-  let ackTimer = null;
+  let ackTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Per-client session map, keyed by "address:port".
-   * Each entry tracks independent sequence state and ACK/NAK state for one
-   * remote client so that multiple clients can connect to the same server
-   * port simultaneously.
    */
-  const clientSessions = new Map();
+  const clientSessions = new Map<string, any>();
 
   /**
    * Get or create a session object for the given rinfo.
    * @private
-   * @param {Object} rinfo - { address, port }
-   * @returns {Object} Session object
    */
-  function _getOrCreateSession(rinfo) {
+  function _getOrCreateSession(rinfo: { address: string; port: number }): any {
     const key = `${rinfo.address}:${rinfo.port}`;
     if (!clientSessions.has(key)) {
-      // Evict oldest idle session if at capacity to prevent unbounded growth.
-      // Note: Linear scan is O(MAX_CLIENT_SESSIONS=100) — acceptable for this
-      // limit. A min-heap would give O(1) eviction but adds complexity.
       if (clientSessions.size >= MAX_CLIENT_SESSIONS) {
-        let oldestKey = null;
+        let oldestKey: string | null = null;
         let oldestTime = Infinity;
         for (const [k, s] of clientSessions) {
           if (s.lastPacketTime < oldestTime) {
@@ -117,7 +109,7 @@ function createPipelineV2Server(app, state, metricsApi) {
         port: rinfo.port,
         sequenceTracker: new SequenceTracker({
           nakTimeout: reliabilityConfig.nakTimeout || 100,
-          onLossDetected: (missing) => {
+          onLossDetected: (missing: number[]) => {
             app.debug(`[v2-server] packet loss from ${key}: seqs ${missing.join(", ")}`);
             _sendNAK(missing, { address: rinfo.address, port: rinfo.port });
           }
@@ -147,7 +139,7 @@ function createPipelineV2Server(app, state, metricsApi) {
    * Remove sessions that have been idle longer than SESSION_IDLE_TTL_MS.
    * @private
    */
-  function _expireIdleSessions() {
+  function _expireIdleSessions(): void {
     const now = Date.now();
     for (const [key, session] of clientSessions) {
       if (now - session.lastPacketTime > SESSION_IDLE_TTL_MS) {
@@ -169,33 +161,35 @@ function createPipelineV2Server(app, state, metricsApi) {
     pathPrefix: state.instanceId
       ? `networking.edgeLink.${state.instanceId}`
       : "networking.edgeLink",
-    sourceLabel: state.instanceId ? `signalk-edge-link:${state.instanceId}` : "signalk-edge-link"
+    sourceLabel: state.instanceId
+      ? `signalk-edge-link:${state.instanceId}`
+      : "signalk-edge-link"
   });
 
   // Metrics collection state (bandwidth rates; loss is tracked per-session)
-  let metricsInterval = null;
+  let metricsInterval: ReturnType<typeof setInterval> | null = null;
   let lastMetricsTime = Date.now();
   let lastBytesReceived = 0;
   let lastPacketsReceived = 0;
 
-  function _toFiniteNumber(value) {
+  function _toFiniteNumber(value: any): number | null {
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   }
 
-  function _isFreshRemoteTelemetry(now = Date.now()) {
+  function _isFreshRemoteTelemetry(now: number = Date.now()): boolean {
     const last = metrics.remoteNetworkQuality && metrics.remoteNetworkQuality.lastUpdate;
     return Number.isFinite(last) && last > 0 && now - last <= REMOTE_TELEMETRY_TTL_MS;
   }
 
-  function _ingestRemoteTelemetry(deltaMessage) {
+  function _ingestRemoteTelemetry(deltaMessage: any): void {
     if (!deltaMessage || !Array.isArray(deltaMessage.updates)) {
       return;
     }
 
     let changed = false;
     const remote = metrics.remoteNetworkQuality || {};
-    const filteredUpdates = [];
+    const filteredUpdates: any[] = [];
 
     for (const update of deltaMessage.updates) {
       if (!update || !Array.isArray(update.values)) {
@@ -209,7 +203,7 @@ function createPipelineV2Server(app, state, metricsApi) {
         continue;
       }
 
-      const remainingValues = [];
+      const remainingValues: any[] = [];
       for (const entry of update.values) {
         if (!entry || typeof entry.path !== "string" || !CLIENT_TELEMETRY_PATHS.has(entry.path)) {
           remainingValues.push(entry);
@@ -296,14 +290,13 @@ function createPipelineV2Server(app, state, metricsApi) {
     deltaMessage.updates = filteredUpdates;
   }
 
-  function isAhead(seq, reference) {
+  function isAhead(seq: number, reference: number): boolean {
     const distance = (seq - reference) >>> 0;
     return distance !== 0 && distance < 0x80000000;
   }
 
   // sequenceTracker is now per-session; kept for backward-compat test access
-  // (returns tracker from first active session, or a fresh one if none exist)
-  function _getFirstSessionTracker() {
+  function _getFirstSessionTracker(): any {
     const first = clientSessions.values().next().value;
     return first
       ? first.sequenceTracker
@@ -312,12 +305,12 @@ function createPipelineV2Server(app, state, metricsApi) {
 
   /**
    * Send NAK for missing packets back to a specific client.
-   *
    * @private
-   * @param {number[]} missingSeqs - Missing sequence numbers
-   * @param {Object} destination   - { address, port }
    */
-  async function _sendNAK(missingSeqs, destination) {
+  async function _sendNAK(
+    missingSeqs: number[],
+    destination: { address: string; port: number }
+  ): Promise<void> {
     if (missingSeqs.length === 0) {
       return;
     }
@@ -333,18 +326,16 @@ function createPipelineV2Server(app, state, metricsApi) {
       app.debug(
         `Sent NAK to ${destination.address}:${destination.port}: missing=${missingSeqs.join(", ")}`
       );
-    } catch (err) {
+    } catch (err: any) {
       app.error(`Failed to send NAK: ${err.message}`);
     }
   }
 
   /**
    * Send periodic ACK to all active client sessions.
-   * Each session tracks its own ACK state independently.
-   *
    * @private
    */
-  async function _sendPeriodicACKs() {
+  async function _sendPeriodicACKs(): Promise<void> {
     for (const session of clientSessions.values()) {
       if (!session.hasReceivedData) {
         continue;
@@ -356,7 +347,6 @@ function createPipelineV2Server(app, state, metricsApi) {
       const currentExpected = session.sequenceTracker.expectedSeq >>> 0;
       const ackSeq = (currentExpected - 1) >>> 0;
 
-      // Re-send duplicate ACKs periodically so client can recover if an ACK was lost.
       const isDuplicateAck = session.lastAckSeq !== null && ackSeq === session.lastAckSeq;
       const timeSinceLastAck = Date.now() - session.lastAckSentAt;
       if (isDuplicateAck && timeSinceLastAck < ackResendInterval) {
@@ -371,7 +361,7 @@ function createPipelineV2Server(app, state, metricsApi) {
         session.lastAckSentAt = Date.now();
         metrics.acksSent++;
         app.debug(`Sent ACK to ${session.key}: seq=${ackSeq}`);
-      } catch (err) {
+      } catch (err: any) {
         app.error(`Failed to send ACK to ${session.key}: ${err.message}`);
       }
     }
@@ -379,15 +369,14 @@ function createPipelineV2Server(app, state, metricsApi) {
 
   /**
    * Start periodic ACK timer.
-   * Also runs session expiry on each tick (every ackInterval ms).
    */
-  function startACKTimer() {
+  function startACKTimer(): void {
     if (ackTimer) {
       return;
     }
     ackTimer = setInterval(() => {
       _expireIdleSessions();
-      _sendPeriodicACKs().catch((err) => {
+      _sendPeriodicACKs().catch((err: any) => {
         app.error(`Periodic ACK error: ${err.message}`);
       });
     }, ackInterval);
@@ -396,7 +385,7 @@ function createPipelineV2Server(app, state, metricsApi) {
   /**
    * Stop periodic ACK timer
    */
-  function stopACKTimer() {
+  function stopACKTimer(): void {
     if (ackTimer) {
       clearInterval(ackTimer);
       ackTimer = null;
@@ -405,13 +394,12 @@ function createPipelineV2Server(app, state, metricsApi) {
 
   /**
    * Send UDP packet to a destination
-   *
    * @private
-   * @param {Buffer} packet - Packet to send
-   * @param {Object} destination - {address, port}
-   * @returns {Promise<void>}
    */
-  function _sendUDP(packet, destination) {
+  function _sendUDP(
+    packet: Buffer,
+    destination: { address: string; port: number }
+  ): Promise<void> {
     if (!destination) {
       throw new Error("No client address known");
     }
@@ -419,8 +407,8 @@ function createPipelineV2Server(app, state, metricsApi) {
       throw new Error("UDP socket not initialized");
     }
 
-    return new Promise((resolve, reject) => {
-      state.socketUdp.send(packet, destination.port, destination.address, (err) => {
+    return new Promise<void>((resolve, reject) => {
+      state.socketUdp.send(packet, destination.port, destination.address, (err: any) => {
         if (err) {
           reject(err);
         } else {
@@ -434,12 +422,15 @@ function createPipelineV2Server(app, state, metricsApi) {
    * Receive and process a v2 packet.
    * Pipeline: PacketParse → SequenceTrack → Decrypt → Decompress → Parse → handleMessage
    *
-   * @param {Buffer} packet - Raw received packet
-   * @param {string} secretKey - 32-character decryption key
-   * @param {Object} [rinfo] - Remote address info {address, port}
-   * @returns {Promise<void>}
+   * @param packet    - Raw received packet
+   * @param secretKey - 32-character decryption key
+   * @param rinfo     - Remote address info {address, port}
    */
-  async function receivePacket(packet, secretKey, rinfo) {
+  async function receivePacket(
+    packet: Buffer,
+    secretKey: string,
+    rinfo?: { address: string; port: number }
+  ): Promise<void> {
     try {
       if (!state.options) {
         app.debug("receivePacket called but plugin is stopped, ignoring");
@@ -447,8 +438,6 @@ function createPipelineV2Server(app, state, metricsApi) {
       }
 
       // Bonding health probes use a lightweight out-of-band heartbeat packet.
-      // Echo probe payload back to sender so the client-side bonding manager
-      // can measure RTT per link without involving protocol headers.
       if (packet.length >= 12 && packet.toString("ascii", 0, 7) === "HBPROBE") {
         if (rinfo) {
           await _sendUDP(packet, { address: rinfo.address, port: rinfo.port });
@@ -483,7 +472,7 @@ function createPipelineV2Server(app, state, metricsApi) {
         try {
           const info = JSON.parse(parsed.payload.toString());
           app.debug(`v2 hello from client: ${JSON.stringify(info)}`);
-        } catch (parseErr) {
+        } catch (parseErr: any) {
           app.error(`v2 failed to parse HELLO payload: ${parseErr.message}`);
         }
         return;
@@ -555,7 +544,7 @@ function createPipelineV2Server(app, state, metricsApi) {
       metrics.bandwidth.bytesInRaw += decompressed.length;
 
       // Parse content
-      let jsonContent;
+      let jsonContent: any;
       if (parsed.flags.messagepack) {
         try {
           jsonContent = msgpack.decode(decompressed);
@@ -573,10 +562,10 @@ function createPipelineV2Server(app, state, metricsApi) {
         return;
       }
 
-      // Process deltas: payload may be an Array of deltas or an indexed
-      // object ({0: delta, 1: delta, ...}).  Normalise to an array so
-      // iteration is safe for both shapes.
-      const deltas = Array.isArray(jsonContent) ? jsonContent : Object.values(jsonContent);
+      // Process deltas: payload may be an Array of deltas or an indexed object
+      const deltas: any[] = Array.isArray(jsonContent)
+        ? jsonContent
+        : Object.values(jsonContent);
       const deltaCount = Math.min(deltas.length, MAX_DELTAS_PER_PACKET);
 
       if (deltas.length > MAX_DELTAS_PER_PACKET) {
@@ -615,7 +604,7 @@ function createPipelineV2Server(app, state, metricsApi) {
       app.debug(
         `v2 received: seq=${parsed.sequence}, ${deltaCount} deltas, ${packet.length} bytes`
       );
-    } catch (error) {
+    } catch (error: any) {
       const msg = error.message || "";
       if (msg.includes("Unsupported state") || msg.includes("auth")) {
         app.error("v2 authentication failed: packet tampered or wrong key");
@@ -639,25 +628,22 @@ function createPipelineV2Server(app, state, metricsApi) {
 
   /**
    * Get the sequence tracker for the first active session (backward-compat for tests).
-   * @returns {SequenceTracker}
    */
-  function getSequenceTracker() {
+  function getSequenceTracker(): any {
     return _getFirstSessionTracker();
   }
 
   /**
    * Get the packet builder (for testing/metrics)
-   * @returns {PacketBuilder}
    */
-  function getPacketBuilder() {
+  function getPacketBuilder(): any {
     return packetBuilder;
   }
 
   /**
    * Get server pipeline metrics including per-session state.
-   * @returns {Object}
    */
-  function getMetrics() {
+  function getMetrics(): any {
     const sessions = [...clientSessions.values()].map((s) => ({
       address: s.key,
       expectedSeq: s.sequenceTracker.expectedSeq,
@@ -677,16 +663,15 @@ function createPipelineV2Server(app, state, metricsApi) {
 
   /**
    * Get the metrics publisher (for testing/external access)
-   * @returns {MetricsPublisher}
    */
-  function getMetricsPublisher() {
+  function getMetricsPublisher(): any {
     return metricsPublisher;
   }
 
   /**
    * Start periodic metrics publishing (every 1 second)
    */
-  function startMetricsPublishing() {
+  function startMetricsPublishing(): void {
     if (metricsInterval) {
       return;
     }
@@ -702,7 +687,7 @@ function createPipelineV2Server(app, state, metricsApi) {
   /**
    * Stop periodic metrics publishing
    */
-  function stopMetricsPublishing() {
+  function stopMetricsPublishing(): void {
     if (metricsInterval) {
       clearInterval(metricsInterval);
       metricsInterval = null;
@@ -711,10 +696,9 @@ function createPipelineV2Server(app, state, metricsApi) {
 
   /**
    * Collect and publish server-side metrics to Signal K
-   *
    * @private
    */
-  function _publishServerMetrics() {
+  function _publishServerMetrics(): void {
     updateBandwidthRates(true);
 
     const now = Date.now();
@@ -737,7 +721,8 @@ function createPipelineV2Server(app, state, metricsApi) {
       if (session.lossBaseSeq === null || session.lossHighestSeq === null) {
         continue;
       }
-      const totalExpected = (((session.lossHighestSeq - session.lossBaseSeq) >>> 0) + 1) >>> 0;
+      const totalExpected =
+        (((session.lossHighestSeq - session.lossBaseSeq) >>> 0) + 1) >>> 0;
       const totalReceived = session.lossReceivedCount;
       aggPeriodExpected += Math.max(0, totalExpected - session.lastLossExpected);
       aggPeriodReceived += Math.max(0, totalReceived - session.lastLossReceived);
@@ -804,4 +789,4 @@ function createPipelineV2Server(app, state, metricsApi) {
   };
 }
 
-module.exports = { createPipelineV2Server };
+export { createPipelineV2Server };
