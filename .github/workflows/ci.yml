@@ -27,8 +27,7 @@ jobs:
           if [ "${{ steps.lockfile.outputs.exists }}" == "true" ]; then
             npm ci
           else
-            npm install --ignore-scripts
-            npm ci
+            npm install
           fi
       - run: npm run build
       - run: npm run lint
