@@ -1,15 +1,15 @@
 "use strict";
 
-const fs = require("node:fs/promises");
-const path = require("node:path");
+import fs from "node:fs/promises";
+import path from "node:path";
 
-const {
+import {
   VALID_CONNECTION_KEYS,
   validateConnectionConfig,
   sanitizeConnectionConfig
-} = require("../lib/connection-config");
+} from "../lib/connection-config";
 
-function validateLegacyConfig(config) {
+function validateLegacyConfig(config: any): void {
   const connection = {
     ...config,
     name: config.name || "default",
@@ -21,7 +21,7 @@ function validateLegacyConfig(config) {
   }
 }
 
-function stripLegacyConnectionFields(config) {
+function stripLegacyConnectionFields(config: any): any {
   const rest = { ...config };
   for (const key of VALID_CONNECTION_KEYS) {
     delete rest[key];
@@ -29,7 +29,7 @@ function stripLegacyConnectionFields(config) {
   return rest;
 }
 
-function migrateConfig(config) {
+function migrateConfig(config: any): any {
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     throw new Error("Expected plugin config object");
   }
@@ -61,7 +61,7 @@ function migrateConfig(config) {
   };
 }
 
-async function runCli() {
+async function runCli(): Promise<void> {
   const inputPath = process.argv[2];
   if (!inputPath) {
     console.error("Usage: node scripts/migrate-config.js <input.json> [output.json]");
@@ -80,16 +80,16 @@ async function runCli() {
   await fs.writeFile(absoluteOut, `${JSON.stringify(migrated, null, 2)}\n`, "utf8");
 
   const count = Array.isArray(migrated.connections) ? migrated.connections.length : 0;
-  console.log(`Migrated config written to ${absoluteOut} (${count} connection${count === 1 ? "" : "s"})`);
+  console.log(
+    `Migrated config written to ${absoluteOut} (${count} connection${count === 1 ? "" : "s"})`
+  );
 }
 
 if (require.main === module) {
-  runCli().catch((error) => {
+  runCli().catch((error: any) => {
     console.error(`Migration failed: ${error.message}`);
     process.exitCode = 1;
   });
 }
 
-module.exports = {
-  migrateConfig
-};
+export { migrateConfig };

@@ -1,12 +1,12 @@
 "use strict";
 
-const {
+import {
   validateConnectionConfig,
   sanitizeConnectionConfig,
   validateUniqueServerPorts,
   findConnectionIndexByInstanceId
-} = require("../connection-config");
-const { validateRuntimeConfigBody } = require("./config-validation");
+} from "../connection-config";
+import { validateRuntimeConfigBody } from "./config-validation";
 
 /**
  * Registers multi-instance connection routes:
@@ -15,10 +15,10 @@ const { validateRuntimeConfigBody } = require("./config-validation");
  *   /connections/:id/config/:filename, /connections/:id/monitoring/*,
  *   /connections/:id/bonding/failover
  *
- * @param {Object} router - Express router
- * @param {Object} ctx - Shared route context
+ * @param router - Express router
+ * @param ctx - Shared route context
  */
-function register(router, ctx) {
+function register(router: any, ctx: any): void {
   const {
     rateLimitMiddleware,
     requireJson,
@@ -34,7 +34,7 @@ function register(router, ctx) {
     managementAuthMiddleware
   } = ctx;
 
-  function sanitizeOptions(options) {
+  function sanitizeOptions(options: any) {
     if (!options || typeof options !== "object") {
       return {};
     }
@@ -49,7 +49,7 @@ function register(router, ctx) {
   function getCurrentConnectionsConfig() {
     const options = pluginRef && pluginRef._currentOptions;
     if (options && Array.isArray(options.connections)) {
-      return options.connections.map((c) => ({ ...c }));
+      return options.connections.map((c: any) => ({ ...c }));
     }
 
     if (options && options.serverType) {
@@ -57,10 +57,10 @@ function register(router, ctx) {
     }
 
     const all = instanceRegistry.getAll();
-    return all.map((b) => ({ ...(b.state.options || {}), name: b.name }));
+    return all.map((b: any) => ({ ...(b.state.options || {}), name: b.name }));
   }
 
-  async function restartWithConnections(res, connections, successStatus = 200) {
+  async function restartWithConnections(res: any, connections: any[], successStatus: number = 200) {
     if (!pluginRef || typeof pluginRef._restartPlugin !== "function") {
       return res.status(503).json({ error: "Runtime restart handler unavailable" });
     }
@@ -82,11 +82,11 @@ function register(router, ctx) {
     pluginRef._currentOptions = nextOptions;
     return res.status(successStatus).json({ success: true });
   }
-  router.get("/connections", rateLimitMiddleware, (req, res) => {
+  router.get("/connections", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const all = instanceRegistry.getAll();
       res.json(
-        all.map((b) => ({
+        all.map((b: any) => ({
           id: b.id,
           name: b.name,
           type: b.state.isServerMode ? "server" : "client",
@@ -97,14 +97,14 @@ function register(router, ctx) {
           readyToSend: b.state.readyToSend
         }))
       );
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
   // Alias for management tooling: keep shape close to the implementation plan
   // by exposing current status and a compact metrics summary.
-  router.get("/instances", rateLimitMiddleware, (req, res) => {
+  router.get("/instances", rateLimitMiddleware, (req: any, res: any) => {
     try {
       if (!authorizeManagement(req, res, "instances.list")) {
         return;
@@ -115,10 +115,10 @@ function register(router, ctx) {
       const limitRaw = query.limit;
       const pageRaw = query.page;
 
-      let limit = null;
+      let limit: number | null = null;
       if (limitRaw !== undefined) {
         limit = Number.parseInt(limitRaw, 10);
-        if (!Number.isInteger(limit) || limit <= 0) {
+        if (!Number.isInteger(limit) || limit! <= 0) {
           return res.status(400).json({ error: "limit must be a positive integer" });
         }
       }
@@ -131,7 +131,7 @@ function register(router, ctx) {
         }
       }
 
-      const mapped = all.map((b) => ({
+      const mapped = all.map((b: any) => ({
         id: b.id,
         name: b.name,
         protocolVersion: b.state.options && b.state.options.protocolVersion,
@@ -152,8 +152,8 @@ function register(router, ctx) {
 
       const filtered = stateFilter
         ? mapped.filter(
-          (item) => String(item.state || "").toLowerCase() === stateFilter.toLowerCase()
-        )
+            (item: any) => String(item.state || "").toLowerCase() === stateFilter.toLowerCase()
+          )
         : mapped;
 
       if (limit === null) {
@@ -171,12 +171,12 @@ function register(router, ctx) {
           totalPages: Math.ceil(filtered.length / limit)
         }
       });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.get("/instances/:id", rateLimitMiddleware, (req, res) => {
+  router.get("/instances/:id", rateLimitMiddleware, (req: any, res: any) => {
     try {
       if (!authorizeManagement(req, res, "instances.show")) {
         return;
@@ -219,12 +219,12 @@ function register(router, ctx) {
         bonding: bondingManager ? bondingManager.getState() : { enabled: false },
         config: sanitizeOptions(state.options)
       });
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post("/instances", rateLimitMiddleware, requireJson, (req, res) => {
+  router.post("/instances", rateLimitMiddleware, requireJson, (req: any, res: any) => {
     try {
       if (!authorizeManagement(req, res, "instances.create")) {
         return;
@@ -251,12 +251,12 @@ function register(router, ctx) {
       }
 
       return restartWithConnections(res, connections, 201);
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put("/instances/:id", rateLimitMiddleware, requireJson, (req, res) => {
+  router.put("/instances/:id", rateLimitMiddleware, requireJson, (req: any, res: any) => {
     try {
       if (!authorizeManagement(req, res, "instances.update")) {
         return;
@@ -331,12 +331,12 @@ function register(router, ctx) {
       }
 
       return restartWithConnections(res, connections, 200);
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.delete("/instances/:id", rateLimitMiddleware, (req, res) => {
+  router.delete("/instances/:id", rateLimitMiddleware, (req: any, res: any) => {
     try {
       if (!authorizeManagement(req, res, "instances.delete")) {
         return;
@@ -355,7 +355,7 @@ function register(router, ctx) {
       }
       const next = [...connections.slice(0, idx), ...connections.slice(idx + 1)];
       return restartWithConnections(res, next, 200);
-    } catch (err) {
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -364,7 +364,7 @@ function register(router, ctx) {
     "/connections/:id/metrics",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req, res) => {
+    (req: any, res: any) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -379,7 +379,7 @@ function register(router, ctx) {
     "/connections/:id/network-metrics",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req, res) => {
+    (req: any, res: any) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -395,7 +395,7 @@ function register(router, ctx) {
     "/connections/:id/bonding",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-bonding.read"),
-    (req, res) => {
+    (req: any, res: any) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -416,7 +416,7 @@ function register(router, ctx) {
     "/connections/:id/congestion",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req, res) => {
+    (req: any, res: any) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -436,7 +436,7 @@ function register(router, ctx) {
     "/connections/:id/config/:filename",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-config.read"),
-    async (req, res) => {
+    async (req: any, res: any) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -452,7 +452,7 @@ function register(router, ctx) {
         }
         const config = await loadConfigFile(filePath);
         res.contentType("application/json").send(JSON.stringify(config || {}));
-      } catch (err) {
+      } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
     }
@@ -463,7 +463,7 @@ function register(router, ctx) {
     rateLimitMiddleware,
     managementAuthMiddleware("connection-config.update"),
     requireJson,
-    async (req, res) => {
+    async (req: any, res: any) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -483,7 +483,7 @@ function register(router, ctx) {
         }
         const success = await saveConfigFile(filePath, req.body);
         res.status(success ? 200 : 500).send(success ? "OK" : "Failed to save configuration");
-      } catch (err) {
+      } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
     }
@@ -493,7 +493,7 @@ function register(router, ctx) {
     "/connections/:id/monitoring/alerts",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req, res) => {
+    (req: any, res: any) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -510,7 +510,7 @@ function register(router, ctx) {
     "/connections/:id/monitoring/packet-loss",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req, res) => {
+    (req: any, res: any) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -533,7 +533,7 @@ function register(router, ctx) {
     "/connections/:id/monitoring/retransmissions",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req, res) => {
+    (req: any, res: any) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -557,7 +557,7 @@ function register(router, ctx) {
     "/connections/:id/bonding/failover",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-bonding.failover"),
-    (req, res) => {
+    (req: any, res: any) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -583,4 +583,4 @@ function register(router, ctx) {
   );
 }
 
-module.exports = { register };
+export { register };

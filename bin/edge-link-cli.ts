@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 "use strict";
 
-const fs = require("node:fs/promises");
-const path = require("node:path");
-const http = require("node:http");
-const https = require("node:https");
-const { URL } = require("node:url");
-const { migrateConfig } = require("../scripts/migrate-config");
+import fs from "node:fs/promises";
+import path from "node:path";
+import http from "node:http";
+import https from "node:https";
+import { URL } from "node:url";
+import { migrateConfig } from "../scripts/migrate-config";
 
-function printHelp() {
+function printHelp(): void {
   console.log(`Signal K Edge Link CLI
 
 Usage:
@@ -35,7 +35,7 @@ Commands:
 `);
 }
 
-function getArgValue(args, flag, fallback = null) {
+function getArgValue(args: string[], flag: string, fallback: string | null = null): string | null {
   const matched = args.find((arg) => arg.startsWith(`${flag}=`));
   if (matched) {
     return matched.slice(flag.length + 1);
@@ -47,7 +47,7 @@ function getArgValue(args, flag, fallback = null) {
   return fallback;
 }
 
-function parseJsonArg(raw, label) {
+function parseJsonArg(raw: string | null, label: string): any {
   if (!raw) {
     throw new Error(`${label} is required`);
   }
@@ -58,9 +58,7 @@ function parseJsonArg(raw, label) {
   }
 }
 
-
-
-function normalizeToken(value) {
+function normalizeToken(value: any): string | null {
   if (typeof value !== "string") {
     return null;
   }
@@ -78,7 +76,7 @@ function normalizeToken(value) {
   return trimmed;
 }
 
-function getManagementTokenArg(args) {
+function getManagementTokenArg(args: string[]): string | null {
   const argToken = normalizeToken(getArgValue(args, "--token", null));
   if (argToken) {
     return argToken;
@@ -87,7 +85,7 @@ function getManagementTokenArg(args) {
   return normalizeToken(process.env.SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN);
 }
 
-function parseFormat(args) {
+function parseFormat(args: string[]): string {
   const format = getArgValue(args, "--format", "json");
   if (format !== "json" && format !== "table") {
     throw new Error("--format must be 'json' or 'table'");
@@ -95,24 +93,35 @@ function parseFormat(args) {
   return format;
 }
 
-function toText(value) {
-  if (value === null || value === undefined) { return "-"; }
-  if (typeof value === "object") { return JSON.stringify(value); }
+function toText(value: any): string {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
   return String(value);
 }
 
-function printTable(rows, columns) {
+interface TableColumn {
+  header: string;
+  value: (row: any) => any;
+}
+
+function printTable(rows: any[], columns: TableColumn[]): void {
   if (!Array.isArray(rows) || rows.length === 0) {
     console.log("(no rows)");
     return;
   }
 
   const widths = columns.map((col) => col.header.length);
-  const cells = rows.map((row) => columns.map((col, i) => {
-    const text = toText(col.value(row));
-    widths[i] = Math.max(widths[i], text.length);
-    return text;
-  }));
+  const cells = rows.map((row) =>
+    columns.map((col, i) => {
+      const text = toText(col.value(row));
+      widths[i] = Math.max(widths[i], text.length);
+      return text;
+    })
+  );
 
   const headerLine = columns.map((col, i) => col.header.padEnd(widths[i])).join("  ");
   const dividerLine = widths.map((w) => "-".repeat(w)).join("  ");
@@ -124,12 +133,14 @@ function printTable(rows, columns) {
   }
 }
 
-function printInstances(data, format) {
+function printInstances(data: any, format: string): void {
   const rows = Array.isArray(data)
     ? data
-    : (Array.isArray(data.items)
+    : Array.isArray(data.items)
       ? data.items
-      : (Array.isArray(data.instances) ? data.instances : []));
+      : Array.isArray(data.instances)
+        ? data.instances
+        : [];
 
   if (format === "table") {
     printTable(rows, [
@@ -150,7 +161,7 @@ function printInstances(data, format) {
   console.log(JSON.stringify(data, null, 2));
 }
 
-function printBonding(data, format) {
+function printBonding(data: any, format: string): void {
   if (format === "table" && data && Array.isArray(data.instances)) {
     printTable(data.instances, [
       { header: "id", value: (r) => r.id },
@@ -164,9 +175,7 @@ function printBonding(data, format) {
   console.log(JSON.stringify(data, null, 2));
 }
 
-
-
-function parsePositiveInt(value, label) {
+function parsePositiveInt(value: any, label: string): number | null {
   if (value === undefined || value === null || value === "") {
     return null;
   }
@@ -178,7 +187,7 @@ function parsePositiveInt(value, label) {
   return n;
 }
 
-function buildInstancesListEndpoint(args) {
+function buildInstancesListEndpoint(args: string[]): string {
   const params = new URLSearchParams();
 
   const state = getArgValue(args, "--state", null);
@@ -200,7 +209,7 @@ function buildInstancesListEndpoint(args) {
   return query ? `/instances?${query}` : "/instances";
 }
 
-function printStatus(data, format) {
+function printStatus(data: any, format: string): void {
   if (format === "table" && data && Array.isArray(data.instances)) {
     printTable(data.instances, [
       { header: "id", value: (r) => r.id },
@@ -215,15 +224,25 @@ function printStatus(data, format) {
   console.log(JSON.stringify(data, null, 2));
 }
 
-function createRequestJson() {
-  return function requestJson(baseUrl, endpoint, options = {}) {
+type RequestJsonFn = (
+  baseUrl: string,
+  endpoint: string,
+  options?: { method?: string; body?: any; token?: string | null }
+) => Promise<any>;
+
+function createRequestJson(): RequestJsonFn {
+  return function requestJson(
+    baseUrl: string,
+    endpoint: string,
+    options: { method?: string; body?: any; token?: string | null } = {}
+  ): Promise<any> {
     const { method = "GET", body, token } = options;
     const url = new URL(endpoint, baseUrl);
     const transport = url.protocol === "https:" ? https : http;
     const payload = body === undefined ? null : Buffer.from(JSON.stringify(body), "utf8");
 
     return new Promise((resolve, reject) => {
-      const headers = {};
+      const headers: Record<string, string | number> = {};
       if (payload) {
         headers["content-type"] = "application/json";
         headers["content-length"] = payload.length;
@@ -233,29 +252,33 @@ function createRequestJson() {
         headers.authorization = `Bearer ${token}`;
       }
 
-      const req = transport.request(url, {
-        method,
-        headers: Object.keys(headers).length > 0 ? headers : undefined
-      }, (res) => {
-        const chunks = [];
-        res.on("data", (chunk) => chunks.push(chunk));
-        res.on("end", () => {
-          const rawBody = Buffer.concat(chunks).toString("utf8");
-          if (res.statusCode < 200 || res.statusCode >= 300) {
-            reject(new Error(`Request failed (${res.statusCode}): ${rawBody || endpoint}`));
-            return;
-          }
-          if (!rawBody) {
-            resolve({});
-            return;
-          }
-          try {
-            resolve(JSON.parse(rawBody));
-          } catch (_err) {
-            reject(new Error(`Invalid JSON response from ${endpoint}`));
-          }
-        });
-      });
+      const req = transport.request(
+        url,
+        {
+          method,
+          headers: Object.keys(headers).length > 0 ? headers : undefined
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk: Buffer) => chunks.push(chunk));
+          res.on("end", () => {
+            const rawBody = Buffer.concat(chunks).toString("utf8");
+            if (res.statusCode! < 200 || res.statusCode! >= 300) {
+              reject(new Error(`Request failed (${res.statusCode}): ${rawBody || endpoint}`));
+              return;
+            }
+            if (!rawBody) {
+              resolve({});
+              return;
+            }
+            try {
+              resolve(JSON.parse(rawBody));
+            } catch (_err) {
+              reject(new Error(`Invalid JSON response from ${endpoint}`));
+            }
+          });
+        }
+      );
 
       req.on("error", reject);
       if (payload) {
@@ -266,7 +289,7 @@ function createRequestJson() {
   };
 }
 
-async function runMigrateConfig(args) {
+async function runMigrateConfig(args: string[]): Promise<void> {
   const inputPath = args[0];
   const outputPath = args[1] || inputPath;
 
@@ -282,12 +305,18 @@ async function runMigrateConfig(args) {
 
   await fs.writeFile(absoluteOut, `${JSON.stringify(migrated, null, 2)}\n`, "utf8");
   const count = Array.isArray(migrated.connections) ? migrated.connections.length : 0;
-  console.log(`Migrated config written to ${absoluteOut} (${count} connection${count === 1 ? "" : "s"})`);
+  console.log(
+    `Migrated config written to ${absoluteOut} (${count} connection${count === 1 ? "" : "s"})`
+  );
 }
 
-async function runInstancesCommand(args, requestJson) {
+async function runInstancesCommand(args: string[], requestJson: RequestJsonFn): Promise<void> {
   const sub = args[0];
-  const baseUrl = getArgValue(args, "--baseUrl", "http://localhost:3000/plugins/signalk-edge-link");
+  const baseUrl = getArgValue(
+    args,
+    "--baseUrl",
+    "http://localhost:3000/plugins/signalk-edge-link"
+  )!;
   const token = getManagementTokenArg(args);
 
   if (sub === "list") {
@@ -325,7 +354,11 @@ async function runInstancesCommand(args, requestJson) {
       throw new Error("instances update requires <id>");
     }
     const patch = parseJsonArg(getArgValue(args, "--patch"), "--patch");
-    const data = await requestJson(baseUrl, `/instances/${encodeURIComponent(id)}`, { method: "PUT", body: patch, token });
+    const data = await requestJson(baseUrl, `/instances/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: patch,
+      token
+    });
     console.log(JSON.stringify(data, null, 2));
     return;
   }
@@ -335,7 +368,10 @@ async function runInstancesCommand(args, requestJson) {
     if (!id) {
       throw new Error("instances delete requires <id>");
     }
-    const data = await requestJson(baseUrl, `/instances/${encodeURIComponent(id)}`, { method: "DELETE", token });
+    const data = await requestJson(baseUrl, `/instances/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      token
+    });
     console.log(JSON.stringify(data, null, 2));
     return;
   }
@@ -343,9 +379,13 @@ async function runInstancesCommand(args, requestJson) {
   throw new Error("instances command expects list/show/create/update/delete");
 }
 
-async function runBondingCommand(args, requestJson) {
+async function runBondingCommand(args: string[], requestJson: RequestJsonFn): Promise<void> {
   const sub = args[0];
-  const baseUrl = getArgValue(args, "--baseUrl", "http://localhost:3000/plugins/signalk-edge-link");
+  const baseUrl = getArgValue(
+    args,
+    "--baseUrl",
+    "http://localhost:3000/plugins/signalk-edge-link"
+  )!;
   const token = getManagementTokenArg(args);
 
   if (sub === "status") {
@@ -364,16 +404,22 @@ async function runBondingCommand(args, requestJson) {
   throw new Error("bonding command expects 'status' or 'update'");
 }
 
-
-async function runStatusCommand(args, requestJson) {
-  const baseUrl = getArgValue(args, "--baseUrl", "http://localhost:3000/plugins/signalk-edge-link");
+async function runStatusCommand(args: string[], requestJson: RequestJsonFn): Promise<void> {
+  const baseUrl = getArgValue(
+    args,
+    "--baseUrl",
+    "http://localhost:3000/plugins/signalk-edge-link"
+  )!;
   const token = getManagementTokenArg(args);
   const format = parseFormat(args);
   const data = await requestJson(baseUrl, "/status", { token });
   printStatus(data, format);
 }
 
-async function main(argv = process.argv.slice(2), deps = {}) {
+async function main(
+  argv: string[] = process.argv.slice(2),
+  deps: { requestJson?: RequestJsonFn } = {}
+): Promise<number> {
   const [command, ...args] = argv;
   const requestJson = deps.requestJson || createRequestJson();
 
@@ -406,16 +452,10 @@ async function main(argv = process.argv.slice(2), deps = {}) {
 }
 
 if (require.main === module) {
-  main().catch((err) => {
+  main().catch((err: any) => {
     console.error(err.message);
     process.exitCode = 1;
   });
 }
 
-module.exports = {
-  main,
-  createRequestJson,
-  printTable,
-  parseFormat,
-  getManagementTokenArg
-};
+export { main, createRequestJson, printTable, parseFormat, getManagementTokenArg };
