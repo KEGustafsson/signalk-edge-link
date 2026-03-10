@@ -1,6 +1,6 @@
 "use strict";
 
-const { migrateConfig } = require("../scripts/migrate-config");
+const { migrateConfig } = require("../lib/scripts/migrate-config");
 
 describe("migrate-config", () => {
   test("keeps modern connections config unchanged", () => {
@@ -61,11 +61,13 @@ describe("migrate-config", () => {
   });
 
   test("does not inject optional flags when absent in legacy config", () => {
-    expect(migrateConfig({
-      serverType: "server",
-      udpPort: 4446,
-      secretKey: "12345678901234567890123456789012"
-    })).toEqual({
+    expect(
+      migrateConfig({
+        serverType: "server",
+        udpPort: 4446,
+        secretKey: "12345678901234567890123456789012"
+      })
+    ).toEqual({
       connections: [
         {
           name: "default",
@@ -79,12 +81,14 @@ describe("migrate-config", () => {
   });
 
   test("migrates legacy config with 64-character hex secret keys", () => {
-    expect(migrateConfig({
-      name: "hex",
-      serverType: "server",
-      udpPort: 4446,
-      secretKey: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
-    })).toEqual({
+    expect(
+      migrateConfig({
+        name: "hex",
+        serverType: "server",
+        udpPort: 4446,
+        secretKey: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+      })
+    ).toEqual({
       connections: [
         {
           name: "hex",
@@ -98,12 +102,14 @@ describe("migrate-config", () => {
   });
 
   test("migrates legacy config with 44-character base64 secret keys", () => {
-    expect(migrateConfig({
-      name: "base64",
-      serverType: "server",
-      udpPort: 4446,
-      secretKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-    })).toEqual({
+    expect(
+      migrateConfig({
+        name: "base64",
+        serverType: "server",
+        udpPort: 4446,
+        secretKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+      })
+    ).toEqual({
       connections: [
         {
           name: "base64",
@@ -116,18 +122,20 @@ describe("migrate-config", () => {
     });
   });
 
-
   test("throws when legacy config has partial connection fields", () => {
-    expect(() => migrateConfig({ serverType: "client", udpPort: 4446 }))
-      .toThrow("Legacy config Secret key must be a non-empty string");
+    expect(() => migrateConfig({ serverType: "client", udpPort: 4446 })).toThrow(
+      "Legacy config Secret key must be a non-empty string"
+    );
   });
 
   test("throws when legacy udpPort is out of range", () => {
-    expect(() => migrateConfig({
-      serverType: "server",
-      udpPort: 80,
-      secretKey: "12345678901234567890123456789012"
-    })).toThrow("Legacy config udpPort must be an integer between 1024 and 65535");
+    expect(() =>
+      migrateConfig({
+        serverType: "server",
+        udpPort: 80,
+        secretKey: "12345678901234567890123456789012"
+      })
+    ).toThrow("Legacy config udpPort must be an integer between 1024 and 65535");
   });
 
   test("throws for non-object payload", () => {

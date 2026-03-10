@@ -4,7 +4,7 @@ import createRoutes = require("./routes");
 import { createInstance, slugify } from "./instance";
 import type { ConnectionConfig } from "./types";
 
-const pkg = require("./package.json");
+const pkg = require("../package.json");
 
 module.exports = function createPlugin(app: any) {
   const plugin: any = {};
