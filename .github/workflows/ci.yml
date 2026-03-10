@@ -18,7 +18,7 @@ jobs:
       - name: Generate package-lock.json if missing
         run: |
           if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only
+            npm install --package-lock-only --ignore-scripts
           fi
       - uses: actions/setup-node@v4
         with:
