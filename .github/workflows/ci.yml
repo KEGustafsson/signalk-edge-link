@@ -15,16 +15,21 @@ jobs:
         node-version: [22, 24]
     steps:
       - uses: actions/checkout@v4
-      - name: Generate package-lock.json if missing
-        run: |
-          if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only --ignore-scripts
-          fi
+      - name: Check for package-lock.json
+        id: lockfile
+        run: echo "exists=$(test -f package-lock.json && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: npm
-      - run: npm ci
+          cache: ${{ steps.lockfile.outputs.exists == 'true' && 'npm' || '' }}
+      - name: Install dependencies
+        run: |
+          if [ "${{ steps.lockfile.outputs.exists }}" == "true" ]; then
+            npm ci
+          else
+            npm install --ignore-scripts
+            npm ci
+          fi
       - run: npm run build
       - run: npm run lint
       - run: npm test -- --coverage
