@@ -5,13 +5,13 @@
 Keep v1 and v2 pipelines separate for cleaner code:
 
 ```
-index.js
+src/index.ts
   ├── config.protocolVersion === 1
-  │   └── lib/pipeline.js (existing, unchanged)
+  │   └── src/pipeline.ts (existing, unchanged)
   └── config.protocolVersion === 2
-      └── lib/pipeline-factory.js
-          ├── client → lib/pipeline-v2-client.js
-          └── server → lib/pipeline-v2-server.js
+      └── src/pipeline-factory.ts
+          ├── client → src/pipeline-v2-client.ts
+          └── server → src/pipeline-v2-server.ts
 ```
 
 ## v2 Client Pipeline
@@ -33,20 +33,20 @@ UDP Receive → PacketParse → SequenceTrack → Decrypt → Decompress → Par
 ## File Structure
 
 ```
-lib/
-├── pipeline.js              (v1 - existing, keep as-is)
-├── pipeline-factory.js      (new - version selector)
-├── pipeline-v2-client.js    (new - v2 client pipeline)
-├── pipeline-v2-server.js    (new - v2 server pipeline)
-├── packet.js                (new - packet protocol)
-└── sequence.js              (new - sequence tracking)
+src/
+├── pipeline.ts              (v1 - existing, keep as-is)
+├── pipeline-factory.ts      (new - version selector)
+├── pipeline-v2-client.ts    (new - v2 client pipeline)
+├── pipeline-v2-server.ts    (new - v2 server pipeline)
+├── packet.ts                (new - packet protocol)
+└── sequence.ts              (new - sequence tracking)
 ```
 
-## Integration with index.js
+## Integration with index.ts
 
-```javascript
+```typescript
 // Future integration (Phase 2+):
-const { createPipelineV2 } = require('./lib/pipeline-factory');
+import { createPipelineV2 } from "./pipeline-factory";
 
 // In plugin.start():
 if (options.protocolVersion === 2) {

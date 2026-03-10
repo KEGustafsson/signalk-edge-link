@@ -219,7 +219,7 @@ Alerts emit Signal K notifications at `notifications.signalk-edge-link.<instance
 
 ## Internal Constants
 
-These constants are defined in `lib/constants.js` and control internal behavior. They are not configurable via the UI but can be modified in the source code.
+These constants are defined in `src/constants.ts` and control internal behavior. They are not configurable via the UI but can be modified in the source code.
 
 | Constant                     | Value      | Description                                                         |
 | ---------------------------- | ---------- | ------------------------------------------------------------------- |

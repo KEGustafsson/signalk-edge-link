@@ -4,11 +4,11 @@
 
 ## Implementation
 
-- [x] lib/packet.js implemented (PacketBuilder, PacketParser, CRC16)
-- [x] lib/sequence.js implemented (SequenceTracker with NAK scheduling)
-- [x] lib/pipeline-factory.js implemented (version selector)
-- [x] lib/pipeline-v2-client.js implemented (v2 client pipeline)
-- [x] lib/pipeline-v2-server.js implemented (v2 server pipeline)
+- [x] src/packet.ts implemented (PacketBuilder, PacketParser, CRC16)
+- [x] src/sequence.ts implemented (SequenceTracker with NAK scheduling)
+- [x] src/pipeline-factory.ts implemented (version selector)
+- [x] src/pipeline-v2-client.ts implemented (v2 client pipeline)
+- [x] src/pipeline-v2-server.ts implemented (v2 server pipeline)
 
 ## Testing
 
@@ -27,7 +27,7 @@
 - [x] Pipeline analysis (docs/planning/pipeline-analysis.md)
 - [x] Pipeline v2 design (docs/planning/pipeline-v2-design.md)
 - [x] Sequence tracker spec (docs/planning/sequence-spec.md)
-- [x] Code documented with JSDoc
+- [x] Code documented with TSDoc
 
 ## Configuration
 
@@ -43,11 +43,11 @@
 
 ## Summary
 
-| Metric | Value |
-|--------|-------|
-| New files | 5 (packet.js, sequence.js, pipeline-factory.js, pipeline-v2-client.js, pipeline-v2-server.js) |
-| New tests | 135 (66 + 49 + 9 + 11) |
-| Total tests | 355 |
-| Test coverage | 100% line (packet), 100% line (sequence) |
-| Documentation | 6 new docs |
-| v1 compatibility | Maintained |
+| Metric           | Value                                                                                         |
+| ---------------- | --------------------------------------------------------------------------------------------- |
+| New files        | 5 (packet.ts, sequence.ts, pipeline-factory.ts, pipeline-v2-client.ts, pipeline-v2-server.ts) |
+| New tests        | 135 (66 + 49 + 9 + 11)                                                                        |
+| Total tests      | 355                                                                                           |
+| Test coverage    | 100% line (packet), 100% line (sequence)                                                      |
+| Documentation    | 6 new docs                                                                                    |
+| v1 compatibility | Maintained                                                                                    |

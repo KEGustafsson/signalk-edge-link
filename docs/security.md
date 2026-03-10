@@ -4,7 +4,7 @@ This document captures operational security practices and implementation notes f
 
 ## Crypto primitives in use
 
-- Payload confidentiality and integrity use **AES-256-GCM** (`lib/crypto.js`).
+- Payload confidentiality and integrity use **AES-256-GCM** (`src/crypto.ts`).
 - IVs/nonces are generated with `crypto.randomBytes()` per packet.
 - Authentication failures reject packets during decrypt and should be treated as security events.
 

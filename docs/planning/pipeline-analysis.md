@@ -32,25 +32,28 @@
 ### Where to Insert Packet Layer
 
 **Client Side**: After encrypt, before UDP send
+
 ```
 ... → Encrypt → **Packet Build** → UDP Send
 ```
 
 **Server Side**: After UDP receive, before decrypt
+
 ```
 UDP Receive → **Packet Parse + Sequence Track** → Decrypt → ...
 ```
 
 ### Required Changes
 
-1. Create `lib/pipeline-factory.js` - version selector
-2. Create `lib/pipeline-v2-client.js` - v2 client pipeline
-3. Create `lib/pipeline-v2-server.js` - v2 server pipeline
-4. Keep `lib/pipeline.js` as-is for v1 backward compatibility
+1. Create `src/pipeline-factory.ts` - version selector
+2. Create `src/pipeline-v2-client.ts` - v2 client pipeline
+3. Create `src/pipeline-v2-server.ts` - v2 server pipeline
+4. Keep `src/pipeline.ts` as-is for v1 backward compatibility
 
 ### Design Decision: Parallel Pipelines
 
 Keep v1 and v2 pipelines completely separate:
+
 - Cleaner code, no version checks scattered everywhere
 - Easy to test independently
 - No risk of breaking v1

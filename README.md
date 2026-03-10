@@ -43,7 +43,7 @@ Server Signal K
 - Two Signal K instances (source and destination)
 - UDP reachability from client to server on your chosen port
 - Shared encryption key on both ends (32-character ASCII, 64-character hex, or 44-character base64)
-- Node.js 16+ (if installing from source)
+- Node.js 16+ with TypeScript (if installing from source)
 
 ## Installation
 
@@ -170,7 +170,7 @@ For complete setting definitions and ranges, use `docs/configuration-reference.m
 Schema and migration helpers:
 
 - `schemas/config.schema.json` (machine-readable config schema)
-- `scripts/migrate-config.js` (convert legacy flat config to `connections[]`)
+- `src/scripts/migrate-config.ts` (convert legacy flat config to `connections[]`)
 - `npm run migrate:config -- <input.json> [output.json]`
 
 ## Security notes
@@ -237,8 +237,8 @@ Web UI token entry: management pages automatically attach auth headers when a to
 - `samples/` (example JSON configurations for minimal/dev/v2-bonding setups)
 - `grafana/dashboards/edge-link.json` (starter Grafana dashboard)
 - `schemas/config.schema.json` (unified plugin config schema)
-- `scripts/migrate-config.js` (legacy config migration utility)
-- `bin/edge-link-cli.js` (CLI wrapper for migration and instance/bonding management)
+- `src/scripts/migrate-config.ts` (legacy config migration utility)
+- `src/bin/edge-link-cli.ts` (CLI wrapper for migration and instance/bonding management)
 
 ## License
 

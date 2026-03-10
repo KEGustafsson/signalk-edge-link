@@ -41,25 +41,25 @@ All multi-byte integers are big-endian (network byte order).
 
 ### Header Fields (15 bytes total)
 
-| Offset | Size | Field | Description |
-|--------|------|-------|-------------|
-| 0 | 2 bytes | Magic | `0x53 0x4B` ("SK") - identifies v2 packets |
-| 2 | 1 byte | Version | `0x02` for v2 protocol |
-| 3 | 1 byte | Type | Packet type (see section 3) |
-| 4 | 1 byte | Flags | Feature flags (see section 4) |
-| 5 | 4 bytes | Sequence | Packet sequence number (uint32, big-endian) |
-| 9 | 4 bytes | Length | Payload length in bytes (uint32, big-endian) |
-| 13 | 2 bytes | CRC16 | CRC-CCITT checksum of header bytes 0-12 |
+| Offset | Size    | Field    | Description                                  |
+| ------ | ------- | -------- | -------------------------------------------- |
+| 0      | 2 bytes | Magic    | `0x53 0x4B` ("SK") - identifies v2 packets   |
+| 2      | 1 byte  | Version  | `0x02` for v2 protocol                       |
+| 3      | 1 byte  | Type     | Packet type (see section 3)                  |
+| 4      | 1 byte  | Flags    | Feature flags (see section 4)                |
+| 5      | 4 bytes | Sequence | Packet sequence number (uint32, big-endian)  |
+| 9      | 4 bytes | Length   | Payload length in bytes (uint32, big-endian) |
+| 13     | 2 bytes | CRC16    | CRC-CCITT checksum of header bytes 0-12      |
 
 ## 3. Packet Types
 
-| Value | Name | Direction | Description | Payload |
-|-------|------|-----------|-------------|---------|
-| 0x01 | DATA | Client → Server | Signal K delta data | Encrypted/compressed delta |
-| 0x02 | ACK | Server → Client | Cumulative acknowledgement | uint32 acked sequence |
-| 0x03 | NAK | Server → Client | Negative acknowledgement | Array of uint32 missing sequences |
-| 0x04 | HEARTBEAT | Bidirectional | Keep-alive | None (0 bytes) |
-| 0x05 | HELLO | Client → Server | Connection establishment | JSON with protocol info |
+| Value | Name      | Direction       | Description                | Payload                           |
+| ----- | --------- | --------------- | -------------------------- | --------------------------------- |
+| 0x01  | DATA      | Client → Server | Signal K delta data        | Encrypted/compressed delta        |
+| 0x02  | ACK       | Server → Client | Cumulative acknowledgement | uint32 acked sequence             |
+| 0x03  | NAK       | Server → Client | Negative acknowledgement   | Array of uint32 missing sequences |
+| 0x04  | HEARTBEAT | Bidirectional   | Keep-alive                 | None (0 bytes)                    |
+| 0x05  | HELLO     | Client → Server | Connection establishment   | JSON with protocol info           |
 
 ### DATA Packet
 
@@ -90,6 +90,7 @@ ACKs are sent periodically by the server to confirm receipt. The client uses cum
 Payload: N × 4 bytes, each uint32 representing a missing sequence number. Sent when the receiver detects gaps in the sequence. The client retransmits the requested packets from its retransmission queue.
 
 Retransmission limits:
+
 - Maximum retransmit attempts per packet: 3
 - Retransmit queue capacity: 5,000 packets
 - Packets exceeding max attempts are discarded
@@ -116,13 +117,13 @@ Sent once at connection establishment to identify the client and negotiate proto
 
 Byte 4 of the header contains feature flags:
 
-| Bit | Mask | Name | Description |
-|-----|------|------|-------------|
-| 0 | 0x01 | COMPRESSED | Payload is Brotli compressed |
-| 1 | 0x02 | ENCRYPTED | Payload is AES-256-GCM encrypted |
-| 2 | 0x04 | MESSAGEPACK | Data serialized with MessagePack (vs JSON) |
-| 3 | 0x08 | PATH_DICTIONARY | Paths encoded with path dictionary |
-| 4-7 | - | Reserved | Must be 0 |
+| Bit | Mask | Name            | Description                                |
+| --- | ---- | --------------- | ------------------------------------------ |
+| 0   | 0x01 | COMPRESSED      | Payload is Brotli compressed               |
+| 1   | 0x02 | ENCRYPTED       | Payload is AES-256-GCM encrypted           |
+| 2   | 0x04 | MESSAGEPACK     | Data serialized with MessagePack (vs JSON) |
+| 3   | 0x08 | PATH_DICTIONARY | Paths encoded with path dictionary         |
+| 4-7 | -    | Reserved        | Must be 0                                  |
 
 Both client and server must agree on flag settings via configuration. Mismatched flags will cause decoding failures.
 
@@ -189,7 +190,8 @@ Client                          Server
 ```
 
 **Delivery guarantees:**
-- >99.9% delivery rate under 5% packet loss conditions
+
+- > 99.9% delivery rate under 5% packet loss conditions
 - Automatic retransmission of lost packets
 - Duplicate detection and suppression
 - Cumulative acknowledgement reduces ACK traffic
@@ -216,13 +218,13 @@ avgRTT = 0.2 × currentRTT + 0.8 × previousAvgRTT
 
 ### Bounds
 
-| Parameter | Default | Range |
-|-----------|---------|-------|
-| Minimum delta timer | 100 ms | 50 - 1,000 ms |
-| Maximum delta timer | 5,000 ms | 1,000 - 30,000 ms |
-| Target RTT | 200 ms | 50 - 2,000 ms |
-| Adjustment interval | 5,000 ms | - |
-| Max adjustment per step | 20% | - |
+| Parameter               | Default  | Range             |
+| ----------------------- | -------- | ----------------- |
+| Minimum delta timer     | 100 ms   | 50 - 1,000 ms     |
+| Maximum delta timer     | 5,000 ms | 1,000 - 30,000 ms |
+| Target RTT              | 200 ms   | 50 - 2,000 ms     |
+| Adjustment interval     | 5,000 ms | -                 |
+| Max adjustment per step | 20%      | -                 |
 
 ### Manual Override
 
@@ -272,6 +274,7 @@ Each link is independently monitored via heartbeat probes:
 ### Failover Conditions
 
 Failover from primary to backup triggers when ANY condition is met:
+
 - Primary RTT > 500 ms (configurable)
 - Primary packet loss > 10% (configurable)
 - Primary link status = DOWN
@@ -279,6 +282,7 @@ Failover from primary to backup triggers when ANY condition is met:
 ### Failback Conditions
 
 Failback from backup to primary requires ALL conditions:
+
 - At least 30,000 ms since failover (prevents oscillation)
 - Primary RTT < 400 ms (threshold × 0.8 hysteresis)
 - Primary packet loss < 5% (threshold × 0.5 hysteresis)
@@ -294,13 +298,13 @@ Failover events emit Signal K notifications at `notifications.signalk-edge-link.
 
 All DATA payloads are encrypted with AES-256-GCM:
 
-| Property | Detail |
-|----------|--------|
-| Algorithm | AES-256-GCM |
-| Key size | 256 bits (32-byte secret: 32-character ASCII, 64-character hex, or 44-character base64) |
-| IV | 12 bytes, unique per message (random) |
-| Auth tag | 16 bytes, tamper detection |
-| Wire format | `[IV (12B)][Encrypted Data][Auth Tag (16B)]` |
+| Property    | Detail                                                                                  |
+| ----------- | --------------------------------------------------------------------------------------- |
+| Algorithm   | AES-256-GCM                                                                             |
+| Key size    | 256 bits (32-byte secret: 32-character ASCII, 64-character hex, or 44-character base64) |
+| IV          | 12 bytes, unique per message (random)                                                   |
+| Auth tag    | 16 bytes, tamper detection                                                              |
+| Wire format | `[IV (12B)][Encrypted Data][Auth Tag (16B)]`                                            |
 
 ### Key Requirements
 
@@ -320,35 +324,35 @@ All DATA payloads are encrypted with AES-256-GCM:
 
 ### Compression
 
-| Batch Size | Raw JSON | Compressed | Ratio | Per-Delta |
-|-----------|----------|-----------|-------|-----------|
-| 1 delta | 221 B | 193 B | 1.15x | 193 B |
-| 5 deltas | 1.1 KB | 227 B | 5.03x | 45 B |
-| 10 deltas | 2.3 KB | 253 B | 9.13x | 25 B |
-| 20 deltas | 4.5 KB | 341 B | 13.65x | 17 B |
-| 50 deltas | 11.3 KB | 537 B | 21.59x | 11 B |
+| Batch Size | Raw JSON | Compressed | Ratio  | Per-Delta |
+| ---------- | -------- | ---------- | ------ | --------- |
+| 1 delta    | 221 B    | 193 B      | 1.15x  | 193 B     |
+| 5 deltas   | 1.1 KB   | 227 B      | 5.03x  | 45 B      |
+| 10 deltas  | 2.3 KB   | 253 B      | 9.13x  | 25 B      |
+| 20 deltas  | 4.5 KB   | 341 B      | 13.65x | 17 B      |
+| 50 deltas  | 11.3 KB  | 537 B      | 21.59x | 11 B      |
 
 ### Latency (per stage, excluding network)
 
-| Stage | p50 | p95 | p99 |
-|-------|-----|-----|-----|
-| Serialize | 0.004 ms | 0.008 ms | 0.017 ms |
+| Stage           | p50      | p95      | p99      |
+| --------------- | -------- | -------- | -------- |
+| Serialize       | 0.004 ms | 0.008 ms | 0.017 ms |
 | Brotli compress | 0.782 ms | 0.992 ms | 1.291 ms |
-| Encrypt | 0.013 ms | 0.027 ms | 0.102 ms |
-| Packet build | 0.001 ms | 0.002 ms | 0.009 ms |
-| Full TX→RX | 1.076 ms | 1.446 ms | 2.067 ms |
+| Encrypt         | 0.013 ms | 0.027 ms | 0.102 ms |
+| Packet build    | 0.001 ms | 0.002 ms | 0.009 ms |
+| Full TX→RX      | 1.076 ms | 1.446 ms | 2.067 ms |
 
 ### Smart Batching
 
 UDP packets are kept under the MTU limit (1,400 bytes) using adaptive smart batching:
 
-| Constant | Value | Purpose |
-|----------|-------|---------|
-| Safety margin | 85% | Target 85% of MTU (1,190 bytes effective) |
-| Smoothing factor | 0.2 | Rolling average weight |
-| Initial estimate | 200 bytes | Starting bytes-per-delta |
-| Min deltas | 1 | Always send at least 1 |
-| Max deltas | 50 | Cap to prevent excessive latency |
+| Constant         | Value     | Purpose                                   |
+| ---------------- | --------- | ----------------------------------------- |
+| Safety margin    | 85%       | Target 85% of MTU (1,190 bytes effective) |
+| Smoothing factor | 0.2       | Rolling average weight                    |
+| Initial estimate | 200 bytes | Starting bytes-per-delta                  |
+| Min deltas       | 1         | Always send at least 1                    |
+| Max deltas       | 50        | Cap to prevent excessive latency          |
 
 ## 12. Protocol Negotiation
 
@@ -363,7 +367,7 @@ v1 packets do not start with these magic bytes (they start with the random AES-G
 
 ### Backward Compatibility
 
-- The v1 pipeline (`lib/pipeline.js`) is unchanged and fully functional
+- The v1 pipeline (`src/pipeline.ts`) is unchanged and fully functional
 - A pipeline factory selects v1 or v2 based on configuration
 - The server can distinguish packet versions by magic bytes
 - All v1 tests continue to pass
@@ -371,38 +375,38 @@ v1 packets do not start with these magic bytes (they start with the random AES-G
 
 ## 13. Implementation Files
 
-| File | Purpose |
-|------|---------|
-| `lib/packet.js` | PacketBuilder, PacketParser, packet type constants |
-| `lib/sequence.js` | SequenceTracker for loss detection |
-| `lib/retransmit-queue.js` | RetransmitQueue for reliable delivery |
-| `lib/pipeline-factory.js` | Version selector (v1 or v2) |
-| `lib/pipeline-v2-client.js` | v2 client pipeline (send side) |
-| `lib/pipeline-v2-server.js` | v2 server pipeline (receive side) |
-| `lib/congestion.js` | CongestionControl with AIMD algorithm |
-| `lib/bonding.js` | BondingManager with failover/failback |
-| `lib/monitoring.js` | PacketLossTracker, PathLatencyTracker, AlertManager |
-| `lib/prometheus.js` | Prometheus metrics exporter |
-| `lib/metrics-publisher.js` | Signal K metrics publisher |
-| `lib/crypto.js` | AES-256-GCM encryption/decryption |
-| `lib/constants.js` | All protocol constants and defaults |
+| File                        | Purpose                                             |
+| --------------------------- | --------------------------------------------------- |
+| `src/packet.ts`             | PacketBuilder, PacketParser, packet type constants  |
+| `src/sequence.ts`           | SequenceTracker for loss detection                  |
+| `src/retransmit-queue.ts`   | RetransmitQueue for reliable delivery               |
+| `src/pipeline-factory.ts`   | Version selector (v1 or v2)                         |
+| `src/pipeline-v2-client.ts` | v2 client pipeline (send side)                      |
+| `src/pipeline-v2-server.ts` | v2 server pipeline (receive side)                   |
+| `src/congestion.ts`         | CongestionControl with AIMD algorithm               |
+| `src/bonding.ts`            | BondingManager with failover/failback               |
+| `src/monitoring.ts`         | PacketLossTracker, PathLatencyTracker, AlertManager |
+| `src/prometheus.ts`         | Prometheus metrics exporter                         |
+| `src/metrics-publisher.ts`  | Signal K metrics publisher                          |
+| `src/crypto.ts`             | AES-256-GCM encryption/decryption                   |
+| `src/constants.ts`          | All protocol constants and defaults                 |
 
 ## 14. Signal K Paths Published
 
 The v2 protocol publishes the following metrics to the Signal K data model:
 
-| Path | Type | Description |
-|------|------|-------------|
-| `networking.modem.rtt` | number (s) | Round-trip time to test endpoint |
-| `networking.edgeLink.rtt` | number (ms) | Pipeline RTT |
-| `networking.edgeLink.jitter` | number (ms) | RTT jitter |
-| `networking.edgeLink.packetLoss` | number (ratio) | Packet loss ratio (0-1) |
-| `networking.edgeLink.retransmitRate` | number (ratio) | Retransmission rate |
-| `networking.edgeLink.linkQuality` | number (0-100) | Composite link quality score |
-| `networking.edgeLink.queueDepth` | number | Retransmit queue depth |
-| `networking.edgeLink.throughput.out` | number (B/s) | Outbound throughput |
-| `networking.edgeLink.throughput.in` | number (B/s) | Inbound throughput |
-| `networking.edgeLink.bonding.activeLink` | string | Active bonding link name |
-| `networking.edgeLink.bonding.primary.*` | object | Primary link health metrics |
-| `networking.edgeLink.bonding.backup.*` | object | Backup link health metrics |
-| `notifications.signalk-edge-link.<instanceId>.*` | notification | Alert notifications (per-instance) |
+| Path                                             | Type           | Description                        |
+| ------------------------------------------------ | -------------- | ---------------------------------- |
+| `networking.modem.rtt`                           | number (s)     | Round-trip time to test endpoint   |
+| `networking.edgeLink.rtt`                        | number (ms)    | Pipeline RTT                       |
+| `networking.edgeLink.jitter`                     | number (ms)    | RTT jitter                         |
+| `networking.edgeLink.packetLoss`                 | number (ratio) | Packet loss ratio (0-1)            |
+| `networking.edgeLink.retransmitRate`             | number (ratio) | Retransmission rate                |
+| `networking.edgeLink.linkQuality`                | number (0-100) | Composite link quality score       |
+| `networking.edgeLink.queueDepth`                 | number         | Retransmit queue depth             |
+| `networking.edgeLink.throughput.out`             | number (B/s)   | Outbound throughput                |
+| `networking.edgeLink.throughput.in`              | number (B/s)   | Inbound throughput                 |
+| `networking.edgeLink.bonding.activeLink`         | string         | Active bonding link name           |
+| `networking.edgeLink.bonding.primary.*`          | object         | Primary link health metrics        |
+| `networking.edgeLink.bonding.backup.*`           | object         | Backup link health metrics         |
+| `notifications.signalk-edge-link.<instanceId>.*` | notification   | Alert notifications (per-instance) |

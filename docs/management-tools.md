@@ -37,7 +37,7 @@ By default, UI requests send both headers when a token is available:
 
 Optional runtime override:
 
-```js
+```javascript
 window.__EDGE_LINK_AUTH__ = {
   token: "<token>",
   queryParam: "edgeLinkToken",
@@ -49,7 +49,6 @@ window.__EDGE_LINK_AUTH__ = {
 When token validation fails, the UI reports `Management token required/invalid.` to help operators distinguish auth failures from generic load/save issues.
 
 For local static preview/testing of the built UI, serve the repository root and open `/public/index.html` (for example `python -m http.server 8001` then browse `http://localhost:8001/public/index.html`) so asset paths resolve consistently.
-
 
 ## Instance management
 

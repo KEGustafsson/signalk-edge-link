@@ -8,7 +8,7 @@ Before diving into specific issues, check these common items:
 2. **Encryption keys match?** Must be identical 32-byte secrets (32-character ASCII, 64-character hex, or 44-character base64)
 3. **UDP port open?** Firewall must allow UDP traffic on configured port
 4. **Plugin enabled?** Check Admin UI > Plugin Config
-5. **Node.js >= 14.0.0?** Run `node --version` to verify
+5. **Node.js >= 16.0.0?** Run `node --version` to verify
 
 ## Installation Issues
 
@@ -17,6 +17,7 @@ Before diving into specific issues, check these common items:
 **Symptoms:** Plugin doesn't appear in Admin UI or fails to start.
 
 **Solutions:**
+
 1. Verify `npm install` completed without errors:
    ```bash
    cd ~/.signalk/node_modules/signalk-edge-link
@@ -28,13 +29,14 @@ Before diving into specific issues, check these common items:
    ```
 3. Check Signal K server logs for error messages
 4. Verify the plugin directory path is correct: `~/.signalk/node_modules/signalk-edge-link`
-5. Check Node.js version: `node --version` (requires >= 14.0.0)
+5. Check Node.js version: `node --version` (requires >= 16.0.0)
 
 ### Web UI Not Accessible
 
 **Symptoms:** Dashboard page shows blank or 404.
 
 **Solutions:**
+
 1. Run `npm run build` to generate UI files
 2. Verify `public/` directory exists with built JavaScript files
 3. Clear browser cache and hard-refresh (Ctrl+Shift+R)
@@ -45,6 +47,7 @@ Before diving into specific issues, check these common items:
 **Symptoms:** `npm run build` fails with errors.
 
 **Solutions:**
+
 1. Delete `node_modules/` and reinstall:
    ```bash
    rm -rf node_modules
@@ -59,6 +62,7 @@ Before diving into specific issues, check these common items:
 ### No Data Transmission
 
 **Client-side checklist:**
+
 1. Confirm encryption keys match on both ends
 2. Verify UDP port and destination address are correct
 3. Check firewall allows outbound UDP traffic on the configured port
@@ -68,6 +72,7 @@ Before diving into specific issues, check these common items:
 7. Check that data paths exist in Signal K (the plugin only sends data for subscribed paths that have values)
 
 **Server-side checklist:**
+
 1. Verify UDP port is not blocked by inbound firewall rules
 2. Confirm encryption key matches the client exactly
 3. Check Signal K logs for decryption errors
@@ -78,6 +83,7 @@ Before diving into specific issues, check these common items:
 **Symptoms:** Data flows briefly then stops.
 
 **Possible causes:**
+
 - NAT timeout on cellular/satellite connections. Solution: Reduce heartbeat interval to 30 seconds or less
 - DNS resolution failure for dynamic IP addresses. Solution: Use static IP or DynDNS
 - Firewall rate limiting UDP packets. Solution: Check firewall logs
@@ -88,13 +94,14 @@ Before diving into specific issues, check these common items:
 **Symptoms:** Data arrives with significant delay.
 
 **Solutions:**
+
 1. Check `GET /plugins/signalk-edge-link/network-metrics` for RTT values
 2. Enable congestion control to automatically adapt:
    ```json
    { "congestionControl": { "enabled": true, "targetRTT": 200 } }
    ```
 3. Reduce Brotli compression quality (trades bandwidth for CPU):
-   - Edit `lib/constants.js`: change `BROTLI_QUALITY_HIGH` from 10 to 4-6
+   - Edit `src/constants.ts`: change `BROTLI_QUALITY_HIGH` from 10 to 4-6
 4. Increase delta timer for better batching efficiency
 5. Filter unnecessary NMEA sentences to reduce data volume
 
@@ -102,33 +109,34 @@ Before diving into specific issues, check these common items:
 
 ### Encryption Errors
 
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `Unsupported state or unable to authenticate data` | Mismatched encryption keys | Verify identical 32-char keys on both ends |
-| `Secret key must be exactly 32 characters` | Invalid key length | Use exactly 32 characters |
-| `Key lacks sufficient diversity` | Key too simple (< 8 unique chars) | Use a randomly generated key |
+| Error                                              | Cause                             | Solution                                   |
+| -------------------------------------------------- | --------------------------------- | ------------------------------------------ |
+| `Unsupported state or unable to authenticate data` | Mismatched encryption keys        | Verify identical 32-char keys on both ends |
+| `Secret key must be exactly 32 characters`         | Invalid key length                | Use exactly 32 characters                  |
+| `Key lacks sufficient diversity`                   | Key too simple (< 8 unique chars) | Use a randomly generated key               |
 
 Generate a secure key:
+
 ```bash
 openssl rand -base64 32 | cut -c1-32
 ```
 
 ### Protocol Errors
 
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `Invalid magic bytes` | v1 client sending to v2-expecting server | Upgrade both sides to same version |
-| `CRC mismatch` | Header corruption in transit | Packet discarded, retransmitted automatically |
-| `Unsupported protocol version` | Version mismatch | Ensure same plugin version on both ends |
-| `Invalid packet size` | Corrupted or truncated packet | Check network for MTU issues |
+| Error                          | Cause                                    | Solution                                      |
+| ------------------------------ | ---------------------------------------- | --------------------------------------------- |
+| `Invalid magic bytes`          | v1 client sending to v2-expecting server | Upgrade both sides to same version            |
+| `CRC mismatch`                 | Header corruption in transit             | Packet discarded, retransmitted automatically |
+| `Unsupported protocol version` | Version mismatch                         | Ensure same plugin version on both ends       |
+| `Invalid packet size`          | Corrupted or truncated packet            | Check network for MTU issues                  |
 
 ### Network Errors
 
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `UDP send error: ECONNREFUSED` | Server not listening or port wrong | Verify server is running, check port |
-| `UDP send error: ENETUNREACH` | No route to host | Check network connectivity |
-| `UDP send error: EMSGSIZE` | Packet too large | Should not happen with smart batching; report bug |
+| Error                          | Cause                              | Solution                                          |
+| ------------------------------ | ---------------------------------- | ------------------------------------------------- |
+| `UDP send error: ECONNREFUSED` | Server not listening or port wrong | Verify server is running, check port              |
+| `UDP send error: ENETUNREACH`  | No route to host                   | Check network connectivity                        |
+| `UDP send error: EMSGSIZE`     | Packet too large                   | Should not happen with smart batching; report bug |
 
 ## Performance Issues
 
@@ -137,6 +145,7 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** Compression ratio below 80%.
 
 **Solutions:**
+
 1. Increase delta timer to 1000 ms or higher for better batching
 2. Enable path dictionary (`usePathDictionary: true`) for 10-20% savings
 3. Enable MessagePack (`useMsgpack: true`) for 15-25% savings
@@ -148,7 +157,8 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** Signal K server CPU usage increases significantly.
 
 **Solutions:**
-1. Brotli compression at quality 10 is CPU-intensive. For constrained devices, reduce quality in `lib/constants.js`
+
+1. Brotli compression at quality 10 is CPU-intensive. For constrained devices, reduce quality in `src/constants.ts`
 2. Increase delta timer to reduce compression frequency
 3. Reduce the number of subscribed paths
 4. Check benchmark results: compression dominates CPU cost at ~0.9 ms/operation
@@ -158,6 +168,7 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** Memory usage grows over time.
 
 **Solutions:**
+
 1. All buffers are bounded by design. If you see unbounded growth, report a bug
 2. Check retransmit queue depth: `GET /plugins/signalk-edge-link/metrics` → `networkQuality.queueDepth`
 3. Normal bounded sizes:
@@ -172,9 +183,10 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** Intermittent packet loss, especially on paths with small MTU.
 
 **Solutions:**
+
 1. Smart batching should prevent this automatically (targets 85% of 1400 bytes)
 2. Check `oversizedPackets` counter in metrics (should be 0)
-3. If using a VPN or tunnel, the effective MTU may be lower. Adjust `MAX_SAFE_UDP_PAYLOAD` in `lib/constants.js`
+3. If using a VPN or tunnel, the effective MTU may be lower. Adjust `MAX_SAFE_UDP_PAYLOAD` in `src/constants.ts`
 
 ## Congestion Control Issues
 
@@ -183,6 +195,7 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** Delta timer stays constant despite changing network conditions.
 
 **Checks:**
+
 1. Verify `congestionControl.enabled` is `true`
 2. Check `GET /congestion` — verify `manualMode` is `false`
 3. The controller only adjusts every 5 seconds
@@ -195,6 +208,7 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** Delta timer changes frequently between high and low values.
 
 **Solutions:**
+
 1. Increase target RTT to be above your normal network RTT
 2. The max adjustment per step is 20%, preventing large swings
 3. EMA smoothing (alpha=0.2) dampens short-term spikes
@@ -207,6 +221,7 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** Primary link is degraded but no failover occurs.
 
 **Checks:**
+
 1. Verify `bonding.enabled` is `true`
 2. Check `GET /bonding` for per-link health status
 3. Ensure backup link address and port are correct
@@ -219,6 +234,7 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** Link switches back and forth rapidly.
 
 **Solutions:**
+
 1. Increase `failbackDelay` (default 30,000 ms). Try 60,000 ms or higher
 2. The hysteresis mechanism requires primary to be significantly better before failback:
    - RTT must be < threshold × 0.8
@@ -230,6 +246,7 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** Link status shows `"down"` even though the network is working.
 
 **Checks:**
+
 1. Heartbeat probes may be blocked by firewall. Ensure UDP traffic is allowed bidirectionally
 2. The server must echo heartbeat probes back to the client
 3. Link is marked DOWN after no heartbeat response for 5,000 ms (configurable via `heartbeatTimeout`)
@@ -242,6 +259,7 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** `GET /prometheus` returns empty or error.
 
 **Solutions:**
+
 1. Verify the plugin is running and has received/sent data
 2. Check that the endpoint URL is correct: `/plugins/signalk-edge-link/prometheus`
 3. Prometheus scrape configuration needs the full path including `/plugins/signalk-edge-link/`
@@ -251,6 +269,7 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** Metrics exceed thresholds but no Signal K notifications appear.
 
 **Checks:**
+
 1. Verify thresholds: `GET /monitoring/alerts`
 2. Alert cooldown is 60 seconds — duplicate alerts within this window are suppressed
 3. Signal K notification handling must be configured to display plugin notifications
@@ -261,6 +280,7 @@ openssl rand -base64 32 | cut -c1-32
 **Symptoms:** `GET /capture/export` returns empty or error.
 
 **Solutions:**
+
 1. Start capture first: `POST /capture/start`
 2. Wait for packets to be captured
 3. Check `GET /capture` for capture statistics

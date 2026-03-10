@@ -7,11 +7,11 @@ This document provides a high-level view of how Signal K Edge Link components in
 ```mermaid
 graph LR
   subgraph Signal K Instance
-    A[Plugin bootstrap/index.js] --> B[Instance factory]
+    A[Plugin bootstrap/index.ts] --> B[Instance factory]
     B --> C{Mode + protocolVersion}
-    C -->|client v1| D[pipeline.js]
-    C -->|client v2| E[pipeline-v2-client.js]
-    C -->|server v2| F[pipeline-v2-server.js]
+    C -->|client v1| D[pipeline.ts]
+    C -->|client v2| E[pipeline-v2-client.ts]
+    C -->|server v2| F[pipeline-v2-server.ts]
 
     E --> G[Congestion control]
     E --> H[Bonding manager]

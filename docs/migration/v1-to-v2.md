@@ -8,29 +8,29 @@ Signal K Edge Link v2.0 is a major release that adds production-grade reliabilit
 
 ## What's New in v2.0
 
-| Feature | v1.0 | v2.0 |
-|---------|------|------|
-| Packet protocol | Raw encrypted payload | Binary headers with sequence tracking |
-| Reliability | Best-effort UDP | ACK/NAK retransmission (>99.9% delivery) |
-| Loss detection | None | Per-packet sequence tracking + NAK |
-| Congestion control | Manual delta timer | AIMD algorithm (automatic) |
-| Connection bonding | Single link | Primary/backup failover |
-| Monitoring | Basic bandwidth stats | 30+ metrics, Prometheus, alerts |
-| Packet capture | None | pcap export, live WebSocket inspector |
-| Network metrics | TCP ping RTT | RTT, jitter, loss, quality score |
+| Feature            | v1.0                  | v2.0                                     |
+| ------------------ | --------------------- | ---------------------------------------- |
+| Packet protocol    | Raw encrypted payload | Binary headers with sequence tracking    |
+| Reliability        | Best-effort UDP       | ACK/NAK retransmission (>99.9% delivery) |
+| Loss detection     | None                  | Per-packet sequence tracking + NAK       |
+| Congestion control | Manual delta timer    | AIMD algorithm (automatic)               |
+| Connection bonding | Single link           | Primary/backup failover                  |
+| Monitoring         | Basic bandwidth stats | 30+ metrics, Prometheus, alerts          |
+| Packet capture     | None                  | pcap export, live WebSocket inspector    |
+| Network metrics    | TCP ping RTT          | RTT, jitter, loss, quality score         |
 
 ## What Changes
 
-| Aspect | v1 | v2 |
-|--------|----|----|
-| Packet format | `[IV][Encrypted][AuthTag]` | `[Header(15B)][IV][Encrypted][AuthTag]` |
-| Packet overhead | 28 bytes | 43 bytes (+15 byte header) |
-| Sequence tracking | None | Per-packet sequence numbers |
-| Loss detection | None | Gap detection with NAK scheduling |
-| Packet types | Data only | DATA, ACK, NAK, HEARTBEAT, HELLO |
-| Version detection | N/A | Magic bytes "SK" + version byte |
-| Configuration schema | Basic | Extended with congestion, bonding, monitoring |
-| Minimum Node.js | 12.0.0 | 14.0.0 |
+| Aspect               | v1                         | v2                                            |
+| -------------------- | -------------------------- | --------------------------------------------- |
+| Packet format        | `[IV][Encrypted][AuthTag]` | `[Header(15B)][IV][Encrypted][AuthTag]`       |
+| Packet overhead      | 28 bytes                   | 43 bytes (+15 byte header)                    |
+| Sequence tracking    | None                       | Per-packet sequence numbers                   |
+| Loss detection       | None                       | Gap detection with NAK scheduling             |
+| Packet types         | Data only                  | DATA, ACK, NAK, HEARTBEAT, HELLO              |
+| Version detection    | N/A                        | Magic bytes "SK" + version byte               |
+| Configuration schema | Basic                      | Extended with congestion, bonding, monitoring |
+| Minimum Node.js      | 12.0.0                     | 14.0.0                                        |
 
 ## What Stays the Same
 
@@ -59,10 +59,11 @@ npm run build
 A migration script is provided to update v1 configuration files:
 
 ```bash
-node scripts/migrate-config-v2.js
+npm run migrate:config
 ```
 
 This script:
+
 - Reads your existing v1 configuration
 - Adds v2 default settings (congestion control, bonding disabled by default)
 - Preserves all your existing settings
@@ -129,7 +130,7 @@ Once basic v2 is working, consider enabling advanced features:
     },
     "failover": {
       "rttThreshold": 500,
-      "lossThreshold": 0.10,
+      "lossThreshold": 0.1,
       "healthCheckInterval": 1000,
       "failbackDelay": 30000
     }
@@ -141,17 +142,17 @@ Once basic v2 is working, consider enabling advanced features:
 
 ### New Configuration Fields
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `congestionControl.enabled` | boolean | false | Enable AIMD congestion control |
-| `congestionControl.targetRTT` | number | 200 | Target RTT threshold (ms) |
-| `congestionControl.minDeltaTimer` | number | 100 | Minimum delta timer (ms) |
-| `congestionControl.maxDeltaTimer` | number | 5000 | Maximum delta timer (ms) |
-| `bonding.enabled` | boolean | false | Enable connection bonding |
-| `bonding.mode` | string | "main-backup" | Bonding operating mode |
-| `bonding.primary` | object | - | Primary link configuration |
-| `bonding.backup` | object | - | Backup link configuration |
-| `bonding.failover` | object | - | Failover threshold settings |
+| Field                             | Type    | Default       | Description                    |
+| --------------------------------- | ------- | ------------- | ------------------------------ |
+| `congestionControl.enabled`       | boolean | false         | Enable AIMD congestion control |
+| `congestionControl.targetRTT`     | number  | 200           | Target RTT threshold (ms)      |
+| `congestionControl.minDeltaTimer` | number  | 100           | Minimum delta timer (ms)       |
+| `congestionControl.maxDeltaTimer` | number  | 5000          | Maximum delta timer (ms)       |
+| `bonding.enabled`                 | boolean | false         | Enable connection bonding      |
+| `bonding.mode`                    | string  | "main-backup" | Bonding operating mode         |
+| `bonding.primary`                 | object  | -             | Primary link configuration     |
+| `bonding.backup`                  | object  | -             | Backup link configuration      |
+| `bonding.failover`                | object  | -             | Failover threshold settings    |
 
 ### Removed/Changed Fields
 
@@ -161,24 +162,24 @@ No v1 configuration fields have been removed. All existing settings continue to 
 
 The following endpoints are new in v2.0:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/network-metrics` | Network quality metrics |
-| GET | `/congestion` | Congestion control state |
-| POST | `/delta-timer` | Manual delta timer override |
-| GET | `/bonding` | Bonding state and link health |
-| POST | `/bonding/failover` | Manual failover trigger |
-| GET | `/monitoring/packet-loss` | Packet loss heatmap |
-| GET | `/monitoring/path-latency` | Per-path latency stats |
-| GET | `/monitoring/retransmissions` | Retransmission chart data |
-| GET | `/monitoring/alerts` | Alert thresholds and state |
-| POST | `/monitoring/alerts` | Update alert thresholds |
-| GET | `/monitoring/inspector` | Packet inspector stats |
-| GET | `/monitoring/simulation` | Network simulation state |
-| POST | `/capture/start` | Start packet capture |
-| POST | `/capture/stop` | Stop packet capture |
-| GET | `/capture/export` | Export pcap file |
-| GET | `/prometheus` | Prometheus metrics |
+| Method | Endpoint                      | Description                   |
+| ------ | ----------------------------- | ----------------------------- |
+| GET    | `/network-metrics`            | Network quality metrics       |
+| GET    | `/congestion`                 | Congestion control state      |
+| POST   | `/delta-timer`                | Manual delta timer override   |
+| GET    | `/bonding`                    | Bonding state and link health |
+| POST   | `/bonding/failover`           | Manual failover trigger       |
+| GET    | `/monitoring/packet-loss`     | Packet loss heatmap           |
+| GET    | `/monitoring/path-latency`    | Per-path latency stats        |
+| GET    | `/monitoring/retransmissions` | Retransmission chart data     |
+| GET    | `/monitoring/alerts`          | Alert thresholds and state    |
+| POST   | `/monitoring/alerts`          | Update alert thresholds       |
+| GET    | `/monitoring/inspector`       | Packet inspector stats        |
+| GET    | `/monitoring/simulation`      | Network simulation state      |
+| POST   | `/capture/start`              | Start packet capture          |
+| POST   | `/capture/stop`               | Stop packet capture           |
+| GET    | `/capture/export`             | Export pcap file              |
+| GET    | `/prometheus`                 | Prometheus metrics            |
 
 ## Rollback
 
@@ -197,13 +198,13 @@ The v2 header adds 15 bytes per packet. For typical packets of 200-1,400 bytes, 
 
 ### Overhead Summary
 
-| Component | Overhead |
-|-----------|----------|
-| v2 header | +15 bytes/packet |
-| ACK traffic | ~190 bytes/s |
-| Health probes (bonding) | ~12 bytes/s per link |
-| Monitoring | <0.1 us/operation CPU |
-| Memory (monitoring) | ~1 MB bounded buffers |
+| Component               | Overhead              |
+| ----------------------- | --------------------- |
+| v2 header               | +15 bytes/packet      |
+| ACK traffic             | ~190 bytes/s          |
+| Health probes (bonding) | ~12 bytes/s per link  |
+| Monitoring              | <0.1 us/operation CPU |
+| Memory (monitoring)     | ~1 MB bounded buffers |
 
 ## Troubleshooting Migration
 
