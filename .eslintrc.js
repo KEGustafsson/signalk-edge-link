@@ -24,10 +24,7 @@ module.exports = {
     "public/**",
     "node_modules/**",
     "coverage/**",
-    "index.js",
-    "lib/**",
-    "bin/**",
-    "scripts/**"
+    "lib/**"
   ],
   parserOptions: {
     ecmaVersion: "latest",

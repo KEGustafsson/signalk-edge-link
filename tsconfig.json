@@ -3,8 +3,8 @@
     "target": "ES2020",
     "module": "commonjs",
     "lib": ["ES2020"],
-    "outDir": ".",
-    "rootDir": ".",
+    "outDir": "./lib",
+    "rootDir": "./src",
     "strict": false,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -18,15 +18,12 @@
     "allowJs": false
   },
   "include": [
-    "index.ts",
-    "lib/**/*.ts",
-    "bin/**/*.ts",
-    "scripts/migrate-config.ts"
+    "src/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     "public",
-    "src",
+    "lib",
     "__tests__",
     "test",
     "**/*.test.ts",

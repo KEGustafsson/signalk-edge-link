@@ -1,8 +1,8 @@
 "use strict";
 
-import createRoutes = require("./lib/routes");
-import { createInstance, slugify } from "./lib/instance";
-import type { ConnectionConfig } from "./lib/types";
+import createRoutes = require("./routes");
+import { createInstance, slugify } from "./instance";
+import type { ConnectionConfig } from "./types";
 
 const pkg = require("./package.json");
 

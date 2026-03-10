@@ -1,5 +1,4 @@
-# Development files
-node_modules/
+# Source files (compiled output in lib/ is published instead)
 src/
 webpack.config.js
 .babelrc

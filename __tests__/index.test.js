@@ -12,7 +12,7 @@ jest.mock("@msgpack/msgpack", () => ({
 }), { virtual: true });
 
 const dgram = require("node:dgram");
-const createPlugin = require("../index");
+const createPlugin = require("../lib/index");
 
 describe("SignalK Data Connector Plugin", () => {
   let plugin;

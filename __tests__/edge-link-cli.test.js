@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
 const { EventEmitter } = require("node:events");
-const { main, createRequestJson } = require("../bin/edge-link-cli");
+const { main, createRequestJson } = require("../lib/bin/edge-link-cli");
 
 describe("edge-link-cli", () => {
   test("help command resolves successfully", async () => {
