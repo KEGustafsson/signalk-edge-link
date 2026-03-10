@@ -36,6 +36,7 @@ import {
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch
 } from "./constants";
+import { loadConfigFile } from "./config-io";
 import {
   createDebouncedConfigHandler,
   createWatcherWithRecovery,
@@ -613,8 +614,7 @@ function createInstance(
       state.isServerMode = false;
       await initializePersistentStorage({ instanceId, app, state });
 
-      const { loadConfigFile } = require("./config-io");
-      const deltaTimerTimeFile = await loadConfigFile(state.deltaTimerFile);
+      const deltaTimerTimeFile = (await loadConfigFile(state.deltaTimerFile)) as any;
       state.deltaTimerTime =
         deltaTimerTimeFile &&
         Number.isFinite(deltaTimerTimeFile.deltaTimer) &&
@@ -827,7 +827,9 @@ function createInstance(
     state.batchSendInFlight = false;
     state.droppedDeltaBatches = 0;
     state.droppedDeltaCount = 0;
-    Object.keys(state.configContentHashes).forEach((k: string) => delete state.configContentHashes[k]);
+    Object.keys(state.configContentHashes).forEach(
+      (k: string) => delete state.configContentHashes[k]
+    );
     state.excludedSentences = ["GSV"];
     state.lastPacketTime = 0;
 

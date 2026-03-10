@@ -29,7 +29,7 @@
     "build:ts": "npm run clean:lib && tsc",
     "check:ts": "tsc --noEmit",
     "dev": "webpack --mode development --watch",
-    "test": "jest",
+    "test": "jest --runInBand",
     "test:v2": "jest __tests__/v2/",
     "test:integration": "jest test/integration/",
     "test:watch": "jest --watch",
@@ -82,12 +82,10 @@
     "testEnvironment": "node",
     "coverageDirectory": "coverage",
     "collectCoverageFrom": [
-      "src/**/*.{js,ts}",
-      "!src/webapp/**",
-      "!src/components/**",
-      "!src/utils/**",
-      "!webpack.config.js",
-      "!.eslintrc.js"
+      "lib/**/*.js",
+      "!lib/webapp/**",
+      "!lib/components/**",
+      "!lib/utils/**"
     ],
     "testMatch": [
       "**/__tests__/**/*.js",
