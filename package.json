@@ -4,11 +4,13 @@
   "description": "SignalK Edge Link. Secure UDP link for data exchange.",
   "main": "index.js",
   "files": [
+    "index.ts",
     "index.js",
     "lib/",
     "public/",
     "bin/",
     "schemas/",
+    "scripts/migrate-config.ts",
     "scripts/migrate-config.js"
   ],
   "keywords": [
@@ -35,7 +37,7 @@
     "build:ts": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write \"**/*.{js,json,md}\"",
+    "format": "prettier --write \"**/*.{js,ts,json,md}\"",
     "migrate:config": "node scripts/migrate-config.js",
     "cli": "node bin/edge-link-cli.js",
     "prepare": "husky"
@@ -94,7 +96,12 @@
     "transform": {
       "^.+\\.ts$": "ts-jest"
     },
-    "moduleFileExtensions": ["ts", "js", "json", "node"],
+    "moduleFileExtensions": [
+      "ts",
+      "js",
+      "json",
+      "node"
+    ],
     "testPathIgnorePatterns": [
       "/node_modules/",
       "/public/"
@@ -115,6 +122,9 @@
     "*.js": [
       "prettier --write",
       "eslint --fix"
+    ],
+    "*.ts": [
+      "prettier --write"
     ],
     "*.{json,md}": [
       "prettier --write"
