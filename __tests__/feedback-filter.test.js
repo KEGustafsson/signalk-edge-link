@@ -1,7 +1,7 @@
 "use strict";
 
 const net = require("net");
-const createPlugin = require("../index");
+const createPlugin = require("../lib/index");
 
 describe("Outbound delta forwarding", () => {
   let plugin;

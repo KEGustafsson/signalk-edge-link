@@ -20,7 +20,7 @@ jest.mock("ping-monitor", () => {
 }, { virtual: true });
 
 // We'll test the config functions indirectly through the plugin
-const createPlugin = require("../index");
+const createPlugin = require("../lib/index");
 
 describe("Configuration File Operations", () => {
   let plugin;

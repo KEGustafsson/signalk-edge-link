@@ -7,7 +7,7 @@ import {
   VALID_CONNECTION_KEYS,
   validateConnectionConfig,
   sanitizeConnectionConfig
-} from "../lib/connection-config";
+} from "../connection-config";
 
 function validateLegacyConfig(config: any): void {
   const connection = {

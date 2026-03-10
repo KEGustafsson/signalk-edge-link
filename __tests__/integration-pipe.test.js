@@ -516,7 +516,7 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
   // ── 6. Full Plugin Integration ──
 
   describe("Full Plugin: start → pipeline → metrics → route", () => {
-    const createPlugin = require("../index");
+    const createPlugin = require("../lib/index");
     const path = require("path");
     const os = require("os");
     const { promises: fs } = require("fs");

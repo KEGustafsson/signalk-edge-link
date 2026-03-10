@@ -2,16 +2,12 @@
   "name": "signalk-edge-link",
   "version": "2.1.0-beta.7",
   "description": "SignalK Edge Link. Secure UDP link for data exchange.",
-  "main": "index.js",
+  "main": "lib/index.js",
   "files": [
-    "index.ts",
-    "index.js",
+    "src/index.ts",
     "lib/",
     "public/",
-    "bin/",
-    "schemas/",
-    "scripts/migrate-config.ts",
-    "scripts/migrate-config.js"
+    "schemas/"
   ],
   "keywords": [
     "signalk-node-server-plugin",
@@ -26,10 +22,11 @@
   },
   "signalk-plugin-enabled-by-default": false,
   "scripts": {
+    "clean:lib": "node -e \"const fs=require('fs');if(fs.existsSync('lib'))fs.rmSync('lib',{recursive:true,force:true});\"",
     "clean:public": "node -e \"const fs=require('fs');const path=require('path');const p='public';if(!fs.existsSync(p))process.exit(0);for(const n of fs.readdirSync(p)){if(n==='icons')continue;fs.rmSync(path.join(p,n),{recursive:true,force:true});}\"",
     "build": "npm run build:ts && npm run build:web",
     "build:web": "npm run clean:public && webpack --mode production",
-    "build:ts": "tsc",
+    "build:ts": "npm run clean:lib && tsc",
     "check:ts": "tsc --noEmit",
     "dev": "webpack --mode development --watch",
     "test": "jest",
@@ -40,8 +37,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{js,ts,json,md}\"",
-    "migrate:config": "node scripts/migrate-config.js",
-    "cli": "node bin/edge-link-cli.js",
+    "migrate:config": "node lib/scripts/migrate-config.js",
+    "cli": "node lib/bin/edge-link-cli.js",
     "prepare": "husky"
   },
   "dependencies": {
@@ -85,8 +82,10 @@
     "testEnvironment": "node",
     "coverageDirectory": "coverage",
     "collectCoverageFrom": [
-      "*.{js,ts}",
-      "lib/**/*.{js,ts}",
+      "src/**/*.{js,ts}",
+      "!src/webapp/**",
+      "!src/components/**",
+      "!src/utils/**",
       "!webpack.config.js",
       "!.eslintrc.js"
     ],
@@ -118,7 +117,7 @@
     }
   },
   "bin": {
-    "edge-link-cli": "bin/edge-link-cli.js"
+    "edge-link-cli": "lib/bin/edge-link-cli.js"
   },
   "lint-staged": {
     "*.js": [
