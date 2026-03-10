@@ -9,24 +9,13 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": false,
+    "declaration": false,
     "sourceMap": false,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noEmitOnError": false,
     "allowJs": false
   },
-  "include": [
-    "src/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "public",
-    "lib",
-    "__tests__",
-    "test",
-    "**/*.test.ts",
-    "**/*.spec.ts"
-  ]
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "public", "lib", "__tests__", "test", "**/*.test.ts", "**/*.spec.ts"]
 }
