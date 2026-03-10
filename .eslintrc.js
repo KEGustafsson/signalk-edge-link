@@ -20,7 +20,15 @@ module.exports = {
       }
     }
   ],
-  ignorePatterns: ["public/**", "node_modules/**", "coverage/**"],
+  ignorePatterns: [
+    "public/**",
+    "node_modules/**",
+    "coverage/**",
+    "index.js",
+    "lib/**",
+    "bin/**",
+    "scripts/**"
+  ],
   parserOptions: {
     ecmaVersion: "latest",
     sourceType: "module"

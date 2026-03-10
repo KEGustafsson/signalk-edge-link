@@ -25,14 +25,16 @@
   "signalk-plugin-enabled-by-default": false,
   "scripts": {
     "clean:public": "node -e \"const fs=require('fs');const path=require('path');const p='public';if(!fs.existsSync(p))process.exit(0);for(const n of fs.readdirSync(p)){if(n==='icons')continue;fs.rmSync(path.join(p,n),{recursive:true,force:true});}\"",
-    "build": "npm run clean:public && webpack --mode production",
+    "build": "npm run build:ts && npm run build:web",
+    "build:web": "npm run clean:public && webpack --mode production",
+    "build:ts": "tsc",
+    "check:ts": "tsc --noEmit",
     "dev": "webpack --mode development --watch",
     "test": "jest",
     "test:v2": "jest __tests__/v2/",
     "test:integration": "jest test/integration/",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "build:ts": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{js,json,md}\"",
@@ -94,7 +96,12 @@
     "transform": {
       "^.+\\.ts$": "ts-jest"
     },
-    "moduleFileExtensions": ["ts", "js", "json", "node"],
+    "moduleFileExtensions": [
+      "ts",
+      "js",
+      "json",
+      "node"
+    ],
     "testPathIgnorePatterns": [
       "/node_modules/",
       "/public/"
