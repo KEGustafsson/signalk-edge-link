@@ -23,13 +23,13 @@
   "signalk-plugin-enabled-by-default": false,
   "scripts": {
     "clean:lib": "node -e \"const fs=require('fs');if(fs.existsSync('lib'))fs.rmSync('lib',{recursive:true,force:true});\"",
-    "clean:public": "node -e \"const fs=require('fs');const path=require('path');const p='public';if(!fs.existsSync(p))process.exit(0);for(const n of fs.readdirSync(p)){if(n==='icons')continue;fs.rmSync(path.join(p,n),{recursive:true,force:true});}\"",
+    "clean:public": "node -e \"const fs=require('fs');if(fs.existsSync('public'))fs.rmSync('public',{recursive:true,force:true});\"",
     "build": "npm run build:ts && npm run build:web",
     "build:web": "npm run clean:public && webpack --mode production",
     "build:ts": "npm run clean:lib && tsc",
     "check:ts": "tsc --noEmit",
     "dev": "webpack --mode development --watch",
-    "test": "jest",
+    "test": "jest --runInBand",
     "test:v2": "jest __tests__/v2/",
     "test:integration": "jest test/integration/",
     "test:watch": "jest --watch",
@@ -82,12 +82,10 @@
     "testEnvironment": "node",
     "coverageDirectory": "coverage",
     "collectCoverageFrom": [
-      "src/**/*.{js,ts}",
-      "!src/webapp/**",
-      "!src/components/**",
-      "!src/utils/**",
-      "!webpack.config.js",
-      "!.eslintrc.js"
+      "lib/**/*.js",
+      "!lib/webapp/**",
+      "!lib/components/**",
+      "!lib/utils/**"
     ],
     "testMatch": [
       "**/__tests__/**/*.js",

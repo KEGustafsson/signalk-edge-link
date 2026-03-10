@@ -36,10 +36,7 @@ module.exports = (env, argv) => {
         },
         {
           test: /\.css$/,
-          use: [
-            isProduction ? MiniCssExtractPlugin.loader : "style-loader",
-            "css-loader"
-          ]
+          use: [isProduction ? MiniCssExtractPlugin.loader : "style-loader", "css-loader"]
         },
         {
           test: /\.(png|jpg|gif|svg)$/,
@@ -92,7 +89,7 @@ module.exports = (env, argv) => {
       new CopyWebpackPlugin({
         patterns: [
           {
-            from: path.resolve(__dirname, "src/webapp/icons"),
+            from: path.resolve(__dirname, "src/icons"),
             to: path.resolve(__dirname, "public/icons"),
             noErrorOnMissing: true
           }
