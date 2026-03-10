@@ -1,36 +1,38 @@
 "use strict";
 
-const crypto = require("node:crypto");
+import crypto from "node:crypto";
 
-const { PATH_CATEGORIES } = require("./pathDictionary");
-const { RATE_LIMIT_WINDOW, RATE_LIMIT_MAX_REQUESTS } = require("./constants");
-const { loadConfigFile: loadConfigFileShared, saveConfigFile: saveConfigFileShared } = require("./config-io");
+import { PATH_CATEGORIES } from "./pathDictionary";
+import { RATE_LIMIT_WINDOW, RATE_LIMIT_MAX_REQUESTS } from "./constants";
+import {
+  loadConfigFile as loadConfigFileShared,
+  saveConfigFile as saveConfigFileShared
+} from "./config-io";
 
 // Route sub-modules
-const metricsRoutes = require("./routes/metrics");
-const monitoringRoutes = require("./routes/monitoring");
-const controlRoutes = require("./routes/control");
-const configRoutes = require("./routes/config");
-const connectionsRoutes = require("./routes/connections");
+import * as metricsRoutes from "./routes/metrics";
+import * as monitoringRoutes from "./routes/monitoring";
+import * as controlRoutes from "./routes/control";
+import * as configRoutes from "./routes/config";
+import * as connectionsRoutes from "./routes/connections";
 
 /**
  * Creates the HTTP route handlers for the plugin's REST API.
- * @param {Object} app - SignalK app object
- * @param {Object} instanceRegistry - Registry providing access to active plugin instances
- * @param {Object} pluginRef - Reference to plugin object (for schema access)
- * @returns {Object} Routes API
+ * @param app - SignalK app object
+ * @param instanceRegistry - Registry providing access to active plugin instances
+ * @param pluginRef - Reference to plugin object (for schema access)
+ * @returns Routes API
  */
-function createRoutes(app, instanceRegistry, pluginRef) {
+function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
   const REMOTE_TELEMETRY_TTL_MS = 15000;
 
   function getFirstBundle() {
     return instanceRegistry.getFirst() || null;
   }
 
-
-  function getFirstHeaderValue(value) {
+  function getFirstHeaderValue(value: any): string | null {
     if (Array.isArray(value)) {
-      return value.find((entry) => typeof entry === "string" && entry.trim()) || null;
+      return value.find((entry: any) => typeof entry === "string" && entry.trim()) || null;
     }
     if (typeof value === "string" && value.trim()) {
       return value;
@@ -38,8 +40,9 @@ function createRoutes(app, instanceRegistry, pluginRef) {
     return null;
   }
 
-  function getManagementToken() {
-    const fromOptions = pluginRef && pluginRef._currentOptions && pluginRef._currentOptions.managementApiToken;
+  function getManagementToken(): string | null {
+    const fromOptions =
+      pluginRef && pluginRef._currentOptions && pluginRef._currentOptions.managementApiToken;
     if (typeof fromOptions === "string" && fromOptions.trim()) {
       return fromOptions.trim();
     }
@@ -52,23 +55,23 @@ function createRoutes(app, instanceRegistry, pluginRef) {
     return null;
   }
 
-  function authorizeManagement(req, res, action) {
+  function authorizeManagement(req: any, res: any, action?: string): any {
     const expectedToken = getManagementToken();
     if (!expectedToken) {
       return true;
     }
 
     const headerToken = req.headers
-      ? getFirstHeaderValue(req.headers["x-edge-link-token"]) || getFirstHeaderValue(req.headers["x-management-token"])
+      ? getFirstHeaderValue(req.headers["x-edge-link-token"]) ||
+        getFirstHeaderValue(req.headers["x-management-token"])
       : null;
 
     const authorization = req.headers ? getFirstHeaderValue(req.headers.authorization) : null;
-    const bearerMatch = typeof authorization === "string"
-      ? authorization.match(/^Bearer\s+(.+)$/i)
-      : null;
+    const bearerMatch =
+      typeof authorization === "string" ? authorization.match(/^Bearer\s+(.+)$/i) : null;
     const bearerToken = bearerMatch ? bearerMatch[1].trim() : null;
 
-    const providedCandidates = [];
+    const providedCandidates: string[] = [];
     if (typeof headerToken === "string" && headerToken.trim()) {
       providedCandidates.push(headerToken.trim());
     }
@@ -93,8 +96,8 @@ function createRoutes(app, instanceRegistry, pluginRef) {
     return true;
   }
 
-  function managementAuthMiddleware(action) {
-    return function managementAuth(req, res, next) {
+  function managementAuthMiddleware(action: string) {
+    return function managementAuth(req: any, res: any, next: any) {
       if (!authorizeManagement(req, res, action)) {
         return;
       }
@@ -102,7 +105,7 @@ function createRoutes(app, instanceRegistry, pluginRef) {
     };
   }
 
-  function safeTokenEquals(expected, provided) {
+  function safeTokenEquals(expected: string, provided: string): boolean {
     if (typeof expected !== "string" || typeof provided !== "string") {
       return false;
     }
@@ -114,8 +117,7 @@ function createRoutes(app, instanceRegistry, pluginRef) {
     return crypto.timingSafeEqual(expectedDigest, providedDigest);
   }
 
-
-  function getBundleById(id) {
+  function getBundleById(id: string) {
     return instanceRegistry.get(id) || null;
   }
 
@@ -126,21 +128,23 @@ function createRoutes(app, instanceRegistry, pluginRef) {
    */
   function getFirstClientBundle() {
     for (const bundle of instanceRegistry.getAll()) {
-      if (!bundle.state.isServerMode) { return bundle; }
+      if (!bundle.state.isServerMode) {
+        return bundle;
+      }
     }
     return null;
   }
 
   // Rate limiting state
-  const rateLimitMap = new Map();
-  let rateLimitCleanupInterval;
+  const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+  let rateLimitCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Simple rate limiting check
-   * @param {string} key - Rate-limit identity key
-   * @returns {boolean} True if request should be allowed
+   * @param key - Rate-limit identity key
+   * @returns True if request should be allowed
    */
-  function checkRateLimit(key) {
+  function checkRateLimit(key: string): boolean {
     const now = Date.now();
     const clientData = rateLimitMap.get(key);
 
@@ -178,40 +182,46 @@ function createRoutes(app, instanceRegistry, pluginRef) {
    * Stops the rate limit cleanup interval and clears state
    */
   function stopRateLimitCleanup() {
-    clearInterval(rateLimitCleanupInterval);
+    if (rateLimitCleanupInterval) {
+      clearInterval(rateLimitCleanupInterval);
+    }
     rateLimitCleanupInterval = null;
     rateLimitMap.clear();
   }
 
   /**
    * Resolves a config filename to its full file path
-   * @param {Object} state - Instance state
-   * @param {string} filename - Config filename
-   * @returns {string|null} Full file path or null if invalid
+   * @param state - Instance state
+   * @param filename - Config filename
+   * @returns Full file path or null if invalid
    */
-  function getConfigFilePath(state, filename) {
+  function getConfigFilePath(state: any, filename: string): string | null {
     switch (filename) {
-      case "delta_timer.json": return state.deltaTimerFile;
-      case "subscription.json": return state.subscriptionFile;
-      case "sentence_filter.json": return state.sentenceFilterFile;
-      default: return null;
+      case "delta_timer.json":
+        return state.deltaTimerFile;
+      case "subscription.json":
+        return state.subscriptionFile;
+      case "sentence_filter.json":
+        return state.sentenceFilterFile;
+      default:
+        return null;
     }
   }
 
-  function loadConfigFile(filePath) {
+  function loadConfigFile(filePath: string) {
     return loadConfigFileShared(filePath, app);
   }
 
-  function saveConfigFile(filePath, data) {
+  function saveConfigFile(filePath: string, data: any) {
     return saveConfigFileShared(filePath, data, app);
   }
 
   /**
    * Returns the active metrics publisher from the v2 client or server pipeline
-   * @param {Object} state - Instance state
-   * @returns {Object|null} MetricsPublisher instance or null
+   * @param state - Instance state
+   * @returns MetricsPublisher instance or null
    */
-  function getActiveMetricsPublisher(state) {
+  function getActiveMetricsPublisher(state: any) {
     if (state.pipeline && state.pipeline.getMetricsPublisher) {
       return state.pipeline.getMetricsPublisher();
     }
@@ -224,32 +234,44 @@ function createRoutes(app, instanceRegistry, pluginRef) {
   /**
    * Returns the effective network quality snapshot for API/UI.
    * In server mode, prefers recent client-reported telemetry.
-   *
-   * @param {Object} state - Instance state
-   * @param {Object} metrics - Metrics object
-   * @param {number} [now]
-   * @returns {Object}
    */
-  function getEffectiveNetworkQuality(state, metrics, now = Date.now()) {
+  function getEffectiveNetworkQuality(state: any, metrics: any, now: number = Date.now()) {
     const remote = metrics.remoteNetworkQuality || {};
     const hasFreshRemote =
       state.isServerMode &&
       Number.isFinite(remote.lastUpdate) &&
       remote.lastUpdate > 0 &&
-      (now - remote.lastUpdate) <= REMOTE_TELEMETRY_TTL_MS;
+      now - remote.lastUpdate <= REMOTE_TELEMETRY_TTL_MS;
 
-    const clientRetransmitRate = metrics.bandwidth.packetsOut > 0
-      ? (metrics.retransmissions || 0) / metrics.bandwidth.packetsOut
-      : 0;
+    const clientRetransmitRate =
+      metrics.bandwidth.packetsOut > 0
+        ? (metrics.retransmissions || 0) / metrics.bandwidth.packetsOut
+        : 0;
     const hasOnlyLocalServerValues = state.isServerMode && !hasFreshRemote;
 
     return {
-      rtt: hasFreshRemote ? (remote.rtt ?? 0) : (hasOnlyLocalServerValues ? 0 : (metrics.rtt ?? 0)),
-      jitter: hasFreshRemote ? (remote.jitter ?? 0) : (hasOnlyLocalServerValues ? 0 : (metrics.jitter ?? 0)),
+      rtt: hasFreshRemote ? (remote.rtt ?? 0) : hasOnlyLocalServerValues ? 0 : (metrics.rtt ?? 0),
+      jitter: hasFreshRemote
+        ? (remote.jitter ?? 0)
+        : hasOnlyLocalServerValues
+          ? 0
+          : (metrics.jitter ?? 0),
       packetLoss: hasFreshRemote ? (remote.packetLoss ?? 0) : (metrics.packetLoss ?? 0),
-      retransmissions: hasFreshRemote ? (remote.retransmissions ?? 0) : (hasOnlyLocalServerValues ? 0 : (metrics.retransmissions ?? 0)),
-      queueDepth: hasFreshRemote ? (remote.queueDepth ?? 0) : (hasOnlyLocalServerValues ? 0 : (metrics.queueDepth ?? 0)),
-      retransmitRate: hasFreshRemote ? (remote.retransmitRate ?? 0) : (hasOnlyLocalServerValues ? 0 : clientRetransmitRate),
+      retransmissions: hasFreshRemote
+        ? (remote.retransmissions ?? 0)
+        : hasOnlyLocalServerValues
+          ? 0
+          : (metrics.retransmissions ?? 0),
+      queueDepth: hasFreshRemote
+        ? (remote.queueDepth ?? 0)
+        : hasOnlyLocalServerValues
+          ? 0
+          : (metrics.queueDepth ?? 0),
+      retransmitRate: hasFreshRemote
+        ? (remote.retransmitRate ?? 0)
+        : hasOnlyLocalServerValues
+          ? 0
+          : clientRetransmitRate,
       activeLink: hasFreshRemote ? (remote.activeLink ?? "primary") : "primary",
       dataSource: hasFreshRemote ? "remote-client" : "local",
       lastUpdate: hasFreshRemote ? remote.lastUpdate : 0
@@ -260,7 +282,7 @@ function createRoutes(app, instanceRegistry, pluginRef) {
    * Build the full metrics response object for a given bundle.
    * Shared by GET /metrics and GET /connections/:id/metrics.
    */
-  function buildFullMetricsResponse(bundle) {
+  function buildFullMetricsResponse(bundle: any) {
     const { state } = bundle;
     const { metrics, updateBandwidthRates, formatBytes, getTopNPaths } = bundle.metricsApi;
     updateBandwidthRates(state.isServerMode);
@@ -272,12 +294,12 @@ function createRoutes(app, instanceRegistry, pluginRef) {
 
     const pathStatsArray = getTopNPaths(50, uptimeSeconds);
 
-    const totalPathBytes = pathStatsArray.reduce((sum, p) => sum + p.bytes, 0);
-    pathStatsArray.forEach((p) => {
+    const totalPathBytes = pathStatsArray.reduce((sum: number, p: any) => sum + p.bytes, 0);
+    pathStatsArray.forEach((p: any) => {
       p.percentage = totalPathBytes > 0 ? Math.round((p.bytes / totalPathBytes) * 100) : 0;
     });
 
-    const metricsData = {
+    const metricsData: any = {
       uptime: {
         milliseconds: uptime,
         seconds: uptimeSeconds,
@@ -301,7 +323,9 @@ function createRoutes(app, instanceRegistry, pluginRef) {
         deltasBuffered: state.deltas.length
       },
       bandwidth: (() => {
-        const packets = state.isServerMode ? metrics.bandwidth.packetsIn : metrics.bandwidth.packetsOut;
+        const packets = state.isServerMode
+          ? metrics.bandwidth.packetsIn
+          : metrics.bandwidth.packetsOut;
         const bytes = state.isServerMode ? metrics.bandwidth.bytesIn : metrics.bandwidth.bytesOut;
         const avgPacketSize = packets > 0 ? Math.round(bytes / packets) : 0;
 
@@ -330,15 +354,15 @@ function createRoutes(app, instanceRegistry, pluginRef) {
       smartBatching: state.isServerMode
         ? null
         : {
-          earlySends: metrics.smartBatching.earlySends,
-          timerSends: metrics.smartBatching.timerSends,
-          oversizedPackets: metrics.smartBatching.oversizedPackets,
-          avgBytesPerDelta: metrics.smartBatching.avgBytesPerDelta,
-          maxDeltasPerBatch: metrics.smartBatching.maxDeltasPerBatch
-        },
+            earlySends: metrics.smartBatching.earlySends,
+            timerSends: metrics.smartBatching.timerSends,
+            oversizedPackets: metrics.smartBatching.oversizedPackets,
+            avgBytesPerDelta: metrics.smartBatching.avgBytesPerDelta,
+            maxDeltasPerBatch: metrics.smartBatching.maxDeltasPerBatch
+          },
       networkQuality: (() => {
         const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
-        const networkData = {
+        const networkData: any = {
           rtt: effectiveNetwork.rtt,
           jitter: effectiveNetwork.jitter,
           packetLoss: effectiveNetwork.packetLoss,
@@ -368,18 +392,18 @@ function createRoutes(app, instanceRegistry, pluginRef) {
         return networkData;
       })(),
       recentErrors: Array.isArray(metrics.recentErrors)
-        ? metrics.recentErrors.slice(-10).map((err) => ({
-          category: err.category,
-          message: err.message,
-          timestamp: err.timestamp
-        }))
+        ? metrics.recentErrors.slice(-10).map((err: any) => ({
+            category: err.category,
+            message: err.message,
+            timestamp: err.timestamp
+          }))
         : [],
       lastError: metrics.lastError
         ? {
-          message: metrics.lastError,
-          timestamp: metrics.lastErrorTime,
-          timeAgo: metrics.lastErrorTime ? Date.now() - metrics.lastErrorTime : null
-        }
+            message: metrics.lastError,
+            timestamp: metrics.lastErrorTime,
+            timeAgo: metrics.lastErrorTime ? Date.now() - metrics.lastErrorTime : null
+          }
         : null
     };
 
@@ -388,13 +412,12 @@ function createRoutes(app, instanceRegistry, pluginRef) {
 
   /**
    * Registers all HTTP routes with the Express router
-   * @param {Object} router - Express router instance
    */
-  function registerWithRouter(router) {
+  function registerWithRouter(router: any) {
     /**
      * Content-Type validation middleware for JSON POST endpoints
      */
-    const requireJson = (req, res, next) => {
+    const requireJson = (req: any, res: any, next: any) => {
       const contentType = req.headers["content-type"];
       if (!contentType || !contentType.includes("application/json")) {
         return res.status(415).json({ error: "Content-Type must be application/json" });
@@ -405,20 +428,17 @@ function createRoutes(app, instanceRegistry, pluginRef) {
     /**
      * Rate limiting middleware for API endpoints
      */
-    const rateLimitMiddleware = (req, res, next) => {
+    const rateLimitMiddleware = (req: any, res: any, next: any) => {
       const headers = req.headers || {};
-      const trustProxy = req.app && typeof req.app.get === "function" && !!req.app.get("trust proxy");
+      const trustProxy =
+        req.app && typeof req.app.get === "function" && !!req.app.get("trust proxy");
       const forwarded = trustProxy ? headers["x-forwarded-for"] : null;
-      const forwardedIp = typeof forwarded === "string"
-        ? forwarded.split(",")[0].trim()
-        : null;
-      const remoteAddress = req.socket && typeof req.socket.remoteAddress === "string"
-        ? req.socket.remoteAddress
-        : null;
-      const clientIp = forwardedIp
-        || req.ip
-        || remoteAddress
-        || null;
+      const forwardedIp = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : null;
+      const remoteAddress =
+        req.socket && typeof req.socket.remoteAddress === "string"
+          ? req.socket.remoteAddress
+          : null;
+      const clientIp = forwardedIp || req.ip || remoteAddress || null;
 
       // Deterministic fallback key when IP cannot be determined.
       // Include a few stable request traits to reduce cross-client bucket sharing.
@@ -427,11 +447,14 @@ function createRoutes(app, instanceRegistry, pluginRef) {
         headers["accept-language"] || "na",
         headers.host || "na"
       ];
-      const unknownIdentity = unknownIdentityParts.map((p) => String(p).slice(0, 64)).join("|");
+      const unknownIdentity = unknownIdentityParts
+        .map((p: string) => String(p).slice(0, 64))
+        .join("|");
 
-      const rateLimitKey = (typeof clientIp === "string" && clientIp.length > 0)
-        ? clientIp
-        : `unknown-client:${unknownIdentity}`;
+      const rateLimitKey =
+        typeof clientIp === "string" && clientIp.length > 0
+          ? clientIp
+          : `unknown-client:${unknownIdentity}`;
       if (!checkRateLimit(rateLimitKey)) {
         return res.status(429).json({ error: "Too many requests, please try again later" });
       }
@@ -458,39 +481,40 @@ function createRoutes(app, instanceRegistry, pluginRef) {
       managementAuthMiddleware
     };
 
-    router.get("/status", rateLimitMiddleware, (req, res) => {
-      if (!authorizeManagement(req, res, "status.read")) { return; }
+    router.get("/status", rateLimitMiddleware, (req: any, res: any) => {
+      if (!authorizeManagement(req, res, "status.read")) {
+        return;
+      }
 
       const allBundles = instanceRegistry.getAll();
       if (!allBundles || allBundles.length === 0) {
         return res.status(503).json({ error: "Plugin not started" });
       }
 
-      const instances = allBundles.map((bundle) => {
+      const statusInstances = allBundles.map((bundle: any) => {
         const status = bundle.state.instanceStatus || "unknown";
-        const healthy = typeof status === "string"
-          ? !/error|fail|stopped/i.test(status)
-          : false;
-        const metrics = bundle.metricsApi && bundle.metricsApi.metrics
-          ? bundle.metricsApi.metrics
-          : {};
+        const healthy = typeof status === "string" ? !/error|fail|stopped/i.test(status) : false;
+        const bundleMetrics =
+          bundle.metricsApi && bundle.metricsApi.metrics ? bundle.metricsApi.metrics : {};
         return {
           id: bundle.id,
           name: bundle.name,
           healthy,
           status,
-          lastError: metrics.lastError || null,
-          lastErrorTime: metrics.lastErrorTime || null,
-          errorCounts: { ...(metrics.errorCounts || {}) },
-          recentErrors: Array.isArray(metrics.recentErrors) ? metrics.recentErrors.slice(-5) : []
+          lastError: bundleMetrics.lastError || null,
+          lastErrorTime: bundleMetrics.lastErrorTime || null,
+          errorCounts: { ...(bundleMetrics.errorCounts || {}) },
+          recentErrors: Array.isArray(bundleMetrics.recentErrors)
+            ? bundleMetrics.recentErrors.slice(-5)
+            : []
         };
       });
 
-      const healthyInstances = instances.filter((item) => item.healthy).length;
+      const healthyInstances = statusInstances.filter((item: any) => item.healthy).length;
       res.json({
         healthyInstances,
-        totalInstances: instances.length,
-        instances
+        totalInstances: statusInstances.length,
+        instances: statusInstances
       });
     });
 
@@ -511,4 +535,4 @@ function createRoutes(app, instanceRegistry, pluginRef) {
   };
 }
 
-module.exports = createRoutes;
+export = createRoutes;
