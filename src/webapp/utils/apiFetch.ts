@@ -1,6 +1,20 @@
 export const MANAGEMENT_TOKEN_ERROR_MESSAGE = "Management token required/invalid.";
 
-const DEFAULT_AUTH_CONFIG = {
+interface AuthConfig {
+  token: string | null;
+  localStorageKey: string;
+  queryParam: string;
+  includeTokenInQuery: boolean;
+  headerMode: string;
+}
+
+declare global {
+  interface Window {
+    __EDGE_LINK_AUTH__?: Partial<AuthConfig>;
+  }
+}
+
+const DEFAULT_AUTH_CONFIG: AuthConfig = {
   token: null,
   localStorageKey: "signalkEdgeLinkManagementToken",
   queryParam: "edgeLinkToken",
@@ -8,7 +22,7 @@ const DEFAULT_AUTH_CONFIG = {
   headerMode: "both"
 };
 
-function readRuntimeAuthConfig() {
+function readRuntimeAuthConfig(): AuthConfig {
   if (typeof window === "undefined") {
     return DEFAULT_AUTH_CONFIG;
   }
@@ -21,7 +35,7 @@ function readRuntimeAuthConfig() {
   return { ...DEFAULT_AUTH_CONFIG, ...runtime };
 }
 
-function resolveToken(config) {
+function resolveToken(config: AuthConfig): string {
   if (config.token) {
     return String(config.token).trim();
   }
@@ -47,7 +61,7 @@ function resolveToken(config) {
   return "";
 }
 
-function attachAuthHeaders(headers, token, headerMode) {
+function attachAuthHeaders(headers: Headers, token: string, headerMode: string): Headers {
   if (!token) {
     return headers;
   }
@@ -70,12 +84,12 @@ function attachAuthHeaders(headers, token, headerMode) {
   return headers;
 }
 
-export function getAuthToken() {
+export function getAuthToken(): string {
   const config = readRuntimeAuthConfig();
   return resolveToken(config);
 }
 
-export function getTokenHelpText() {
+export function getTokenHelpText(): string {
   const config = readRuntimeAuthConfig();
   const modeText =
     config.headerMode && String(config.headerMode).toLowerCase() === "authorization"
@@ -87,7 +101,7 @@ export function getTokenHelpText() {
   return `The server-side token is configured in plugin settings (managementApiToken) or via the SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN environment variable. To authenticate from the browser, provide the token using window.__EDGE_LINK_AUTH__.token, query parameter "${config.queryParam}", or localStorage key "${config.localStorageKey}". Requests send ${modeText} when a token is available.`;
 }
 
-export function apiFetch(input, init = {}) {
+export function apiFetch(input: string | Request, init: RequestInit = {}): Promise<Response> {
   const config = readRuntimeAuthConfig();
   const token = resolveToken(config);
   const headers = new Headers(init.headers || {});

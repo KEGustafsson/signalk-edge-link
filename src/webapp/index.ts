@@ -1,5 +1,5 @@
 import "./styles.css";
-import { apiFetch, getTokenHelpText, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
+import { apiFetch, getTokenHelpText, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "./utils/apiFetch";
 
 // Constants
 const API_BASE_PATH = "/plugins/signalk-edge-link";
@@ -9,8 +9,22 @@ const NOTIFICATION_TIMEOUT = 4000;
 const METRICS_REFRESH_INTERVAL = 15000;
 const JSON_SYNC_DEBOUNCE = 300;
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface ConnectionInfo {
+  id: string;
+  name?: string;
+  type: string;
+  healthy?: boolean;
+  readyToSend?: boolean;
+}
+
+interface AuthenticatedError extends Error {
+  isUnauthorized?: boolean;
+}
+
 // HTML Template Helpers
-const renderCard = (title, subtitle, contentId, contentClass = "") => `
+const renderCard = (title: string, subtitle: string | null, contentId: string, contentClass = "") => `
   <div class="config-section">
     <div class="card">
       <div class="card-header">
@@ -26,28 +40,28 @@ const renderCard = (title, subtitle, contentId, contentClass = "") => `
   </div>
 `;
 
-const renderStatItem = (label, value, hasError = false) => `
+const renderStatItem = (label: string, value: string | number, hasError = false) => `
   <div class="stat-item${hasError ? " error" : ""}">
     <span class="stat-label">${label}:</span>
     <span class="stat-value">${value}</span>
   </div>
 `;
 
-const renderMetricItem = (label, value, statusClass = "") => `
+const renderMetricItem = (label: string, value: string | number, statusClass = "") => `
   <div class="metric-item${statusClass ? " " + statusClass : ""}">
     <div class="metric-label">${label}</div>
     <div class="metric-value">${value}</div>
   </div>
 `;
 
-const renderBwStat = (label, value, isHighlight = false, isSuccess = false) => `
+const renderBwStat = (label: string, value: string | number, isHighlight = false, isSuccess = false) => `
   <div class="bw-stat${isHighlight ? " highlight" : ""}">
     <span class="bw-label">${label}:</span>
     <span class="bw-value${isSuccess ? " success-text" : ""}">${value}</span>
   </div>
 `;
 
-const renderSectionGroup = (title, description, content, id = "") => `
+const renderSectionGroup = (title: string, description: string | null, content: string, id = "") => `
   <section class="page-group"${id ? ` id="${id}"` : ""}>
     <div class="page-group-header">
       <h2>${title}</h2>
@@ -60,6 +74,22 @@ const renderSectionGroup = (title, description, content, id = "") => `
 `;
 
 class DataConnectorConfig {
+  connections: ConnectionInfo[];
+  activeConnectionId: string | null;
+  pluginConfig: Record<string, unknown> | null;
+  pluginSchema: Record<string, unknown> | null;
+  schemaCurrentMode: string | null;
+  metricsInterval: ReturnType<typeof setInterval> | null;
+  syncTimeout: ReturnType<typeof setTimeout> | null;
+  tokenHelpText: string;
+  deltaTimerConfig: Record<string, unknown> | null;
+  subscriptionConfig: Record<string, unknown> | null;
+  sentenceFilterConfig: Record<string, unknown> | null;
+  protocolVersion: number;
+  isServerMode: boolean;
+  _refreshInFlight: boolean;
+  _notificationTimer: ReturnType<typeof setTimeout> | null;
+
   constructor() {
     this.connections = [];
     this.activeConnectionId = null;
@@ -76,6 +106,8 @@ class DataConnectorConfig {
     this.sentenceFilterConfig = null;
     this.protocolVersion = 1;
     this.isServerMode = false;
+    this._refreshInFlight = false;
+    this._notificationTimer = null;
 
     this.init();
   }
@@ -86,9 +118,9 @@ class DataConnectorConfig {
       await this.fetchConnections();
       this.renderPage();
       this.startMetricsRefresh();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Initialization error:", error);
-      this.showNotification("Failed to initialize application: " + error.message, "error");
+      this.showNotification("Failed to initialize application: " + (error instanceof Error ? error.message : String(error)), "error");
     }
   }
 
@@ -100,7 +132,7 @@ class DataConnectorConfig {
       if (res.ok) {
         this.connections = await res.json();
       }
-    } catch (e) {
+    } catch (_e) {
       // /connections not available – fall back to legacy single-instance detection
     }
 
@@ -115,7 +147,7 @@ class DataConnectorConfig {
     }
   }
 
-  detectModeFromConfig() {
+  detectModeFromConfig(): string {
     if (this.pluginConfig) {
       const st = this.normalizeServerType(this.pluginConfig.serverType);
       if (st) {
@@ -128,69 +160,69 @@ class DataConnectorConfig {
     return "client";
   }
 
-  getActiveConnection() {
+  getActiveConnection(): ConnectionInfo {
     return this.connections.find((c) => c.id === this.activeConnectionId) || this.connections[0];
   }
 
-  isLegacyMode() {
+  isLegacyMode(): boolean {
     return this.connections.length === 1 && this.connections[0].id === "_legacy";
   }
 
   // ── API path helpers ───────────────────────────────────────────────────────
 
-  metricsPath(connId) {
+  metricsPath(connId: string): string {
     if (connId === "_legacy") {
       return `${API_BASE_PATH}/metrics`;
     }
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/metrics`;
   }
 
-  configPath(connId, filename) {
+  configPath(connId: string, filename: string): string {
     if (connId === "_legacy") {
       return `${API_BASE_PATH}/config/${filename}`;
     }
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/config/${filename}`;
   }
 
-  monitoringPath(connId, sub) {
+  monitoringPath(connId: string, sub: string): string {
     if (connId === "_legacy") {
       return `${API_BASE_PATH}/monitoring/${sub}`;
     }
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/monitoring/${sub}`;
   }
 
-  congestionPath(connId) {
+  congestionPath(connId: string): string {
     if (connId === "_legacy") {
       return `${API_BASE_PATH}/congestion`;
     }
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/congestion`;
   }
 
-  bondingPath(connId) {
+  bondingPath(connId: string): string {
     if (connId === "_legacy") {
       return `${API_BASE_PATH}/bonding`;
     }
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/bonding`;
   }
 
-  bondingFailoverPath(connId) {
+  bondingFailoverPath(connId: string): string {
     if (connId === "_legacy") {
       return `${API_BASE_PATH}/bonding/failover`;
     }
     return `${API_BASE_PATH}/connections/${encodeURIComponent(connId)}/bonding/failover`;
   }
 
-  async request(input, init = {}) {
+  async request(input: RequestInfo, init: RequestInit = {}): Promise<Response> {
     const response = await apiFetch(input, init);
     if (response.status === 401) {
-      const error = new Error(MANAGEMENT_TOKEN_ERROR_MESSAGE);
+      const error: AuthenticatedError = new Error(MANAGEMENT_TOKEN_ERROR_MESSAGE);
       error.isUnauthorized = true;
       throw error;
     }
     return response;
   }
 
-  authFailureMessage(context) {
+  authFailureMessage(context: string): string {
     return `${MANAGEMENT_TOKEN_ERROR_MESSAGE} Failed while ${context}. ${this.tokenHelpText}`;
   }
 
@@ -236,9 +268,9 @@ class DataConnectorConfig {
     // Attach tab click listeners
     tabsDiv.querySelectorAll(".connection-tab").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const id = btn.dataset.connectionId;
+        const id = (btn as HTMLElement).dataset.connectionId;
         if (id !== this.activeConnectionId) {
-          this.activeConnectionId = id;
+          this.activeConnectionId = id!;
           this.renderPage();
           this.loadConnectionData();
         }
@@ -265,7 +297,7 @@ class DataConnectorConfig {
     this.loadConnectionData();
   }
 
-  renderServerContent(container) {
+  renderServerContent(container: HTMLElement) {
     const telemetryAndHealth =
       renderCard(
         "Performance Metrics",
@@ -302,7 +334,7 @@ class DataConnectorConfig {
       );
   }
 
-  renderClientContent(container) {
+  renderClientContent(container: HTMLElement) {
     const configuration =
       this.renderDeltaTimerCard() + this.renderSubscriptionCard() + this.renderSentenceFilterCard();
 
@@ -363,7 +395,7 @@ class DataConnectorConfig {
       );
   }
 
-  renderDeltaTimerCard() {
+  renderDeltaTimerCard(): string {
     return `
       <div class="config-section">
         <div class="card">
@@ -387,7 +419,7 @@ class DataConnectorConfig {
     `;
   }
 
-  renderSubscriptionCard() {
+  renderSubscriptionCard(): string {
     return `
       <div class="config-section">
         <div class="card">
@@ -420,7 +452,7 @@ class DataConnectorConfig {
     `;
   }
 
-  renderSentenceFilterCard() {
+  renderSentenceFilterCard(): string {
     return `
       <div class="config-section">
         <div class="card">
@@ -443,7 +475,7 @@ class DataConnectorConfig {
     `;
   }
 
-  renderPluginConfigurationCard() {
+  renderPluginConfigurationCard(): string {
     return `
       <div class="config-section">
         <div class="card">
@@ -495,7 +527,7 @@ class DataConnectorConfig {
     await this.loadMetrics(connId);
   }
 
-  async loadPluginConfiguration(showErrors = true) {
+  async loadPluginConfiguration(showErrors = true): Promise<boolean> {
     try {
       const [configResponse, schemaResponse] = await Promise.all([
         this.request(`${API_BASE_PATH}/plugin-config`),
@@ -530,12 +562,13 @@ class DataConnectorConfig {
 
       this.pluginConfig = this.buildCompletePluginConfig(configuration);
       return true;
-    } catch (error) {
+    } catch (error: unknown) {
       if (showErrors) {
+        const err = error as AuthenticatedError;
         this.showNotification(
-          error.isUnauthorized
+          err.isUnauthorized
             ? this.authFailureMessage("loading plugin config")
-            : "Error loading plugin config: " + error.message,
+            : "Error loading plugin config: " + err.message,
           "warning"
         );
       }
@@ -543,7 +576,7 @@ class DataConnectorConfig {
     }
   }
 
-  async loadConfigurations(connId) {
+  async loadConfigurations(connId: string) {
     try {
       const [deltaResponse, subResponse, filterResponse] = await Promise.all([
         this.request(this.configPath(connId, "delta_timer.json")),
@@ -554,19 +587,20 @@ class DataConnectorConfig {
       this.deltaTimerConfig = deltaResponse.ok ? await deltaResponse.json() : null;
       this.subscriptionConfig = subResponse.ok ? await subResponse.json() : null;
       this.sentenceFilterConfig = filterResponse.ok ? await filterResponse.json() : null;
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error as AuthenticatedError;
       this.showNotification(
-        error.isUnauthorized
+        err.isUnauthorized
           ? this.authFailureMessage("loading connection configuration")
-          : "Error loading configurations: " + error.message,
+          : "Error loading configurations: " + err.message,
         "error"
       );
     }
   }
 
-  async loadMetrics(connId) {
+  async loadMetrics(connId?: string) {
     if (!connId) {
-      connId = this.activeConnectionId;
+      connId = this.activeConnectionId!;
     }
     try {
       const response = await this.request(this.metricsPath(connId));
@@ -579,15 +613,15 @@ class DataConnectorConfig {
           this.loadV2Data(connId);
         }
       }
-    } catch (error) {
-      console.error("Error loading metrics:", error.message);
+    } catch (error: unknown) {
+      console.error("Error loading metrics:", (error as Error).message);
     }
   }
 
-  async loadV2Data(connId) {
+  async loadV2Data(connId: string) {
     const isClient = !this.isServerMode;
 
-    const fetches = [
+    const fetches: Promise<Response | null>[] = [
       this.request(this.monitoringPath(connId, "alerts")).catch(() => null),
       this.request(this.monitoringPath(connId, "packet-loss")).catch(() => null),
       this.request(this.monitoringPath(connId, "retransmissions")).catch(() => null)
@@ -603,7 +637,7 @@ class DataConnectorConfig {
     const results = await Promise.all(fetches);
     const [alertsRes, packetLossRes, retransmissionsRes, congestionRes, bondingRes] = results;
 
-    const monitoringData = {};
+    const monitoringData: Record<string, unknown> = {};
     if (alertsRes && alertsRes.ok) {
       monitoringData.alerts = await alertsRes.json();
     }
@@ -653,11 +687,11 @@ class DataConnectorConfig {
           this.renderTabs();
         }
       }
-    } catch (e) {
+    } catch (_e) {
       /* ignore */
     }
 
-    await this.loadMetrics(this.activeConnectionId);
+    await this.loadMetrics(this.activeConnectionId!);
   }
 
   // ── Event listeners ────────────────────────────────────────────────────────
@@ -721,43 +755,44 @@ class DataConnectorConfig {
   updateUI() {
     this.updatePluginConfigUI();
 
-    if (this.deltaTimerConfig && this.deltaTimerConfig.deltaTimer) {
-      const el = document.getElementById("deltaTimer");
+    if (this.deltaTimerConfig && (this.deltaTimerConfig as Record<string, unknown>).deltaTimer) {
+      const el = document.getElementById("deltaTimer") as HTMLInputElement | null;
       if (el) {
-        el.value = this.deltaTimerConfig.deltaTimer;
+        el.value = String((this.deltaTimerConfig as Record<string, unknown>).deltaTimer);
       }
     }
 
     if (this.subscriptionConfig) {
-      const ctxEl = document.getElementById("context");
+      const cfg = this.subscriptionConfig as Record<string, unknown>;
+      const ctxEl = document.getElementById("context") as HTMLInputElement | null;
       if (ctxEl) {
-        ctxEl.value = this.subscriptionConfig.context || "*";
+        ctxEl.value = (cfg.context as string) || "*";
       }
 
       const pathsList = document.getElementById("pathsList");
       if (pathsList) {
         pathsList.innerHTML = "";
-        if (this.subscriptionConfig.subscribe && Array.isArray(this.subscriptionConfig.subscribe)) {
-          this.subscriptionConfig.subscribe.forEach((sub) => this.addPathItem(sub.path));
+        if (cfg.subscribe && Array.isArray(cfg.subscribe)) {
+          (cfg.subscribe as Array<{ path: string }>).forEach((sub) => this.addPathItem(sub.path));
         }
       }
 
-      const jsonEl = document.getElementById("subscriptionJson");
+      const jsonEl = document.getElementById("subscriptionJson") as HTMLTextAreaElement | null;
       if (jsonEl) {
         jsonEl.value = JSON.stringify(this.subscriptionConfig, null, 2);
       }
     }
 
-    if (this.sentenceFilterConfig && Array.isArray(this.sentenceFilterConfig.excludedSentences)) {
-      const el = document.getElementById("sentenceFilter");
+    if (this.sentenceFilterConfig && Array.isArray((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences)) {
+      const el = document.getElementById("sentenceFilter") as HTMLInputElement | null;
       if (el) {
-        el.value = this.sentenceFilterConfig.excludedSentences.join(", ");
+        el.value = ((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[]).join(", ");
       }
     }
   }
 
   updatePluginConfigUI() {
-    const editor = document.getElementById("pluginConfigJson");
+    const editor = document.getElementById("pluginConfigJson") as HTMLTextAreaElement | null;
     const summary = document.getElementById("pluginConfigSummary");
 
     if (!editor) {
@@ -776,18 +811,18 @@ class DataConnectorConfig {
 
     if (summary) {
       const hasConnections =
-        Array.isArray(this.pluginConfig.connections) && this.pluginConfig.connections.length > 0;
+        Array.isArray(this.pluginConfig.connections) && (this.pluginConfig.connections as unknown[]).length > 0;
 
       let summaryScope = "Top-level";
       let keyLabel = "Top-Level Fields";
-      let summaryConfig = this.pluginConfig;
+      let summaryConfig: Record<string, unknown> = this.pluginConfig;
 
       if (hasConnections) {
-        const totalConnections = this.pluginConfig.connections.length;
+        const totalConnections = (this.pluginConfig.connections as unknown[]).length;
         const runtimeIndex = this.connections.findIndex((c) => c.id === this.activeConnectionId);
         const summaryIndex =
           runtimeIndex >= 0 && runtimeIndex < totalConnections ? runtimeIndex : 0;
-        const candidate = this.pluginConfig.connections[summaryIndex];
+        const candidate = (this.pluginConfig.connections as Record<string, unknown>[])[summaryIndex];
         summaryConfig =
           candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate : {};
         summaryScope = `Connection ${summaryIndex + 1}/${totalConnections}`;
@@ -844,15 +879,15 @@ class DataConnectorConfig {
   }
 
   updateJsonFromForm() {
-    const contextEl = document.getElementById("context");
+    const contextEl = document.getElementById("context") as HTMLInputElement | null;
     const context = contextEl ? contextEl.value || "*" : "*";
-    const pathInputs = document.querySelectorAll(".path-input");
+    const pathInputs = document.querySelectorAll(".path-input") as NodeListOf<HTMLInputElement>;
     const subscribe = Array.from(pathInputs)
       .map((input) => ({ path: input.value }))
       .filter((sub) => sub.path.trim() !== "");
 
     const config = { context, subscribe };
-    const jsonEl = document.getElementById("subscriptionJson");
+    const jsonEl = document.getElementById("subscriptionJson") as HTMLTextAreaElement | null;
     if (jsonEl) {
       jsonEl.value = JSON.stringify(config, null, 2);
     }
@@ -860,13 +895,13 @@ class DataConnectorConfig {
 
   syncFromJson() {
     try {
-      const jsonEl = document.getElementById("subscriptionJson");
+      const jsonEl = document.getElementById("subscriptionJson") as HTMLTextAreaElement | null;
       if (!jsonEl) {
         return;
       }
       const config = JSON.parse(jsonEl.value);
 
-      const ctxEl = document.getElementById("context");
+      const ctxEl = document.getElementById("context") as HTMLInputElement | null;
       if (ctxEl) {
         ctxEl.value = config.context || "*";
       }
@@ -875,18 +910,18 @@ class DataConnectorConfig {
       if (pathsList) {
         pathsList.innerHTML = "";
         if (config.subscribe && Array.isArray(config.subscribe)) {
-          config.subscribe.forEach((sub) => this.addPathItem(sub.path || ""));
+          config.subscribe.forEach((sub: { path?: string }) => this.addPathItem(sub.path || ""));
         }
       }
-    } catch (error) {
-      console.warn("Invalid JSON in editor:", error.message);
+    } catch (error: unknown) {
+      console.warn("Invalid JSON in editor:", (error as Error).message);
     }
   }
 
   // ── Save operations ────────────────────────────────────────────────────────
 
-  async saveConfig(filename, config, configKey, label) {
-    const connId = this.activeConnectionId;
+  async saveConfig(filename: string, config: unknown, configKey: string, label: string) {
+    const connId = this.activeConnectionId!;
     try {
       const response = await this.request(this.configPath(connId, filename), {
         method: "POST",
@@ -895,24 +930,25 @@ class DataConnectorConfig {
       });
 
       if (response.ok) {
-        this[configKey] = config;
+        (this as Record<string, unknown>)[configKey] = config;
         this.showNotification(`${label} saved successfully!`, "success");
         this.updateStatus();
       } else {
         throw new Error("Failed to save configuration");
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error as AuthenticatedError;
       this.showNotification(
-        error.isUnauthorized
+        err.isUnauthorized
           ? this.authFailureMessage(`saving ${label.toLowerCase()}`)
-          : `Error saving ${label.toLowerCase()}: ` + error.message,
+          : `Error saving ${label.toLowerCase()}: ` + err.message,
         "error"
       );
     }
   }
 
   async saveDeltaTimer() {
-    const deltaTimer = parseInt(document.getElementById("deltaTimer").value);
+    const deltaTimer = parseInt((document.getElementById("deltaTimer") as HTMLInputElement).value);
 
     if (isNaN(deltaTimer) || deltaTimer < DELTA_TIMER_MIN || deltaTimer > DELTA_TIMER_MAX) {
       this.showNotification(
@@ -932,7 +968,7 @@ class DataConnectorConfig {
 
   async saveSubscription() {
     try {
-      const jsonText = document.getElementById("subscriptionJson").value;
+      const jsonText = (document.getElementById("subscriptionJson") as HTMLTextAreaElement).value;
       const config = JSON.parse(jsonText);
 
       if (!config.context) {
@@ -948,13 +984,13 @@ class DataConnectorConfig {
         "subscriptionConfig",
         "Subscription configuration"
       );
-    } catch (error) {
-      this.showNotification("Error saving subscription: " + error.message, "error");
+    } catch (error: unknown) {
+      this.showNotification("Error saving subscription: " + (error as Error).message, "error");
     }
   }
 
   async saveSentenceFilter() {
-    const filterInput = document.getElementById("sentenceFilter").value;
+    const filterInput = (document.getElementById("sentenceFilter") as HTMLInputElement).value;
     const excludedSentences = filterInput
       .split(",")
       .map((s) => s.trim().toUpperCase())
@@ -969,7 +1005,7 @@ class DataConnectorConfig {
   }
 
   async savePluginConfig() {
-    const editor = document.getElementById("pluginConfigJson");
+    const editor = document.getElementById("pluginConfigJson") as HTMLTextAreaElement | null;
     if (!editor) {
       return;
     }
@@ -980,7 +1016,7 @@ class DataConnectorConfig {
         throw new Error("Plugin configuration must be a JSON object");
       }
 
-      const requestConfig = this.deepClone(parsedConfig);
+      const requestConfig = this.deepClone(parsedConfig) as Record<string, unknown>;
       const normalizedServerType = this.normalizeServerType(requestConfig.serverType);
       if (normalizedServerType) {
         requestConfig.serverType = normalizedServerType;
@@ -992,7 +1028,7 @@ class DataConnectorConfig {
         body: JSON.stringify(requestConfig)
       });
 
-      const result = await response.json().catch(() => ({}));
+      const result = await response.json().catch(() => ({} as Record<string, unknown>));
       if (!response.ok || !result.success) {
         throw new Error(result.error || `Failed to save plugin configuration (${response.status})`);
       }
@@ -1003,11 +1039,12 @@ class DataConnectorConfig {
         result.message || "Plugin configuration saved. Refresh to apply changes.",
         "success"
       );
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error as AuthenticatedError;
       this.showNotification(
-        error.isUnauthorized
+        err.isUnauthorized
           ? this.authFailureMessage("saving full plugin config")
-          : "Error saving full plugin config: " + error.message,
+          : "Error saving full plugin config: " + err.message,
         "error"
       );
     }
@@ -1029,7 +1066,7 @@ class DataConnectorConfig {
 
   // ── Metrics display ────────────────────────────────────────────────────────
 
-  updateMetricsDisplay(metrics) {
+  updateMetricsDisplay(metrics: Record<string, any>) {
     this.updateNetworkQualityDisplay(metrics);
     this.updateBandwidthDisplay(metrics);
     this.updatePathAnalyticsDisplay(metrics);
@@ -1140,7 +1177,7 @@ class DataConnectorConfig {
     metricsDiv.innerHTML = metricsHtml;
   }
 
-  updateNetworkQualityDisplay(metrics) {
+  updateNetworkQualityDisplay(metrics: Record<string, any>) {
     const nqDiv = document.getElementById("networkQuality");
     if (!nqDiv || !metrics.networkQuality) {
       return;
@@ -1242,7 +1279,7 @@ class DataConnectorConfig {
     nqDiv.innerHTML = nqHtml;
   }
 
-  updateBandwidthDisplay(metrics) {
+  updateBandwidthDisplay(metrics: Record<string, any>) {
     const bandwidthDiv = document.getElementById("bandwidth");
     if (!bandwidthDiv || !metrics.bandwidth) {
       return;
@@ -1254,7 +1291,7 @@ class DataConnectorConfig {
     const savedBytes = isClient ? bw.bytesOutRaw - bw.bytesOut : bw.bytesInRaw - bw.bytesIn;
     const savedFormatted = this.formatBytes(savedBytes > 0 ? savedBytes : 0);
 
-    let bandwidthStats;
+    let bandwidthStats: string[];
     if (isClient) {
       bandwidthStats = [
         renderBwStat("Total Sent (Compressed)", bw.bytesOutFormatted),
@@ -1300,7 +1337,7 @@ class DataConnectorConfig {
     bandwidthDiv.innerHTML = bandwidthHtml;
   }
 
-  renderBandwidthChart(history, isClient) {
+  renderBandwidthChart(history: Array<{ rateOut: number; rateIn: number }> | undefined, isClient: boolean): string {
     if (!history || history.length < 2) {
       return `
         <div class="bandwidth-chart-placeholder">
@@ -1344,13 +1381,13 @@ class DataConnectorConfig {
     `;
   }
 
-  updatePathAnalyticsDisplay(metrics) {
+  updatePathAnalyticsDisplay(metrics: Record<string, any>) {
     const pathDiv = document.getElementById("pathAnalytics");
     if (!pathDiv || !metrics.pathStats) {
       return;
     }
 
-    const paths = metrics.pathStats;
+    const paths: Array<{ path: string; updatesPerMinute: number; bytesFormatted: string; percentage: number }> = metrics.pathStats;
 
     if (paths.length === 0) {
       pathDiv.innerHTML = `
@@ -1424,7 +1461,7 @@ class DataConnectorConfig {
     pathDiv.innerHTML = pathHtml;
   }
 
-  updateCongestionDisplay(data) {
+  updateCongestionDisplay(data: Record<string, any>) {
     const section = document.getElementById("congestionSection");
     const div = document.getElementById("congestionControl");
     if (!section || !div) {
@@ -1465,7 +1502,7 @@ class DataConnectorConfig {
     div.innerHTML = html;
   }
 
-  updateBondingDisplay(data) {
+  updateBondingDisplay(data: Record<string, any>) {
     const section = document.getElementById("bondingSection");
     const div = document.getElementById("bondingStatus");
     if (!section || !div) {
@@ -1484,7 +1521,7 @@ class DataConnectorConfig {
 
     let linksHtml = "";
     if (data.links) {
-      const linkEntries = Object.entries(data.links);
+      const linkEntries = Object.entries(data.links) as Array<[string, Record<string, any>]>;
       linksHtml = linkEntries
         .map(([name, link]) => {
           const isActive = name === activeLink;
@@ -1530,8 +1567,8 @@ class DataConnectorConfig {
   }
 
   async triggerFailover() {
-    const connId = this.activeConnectionId;
-    const btn = document.getElementById("failoverBtn");
+    const connId = this.activeConnectionId!;
+    const btn = document.getElementById("failoverBtn") as HTMLButtonElement | null;
     if (btn) {
       btn.disabled = true;
     }
@@ -1550,11 +1587,12 @@ class DataConnectorConfig {
           "error"
         );
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error as AuthenticatedError;
       this.showNotification(
-        error.isUnauthorized
+        err.isUnauthorized
           ? this.authFailureMessage("triggering failover")
-          : "Failover failed: " + error.message,
+          : "Failover failed: " + err.message,
         "error"
       );
     } finally {
@@ -1564,7 +1602,7 @@ class DataConnectorConfig {
     }
   }
 
-  updateMonitoringDisplay(data) {
+  updateMonitoringDisplay(data: Record<string, any>) {
     const section = document.getElementById("monitoringSection");
     const div = document.getElementById("monitoringAlerts");
     if (!section || !div) {
@@ -1582,8 +1620,8 @@ class DataConnectorConfig {
     let html = '<div class="v2-dashboard">';
 
     if (data.alerts) {
-      const activeAlerts = data.alerts.activeAlerts || {};
-      const alertEntries = Object.entries(activeAlerts).map(([metric, alert]) => {
+      const activeAlerts: Record<string, any> = data.alerts.activeAlerts || {};
+      const alertEntries = Object.entries(activeAlerts).map(([metric, alert]: [string, any]) => {
         let level = "warning";
         if (typeof alert === "string") {
           level = alert.toLowerCase();
@@ -1679,7 +1717,7 @@ class DataConnectorConfig {
     if (this.deltaTimerConfig) {
       statusHtml += `
         <div class="status-item">
-          <strong>Delta Timer:</strong> ${this.escapeHtml(String(this.deltaTimerConfig.deltaTimer))}ms
+          <strong>Delta Timer:</strong> ${this.escapeHtml(String((this.deltaTimerConfig as Record<string, unknown>).deltaTimer))}ms
           <span class="status-indicator success">Configured</span>
         </div>
       `;
@@ -1692,10 +1730,11 @@ class DataConnectorConfig {
       `;
     }
 
-    if (this.subscriptionConfig && this.subscriptionConfig.subscribe) {
-      const pathCount = this.subscriptionConfig.subscribe.length;
-      const escapedContext = this.escapeHtml(this.subscriptionConfig.context || "");
-      const escapedPaths = this.subscriptionConfig.subscribe
+    if (this.subscriptionConfig && (this.subscriptionConfig as Record<string, unknown>).subscribe) {
+      const cfg = this.subscriptionConfig as Record<string, unknown>;
+      const pathCount = (cfg.subscribe as unknown[]).length;
+      const escapedContext = this.escapeHtml((cfg.context as string) || "");
+      const escapedPaths = (cfg.subscribe as Array<{ path: string }>)
         .map((s) => this.escapeHtml(s.path))
         .join(", ");
       statusHtml += `
@@ -1719,11 +1758,11 @@ class DataConnectorConfig {
 
     if (
       this.sentenceFilterConfig &&
-      this.sentenceFilterConfig.excludedSentences &&
-      this.sentenceFilterConfig.excludedSentences.length > 0
+      (this.sentenceFilterConfig as Record<string, unknown>).excludedSentences &&
+      ((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[]).length > 0
     ) {
-      const filterCount = this.sentenceFilterConfig.excludedSentences.length;
-      const escapedFilters = this.sentenceFilterConfig.excludedSentences
+      const filterCount = ((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[]).length;
+      const escapedFilters = ((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[])
         .map((s) => this.escapeHtml(s))
         .join(", ");
       statusHtml += `
@@ -1742,9 +1781,9 @@ class DataConnectorConfig {
 
   // ── Utility methods ────────────────────────────────────────────────────────
 
-  buildCompletePluginConfig(currentConfig) {
+  buildCompletePluginConfig(currentConfig: Record<string, unknown>): Record<string, unknown> {
     const defaults = this.extractSchemaDefaults(this.pluginSchema);
-    const merged = this.deepMerge(defaults || {}, currentConfig || {});
+    const merged = this.deepMerge(defaults || {}, currentConfig || {}) as Record<string, unknown>;
     if (Array.isArray(merged.connections)) {
       return merged;
     }
@@ -1753,7 +1792,7 @@ class DataConnectorConfig {
     return merged;
   }
 
-  normalizeServerType(value) {
+  normalizeServerType(value: unknown): string | undefined {
     if (value === true || value === "server") {
       return "server";
     }
@@ -1763,13 +1802,13 @@ class DataConnectorConfig {
     return undefined;
   }
 
-  extractSchemaDefaults(schemaNode) {
+  extractSchemaDefaults(schemaNode: Record<string, any> | null): Record<string, unknown> | undefined {
     if (!schemaNode || typeof schemaNode !== "object") {
       return undefined;
     }
 
     const isObjectNode = schemaNode.type === "object" || !!schemaNode.properties;
-    const merged = {};
+    const merged: Record<string, unknown> = {};
     let hasData = false;
 
     if (isObjectNode && schemaNode.default && this.isPlainObject(schemaNode.default)) {
@@ -1779,14 +1818,14 @@ class DataConnectorConfig {
 
     if (schemaNode.properties && this.isPlainObject(schemaNode.properties)) {
       for (const [key, value] of Object.entries(schemaNode.properties)) {
-        const childDefaults = this.extractSchemaDefaults(value);
+        const childDefaults = this.extractSchemaDefaults(value as Record<string, any>);
         if (childDefaults !== undefined) {
           merged[key] = childDefaults;
           hasData = true;
-        } else if (value && value.type === "object") {
+        } else if (value && (value as Record<string, any>).type === "object") {
           merged[key] = {};
           hasData = true;
-        } else if (value && value.type === "string") {
+        } else if (value && (value as Record<string, any>).type === "string") {
           merged[key] = "";
           hasData = true;
         }
@@ -1795,7 +1834,7 @@ class DataConnectorConfig {
 
     if (schemaNode.dependencies && this.isPlainObject(schemaNode.dependencies)) {
       for (const dependencyValue of Object.values(schemaNode.dependencies)) {
-        const dependencyDefaults = this.extractSchemaDefaults(dependencyValue);
+        const dependencyDefaults = this.extractSchemaDefaults(dependencyValue as Record<string, any>);
         if (dependencyDefaults && this.isPlainObject(dependencyDefaults)) {
           Object.assign(merged, this.deepMerge(merged, dependencyDefaults));
           hasData = true;
@@ -1809,7 +1848,7 @@ class DataConnectorConfig {
         continue;
       }
 
-      composite.forEach((item) => {
+      composite.forEach((item: Record<string, any>) => {
         const itemDefaults = this.extractSchemaDefaults(item);
         if (itemDefaults === undefined) {
           return;
@@ -1834,22 +1873,22 @@ class DataConnectorConfig {
     }
 
     if (schemaNode.default !== undefined) {
-      return this.deepClone(schemaNode.default);
+      return this.deepClone(schemaNode.default) as Record<string, unknown>;
     }
 
     return undefined;
   }
 
-  isPlainObject(value) {
+  isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
 
-  deepClone(value) {
+  deepClone(value: unknown): unknown {
     if (Array.isArray(value)) {
       return value.map((item) => this.deepClone(item));
     }
     if (this.isPlainObject(value)) {
-      const clone = {};
+      const clone: Record<string, unknown> = {};
       for (const [key, childValue] of Object.entries(value)) {
         clone[key] = this.deepClone(childValue);
       }
@@ -1858,7 +1897,7 @@ class DataConnectorConfig {
     return value;
   }
 
-  deepMerge(baseValue, overrideValue) {
+  deepMerge(baseValue: unknown, overrideValue: unknown): unknown {
     if (overrideValue === undefined) {
       return this.deepClone(baseValue);
     }
@@ -1867,9 +1906,9 @@ class DataConnectorConfig {
     }
 
     if (this.isPlainObject(baseValue) && this.isPlainObject(overrideValue)) {
-      const merged = this.deepClone(baseValue);
+      const merged = this.deepClone(baseValue) as Record<string, unknown>;
       for (const [key, value] of Object.entries(overrideValue)) {
-        merged[key] = this.deepMerge(baseValue[key], value);
+        merged[key] = this.deepMerge((baseValue as Record<string, unknown>)[key], value);
       }
       return merged;
     }
@@ -1877,7 +1916,7 @@ class DataConnectorConfig {
     return this.deepClone(overrideValue);
   }
 
-  formatBytes(bytes) {
+  formatBytes(bytes: number): string {
     if (!bytes || bytes <= 0) {
       return "0 B";
     }
@@ -1887,13 +1926,13 @@ class DataConnectorConfig {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   }
 
-  escapeHtml(text) {
+  escapeHtml(text: string): string {
     const div = document.createElement("div");
     div.textContent = text;
     return div.innerHTML;
   }
 
-  showNotification(message, type = "success") {
+  showNotification(message: string, type = "success") {
     const notification = document.getElementById("notification");
     if (!notification) {
       return;
@@ -1908,6 +1947,13 @@ class DataConnectorConfig {
       notification.classList.remove("show");
       this._notificationTimer = null;
     }, NOTIFICATION_TIMEOUT);
+  }
+}
+
+// Extend Window interface for the global config instance
+declare global {
+  interface Window {
+    dataConnectorConfig: DataConnectorConfig;
   }
 }
 
