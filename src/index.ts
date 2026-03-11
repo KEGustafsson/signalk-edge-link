@@ -664,6 +664,12 @@ module.exports = function createPlugin(app: any) {
     description:
       "Configure encrypted UDP data transmission between SignalK units. Add one connection per server listener or client sender.",
     properties: {
+      managementApiToken: {
+        type: "string",
+        title: "Management API Token",
+        description:
+          "Optional shared secret to protect management API endpoints. Leave empty for open access. Can also be set via SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN environment variable."
+      },
       connections: {
         type: "array",
         title: "Connections",

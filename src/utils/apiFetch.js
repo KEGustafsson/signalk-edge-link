@@ -53,10 +53,18 @@ function attachAuthHeaders(headers, token, headerMode) {
   }
 
   const normalizedMode = (headerMode || "both").toLowerCase();
-  if (normalizedMode === "x-edge-link-token" || normalizedMode === "token" || normalizedMode === "both") {
+  if (
+    normalizedMode === "x-edge-link-token" ||
+    normalizedMode === "token" ||
+    normalizedMode === "both"
+  ) {
     headers.set("X-Edge-Link-Token", token);
   }
-  if (normalizedMode === "authorization" || normalizedMode === "bearer" || normalizedMode === "both") {
+  if (
+    normalizedMode === "authorization" ||
+    normalizedMode === "bearer" ||
+    normalizedMode === "both"
+  ) {
     headers.set("Authorization", `Bearer ${token}`);
   }
   return headers;
@@ -76,7 +84,7 @@ export function getTokenHelpText() {
         ? "X-Edge-Link-Token"
         : "X-Edge-Link-Token and Authorization: Bearer <token>";
 
-  return `Set a management token using window.__EDGE_LINK_AUTH__.token, query parameter "${config.queryParam}", or localStorage key "${config.localStorageKey}". Requests send ${modeText} when a token is available.`;
+  return `The server-side token is configured in plugin settings (managementApiToken) or via the SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN environment variable. To authenticate from the browser, provide the token using window.__EDGE_LINK_AUTH__.token, query parameter "${config.queryParam}", or localStorage key "${config.localStorageKey}". Requests send ${modeText} when a token is available.`;
 }
 
 export function apiFetch(input, init = {}) {
