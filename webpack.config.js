@@ -11,7 +11,7 @@ module.exports = (env, argv) => {
 
   return {
     // IMPORTANT: webapp is the runtime entry
-    entry: "./src/webapp/index.js",
+    entry: "./src/webapp/index.ts",
 
     mode: isProduction ? "production" : "development",
 
@@ -25,12 +25,12 @@ module.exports = (env, argv) => {
     module: {
       rules: [
         {
-          test: /\.jsx?$/,
+          test: /\.tsx?$/,
           exclude: /node_modules/,
           use: {
-            loader: "babel-loader",
+            loader: "ts-loader",
             options: {
-              presets: ["@babel/preset-env", "@babel/preset-react"]
+              configFile: "tsconfig.webapp.json"
             }
           }
         },
@@ -58,7 +58,7 @@ module.exports = (env, argv) => {
         filename: "remoteEntry.js",
 
         exposes: {
-          "./PluginConfigurationPanel": "./src/components/PluginConfigurationPanel"
+          "./PluginConfigurationPanel": "./src/webapp/components/PluginConfigurationPanel"
         },
 
         // Use host's React - never bundle a fallback copy.
@@ -108,7 +108,7 @@ module.exports = (env, argv) => {
     devtool: isProduction ? "source-map" : "eval-source-map",
 
     resolve: {
-      extensions: [".js", ".jsx", ".json"]
+      extensions: [".ts", ".tsx", ".js", ".jsx", ".json"]
     }
   };
 };

@@ -18,5 +18,5 @@
     "allowJs": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "public", "lib", "__tests__", "test", "**/*.test.ts", "**/*.spec.ts"]
+  "exclude": ["node_modules", "public", "lib", "__tests__", "test", "**/*.test.ts", "**/*.spec.ts", "src/webapp"]
 }

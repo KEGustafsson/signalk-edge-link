@@ -1,8 +1,7 @@
-// eslint-disable-next-line no-unused-vars
 import React, { useState, useEffect, useCallback, useRef } from "react";
-// eslint-disable-next-line no-unused-vars
-import Form from "@rjsf/core";
+import Form, { IChangeEvent } from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
+import { RJSFSchema, UiSchema } from "@rjsf/utils";
 import { apiFetch, getTokenHelpText, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
 
 const API_BASE = "/plugins/signalk-edge-link";
@@ -12,11 +11,36 @@ const API_BASE = "/plugins/signalk-edge-link";
 // It is stripped before the array is POSTed to the backend.
 
 let _idSeq = 0;
-function makeId() { return `skel-${Date.now()}-${++_idSeq}`; }
+function makeId(): string { return `skel-${Date.now()}-${++_idSeq}`; }
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface ConnectionData {
+  _id: string;
+  name?: string;
+  serverType?: string;
+  udpPort?: number;
+  secretKey?: string;
+  useMsgpack?: boolean;
+  usePathDictionary?: boolean;
+  enableNotifications?: boolean;
+  protocolVersion?: number;
+  udpAddress?: string;
+  helloMessageSender?: number;
+  testAddress?: string;
+  testPort?: number;
+  pingIntervalTime?: number;
+  [key: string]: unknown;
+}
+
+interface SaveStatus {
+  type: "saving" | "success" | "error";
+  message: string;
+}
 
 // ── Default config factories ──────────────────────────────────────────────────
 
-function defaultClientConnection(name) {
+function defaultClientConnection(name?: string): ConnectionData {
   return {
     _id: makeId(),
     name: name || "client",
@@ -35,7 +59,7 @@ function defaultClientConnection(name) {
   };
 }
 
-function defaultServerConnection(name) {
+function defaultServerConnection(name?: string): ConnectionData {
   return {
     _id: makeId(),
     name: name || "server",
@@ -50,13 +74,13 @@ function defaultServerConnection(name) {
 }
 
 /** Attach a stable _id to loaded connections that don't already have one. */
-function withId(conn) {
-  return conn._id ? conn : { ...conn, _id: makeId() };
+function withId(conn: Omit<ConnectionData, "_id"> & { _id?: string }): ConnectionData {
+  return conn._id ? (conn as ConnectionData) : { ...conn, _id: makeId() };
 }
 
 // ── Schema builders ───────────────────────────────────────────────────────────
 
-const commonProperties = {
+const commonProperties: Record<string, RJSFSchema> = {
   name: {
     type: "string",
     title: "Connection Name",
@@ -121,7 +145,7 @@ const commonProperties = {
   }
 };
 
-const clientProperties = {
+const clientProperties: Record<string, RJSFSchema> = {
   udpAddress: {
     type: "string",
     title: "Server Address",
@@ -345,7 +369,7 @@ const clientProperties = {
   }
 };
 
-const serverProperties = {
+const serverProperties: Record<string, RJSFSchema> = {
   reliability: {
     type: "object",
     title: "Reliability Settings",
@@ -373,9 +397,9 @@ const serverProperties = {
 const CLIENT_V2_SETTING_KEYS = ["reliability", "congestionControl", "bonding", "alertThresholds", "enableNotifications"];
 const SERVER_V2_SETTING_KEYS = ["reliability"];
 
-function buildSchema(isClient, protocolVersion) {
+function buildSchema(isClient: boolean, protocolVersion: number | undefined): RJSFSchema {
   const isReliableProtocol = Number(protocolVersion) >= 2;
-  const props = { ...commonProperties };
+  const props: Record<string, RJSFSchema> = { ...commonProperties };
   const required = ["serverType", "udpPort", "secretKey"];
   if (isClient) {
     Object.assign(props, clientProperties);
@@ -397,7 +421,7 @@ function buildSchema(isClient, protocolVersion) {
   return { type: "object", required, properties: props };
 }
 
-const uiSchemaClient = {
+const uiSchemaClient: UiSchema = {
   "ui:order": [
     "name", "serverType", "udpAddress", "udpPort", "secretKey", "protocolVersion",
     "useMsgpack", "usePathDictionary", "testAddress", "testPort", "pingIntervalTime",
@@ -419,7 +443,7 @@ const uiSchemaClient = {
   }
 };
 
-const uiSchemaServer = {
+const uiSchemaServer: UiSchema = {
   "ui:order": [
     "name", "serverType", "udpPort", "secretKey", "useMsgpack", "usePathDictionary",
     "protocolVersion", "reliability"
@@ -428,7 +452,7 @@ const uiSchemaServer = {
   serverType: { "ui:widget": "select" }
 };
 
-// Shared fields preserved when the user toggles server ↔ client mode
+// Shared fields preserved when the user toggles server <-> client mode
 const SHARED_FIELDS = ["name", "udpPort", "secretKey", "useMsgpack", "usePathDictionary", "enableNotifications", "protocolVersion"];
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -553,8 +577,17 @@ const css = `
 
 // ── ConnectionCard ────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line no-unused-vars
-function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange, onRemove }) {
+interface ConnectionCardProps {
+  conn: ConnectionData;
+  index: number;
+  totalCount: number;
+  expanded: boolean;
+  onToggle: () => void;
+  onChange: (data: ConnectionData) => void;
+  onRemove: () => void;
+}
+
+function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange, onRemove }: ConnectionCardProps) {
   const isClient = conn.serverType !== "server";
   const schema = buildSchema(isClient, conn.protocolVersion);
   const uiSchema = isClient ? uiSchemaClient : uiSchemaServer;
@@ -563,14 +596,14 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
 
   // When the user changes serverType inside the form, strip fields that don't
   // belong to the new mode so stale data never carries over.
-  const handleFormChange = useCallback(({ formData: next }) => {
+  const handleFormChange = useCallback(({ formData: next }: IChangeEvent) => {
     if (next.serverType !== conn.serverType) {
       const base = next.serverType === "server"
         ? defaultServerConnection(next.name)
         : defaultClientConnection(next.name);
-      const merged = { ...base, _id: conn._id };
+      const merged: ConnectionData = { ...base, _id: conn._id };
       for (const k of SHARED_FIELDS) {
-        if (next[k] !== undefined) { merged[k] = next[k]; }
+        if (next[k] !== undefined) { (merged as Record<string, unknown>)[k] = next[k]; }
       }
       merged.serverType = next.serverType;
       onChange(merged);
@@ -591,7 +624,7 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
           {modeLabel}
         </span>
         <span className="skel-card-title">{displayName}</span>
-        <span className="skel-expand-icon">{expanded ? "▲" : "▼"}</span>
+        <span className="skel-expand-icon">{expanded ? "\u25B2" : "\u25BC"}</span>
         <button
           className="skel-btn-remove"
           disabled={totalCount <= 1}
@@ -623,13 +656,13 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-function PluginConfigurationPanel(_props) {
-  const [connections, setConnections] = useState([]);
+function PluginConfigurationPanel(_props: Record<string, unknown>) {
+  const [connections, setConnections] = useState<ConnectionData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(null);
-  const [saveStatus, setSaveStatus] = useState(null); // { type, message }
-  const [inlineValidationMessage, setInlineValidationMessage] = useState(null);
-  const [expandedIndex, setExpandedIndex] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
+  const [inlineValidationMessage, setInlineValidationMessage] = useState<string | null>(null);
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(0);
   const [isDirty, setIsDirty] = useState(false);
   const tokenHelpText = getTokenHelpText();
 
@@ -650,7 +683,7 @@ function PluginConfigurationPanel(_props) {
         if (!body.success) { throw new Error(body.error || "Failed to load configuration"); }
 
         const cfg = body.configuration || {};
-        let list;
+        let list: ConnectionData[];
         if (Array.isArray(cfg.connections) && cfg.connections.length > 0) {
           list = cfg.connections.map(withId);
         } else if (cfg.serverType) {
@@ -662,8 +695,8 @@ function PluginConfigurationPanel(_props) {
         setConnections(list);
         setExpandedIndex(0);
         setIsDirty(false);
-      } catch (err) {
-        setLoadError(err.message);
+      } catch (err: unknown) {
+        setLoadError(err instanceof Error ? err.message : String(err));
       } finally {
         setLoading(false);
       }
@@ -686,7 +719,7 @@ function PluginConfigurationPanel(_props) {
     setInlineValidationMessage(null);
   }, []);
 
-  const updateConnection = useCallback((idx, data) => {
+  const updateConnection = useCallback((idx: number, data: ConnectionData) => {
     setConnections((prev) => prev.map((c, i) => (i === idx ? data : c)));
     markDirty();
   }, [markDirty]);
@@ -709,20 +742,20 @@ function PluginConfigurationPanel(_props) {
     markDirty();
   }, [markDirty]);
 
-  const removeConnection = useCallback((idx) => {
+  const removeConnection = useCallback((idx: number) => {
     setConnections((prev) => {
       // Enforce at least one connection in UI state.
       if (prev.length <= 1) {
         return prev;
       }
       const next = prev.filter((_, i) => i !== idx);
-      setExpandedIndex((prevExpanded) => (prevExpanded >= idx && prevExpanded > 0 ? prevExpanded - 1 : prevExpanded));
+      setExpandedIndex((prevExpanded) => (prevExpanded !== null && prevExpanded >= idx && prevExpanded > 0 ? prevExpanded - 1 : prevExpanded));
       return next;
     });
     markDirty();
   }, [markDirty]);
 
-  const toggleExpand = useCallback((idx) => {
+  const toggleExpand = useCallback((idx: number) => {
     setExpandedIndex((prev) => (prev === idx ? null : idx));
   }, []);
 
@@ -768,8 +801,8 @@ function PluginConfigurationPanel(_props) {
       } else {
         throw new Error(body.error || "Failed to save");
       }
-    } catch (err) {
-      setSaveStatus({ type: "error", message: err.message });
+    } catch (err: unknown) {
+      setSaveStatus({ type: "error", message: err instanceof Error ? err.message : String(err) });
     } finally {
       savingRef.current = false;
     }
@@ -817,7 +850,7 @@ function PluginConfigurationPanel(_props) {
             totalCount={connections.length}
             expanded={expandedIndex === idx}
             onToggle={() => toggleExpand(idx)}
-            onChange={(data) => updateConnection(idx, data)}
+            onChange={(data: ConnectionData) => updateConnection(idx, data)}
             onRemove={() => removeConnection(idx)}
           />
           {conn.serverType === "server" && duplicatePortSet.has(conn.udpPort) && (
@@ -849,7 +882,7 @@ function PluginConfigurationPanel(_props) {
         )}
         <span style={{ fontSize: "0.85rem", color: "#6c757d" }}>
           {connections.length} connection{connections.length !== 1 ? "s" : ""}
-          {" · "}
+          {" \u00B7 "}
           {connections.filter((c) => c.serverType === "server").length} server
           {connections.filter((c) => c.serverType === "server").length !== 1 ? "s" : ""}
           {", "}

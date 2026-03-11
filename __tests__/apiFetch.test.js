@@ -9,7 +9,7 @@ import {
   getAuthToken,
   getTokenHelpText,
   apiFetch
-} from "../src/utils/apiFetch";
+} from "../src/webapp/utils/apiFetch";
 
 describe("apiFetch module", () => {
   let originalLocation;
