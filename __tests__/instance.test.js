@@ -6,27 +6,24 @@
 
 // Mock external packages not available in the test environment
 const monitorInstances = [];
-jest.mock(
-  "ping-monitor",
-  () =>
-    jest.fn().mockImplementation(() => {
-      const handlers = new Map();
-      const monitor = {
-        on: jest.fn((event, cb) => {
-          handlers.set(event, cb);
-        }),
-        emit: (event, payload) => {
-          const cb = handlers.get(event);
-          if (cb) {
-            cb(payload);
-          }
-        },
-        stop: jest.fn()
-      };
-      monitorInstances.push(monitor);
-      return monitor;
-    }),
-  { virtual: true }
+jest.mock("ping-monitor", () =>
+  jest.fn().mockImplementation(() => {
+    const handlers = new Map();
+    const monitor = {
+      on: jest.fn((event, cb) => {
+        handlers.set(event, cb);
+      }),
+      emit: (event, payload) => {
+        const cb = handlers.get(event);
+        if (cb) {
+          cb(payload);
+        }
+      },
+      stop: jest.fn()
+    };
+    monitorInstances.push(monitor);
+    return monitor;
+  })
 );
 
 const { createInstance, slugify } = require("../lib/instance");

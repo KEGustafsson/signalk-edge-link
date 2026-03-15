@@ -61,6 +61,7 @@ export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): () => v
     clearTimeout(state.configDebounceTimers[name]);
     state.configDebounceTimers[name] = setTimeout(() => {
       (async () => {
+        if (state.stopped) return;
         let content: string | null;
         const filePath = getFilePath();
         if (readFallback !== undefined) {
@@ -68,6 +69,8 @@ export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): () => v
         } else {
           content = filePath ? await readFile(filePath, "utf-8") : null;
         }
+
+        if (state.stopped) return;
 
         const hashSource = content || JSON.stringify(readFallback) || "";
         const contentHash = crypto
@@ -82,8 +85,11 @@ export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): () => v
 
         const parsed = content ? JSON.parse(content) : readFallback;
         await processConfig(parsed);
-        state.configContentHashes[name] = contentHash;
+        if (!state.stopped) {
+          state.configContentHashes[name] = contentHash;
+        }
       })().catch((err: unknown) => {
+        if (state.stopped) return;
         const msg = err instanceof Error ? err.message : String(err);
         app.error(`[${instanceId}] Error handling ${name} change: ${msg}`);
       });
