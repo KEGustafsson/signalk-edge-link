@@ -213,7 +213,9 @@ export class BondingManager {
    * @returns {Promise<void>}
    */
   async initialize(): Promise<void> {
-    if (this._initialized) {return;}
+    if (this._initialized) {
+      return;
+    }
 
     for (const [name, link] of Object.entries(this.links)) {
       link.socket = dgram.createSocket("udp4");
@@ -260,7 +262,9 @@ export class BondingManager {
    * Start periodic health check monitoring
    */
   startHealthMonitoring(): void {
-    if (this.healthCheckTimer) {return;}
+    if (this.healthCheckTimer) {
+      return;
+    }
 
     this.healthCheckTimer = setInterval(() => {
       this._checkHealth();
@@ -302,7 +306,9 @@ export class BondingManager {
    * @param {Object} link - Link object
    */
   private _measureLinkHealth(name: string, link: LinkState): void {
-    if (!link.socket) {return;}
+    if (!link.socket) {
+      return;
+    }
 
     // Send heartbeat probe
     const seq = link.heartbeatSeq++;
@@ -340,7 +346,9 @@ export class BondingManager {
     // Check if link is down (no responses for heartbeatTimeout)
     if (link.heartbeatsSent > 3 && timestamp - link.lastHeartbeatResponse > timeout) {
       if (link.health.status !== LinkStatus.DOWN) {
-        this.app.debug(`[Bonding] ${name} link appears down (no heartbeat response for ${timeout}ms)`);
+        this.app.debug(
+          `[Bonding] ${name} link appears down (no heartbeat response for ${timeout}ms)`
+        );
         link.health.status = LinkStatus.DOWN;
       }
     }
@@ -365,7 +373,9 @@ export class BondingManager {
    */
   private _handleHeartbeatResponse(name: string, msg: Buffer): void {
     const link = (this.links as any)[name] as LinkState | undefined;
-    if (!link) {return;}
+    if (!link) {
+      return;
+    }
 
     // Validate response format
     if (msg.length < 12 || msg.toString("ascii", 0, 7) !== "HBPROBE") {
@@ -393,8 +403,8 @@ export class BondingManager {
       if (link.health.rtt === 0) {
         link.health.rtt = rtt;
       } else {
-        link.health.rtt = BONDING_RTT_EMA_ALPHA * rtt +
-          (1 - BONDING_RTT_EMA_ALPHA) * link.health.rtt;
+        link.health.rtt =
+          BONDING_RTT_EMA_ALPHA * rtt + (1 - BONDING_RTT_EMA_ALPHA) * link.health.rtt;
       }
 
       // If link was down, mark it as recovering
@@ -416,12 +426,12 @@ export class BondingManager {
     if (link.lossSamples && link.lossSamples.length > 0) {
       const samples = link.lossSamples.toArray();
       const received = samples.filter(Boolean).length;
-      link.health.loss = Math.max(0, Math.min(1, 1 - (received / samples.length)));
+      link.health.loss = Math.max(0, Math.min(1, 1 - received / samples.length));
     } else if (link.heartbeatsSent > 0) {
       // Fallback for tests/diagnostics that only populate aggregate counters.
       const expected = link.heartbeatsSent;
       const received = link.heartbeatResponses;
-      link.health.loss = Math.max(0, Math.min(1, 1 - (received / expected)));
+      link.health.loss = Math.max(0, Math.min(1, 1 - received / expected));
     }
 
     // Calculate quality score
@@ -436,13 +446,13 @@ export class BondingManager {
    */
   private _calculateQuality(health: LinkHealth): number {
     // RTT component: 0-1 (1 = perfect, 0 = worst)
-    const rttScore = Math.max(0, Math.min(1, 1 - (health.rtt / 1000)));
+    const rttScore = Math.max(0, Math.min(1, 1 - health.rtt / 1000));
 
     // Loss component: 0-1 (1 = no loss, 0 = total loss)
     const lossScore = Math.max(0, 1 - health.loss);
 
     // Weighted: loss matters more (60%) than RTT (40%)
-    const quality = (lossScore * 60 + rttScore * 40);
+    const quality = lossScore * 60 + rttScore * 40;
 
     return Math.round(quality);
   }
@@ -454,18 +464,28 @@ export class BondingManager {
    * @param {Object} link - Link state object
    */
   private _scheduleSocketRecovery(name: string, link: LinkState): void {
-    if (this._stopped) {return;}
+    if (this._stopped) {
+      return;
+    }
     // Avoid scheduling multiple recoveries
-    if (link._recoveryTimer) {return;}
+    if (link._recoveryTimer) {
+      return;
+    }
 
     link._recoveryTimer = setTimeout(() => {
       link._recoveryTimer = null;
-      if (this._stopped) {return;}
+      if (this._stopped) {
+        return;
+      }
 
       this.app.debug(`[Bonding] Attempting socket recovery for ${name}`);
       try {
         if (link.socket) {
-          try { link.socket.close(); } catch (_e) { /* already closed */ }
+          try {
+            link.socket.close();
+          } catch (_e) {
+            /* already closed */
+          }
         }
         link.socket = dgram.createSocket("udp4");
 
@@ -506,13 +526,17 @@ export class BondingManager {
    * @returns {boolean}
    */
   private _shouldFailover(): boolean {
-    if (this.activeLink !== "primary") {return false;}
+    if (this.activeLink !== "primary") {
+      return false;
+    }
 
     const primary = this.links.primary.health;
     const backup = this.links.backup.health;
 
     // Don't failover if backup is also down
-    if (backup.status === LinkStatus.DOWN) {return false;}
+    if (backup.status === LinkStatus.DOWN) {
+      return false;
+    }
 
     return (
       primary.status === LinkStatus.DOWN ||
@@ -527,20 +551,28 @@ export class BondingManager {
    * @returns {boolean}
    */
   private _shouldFailback(): boolean {
-    if (this.activeLink !== "backup") {return false;}
+    if (this.activeLink !== "backup") {
+      return false;
+    }
 
     const primary = this.links.primary.health;
     const timeSinceFailover = Date.now() - this.lastFailoverTime;
 
     // Wait for failback delay
-    if (timeSinceFailover < this.failoverThresholds.failbackDelay) {return false;}
+    if (timeSinceFailover < this.failoverThresholds.failbackDelay) {
+      return false;
+    }
 
     // Don't failback if primary is down
-    if (primary.status === LinkStatus.DOWN) {return false;}
+    if (primary.status === LinkStatus.DOWN) {
+      return false;
+    }
 
     // Hysteresis: require significantly better metrics before failback
-    const rttOk = primary.rtt < this.failoverThresholds.rttThreshold * BONDING_FAILBACK_RTT_HYSTERESIS;
-    const lossOk = primary.loss < this.failoverThresholds.lossThreshold * BONDING_FAILBACK_LOSS_HYSTERESIS;
+    const rttOk =
+      primary.rtt < this.failoverThresholds.rttThreshold * BONDING_FAILBACK_RTT_HYSTERESIS;
+    const lossOk =
+      primary.loss < this.failoverThresholds.lossThreshold * BONDING_FAILBACK_LOSS_HYSTERESIS;
 
     return rttOk && lossOk;
   }
@@ -549,14 +581,15 @@ export class BondingManager {
    * Execute failover from primary to backup
    */
   failover(): void {
-    if (this.activeLink === "backup") {return;}
+    if (this.activeLink === "backup") {
+      return;
+    }
 
     this.app.error("[FAILOVER] Switching from primary to backup link");
 
     this.activeLink = "backup";
-    this.links.primary.health.status = this.links.primary.health.status === LinkStatus.DOWN
-      ? LinkStatus.DOWN
-      : LinkStatus.STANDBY;
+    this.links.primary.health.status =
+      this.links.primary.health.status === LinkStatus.DOWN ? LinkStatus.DOWN : LinkStatus.STANDBY;
     this.links.backup.health.status = LinkStatus.ACTIVE;
     this.lastFailoverTime = Date.now();
 
@@ -572,7 +605,9 @@ export class BondingManager {
    * Execute failback from backup to primary
    */
   failback(): void {
-    if (this.activeLink === "primary") {return;}
+    if (this.activeLink === "primary") {
+      return;
+    }
 
     this.app.debug("[FAILBACK] Switching from backup to primary link");
 
@@ -595,25 +630,31 @@ export class BondingManager {
    * @param {string} to - Destination link name
    */
   private _emitFailoverNotification(from: string, to: string): void {
-    if (!this.notificationsEnabled) {return;}
+    if (!this.notificationsEnabled) {
+      return;
+    }
     try {
       this.app.handleMessage(this.sourceLabel, {
         context: "vessels.self",
-        updates: [{
-          source: {
-            label: this.sourceLabel,
-            type: "plugin"
-          },
-          timestamp: new Date().toISOString(),
-          values: [{
-            path: `notifications.signalk-edge-link.${this.instanceId ? this.instanceId + "." : ""}linkFailover`,
-            value: {
-              state: "alert",
-              message: `Link switched: ${from} to ${to}`,
-              method: ["visual", "sound"]
-            }
-          }]
-        }]
+        updates: [
+          {
+            source: {
+              label: this.sourceLabel,
+              type: "plugin"
+            },
+            timestamp: new Date().toISOString(),
+            values: [
+              {
+                path: `notifications.signalk-edge-link.${this.instanceId ? this.instanceId + "." : ""}linkFailover`,
+                value: {
+                  state: "alert",
+                  message: `Link switched: ${from} to ${to}`,
+                  method: ["visual", "sound"]
+                }
+              }
+            ]
+          }
+        ]
       });
     } catch (err: any) {
       this.app.debug(`[Bonding] Failed to emit failover notification: ${err.message}`);
@@ -635,6 +676,18 @@ export class BondingManager {
   getActiveAddress(): { address: string; port: number } {
     const link = (this.links as any)[this.activeLink] as LinkState;
     return { address: link.address, port: link.port };
+  }
+
+  /**
+   * Get the active link's socket and destination address atomically.
+   * Prefer this over calling getActiveSocket() + getActiveAddress() separately,
+   * because a failover between those two calls would produce a mismatched socket
+   * and destination address.
+   * @returns { socket, address, port } from the same active link snapshot
+   */
+  getActiveDestination(): { socket: dgram.Socket | null; address: string; port: number } {
+    const link = (this.links as any)[this.activeLink] as LinkState;
+    return { socket: link.socket, address: link.address, port: link.port };
   }
 
   /**
@@ -748,7 +801,7 @@ export class BondingManager {
       }
       link.pendingHeartbeats.clear();
       link.lossSamples = new CircularBuffer(BONDING_HEALTH_WINDOW_SIZE);
-      link.rttSamples  = new CircularBuffer(BONDING_HEALTH_WINDOW_SIZE);
+      link.rttSamples = new CircularBuffer(BONDING_HEALTH_WINDOW_SIZE);
     }
 
     this._initialized = false;

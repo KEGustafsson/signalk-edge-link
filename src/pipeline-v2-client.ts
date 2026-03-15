@@ -536,8 +536,11 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
     let sendPort = port;
 
     if (bondingManager) {
-      socket = bondingManager.getActiveSocket();
-      const dest = bondingManager.getActiveAddress();
+      // Use getActiveDestination() to read socket + address atomically so that
+      // a failover between two separate getActive*() calls cannot produce a
+      // mismatched socket/destination pair.
+      const dest = bondingManager.getActiveDestination();
+      socket = dest.socket;
       sendHost = dest.address;
       sendPort = dest.port;
     } else {
