@@ -168,7 +168,12 @@ export interface BandwidthMetrics {
   rateOut: number;
   rateIn: number;
   compressionRatio: number;
-  history: import("./CircularBuffer");
+  history: import("./CircularBuffer")<{
+    timestamp: number;
+    rateOut: number;
+    rateIn: number;
+    compressionRatio: number;
+  }>;
 }
 
 /** Smart batching metrics. */
