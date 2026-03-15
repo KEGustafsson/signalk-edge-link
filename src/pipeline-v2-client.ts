@@ -87,9 +87,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
     pathPrefix: state.instanceId
       ? `networking.edgeLink.${state.instanceId}`
       : "networking.edgeLink",
-    sourceLabel: state.instanceId
-      ? `signalk-edge-link:${state.instanceId}`
-      : "signalk-edge-link"
+    sourceLabel: state.instanceId ? `signalk-edge-link:${state.instanceId}` : "signalk-edge-link"
   });
 
   // Dynamic congestion control
@@ -184,11 +182,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
 
   function _pruneRetransmitQueue(reason: string): void {
     const ackIdleMs = Date.now() - lastAckAt;
-    if (
-      forceDrainAfterAckIdle &&
-      ackIdleMs >= forceDrainAfterMs &&
-      retransmitQueue.getSize() > 0
-    ) {
+    if (forceDrainAfterAckIdle && ackIdleMs >= forceDrainAfterMs && retransmitQueue.getSize() > 0) {
       const dropped = retransmitQueue.getSize();
       retransmitQueue.clear();
       metrics.queueDepth = 0;
@@ -468,11 +462,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
    * @param udpAddress - Address to retransmit to
    * @param udpPort    - Port to retransmit to
    */
-  async function receiveNAK(
-    parsed: any,
-    udpAddress: string,
-    udpPort: number
-  ): Promise<void> {
+  async function receiveNAK(parsed: any, udpAddress: string, udpPort: number): Promise<void> {
     try {
       const missingSeqs = packetParser.parseNAKPayload(parsed.payload);
 
@@ -568,9 +558,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
       },
       onError(err: any, retryCount: number) {
         metrics.udpSendErrors++;
-        app.error(
-          `UDP send error to ${sendHost}:${sendPort} - ${err.message} (code: ${err.code})`
-        );
+        app.error(`UDP send error to ${sendHost}:${sendPort} - ${err.message} (code: ${err.code})`);
         recordError("udpSend", `UDP send error: ${err.message} (${err.code})`);
         if (retryCount >= 3) {
           app.error("Max retries reached, packet dropped");
@@ -812,9 +800,10 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
    */
   function startHeartbeat(
     udpAddress: string,
-    udpPort: number
+    udpPort: number,
+    options?: { heartbeatInterval?: number }
   ): { stop: () => void } {
-    const HEARTBEAT_INTERVAL = 25000; // 25 seconds
+    const HEARTBEAT_INTERVAL = (options && options.heartbeatInterval) || 25000; // default 25 seconds
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
     heartbeatTimer = setInterval(async () => {

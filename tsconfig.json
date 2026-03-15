@@ -6,7 +6,7 @@
     "types": ["node"],
     "outDir": "./lib",
     "rootDir": "./src",
-    "strict": false,
+    "strict": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
@@ -14,9 +14,18 @@
     "sourceMap": false,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "noEmitOnError": false,
+    "noEmitOnError": true,
     "allowJs": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "public", "lib", "__tests__", "test", "**/*.test.ts", "**/*.spec.ts", "src/webapp"]
+  "exclude": [
+    "node_modules",
+    "public",
+    "lib",
+    "__tests__",
+    "test",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "src/webapp"
+  ]
 }
