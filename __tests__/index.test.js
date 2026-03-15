@@ -224,7 +224,7 @@ describe("SignalK Data Connector Plugin", () => {
       await plugin.start(options);
 
       expect(mockApp.error).toHaveBeenCalledWith(
-        expect.stringContaining("UDP port must be between 1024 and 65535")
+        expect.stringContaining("udpPort must be an integer between 1024 and 65535")
       );
     });
 
@@ -238,7 +238,7 @@ describe("SignalK Data Connector Plugin", () => {
       await plugin.start(options);
 
       expect(mockApp.error).toHaveBeenCalledWith(
-        expect.stringContaining("UDP port must be between 1024 and 65535")
+        expect.stringContaining("udpPort must be an integer between 1024 and 65535")
       );
     });
   });
