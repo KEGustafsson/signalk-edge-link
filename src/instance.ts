@@ -367,7 +367,10 @@ function createInstance(
       } else {
         metrics.smartBatching.timerSends++;
       }
-      flushDeltaBatch();
+      flushDeltaBatch().catch((err: any) => {
+        app.error(`[${instanceId}] flushDeltaBatch error: ${err.message}`);
+        recordError("sendFailure", `flushDeltaBatch error: ${err.message}`);
+      });
     }
   }
 
@@ -683,10 +686,71 @@ function createInstance(
           state.heartbeatHandle.stop();
           state.heartbeatHandle = null;
         }
-        _setStatus(`UDP socket error: ${err.code || err.message}`, false);
+        _setStatus(`UDP socket error: ${err.code || err.message} — recovering`, false);
         if (state.socketUdp) {
-          state.socketUdp.close();
+          try {
+            state.socketUdp.close();
+          } catch (_e) {
+            /* already closed */
+          }
           state.socketUdp = null;
+        }
+
+        // Attempt socket recovery after a short delay
+        if (!state.stopped) {
+          setTimeout(() => {
+            if (state.stopped) {
+              return;
+            }
+            app.debug(`[${instanceId}] Attempting UDP socket recovery`);
+            try {
+              state.socketUdp = dgram.createSocket({ type: "udp4", reuseAddr: true });
+              state.socketUdp.on("error", (recoverErr: any) => {
+                app.error(`[${instanceId}] Recovered socket error: ${recoverErr.message}`);
+                state.readyToSend = false;
+                _setStatus(`UDP socket error: ${recoverErr.code || recoverErr.message}`, false);
+              });
+
+              // Re-attach v2 control packet listener if pipeline exists
+              if (state.pipeline && state.pipeline.handleControlPacket) {
+                state.socketUdp.on("message", (msg: Buffer, rinfo: any) => {
+                  state.pipeline.handleControlPacket(msg, rinfo).catch((cpErr: any) => {
+                    app.error(`[${instanceId}] Control packet error: ${cpErr.message}`);
+                  });
+                });
+              }
+
+              // Restart v2 periodic workers
+              if (state.pipeline) {
+                if (state.pipeline.startMetricsPublishing) {
+                  state.pipeline.startMetricsPublishing();
+                }
+                if (
+                  options.congestionControl &&
+                  options.congestionControl.enabled &&
+                  state.pipeline.startCongestionControl
+                ) {
+                  state.pipeline.startCongestionControl();
+                }
+                if (state.pipeline.startHeartbeat) {
+                  state.heartbeatHandle = state.pipeline.startHeartbeat(
+                    options.udpAddress,
+                    options.udpPort,
+                    {
+                      heartbeatInterval: options.heartbeatInterval
+                    }
+                  );
+                }
+              }
+
+              state.readyToSend = true;
+              _setStatus("UDP socket recovered", true);
+              app.debug(`[${instanceId}] UDP socket recovered`);
+            } catch (recoveryErr: any) {
+              app.error(`[${instanceId}] UDP socket recovery failed: ${recoveryErr.message}`);
+              _setStatus(`UDP socket recovery failed: ${recoveryErr.message}`, false);
+            }
+          }, 5000);
         }
       });
 
@@ -764,7 +828,9 @@ function createInstance(
           v2Pipeline.startCongestionControl();
         }
 
-        state.heartbeatHandle = v2Pipeline.startHeartbeat(options.udpAddress, options.udpPort);
+        state.heartbeatHandle = v2Pipeline.startHeartbeat(options.udpAddress, options.udpPort, {
+          heartbeatInterval: options.heartbeatInterval
+        });
 
         state.socketUdp.on("message", (msg: Buffer, rinfo: any) => {
           v2Pipeline.handleControlPacket(msg, rinfo).catch((err: any) => {

@@ -161,9 +161,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
     pathPrefix: state.instanceId
       ? `networking.edgeLink.${state.instanceId}`
       : "networking.edgeLink",
-    sourceLabel: state.instanceId
-      ? `signalk-edge-link:${state.instanceId}`
-      : "signalk-edge-link"
+    sourceLabel: state.instanceId ? `signalk-edge-link:${state.instanceId}` : "signalk-edge-link"
   });
 
   // Metrics collection state (bandwidth rates; loss is tracked per-session)
@@ -396,10 +394,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
    * Send UDP packet to a destination
    * @private
    */
-  function _sendUDP(
-    packet: Buffer,
-    destination: { address: string; port: number }
-  ): Promise<void> {
+  function _sendUDP(packet: Buffer, destination: { address: string; port: number }): Promise<void> {
     if (!destination) {
       throw new Error("No client address known");
     }
@@ -548,7 +543,8 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
       if (parsed.flags.messagepack) {
         try {
           jsonContent = msgpack.decode(decompressed);
-        } catch (msgpackErr) {
+        } catch (msgpackErr: any) {
+          app.debug(`MessagePack decode failed (${msgpackErr.message}), falling back to JSON`);
           jsonContent = JSON.parse(decompressed.toString());
         }
       } else {
@@ -563,9 +559,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
       }
 
       // Process deltas: payload may be an Array of deltas or an indexed object
-      const deltas: any[] = Array.isArray(jsonContent)
-        ? jsonContent
-        : Object.values(jsonContent);
+      const deltas: any[] = Array.isArray(jsonContent) ? jsonContent : Object.values(jsonContent);
       const deltaCount = Math.min(deltas.length, MAX_DELTAS_PER_PACKET);
 
       if (deltas.length > MAX_DELTAS_PER_PACKET) {
@@ -597,7 +591,6 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
         trackPathStats(deltaMessage, decompressed.length / deltaCount);
 
         app.handleMessage("", deltaMessage);
-        app.debug(JSON.stringify(deltaMessage, null, 2));
         metrics.deltasReceived++;
       }
 
@@ -721,8 +714,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
       if (session.lossBaseSeq === null || session.lossHighestSeq === null) {
         continue;
       }
-      const totalExpected =
-        (((session.lossHighestSeq - session.lossBaseSeq) >>> 0) + 1) >>> 0;
+      const totalExpected = (((session.lossHighestSeq - session.lossBaseSeq) >>> 0) + 1) >>> 0;
       const totalReceived = session.lossReceivedCount;
       aggPeriodExpected += Math.max(0, totalExpected - session.lastLossExpected);
       aggPeriodReceived += Math.max(0, totalReceived - session.lastLossReceived);

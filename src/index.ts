@@ -348,6 +348,15 @@ module.exports = function createPlugin(app: any) {
                 minimum: 0.1,
                 maximum: 60
               },
+              heartbeatInterval: {
+                type: "number",
+                title: "NAT Keepalive Heartbeat Interval (ms)",
+                description:
+                  "v2/v3 only. How often to send UDP heartbeat packets for NAT traversal. Typical NAT timeouts range from 30s to 120s.",
+                default: 25000,
+                minimum: 5000,
+                maximum: 120000
+              },
               reliability: {
                 type: "object",
                 title: "Reliability Settings (v2/v3 only)",
@@ -682,7 +691,6 @@ module.exports = function createPlugin(app: any) {
             name: "default",
             serverType: "client",
             udpPort: 4446,
-            secretKey: "",
             protocolVersion: 1
           }
         ]

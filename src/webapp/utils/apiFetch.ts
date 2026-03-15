@@ -44,6 +44,10 @@ function resolveToken(config: AuthConfig): string {
     return "";
   }
 
+  // SECURITY NOTE: Query parameter tokens can leak into browser history, server
+  // access logs, and Referer headers.  Prefer localStorage or
+  // window.__EDGE_LINK_AUTH__.token for production deployments.  Set
+  // includeTokenInQuery: false in __EDGE_LINK_AUTH__ to disable this path.
   if (config.includeTokenInQuery && config.queryParam) {
     const tokenFromQuery = new URLSearchParams(window.location.search).get(config.queryParam);
     if (tokenFromQuery) {
