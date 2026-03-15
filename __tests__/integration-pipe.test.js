@@ -25,15 +25,12 @@ jest.mock("ping-monitor", () => {
 
   MockMonitor.instances = [];
   return MockMonitor;
-}, { virtual: true });
+});
 
 const createMetrics = require("../lib/metrics");
 const createPipeline = require("../lib/pipeline");
 const createRoutes = require("../lib/routes");
-const {
-  SMART_BATCH_INITIAL_ESTIMATE,
-  calculateMaxDeltasPerBatch
-} = require("../lib/constants");
+const { SMART_BATCH_INITIAL_ESTIMATE, calculateMaxDeltasPerBatch } = require("../lib/constants");
 
 describe("Integration: Input → Backend → Frontend Pipe", () => {
   let mockApp;
@@ -46,30 +43,34 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
   // Realistic test deltas
   const navigationDelta = {
     context: "vessels.urn:mrn:imo:mmsi:230035780",
-    updates: [{
-      source: { label: "N2K", type: "NMEA2000", pgn: 129029, src: "3" },
-      timestamp: "2024-06-15T12:00:00.000Z",
-      $source: "n2k-gateway.3",
-      values: [
-        { path: "navigation.position", value: { latitude: 60.1699, longitude: 24.9384 } },
-        { path: "navigation.speedOverGround", value: 5.14 },
-        { path: "navigation.courseOverGroundTrue", value: 1.5708 }
-      ]
-    }]
+    updates: [
+      {
+        source: { label: "N2K", type: "NMEA2000", pgn: 129029, src: "3" },
+        timestamp: "2024-06-15T12:00:00.000Z",
+        $source: "n2k-gateway.3",
+        values: [
+          { path: "navigation.position", value: { latitude: 60.1699, longitude: 24.9384 } },
+          { path: "navigation.speedOverGround", value: 5.14 },
+          { path: "navigation.courseOverGroundTrue", value: 1.5708 }
+        ]
+      }
+    ]
   };
 
   const environmentDelta = {
     context: "vessels.urn:mrn:imo:mmsi:230035780",
-    updates: [{
-      source: { label: "Weather", type: "signalk" },
-      timestamp: "2024-06-15T12:00:01.000Z",
-      $source: "weather-station",
-      values: [
-        { path: "environment.wind.speedApparent", value: 8.5 },
-        { path: "environment.wind.angleApparent", value: 0.785 },
-        { path: "environment.outside.temperature", value: 293.15 }
-      ]
-    }]
+    updates: [
+      {
+        source: { label: "Weather", type: "signalk" },
+        timestamp: "2024-06-15T12:00:01.000Z",
+        $source: "weather-station",
+        values: [
+          { path: "environment.wind.speedApparent", value: 8.5 },
+          { path: "environment.wind.angleApparent", value: 0.785 },
+          { path: "environment.outside.temperature", value: 293.15 }
+        ]
+      }
+    ]
   };
 
   beforeEach(() => {
@@ -141,7 +142,10 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
 
       expect(delivered.context).toBe("vessels.urn:mrn:imo:mmsi:230035780");
       expect(delivered.updates[0].values[0].path).toBe("navigation.position");
-      expect(delivered.updates[0].values[0].value).toEqual({ latitude: 60.1699, longitude: 24.9384 });
+      expect(delivered.updates[0].values[0].value).toEqual({
+        latitude: 60.1699,
+        longitude: 24.9384
+      });
       expect(delivered.updates[0].values[1].path).toBe("navigation.speedOverGround");
       expect(delivered.updates[0].values[1].value).toBe(5.14);
       expect(delivered.updates[0].timestamp).toBe("2024-06-15T12:00:00.000Z");
@@ -178,11 +182,13 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
     test("null source is fixed to empty object by decodeDelta", async () => {
       const deltaWithNullSource = {
         context: "vessels.self",
-        updates: [{
-          source: null,
-          timestamp: "2024-01-01T00:00:00Z",
-          values: [{ path: "navigation.position", value: { latitude: 60.0, longitude: 25.0 } }]
-        }]
+        updates: [
+          {
+            source: null,
+            timestamp: "2024-01-01T00:00:00Z",
+            values: [{ path: "navigation.position", value: { latitude: 60.0, longitude: 25.0 } }]
+          }
+        ]
       };
 
       await pipeline.packCrypt([deltaWithNullSource], state.options.secretKey, "10.0.0.1", 4446);
@@ -231,11 +237,13 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
 
       const deltaWithCustomPath = {
         context: "vessels.self",
-        updates: [{
-          source: {},
-          timestamp: "2024-01-01T00:00:00Z",
-          values: [{ path: "custom.sensor.reading", value: 42 }]
-        }]
+        updates: [
+          {
+            source: {},
+            timestamp: "2024-01-01T00:00:00Z",
+            values: [{ path: "custom.sensor.reading", value: 42 }]
+          }
+        ]
       };
 
       await pipeline.packCrypt([deltaWithCustomPath], state.options.secretKey, "10.0.0.1", 4446);
@@ -253,7 +261,12 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
     test("deltas round-trip through msgpack serialization", async () => {
       state.options.useMsgpack = true;
 
-      await pipeline.packCrypt([navigationDelta, environmentDelta], state.options.secretKey, "10.0.0.1", 4446);
+      await pipeline.packCrypt(
+        [navigationDelta, environmentDelta],
+        state.options.secretKey,
+        "10.0.0.1",
+        4446
+      );
       expect(capturedPackets).toHaveLength(1);
 
       await pipeline.unpackDecrypt(capturedPackets[0], state.options.secretKey);
@@ -316,7 +329,12 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
     test("path stats track update frequency per path", async () => {
       const { metrics } = metricsApi;
 
-      await pipeline.packCrypt([navigationDelta, environmentDelta], state.options.secretKey, "10.0.0.1", 4446);
+      await pipeline.packCrypt(
+        [navigationDelta, environmentDelta],
+        state.options.secretKey,
+        "10.0.0.1",
+        4446
+      );
 
       // Path stats should have entries for the paths in the deltas
       expect(metrics.pathStats.size).toBeGreaterThan(0);
@@ -389,7 +407,12 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
 
     test("serves metrics response with correct structure for webapp", async () => {
       // Simulate some pipeline activity first
-      await pipeline.packCrypt([navigationDelta, environmentDelta], state.options.secretKey, "10.0.0.1", 4446);
+      await pipeline.packCrypt(
+        [navigationDelta, environmentDelta],
+        state.options.secretKey,
+        "10.0.0.1",
+        4446
+      );
       await pipeline.unpackDecrypt(capturedPackets[0], state.options.secretKey);
 
       const req = { ip: "127.0.0.1", connection: { remoteAddress: "127.0.0.1" } };
@@ -552,7 +575,11 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
         fullPlugin.stop();
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
-      try { await fs.rm(tempDir, { recursive: true, force: true }); } catch (_e) { /* ignore */ }
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      } catch (_e) {
+        /* ignore */
+      }
     });
 
     test("plugin starts, routes register, metrics endpoint responds", async () => {
@@ -585,7 +612,12 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
           status: jest.fn().mockReturnThis()
         };
         let i = 0;
-        const next = () => { i++; if (i < metricsHandler.length) {metricsHandler[i](req, res, next);} };
+        const next = () => {
+          i++;
+          if (i < metricsHandler.length) {
+            metricsHandler[i](req, res, next);
+          }
+        };
         metricsHandler[0](req, res, next);
       });
 
@@ -609,19 +641,32 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
 
       // Config files should be created
       const instanceDir = path.join(tempDir, "instances", "default");
-      const dtExists = await fs.access(path.join(instanceDir, "delta_timer.json")).then(() => true).catch(() => false);
-      const subExists = await fs.access(path.join(instanceDir, "subscription.json")).then(() => true).catch(() => false);
-      const sfExists = await fs.access(path.join(instanceDir, "sentence_filter.json")).then(() => true).catch(() => false);
+      const dtExists = await fs
+        .access(path.join(instanceDir, "delta_timer.json"))
+        .then(() => true)
+        .catch(() => false);
+      const subExists = await fs
+        .access(path.join(instanceDir, "subscription.json"))
+        .then(() => true)
+        .catch(() => false);
+      const sfExists = await fs
+        .access(path.join(instanceDir, "sentence_filter.json"))
+        .then(() => true)
+        .catch(() => false);
 
       expect(dtExists).toBe(true);
       expect(subExists).toBe(true);
       expect(sfExists).toBe(true);
 
       // Verify default values
-      const dtContent = JSON.parse(await fs.readFile(path.join(instanceDir, "delta_timer.json"), "utf-8"));
+      const dtContent = JSON.parse(
+        await fs.readFile(path.join(instanceDir, "delta_timer.json"), "utf-8")
+      );
       expect(dtContent.deltaTimer).toBe(1000);
 
-      const sfContent = JSON.parse(await fs.readFile(path.join(instanceDir, "sentence_filter.json"), "utf-8"));
+      const sfContent = JSON.parse(
+        await fs.readFile(path.join(instanceDir, "sentence_filter.json"), "utf-8")
+      );
       expect(sfContent.excludedSentences).toEqual(["GSV"]);
     });
   });
@@ -632,7 +677,12 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
     test("packCrypt ignores calls after plugin stop (options = null)", async () => {
       state.options = null;
 
-      await pipeline.packCrypt([navigationDelta], "key12345678901234567890123456", "10.0.0.1", 4446);
+      await pipeline.packCrypt(
+        [navigationDelta],
+        "key12345678901234567890123456",
+        "10.0.0.1",
+        4446
+      );
 
       expect(capturedPackets).toHaveLength(0);
       expect(mockApp.debug).toHaveBeenCalledWith(expect.stringContaining("plugin is stopped"));
@@ -667,7 +717,12 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
     test("compressed packet is smaller than raw JSON", async () => {
       const { metrics } = metricsApi;
 
-      await pipeline.packCrypt([navigationDelta, environmentDelta], state.options.secretKey, "10.0.0.1", 4446);
+      await pipeline.packCrypt(
+        [navigationDelta, environmentDelta],
+        state.options.secretKey,
+        "10.0.0.1",
+        4446
+      );
 
       // Compressed+encrypted bytes should be less than raw bytes
       expect(metrics.bandwidth.bytesOut).toBeLessThan(metrics.bandwidth.bytesOutRaw);
@@ -678,22 +733,31 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
     });
 
     test("large batch demonstrates significant compression savings", async () => {
-      const largeBatch = Array(20).fill(null).map((_, i) => ({
-        context: "vessels.urn:mrn:imo:mmsi:230035780",
-        updates: [{
-          source: { label: "N2K" },
-          timestamp: new Date(Date.now() + i * 1000).toISOString(),
-          values: [
-            { path: "navigation.position", value: { latitude: 60.1 + i * 0.001, longitude: 24.9 + i * 0.001 } },
-            { path: "navigation.speedOverGround", value: 5.0 + i * 0.1 }
+      const largeBatch = Array(20)
+        .fill(null)
+        .map((_, i) => ({
+          context: "vessels.urn:mrn:imo:mmsi:230035780",
+          updates: [
+            {
+              source: { label: "N2K" },
+              timestamp: new Date(Date.now() + i * 1000).toISOString(),
+              values: [
+                {
+                  path: "navigation.position",
+                  value: { latitude: 60.1 + i * 0.001, longitude: 24.9 + i * 0.001 }
+                },
+                { path: "navigation.speedOverGround", value: 5.0 + i * 0.1 }
+              ]
+            }
           ]
-        }]
-      }));
+        }));
 
       const { metrics } = metricsApi;
       await pipeline.packCrypt(largeBatch, state.options.secretKey, "10.0.0.1", 4446);
 
-      const savingsPercent = Math.round((1 - metrics.bandwidth.bytesOut / metrics.bandwidth.bytesOutRaw) * 100);
+      const savingsPercent = Math.round(
+        (1 - metrics.bandwidth.bytesOut / metrics.bandwidth.bytesOutRaw) * 100
+      );
       expect(savingsPercent).toBeGreaterThan(30); // Expect >30% savings on repetitive data
     });
   });

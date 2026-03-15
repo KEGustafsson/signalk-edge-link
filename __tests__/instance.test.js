@@ -315,6 +315,8 @@ describe("createInstance", () => {
         updates: [{ values: [{ path: "navigation.speedOverGround", value: 1.2 }] }]
       });
 
+      // Drain all pending microtask chains (sendDeltaBatch → flushDeltaBatch continuation)
+      await Promise.resolve();
       await Promise.resolve();
       expect(state.pipeline.sendDelta).toHaveBeenCalledTimes(1);
       expect(state.deltas.length).toBe(1);
