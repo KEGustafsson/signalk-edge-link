@@ -103,6 +103,7 @@ function createInstance(
     timer: false,
     batchSendInFlight: false,
     pendingRetry: null,
+    socketRecoveryTimer: null,
     droppedDeltaBatches: 0,
     droppedDeltaCount: 0,
     deltaTimerTime: DEFAULT_DELTA_TIMER,
@@ -119,6 +120,7 @@ function createInstance(
     pingTimeout: null,
     pingMonitor: null,
     deltaTimer: null,
+    subscriptionRetryTimer: null,
     pipeline: null,
     pipelineServer: null,
     heartbeatHandle: null,
@@ -405,8 +407,10 @@ function createInstance(
         _setStatus("Failed to subscribe - data transmission paused", false);
         recordError("subscription", `Failed to subscribe: ${subscribeError.message}`);
 
-        // Retry once after 5 seconds to recover from transient failures
-        setTimeout(() => {
+        // Retry once after 5 seconds to recover from transient failures.
+        // Store the handle so stop() can cancel it before it fires.
+        state.subscriptionRetryTimer = setTimeout(() => {
+          state.subscriptionRetryTimer = null;
           if (state.stopped) {
             return;
           }
@@ -518,14 +522,8 @@ function createInstance(
         app.error(`[${instanceId}] UDP socket error: ${err.message}`);
         state.readyToSend = false;
         // Stop v2 periodic workers if the server socket is no longer usable.
-        if (state.pipelineServer) {
-          if (state.pipelineServer.stopACKTimer) {
-            state.pipelineServer.stopACKTimer();
-          }
-          if (state.pipelineServer.stopMetricsPublishing) {
-            state.pipelineServer.stopMetricsPublishing();
-          }
-        }
+        state.pipelineServer?.stopACKTimer?.();
+        state.pipelineServer?.stopMetricsPublishing?.();
         if (err.code === "EADDRINUSE") {
           _setStatus(`Failed to start – port ${options.udpPort} already in use`, false);
         } else if (err.code === "EACCES") {
@@ -674,14 +672,8 @@ function createInstance(
         app.error(`[${instanceId}] Client UDP socket error: ${err.message}`);
         state.readyToSend = false;
         // Stop v2 periodic workers if the client socket is no longer usable.
-        if (state.pipeline) {
-          if (state.pipeline.stopMetricsPublishing) {
-            state.pipeline.stopMetricsPublishing();
-          }
-          if (state.pipeline.stopCongestionControl) {
-            state.pipeline.stopCongestionControl();
-          }
-        }
+        state.pipeline?.stopMetricsPublishing?.();
+        state.pipeline?.stopCongestionControl?.();
         if (state.heartbeatHandle) {
           state.heartbeatHandle.stop();
           state.heartbeatHandle = null;
@@ -696,9 +688,11 @@ function createInstance(
           state.socketUdp = null;
         }
 
-        // Attempt socket recovery after a short delay
+        // Attempt socket recovery after a short delay.
+        // Store the handle so stop() can cancel it before it fires.
         if (!state.stopped) {
-          setTimeout(() => {
+          state.socketRecoveryTimer = setTimeout(() => {
+            state.socketRecoveryTimer = null;
             if (state.stopped) {
               return;
             }
@@ -911,6 +905,10 @@ function createInstance(
     state.deltaTimer = null;
     clearTimeout(state.pendingRetry);
     state.pendingRetry = null;
+    clearTimeout(state.subscriptionRetryTimer);
+    state.subscriptionRetryTimer = null;
+    clearTimeout(state.socketRecoveryTimer);
+    state.socketRecoveryTimer = null;
     Object.keys(state.configDebounceTimers).forEach((k: string) => {
       clearTimeout(state.configDebounceTimers[k]);
       delete state.configDebounceTimers[k];
@@ -921,36 +919,20 @@ function createInstance(
     state.configWatcherObjects = [];
 
     // Stop v2 client pipeline
-    if (state.pipeline) {
-      if (state.pipeline.stopBonding) {
-        state.pipeline.stopBonding();
-      }
-      if (state.pipeline.stopMetricsPublishing) {
-        state.pipeline.stopMetricsPublishing();
-      }
-      if (state.pipeline.stopCongestionControl) {
-        state.pipeline.stopCongestionControl();
-      }
-      state.pipeline = null;
-    }
+    state.pipeline?.stopBonding?.();
+    state.pipeline?.stopMetricsPublishing?.();
+    state.pipeline?.stopCongestionControl?.();
+    state.pipeline = null;
     if (state.heartbeatHandle) {
       state.heartbeatHandle.stop();
       state.heartbeatHandle = null;
     }
 
     // Stop v2 server pipeline
-    if (state.pipelineServer) {
-      if (state.pipelineServer.stopACKTimer) {
-        state.pipelineServer.stopACKTimer();
-      }
-      if (state.pipelineServer.stopMetricsPublishing) {
-        state.pipelineServer.stopMetricsPublishing();
-      }
-      if (state.pipelineServer.getSequenceTracker) {
-        state.pipelineServer.getSequenceTracker().reset();
-      }
-      state.pipelineServer = null;
-    }
+    state.pipelineServer?.stopACKTimer?.();
+    state.pipelineServer?.stopMetricsPublishing?.();
+    state.pipelineServer?.getSequenceTracker?.().reset();
+    state.pipelineServer = null;
 
     // Clean up enhanced monitoring
     if (state.monitoring) {
