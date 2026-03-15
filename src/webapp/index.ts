@@ -23,17 +23,32 @@ interface AuthenticatedError extends Error {
   isUnauthorized?: boolean;
 }
 
+// Escape HTML special characters to prevent XSS when inserting dynamic values into innerHTML
+function escapeHtml(str: string | number): string {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // HTML Template Helpers
-const renderCard = (title: string, subtitle: string | null, contentId: string, contentClass = "") => `
+const renderCard = (
+  title: string,
+  subtitle: string | null,
+  contentId: string,
+  contentClass = ""
+) => `
   <div class="config-section">
     <div class="card">
       <div class="card-header">
-        <h2>${title}</h2>
-        ${subtitle ? `<p class="subtitle">${subtitle}</p>` : ""}
+        <h2>${escapeHtml(title)}</h2>
+        ${subtitle ? `<p class="subtitle">${escapeHtml(subtitle)}</p>` : ""}
       </div>
       <div class="card-content">
         <div id="${contentId}" class="${contentClass || contentId + "-info"}">
-          <p>Loading ${title.toLowerCase()}...</p>
+          <p>Loading ${escapeHtml(title.toLowerCase())}...</p>
         </div>
       </div>
     </div>
@@ -42,30 +57,40 @@ const renderCard = (title: string, subtitle: string | null, contentId: string, c
 
 const renderStatItem = (label: string, value: string | number, hasError = false) => `
   <div class="stat-item${hasError ? " error" : ""}">
-    <span class="stat-label">${label}:</span>
-    <span class="stat-value">${value}</span>
+    <span class="stat-label">${escapeHtml(label)}:</span>
+    <span class="stat-value">${escapeHtml(value)}</span>
   </div>
 `;
 
 const renderMetricItem = (label: string, value: string | number, statusClass = "") => `
   <div class="metric-item${statusClass ? " " + statusClass : ""}">
-    <div class="metric-label">${label}</div>
-    <div class="metric-value">${value}</div>
+    <div class="metric-label">${escapeHtml(label)}</div>
+    <div class="metric-value">${escapeHtml(value)}</div>
   </div>
 `;
 
-const renderBwStat = (label: string, value: string | number, isHighlight = false, isSuccess = false) => `
+const renderBwStat = (
+  label: string,
+  value: string | number,
+  isHighlight = false,
+  isSuccess = false
+) => `
   <div class="bw-stat${isHighlight ? " highlight" : ""}">
-    <span class="bw-label">${label}:</span>
-    <span class="bw-value${isSuccess ? " success-text" : ""}">${value}</span>
+    <span class="bw-label">${escapeHtml(label)}:</span>
+    <span class="bw-value${isSuccess ? " success-text" : ""}">${escapeHtml(value)}</span>
   </div>
 `;
 
-const renderSectionGroup = (title: string, description: string | null, content: string, id = "") => `
+const renderSectionGroup = (
+  title: string,
+  description: string | null,
+  content: string,
+  id = ""
+) => `
   <section class="page-group"${id ? ` id="${id}"` : ""}>
     <div class="page-group-header">
-      <h2>${title}</h2>
-      ${description ? `<p>${description}</p>` : ""}
+      <h2>${escapeHtml(title)}</h2>
+      ${description ? `<p>${escapeHtml(description)}</p>` : ""}
     </div>
     <div class="page-group-content">
       ${content}
@@ -120,7 +145,11 @@ class DataConnectorConfig {
       this.startMetricsRefresh();
     } catch (error: unknown) {
       console.error("Initialization error:", error);
-      this.showNotification("Failed to initialize application: " + (error instanceof Error ? error.message : String(error)), "error");
+      this.showNotification(
+        "Failed to initialize application: " +
+          (error instanceof Error ? error.message : String(error)),
+        "error"
+      );
     }
   }
 
@@ -783,10 +812,15 @@ class DataConnectorConfig {
       }
     }
 
-    if (this.sentenceFilterConfig && Array.isArray((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences)) {
+    if (
+      this.sentenceFilterConfig &&
+      Array.isArray((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences)
+    ) {
       const el = document.getElementById("sentenceFilter") as HTMLInputElement | null;
       if (el) {
-        el.value = ((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[]).join(", ");
+        el.value = (
+          (this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[]
+        ).join(", ");
       }
     }
   }
@@ -811,7 +845,8 @@ class DataConnectorConfig {
 
     if (summary) {
       const hasConnections =
-        Array.isArray(this.pluginConfig.connections) && (this.pluginConfig.connections as unknown[]).length > 0;
+        Array.isArray(this.pluginConfig.connections) &&
+        (this.pluginConfig.connections as unknown[]).length > 0;
 
       let summaryScope = "Top-level";
       let keyLabel = "Top-Level Fields";
@@ -822,7 +857,9 @@ class DataConnectorConfig {
         const runtimeIndex = this.connections.findIndex((c) => c.id === this.activeConnectionId);
         const summaryIndex =
           runtimeIndex >= 0 && runtimeIndex < totalConnections ? runtimeIndex : 0;
-        const candidate = (this.pluginConfig.connections as Record<string, unknown>[])[summaryIndex];
+        const candidate = (this.pluginConfig.connections as Record<string, unknown>[])[
+          summaryIndex
+        ];
         summaryConfig =
           candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate : {};
         summaryScope = `Connection ${summaryIndex + 1}/${totalConnections}`;
@@ -1028,7 +1065,7 @@ class DataConnectorConfig {
         body: JSON.stringify(requestConfig)
       });
 
-      const result = await response.json().catch(() => ({} as Record<string, unknown>));
+      const result = await response.json().catch(() => ({}) as Record<string, unknown>);
       if (!response.ok || !result.success) {
         throw new Error(result.error || `Failed to save plugin configuration (${response.status})`);
       }
@@ -1337,7 +1374,10 @@ class DataConnectorConfig {
     bandwidthDiv.innerHTML = bandwidthHtml;
   }
 
-  renderBandwidthChart(history: Array<{ rateOut: number; rateIn: number }> | undefined, isClient: boolean): string {
+  renderBandwidthChart(
+    history: Array<{ rateOut: number; rateIn: number }> | undefined,
+    isClient: boolean
+  ): string {
     if (!history || history.length < 2) {
       return `
         <div class="bandwidth-chart-placeholder">
@@ -1387,7 +1427,12 @@ class DataConnectorConfig {
       return;
     }
 
-    const paths: Array<{ path: string; updatesPerMinute: number; bytesFormatted: string; percentage: number }> = metrics.pathStats;
+    const paths: Array<{
+      path: string;
+      updatesPerMinute: number;
+      bytesFormatted: string;
+      percentage: number;
+    }> = metrics.pathStats;
 
     if (paths.length === 0) {
       pathDiv.innerHTML = `
@@ -1759,10 +1804,15 @@ class DataConnectorConfig {
     if (
       this.sentenceFilterConfig &&
       (this.sentenceFilterConfig as Record<string, unknown>).excludedSentences &&
-      ((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[]).length > 0
+      ((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[])
+        .length > 0
     ) {
-      const filterCount = ((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[]).length;
-      const escapedFilters = ((this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[])
+      const filterCount = (
+        (this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[]
+      ).length;
+      const escapedFilters = (
+        (this.sentenceFilterConfig as Record<string, unknown>).excludedSentences as string[]
+      )
         .map((s) => this.escapeHtml(s))
         .join(", ");
       statusHtml += `
@@ -1802,7 +1852,9 @@ class DataConnectorConfig {
     return undefined;
   }
 
-  extractSchemaDefaults(schemaNode: Record<string, any> | null): Record<string, unknown> | undefined {
+  extractSchemaDefaults(
+    schemaNode: Record<string, any> | null
+  ): Record<string, unknown> | undefined {
     if (!schemaNode || typeof schemaNode !== "object") {
       return undefined;
     }
@@ -1834,7 +1886,9 @@ class DataConnectorConfig {
 
     if (schemaNode.dependencies && this.isPlainObject(schemaNode.dependencies)) {
       for (const dependencyValue of Object.values(schemaNode.dependencies)) {
-        const dependencyDefaults = this.extractSchemaDefaults(dependencyValue as Record<string, any>);
+        const dependencyDefaults = this.extractSchemaDefaults(
+          dependencyValue as Record<string, any>
+        );
         if (dependencyDefaults && this.isPlainObject(dependencyDefaults)) {
           Object.assign(merged, this.deepMerge(merged, dependencyDefaults));
           hasData = true;
