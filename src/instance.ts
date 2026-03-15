@@ -207,21 +207,7 @@ function createInstance(
     }
   }
 
-  function handlePingSuccess(
-    res: { time?: number } | null,
-    eventName: string,
-    pingIntervalMinutes: number
-  ): void {
-    state.readyToSend = true;
-    _setStatus("Connected", true);
-    clearTimeout(state.pingTimeout ?? undefined); // null is safe for clearTimeout
-    state.pingTimeout = setTimeout(
-      () => {
-        state.readyToSend = false;
-        _setStatus("Connection monitor timeout", false);
-      },
-      pingIntervalMinutes * MILLISECONDS_PER_MINUTE + PING_TIMEOUT_BUFFER
-    );
+  function handlePingSuccess(res: { time?: number } | null, eventName: string): void {
     if (res && res.time !== undefined) {
       publishRtt(res.time);
       app.debug(`[${instanceId}] Connection monitor: ${eventName} (RTT: ${res.time}ms)`);
@@ -742,6 +728,8 @@ function createInstance(
       }, helloInterval);
 
       state.socketUdp = dgram.createSocket({ type: "udp4", reuseAddr: true });
+      state.readyToSend = true;
+      _setStatus("Connected", true);
 
       state.socketUdp.on("error", (err: any) => {
         // Ignore errors that arrive after recovery has already started.
@@ -834,50 +822,38 @@ function createInstance(
       scheduleDeltaTimer();
       setupConfigWatchers();
 
-      // Ping / connectivity monitor
-      state.pingMonitor = new Monitor({
-        address: options.testAddress ?? "",
-        port: options.testPort,
-        interval: pingIntervalMinutes,
-        protocol: "tcp"
-      });
+      // Ping / connectivity monitor (v1 only, RTT measurement)
+      if ((options.protocolVersion ?? 0) < 2) {
+        state.pingMonitor = new Monitor({
+          address: options.testAddress ?? "",
+          port: options.testPort,
+          interval: pingIntervalMinutes,
+          protocol: "tcp"
+        });
 
-      state.pingMonitor.on("up", (res: { time?: number } | null) =>
-        handlePingSuccess(res, "up", pingIntervalMinutes)
-      );
-      state.pingMonitor.on("restored", (res: { time?: number } | null) =>
-        handlePingSuccess(res, "restored", pingIntervalMinutes)
-      );
+        state.pingMonitor.on("up", (res: { time?: number } | null) => handlePingSuccess(res, "up"));
+        state.pingMonitor.on("restored", (res: { time?: number } | null) =>
+          handlePingSuccess(res, "restored")
+        );
 
-      for (const event of ["down", "stop", "timeout"]) {
-        state.pingMonitor.on(event, () => {
-          state.readyToSend = false;
-          _setStatus(`Connection monitor: ${event}`, false);
-          app.debug(`[${instanceId}] Connection monitor: ${event}`);
+        for (const event of ["down", "stop", "timeout"]) {
+          state.pingMonitor.on(event, () => {
+            app.debug(`[${instanceId}] Connection monitor: ${event}`);
+          });
+        }
+
+        state.pingMonitor.on("error", (error: any) => {
+          if (error) {
+            const msg =
+              error.code === "ENOTFOUND" || error.code === "EAI_AGAIN"
+                ? `Could not resolve address ${options.testAddress}.`
+                : `Connection monitor error: ${error.message || error}`;
+            app.debug(`[${instanceId}] ${msg}`);
+          } else {
+            app.debug(`[${instanceId}] Connection monitor error`);
+          }
         });
       }
-
-      state.pingMonitor.on("error", (error: any) => {
-        state.readyToSend = false;
-        if (error) {
-          const msg =
-            error.code === "ENOTFOUND" || error.code === "EAI_AGAIN"
-              ? `Could not resolve address ${options.testAddress}.`
-              : `Connection monitor error: ${error.message || error}`;
-          _setStatus(msg, false);
-          app.debug(`[${instanceId}] ${msg}`);
-        } else {
-          _setStatus("Connection monitor error", false);
-        }
-      });
-
-      state.pingTimeout = setTimeout(
-        () => {
-          state.readyToSend = false;
-          _setStatus("Connection monitor timeout", false);
-        },
-        pingIntervalMinutes * MILLISECONDS_PER_MINUTE + PING_TIMEOUT_BUFFER
-      );
 
       // Reliable client pipeline (v2/v3)
       const useReliableProtocol = (options.protocolVersion ?? 0) >= 2;
@@ -999,8 +975,6 @@ function createInstance(
     // Clear timers
     clearInterval(state.helloMessageSender ?? undefined);
     state.helloMessageSender = null;
-    clearTimeout(state.pingTimeout ?? undefined); // null is safe for clearTimeout
-    state.pingTimeout = null;
     clearTimeout(state.deltaTimer ?? undefined);
     state.deltaTimer = null;
     clearTimeout(state.pendingRetry ?? undefined);
