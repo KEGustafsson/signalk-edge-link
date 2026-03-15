@@ -1,5 +1,5 @@
 import { formatPrometheusMetrics } from "../prometheus";
-import { RouteRequest, RouteResponse } from "./types";
+import { RouteRequest, RouteResponse, Router, RouteContext } from "./types";
 
 /**
  * Registers metrics-related routes: /metrics, /network-metrics, /prometheus
@@ -7,7 +7,7 @@ import { RouteRequest, RouteResponse } from "./types";
  * @param router - Express router
  * @param ctx - Shared route context (helpers, middleware, registry)
  */
-function register(router: any, ctx: any): void {
+function register(router: Router, ctx: RouteContext): void {
   const {
     rateLimitMiddleware,
     instanceRegistry,
@@ -38,7 +38,7 @@ function register(router: any, ctx: any): void {
       const { state } = bundle;
       const { metrics } = bundle.metricsApi;
       const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
-      const networkMetrics: any = {
+      const networkMetrics: Record<string, unknown> = {
         rtt: effectiveNetwork.rtt,
         jitter: effectiveNetwork.jitter,
         packetLoss: effectiveNetwork.packetLoss,
@@ -86,7 +86,7 @@ function register(router: any, ctx: any): void {
         updateBandwidthRates(state.isServerMode);
         const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
 
-        const extra: any = {};
+        const extra: Record<string, unknown> = {};
         if (state.monitoring) {
           if (state.monitoring.packetLossTracker) {
             const summary = state.monitoring.packetLossTracker.getSummary();

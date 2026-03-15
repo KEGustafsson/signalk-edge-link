@@ -98,16 +98,14 @@ export class CongestionControl {
    */
   updateMetrics({ rtt, packetLoss }: { rtt: number; packetLoss: number }): void {
     if (rtt !== undefined && Number.isFinite(rtt) && rtt >= 0) {
-      this.avgRTT = !this.hasRTTSample
-        ? rtt
-        : (this.alpha * rtt + (1 - this.alpha) * this.avgRTT);
+      this.avgRTT = !this.hasRTTSample ? rtt : this.alpha * rtt + (1 - this.alpha) * this.avgRTT;
       this.hasRTTSample = true;
     }
 
     if (packetLoss !== undefined && Number.isFinite(packetLoss) && packetLoss >= 0) {
       this.avgLoss = !this.hasLossSample
         ? packetLoss
-        : (this.alpha * packetLoss + (1 - this.alpha) * this.avgLoss);
+        : this.alpha * packetLoss + (1 - this.alpha) * this.avgLoss;
       this.hasLossSample = true;
     }
   }
@@ -118,9 +116,13 @@ export class CongestionControl {
    * @returns {boolean}
    */
   shouldAdjust(): boolean {
-    if (!this.enabled || this._manualMode) {return false;}
-    if (!this.hasRTTSample && !this.hasLossSample) {return false;}
-    return (Date.now() - this.lastAdjustment) >= this.adjustInterval;
+    if (!this.enabled || this._manualMode) {
+      return false;
+    }
+    if (!this.hasRTTSample && !this.hasLossSample) {
+      return false;
+    }
+    return Date.now() - this.lastAdjustment >= this.adjustInterval;
   }
 
   /**
@@ -133,10 +135,15 @@ export class CongestionControl {
    * @returns {number} The (potentially adjusted) delta timer value
    */
   adjust(): number {
-    if (!this.shouldAdjust()) {return this.currentDeltaTimer;}
+    if (!this.shouldAdjust()) {
+      return this.currentDeltaTimer;
+    }
 
     const oldTimer = this.currentDeltaTimer;
-    const nominal = Math.max(this.minDeltaTimer, Math.min(this.maxDeltaTimer, this.nominalDeltaTimer));
+    const nominal = Math.max(
+      this.minDeltaTimer,
+      Math.min(this.maxDeltaTimer, this.nominalDeltaTimer)
+    );
     let newTimer = oldTimer;
     const rtt = this.avgRTT;
     const loss = this.avgLoss;
@@ -146,9 +153,7 @@ export class CongestionControl {
       rtt > this.targetRTT * CONGESTION_RTT_MULTIPLIER_HIGH;
 
     const veryHealthy =
-      loss < CONGESTION_LOSS_THRESHOLD_LOW &&
-      rtt > 0 &&
-      rtt < this.targetRTT * 0.8;
+      loss < CONGESTION_LOSS_THRESHOLD_LOW && rtt > 0 && rtt < this.targetRTT * 0.8;
 
     // Convergent control:
     // - React quickly to congestion
@@ -259,7 +264,19 @@ export class CongestionControl {
    *
    * @returns {Object} Current congestion control state
    */
-  getState(): any {
+  getState(): {
+    enabled: boolean;
+    manualMode: boolean;
+    currentDeltaTimer: number;
+    nominalDeltaTimer: number;
+    avgRTT: number;
+    avgLoss: number;
+    targetRTT: number;
+    minDeltaTimer: number;
+    maxDeltaTimer: number;
+    adjustInterval: number;
+    maxAdjustment: number;
+  } {
     return {
       enabled: this.enabled,
       manualMode: this._manualMode,

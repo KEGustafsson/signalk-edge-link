@@ -7,7 +7,8 @@ import {
   findConnectionIndexByInstanceId
 } from "../connection-config";
 import { validateRuntimeConfigBody } from "./config-validation";
-import { RouteRequest, RouteResponse } from "./types";
+import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
+import type { ConnectionConfig } from "../types";
 
 /**
  * Registers multi-instance connection routes:
@@ -19,7 +20,7 @@ import { RouteRequest, RouteResponse } from "./types";
  * @param router - Express router
  * @param ctx - Shared route context
  */
-function register(router: any, ctx: any): void {
+function register(router: Router, ctx: RouteContext): void {
   const {
     rateLimitMiddleware,
     requireJson,
@@ -35,7 +36,7 @@ function register(router: any, ctx: any): void {
     managementAuthMiddleware
   } = ctx;
 
-  function sanitizeOptions(options: any) {
+  function sanitizeOptions(options: Record<string, unknown> | null | undefined) {
     if (!options || typeof options !== "object") {
       return {};
     }
@@ -47,21 +48,27 @@ function register(router: any, ctx: any): void {
     return out;
   }
 
-  function getCurrentConnectionsConfig() {
+  function getCurrentConnectionsConfig(): ConnectionConfig[] {
     const options = pluginRef && pluginRef._currentOptions;
     if (options && Array.isArray(options.connections)) {
-      return options.connections.map((c: any) => ({ ...c }));
+      return options.connections.map((c: ConnectionConfig) => ({ ...c }));
     }
 
     if (options && options.serverType) {
-      return [{ ...options, name: options.name || "default" }];
+      return [{ ...options, name: String(options.name || "default") } as ConnectionConfig];
     }
 
     const all = instanceRegistry.getAll();
-    return all.map((b: any) => ({ ...(b.state.options || {}), name: b.name }));
+    return all.map(
+      (b: InstanceBundle) => ({ ...(b.state.options || {}), name: b.name }) as ConnectionConfig
+    );
   }
 
-  async function restartWithConnections(res: any, connections: any[], successStatus: number = 200) {
+  async function restartWithConnections(
+    res: RouteResponse,
+    connections: ConnectionConfig[],
+    successStatus: number = 200
+  ) {
     if (!pluginRef || typeof pluginRef._restartPlugin !== "function") {
       return res.status(503).json({ error: "Runtime restart handler unavailable" });
     }
@@ -69,25 +76,25 @@ function register(router: any, ctx: any): void {
       return res.status(400).json({ error: "At least one instance must remain configured" });
     }
 
-    const sanitizedConnections = connections.map((connection) =>
-      sanitizeConnectionConfig(connection)
+    const sanitizedConnections = connections.map(
+      (connection) => sanitizeConnectionConfig(connection) as ConnectionConfig
     );
 
-    const currentOptions =
+    const currentOptions: Record<string, unknown> =
       pluginRef && pluginRef._currentOptions && typeof pluginRef._currentOptions === "object"
-        ? pluginRef._currentOptions
+        ? (pluginRef._currentOptions as Record<string, unknown>)
         : {};
     const nextOptions = { ...currentOptions, connections: sanitizedConnections };
 
     await pluginRef._restartPlugin(nextOptions);
-    pluginRef._currentOptions = nextOptions;
+    pluginRef._currentOptions = nextOptions as typeof pluginRef._currentOptions;
     return res.status(successStatus).json({ success: true });
   }
   router.get("/connections", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     try {
       const all = instanceRegistry.getAll();
       res.json(
-        all.map((b: any) => ({
+        all.map((b: InstanceBundle) => ({
           id: b.id,
           name: b.name,
           type: b.state.isServerMode ? "server" : "client",
@@ -132,17 +139,15 @@ function register(router: any, ctx: any): void {
         }
       }
 
-      const mapped = all.map((b: any) => ({
+      const mapped = all.map((b: InstanceBundle) => ({
         id: b.id,
         name: b.name,
         protocolVersion: b.state.options && b.state.options.protocolVersion,
         state: b.state.instanceStatus,
-        currentLink:
-          b.state.pipeline && b.state.pipeline.getBondingManager
-            ? (b.state.pipeline.getBondingManager() &&
-                b.state.pipeline.getBondingManager().getState().activeLink) ||
-              "primary"
-            : "primary",
+        currentLink: (() => {
+          const bm = b.state.pipeline?.getBondingManager?.();
+          return bm ? bm.getState().activeLink || "primary" : "primary";
+        })(),
         metrics: {
           deltasSent: b.metricsApi.metrics.deltasSent,
           deltasReceived: b.metricsApi.metrics.deltasReceived,
@@ -153,7 +158,7 @@ function register(router: any, ctx: any): void {
 
       const filtered = stateFilter
         ? mapped.filter(
-            (item: any) => String(item.state || "").toLowerCase() === stateFilter.toLowerCase()
+            (item) => String(item.state || "").toLowerCase() === stateFilter.toLowerCase()
           )
         : mapped;
 
@@ -218,7 +223,7 @@ function register(router: any, ctx: any): void {
           duplicatePackets: metrics.duplicatePackets || 0
         },
         bonding: bondingManager ? bondingManager.getState() : { enabled: false },
-        config: sanitizeOptions(state.options)
+        config: sanitizeOptions(state.options as Record<string, unknown> | null)
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -248,7 +253,7 @@ function register(router: any, ctx: any): void {
         }
 
         const connections = getCurrentConnectionsConfig();
-        connections.push(sanitizeConnectionConfig(body));
+        connections.push(sanitizeConnectionConfig(body) as ConnectionConfig);
 
         const portError = validateUniqueServerPorts(connections);
         if (portError) {
@@ -333,7 +338,7 @@ function register(router: any, ctx: any): void {
           return res.status(400).json({ error: validationError });
         }
 
-        connections[idx] = sanitizeConnectionConfig(mergedConnection);
+        connections[idx] = sanitizeConnectionConfig(mergedConnection) as ConnectionConfig;
 
         const portError = validateUniqueServerPorts(connections);
         if (portError) {

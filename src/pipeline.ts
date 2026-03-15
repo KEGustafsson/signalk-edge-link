@@ -4,7 +4,9 @@ import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary, decryptBinary } from "./crypto";
 import { encodeDelta, decodeDelta } from "./pathDictionary";
 import {
-  deltaBuffer, compressPayload, brotliDecompressAsync,
+  deltaBuffer,
+  compressPayload,
+  brotliDecompressAsync,
   udpSendAsync as _udpSendAsyncShared
 } from "./pipeline-utils";
 import {
@@ -23,9 +25,21 @@ import type { SignalKApp, MetricsApi, InstanceState, Delta } from "./types";
  * @param metricsApi - Metrics API from lib/metrics.js
  * @returns Pipeline API: { packCrypt, unpackDecrypt }
  */
-function createPipeline(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi): { packCrypt: any; unpackDecrypt: any } {
+function createPipeline(
+  app: SignalKApp,
+  state: InstanceState,
+  metricsApi: MetricsApi
+): {
+  packCrypt(
+    delta: Delta | Delta[],
+    secretKey: string,
+    udpAddress: string,
+    udpPort: number
+  ): Promise<void>;
+  unpackDecrypt(msg: Buffer, secretKey: string): Promise<void>;
+} {
   const { metrics, recordError, trackPathStats } = metricsApi;
-  const setStatus = (app as any).setPluginStatus || (app as any).setProviderStatus || (() => {});
+  const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
 
   /**
    * Compresses, encrypts, and sends delta data via UDP.
@@ -46,7 +60,9 @@ function createPipeline(app: SignalKApp, state: InstanceState, metricsApi: Metri
 
       // Apply path dictionary encoding if enabled
       const processedDelta = state.options.usePathDictionary
-        ? (Array.isArray(delta) ? delta.map(encodeDelta) : encodeDelta(delta))
+        ? Array.isArray(delta)
+          ? delta.map(encodeDelta)
+          : encodeDelta(delta)
         : delta;
 
       // Serialize to buffer (JSON or MessagePack)
@@ -91,7 +107,8 @@ function createPipeline(app: SignalKApp, state: InstanceState, metricsApi: Metri
 
       // Update rolling average using exponential smoothing
       state.avgBytesPerDelta =
-        (1 - SMART_BATCH_SMOOTHING) * state.avgBytesPerDelta + SMART_BATCH_SMOOTHING * bytesPerDelta;
+        (1 - SMART_BATCH_SMOOTHING) * state.avgBytesPerDelta +
+        SMART_BATCH_SMOOTHING * bytesPerDelta;
 
       // Recalculate max deltas for next batch based on updated average
       state.maxDeltasPerBatch = calculateMaxDeltasPerBatch(state.avgBytesPerDelta);
@@ -110,10 +127,18 @@ function createPipeline(app: SignalKApp, state: InstanceState, metricsApi: Metri
     } catch (error: any) {
       const msg = error.message || "";
       const code = error.code || "";
-      if (code.startsWith("ERR_ZLIB") || code === "ERR_BUFFER_OUT_OF_RANGE" || msg.includes("compress")) {
+      if (
+        code.startsWith("ERR_ZLIB") ||
+        code === "ERR_BUFFER_OUT_OF_RANGE" ||
+        msg.includes("compress")
+      ) {
         app.error(`Compression error: ${msg}`);
         recordError("compression", `Compression error: ${msg}`);
-      } else if (code === "ERR_CRYPTO_INVALID_STATE" || msg.includes("encrypt") || msg.includes("cipher")) {
+      } else if (
+        code === "ERR_CRYPTO_INVALID_STATE" ||
+        msg.includes("encrypt") ||
+        msg.includes("cipher")
+      ) {
         app.error(`Encryption error: ${msg}`);
         recordError("encryption", `Encryption error: ${msg}`);
       } else {
@@ -143,9 +168,9 @@ function createPipeline(app: SignalKApp, state: InstanceState, metricsApi: Metri
       const decrypted = decryptBinary(packet, secretKey);
 
       // Decompress (single decompression stage, capped to prevent decompression bombs)
-      const decompressed = await brotliDecompressAsync(decrypted, {
+      const decompressed = (await brotliDecompressAsync(decrypted, {
         maxOutputLength: MAX_DECOMPRESSED_SIZE
-      }) as Buffer;
+      })) as Buffer;
 
       // Track raw bytes
       metrics.bandwidth.bytesInRaw += decompressed.length;
@@ -172,12 +197,14 @@ function createPipeline(app: SignalKApp, state: InstanceState, metricsApi: Metri
 
       // Process deltas: payload may be an Array of deltas or an indexed object.
       const deltas = Array.isArray(jsonContent)
-        ? jsonContent as Delta[]
+        ? (jsonContent as Delta[])
         : Object.values(jsonContent as Record<string, Delta>);
       const deltaCount = Math.min(deltas.length, MAX_DELTAS_PER_PACKET);
 
       if (deltas.length > MAX_DELTAS_PER_PACKET) {
-        app.error(`Received ${deltas.length} deltas in one packet (limit ${MAX_DELTAS_PER_PACKET}), truncating`);
+        app.error(
+          `Received ${deltas.length} deltas in one packet (limit ${MAX_DELTAS_PER_PACKET}), truncating`
+        );
       }
 
       for (let i = 0; i < deltaCount; i++) {
@@ -208,13 +235,25 @@ function createPipeline(app: SignalKApp, state: InstanceState, metricsApi: Metri
     } catch (error: any) {
       const msg = error.message || "";
       const code = error.code || "";
-      if (msg.includes("Unsupported state") || msg.includes("auth") || code === "ERR_CRYPTO_INVALID_STATE") {
+      if (
+        msg.includes("Unsupported state") ||
+        msg.includes("auth") ||
+        code === "ERR_CRYPTO_INVALID_STATE"
+      ) {
         app.error("Authentication failed: packet tampered or wrong key");
         recordError("encryption", "Authentication failed: packet tampered or wrong key");
-      } else if (msg.includes("decrypt") || msg.includes("cipher") || code === "ERR_OSSL_EVP_BAD_DECRYPT") {
+      } else if (
+        msg.includes("decrypt") ||
+        msg.includes("cipher") ||
+        code === "ERR_OSSL_EVP_BAD_DECRYPT"
+      ) {
         app.error(`Decryption error: ${msg}`);
         recordError("encryption", `Decryption error: ${msg}`);
-      } else if (code.startsWith("ERR_ZLIB") || code === "ERR_BUFFER_OUT_OF_RANGE" || msg.includes("decompress")) {
+      } else if (
+        code.startsWith("ERR_ZLIB") ||
+        code === "ERR_BUFFER_OUT_OF_RANGE" ||
+        msg.includes("decompress")
+      ) {
         app.error(`Decompression error: ${msg}`);
         recordError("compression", `Decompression error: ${msg}`);
       } else {

@@ -1,4 +1,4 @@
-import { RouteRequest, RouteResponse } from "./types";
+import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
 
 /**
  * Registers control routes: /congestion, /delta-timer, /bonding, /bonding/failover
@@ -6,7 +6,7 @@ import { RouteRequest, RouteResponse } from "./types";
  * @param router - Express router
  * @param ctx - Shared route context
  */
-function register(router: any, ctx: any): void {
+function register(router: Router, ctx: RouteContext): void {
   const {
     rateLimitMiddleware,
     requireJson,
@@ -105,7 +105,7 @@ function register(router: any, ctx: any): void {
         return res.status(503).json({ error: "Plugin not started" });
       }
 
-      const instances = all.map((bundle: any) => {
+      const instances = all.map((bundle: InstanceBundle) => {
         const { state } = bundle;
         const bondingManager =
           state.pipeline && state.pipeline.getBondingManager
@@ -119,7 +119,7 @@ function register(router: any, ctx: any): void {
         };
       });
 
-      const enabledCount = instances.filter((item: any) => item.enabled).length;
+      const enabledCount = instances.filter((item) => item.enabled).length;
       res.json({
         totalInstances: instances.length,
         bondingEnabledInstances: enabledCount,
@@ -152,7 +152,7 @@ function register(router: any, ctx: any): void {
           return res.status(400).json({ error: "Request body must be a JSON object" });
         }
 
-        const updates: any = {};
+        const updates: Record<string, number> = {};
         for (const [key, value] of Object.entries(body)) {
           if (!allowedKeys.has(key)) {
             return res.status(400).json({ error: `Unsupported bonding setting '${key}'` });
@@ -168,7 +168,7 @@ function register(router: any, ctx: any): void {
           return res.status(400).json({ error: "At least one bonding setting must be provided" });
         }
 
-        const updatedInstances: any[] = [];
+        const updatedInstances: Array<{ id: string; thresholds: Record<string, number> }> = [];
         for (const bundle of instanceRegistry.getAll()) {
           const { state } = bundle;
           const bondingManager =

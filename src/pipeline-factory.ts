@@ -9,7 +9,13 @@
 import createPipelineV1 = require("./pipeline");
 import { createPipelineV2Client } from "./pipeline-v2-client";
 import { createPipelineV2Server } from "./pipeline-v2-server";
-import type { SignalKApp, MetricsApi, InstanceState } from "./types";
+import type {
+  SignalKApp,
+  MetricsApi,
+  InstanceState,
+  ClientPipelineApi,
+  ServerPipelineApi
+} from "./types";
 
 /**
  * Create pipeline instance based on protocol version and mode
@@ -27,7 +33,13 @@ export function createPipeline(
   app: SignalKApp,
   state: InstanceState,
   metricsApi: MetricsApi
-): any {
+):
+  | ClientPipelineApi
+  | ServerPipelineApi
+  | {
+      packCrypt(delta: unknown, secretKey: string, address: string, port: number): Promise<void>;
+      unpackDecrypt(msg: Buffer, secretKey: string): Promise<void>;
+    } {
   if (version === 2 || version === 3) {
     if (mode === "client") {
       return createPipelineV2Client(app, state, metricsApi);

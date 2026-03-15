@@ -1,4 +1,4 @@
-function validateRuntimeConfigBody(filename: string, body: any): string | null {
+function validateRuntimeConfigBody(filename: string, body: Record<string, unknown>): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return "Request body must be a JSON object";
   }

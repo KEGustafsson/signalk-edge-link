@@ -19,6 +19,7 @@
 
 import * as dgram from "dgram";
 import CircularBuffer from "./CircularBuffer";
+import type { SignalKApp } from "./types";
 import {
   BONDING_HEALTH_CHECK_INTERVAL,
   BONDING_RTT_THRESHOLD,
@@ -127,7 +128,7 @@ function _createLinkState(name: string, linkConfig: LinkConfig): LinkState {
 }
 
 export class BondingManager {
-  private app: any;
+  private app: SignalKApp;
   private config: BondingConfig;
   private mode: string;
   private instanceId: string;
@@ -135,18 +136,31 @@ export class BondingManager {
   private notificationsEnabled: boolean;
   private links: { primary: LinkState; backup: LinkState };
   private activeLink: string;
-  private failoverThresholds: {
+  failoverThresholds: {
     rttThreshold: number;
     lossThreshold: number;
     healthCheckInterval: number;
     failbackDelay: number;
     heartbeatTimeout: number;
+    [key: string]: number;
   };
   private lastFailoverTime: number;
   private healthCheckTimer: ReturnType<typeof setInterval> | null;
   private _initialized: boolean;
   private _stopped: boolean;
-  public metricsPublisher: any;
+  public metricsPublisher: {
+    publishLinkMetrics(
+      linkName: string,
+      metrics: {
+        rtt?: number;
+        jitter?: number;
+        loss?: number;
+        packetLoss?: number;
+        retransmitRate?: number;
+        status?: string;
+      }
+    ): void;
+  } | null;
   private _onFailover: ((from: string, to: string) => void) | null;
   private _onFailback: ((from: string, to: string) => void) | null;
   private _onControlPacket?: ((linkName: string, msg: Buffer) => void) | null;
@@ -165,7 +179,7 @@ export class BondingManager {
    * @param {Object} [config.failover] - Failover thresholds
    * @param {Object} app - Signal K app instance (for logging and messaging)
    */
-  constructor(config: BondingConfig, app: any) {
+  constructor(config: BondingConfig, app: SignalKApp) {
     this.app = app;
     this.config = config;
     this.mode = config.mode || BondingMode.MAIN_BACKUP;
@@ -702,8 +716,32 @@ export class BondingManager {
    * Get health information for all links
    * @returns {Object} Link health data
    */
-  getLinkHealth(): Record<string, any> {
-    const result: Record<string, any> = {};
+  getLinkHealth(): Record<
+    string,
+    {
+      address: string;
+      port: number;
+      status: string;
+      rtt: number;
+      loss: number;
+      quality: number;
+      heartbeatsSent: number;
+      heartbeatResponses: number;
+    }
+  > {
+    const result: Record<
+      string,
+      {
+        address: string;
+        port: number;
+        status: string;
+        rtt: number;
+        loss: number;
+        quality: number;
+        heartbeatsSent: number;
+        heartbeatResponses: number;
+      }
+    > = {};
     for (const [name, link] of Object.entries(this.links)) {
       result[name] = {
         address: link.address,
@@ -723,7 +761,14 @@ export class BondingManager {
    * Get full bonding state for API/diagnostics
    * @returns {Object} Bonding state
    */
-  getState(): any {
+  getState(): {
+    enabled: boolean;
+    mode: string;
+    activeLink: string;
+    lastFailoverTime: number;
+    failoverThresholds: Record<string, number>;
+    links: Record<string, unknown>;
+  } {
     return {
       enabled: true,
       mode: this.mode,
@@ -763,7 +808,21 @@ export class BondingManager {
    * Set the metrics publisher for per-link metrics
    * @param {Object} publisher - MetricsPublisher instance
    */
-  setMetricsPublisher(publisher: any): void {
+  setMetricsPublisher(
+    publisher: {
+      publishLinkMetrics(
+        linkName: string,
+        metrics: {
+          rtt?: number;
+          jitter?: number;
+          loss?: number;
+          packetLoss?: number;
+          retransmitRate?: number;
+          status?: string;
+        }
+      ): void;
+    } | null
+  ): void {
     this.metricsPublisher = publisher;
   }
 
@@ -808,7 +867,7 @@ export class BondingManager {
   }
 }
 
-export function createBondingManager(config: BondingConfig, app: any): BondingManager {
+export function createBondingManager(config: BondingConfig, app: SignalKApp): BondingManager {
   return new BondingManager(config, app);
 }
 

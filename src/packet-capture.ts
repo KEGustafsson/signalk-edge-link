@@ -11,10 +11,7 @@
  */
 
 import { HEADER_SIZE, getTypeName } from "./packet";
-import {
-  PACKET_CAPTURE_MAX_PACKETS,
-  PACKET_INSPECTOR_MAX_CLIENTS
-} from "./constants";
+import { PACKET_CAPTURE_MAX_PACKETS, PACKET_INSPECTOR_MAX_CLIENTS } from "./constants";
 
 // ── PCAP Format Constants ──
 
@@ -72,7 +69,9 @@ class PacketCapture {
    * @param {Object} [meta] - Optional metadata {address, port}
    */
   capture(data: Buffer, direction: string, meta: { address?: string; port?: number } = {}): void {
-    if (!this.enabled) {return;}
+    if (!this.enabled) {
+      return;
+    }
 
     const entry = {
       timestamp: Date.now(),
@@ -193,9 +192,17 @@ class PacketCapture {
  * Live packet inspector that streams packet summaries to connected clients.
  * Designed to work with WebSocket connections for real-time monitoring.
  */
+interface WsClient {
+  readyState: number;
+  send(data: string): void;
+  on(event: string, handler: () => void): void;
+  removeAllListeners(event: string): void;
+  close(): void;
+}
+
 class PacketInspector {
   maxClients: number;
-  clients: Set<any>;
+  clients: Set<WsClient>;
   enabled: boolean;
   stats: {
     packetsInspected: number;
@@ -221,7 +228,7 @@ class PacketInspector {
    * @param {Object} ws - WebSocket connection
    * @returns {boolean} Whether the client was accepted
    */
-  addClient(ws: any): boolean {
+  addClient(ws: WsClient): boolean {
     if (this.clients.size >= this.maxClients) {
       return false;
     }
@@ -253,7 +260,9 @@ class PacketInspector {
    * @param {Object} [meta] - Optional metadata {address, port}
    */
   inspect(data: Buffer, direction: string, meta: { address?: string; port?: number } = {}): void {
-    if (!this.enabled || this.clients.size === 0) {return;}
+    if (!this.enabled || this.clients.size === 0) {
+      return;
+    }
 
     this.stats.packetsInspected++;
 
@@ -261,10 +270,11 @@ class PacketInspector {
     const message = JSON.stringify(summary);
 
     // Broadcast to all clients
-    const deadClients: any[] = [];
+    const deadClients: WsClient[] = [];
     for (const ws of this.clients) {
       try {
-        if (ws.readyState === 1) { // WebSocket.OPEN
+        if (ws.readyState === 1) {
+          // WebSocket.OPEN
           ws.send(message);
         } else {
           deadClients.push(ws);
@@ -290,8 +300,12 @@ class PacketInspector {
    * @param {Object} meta - Metadata
    * @returns {Object} Packet summary
    */
-  _buildSummary(data: Buffer, direction: string, meta: { address?: string; port?: number }): any {
-    const summary: any = {
+  _buildSummary(
+    data: Buffer,
+    direction: string,
+    meta: { address?: string; port?: number }
+  ): Record<string, unknown> {
+    const summary: Record<string, unknown> = {
       timestamp: Date.now(),
       direction,
       length: data.length,
