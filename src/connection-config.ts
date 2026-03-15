@@ -135,26 +135,6 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     if (!isValidPort(conn.testPort, 1)) {
       return `${p}testPort must be between 1 and 65535 in client mode`;
     }
-    const helloError = numberRangeError(
-      conn as Record<string, unknown>,
-      "helloMessageSender",
-      10,
-      3600,
-      `${p}helloMessageSender`
-    );
-    if (helloError) {
-      return helloError;
-    }
-    const pingError = numberRangeError(
-      conn as Record<string, unknown>,
-      "pingIntervalTime",
-      0.1,
-      60,
-      `${p}pingIntervalTime`
-    );
-    if (pingError) {
-      return pingError;
-    }
   }
 
   if (conn.alertThresholds !== undefined) {
