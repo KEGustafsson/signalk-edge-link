@@ -10,17 +10,18 @@
  */
 
 import CircularBuffer = require("./CircularBuffer");
+import type { SignalKApp } from "./types";
 
 class MetricsPublisher {
-  app: any;
-  config: any;
+  app: SignalKApp;
+  config: Record<string, unknown>;
   pathPrefix: string;
   sourceLabel: string;
   windowSize: number;
-  rttWindow: any;
-  jitterWindow: any;
-  lossWindow: any;
-  lastPublished: Record<string, any>;
+  rttWindow: CircularBuffer<number>;
+  jitterWindow: CircularBuffer<number>;
+  lossWindow: CircularBuffer<number>;
+  lastPublished: Record<string, unknown>;
 
   /**
    * @param {Object} app - Signal K app instance
@@ -30,14 +31,14 @@ class MetricsPublisher {
    *   "networking.edgeLink.<instanceId>" when running multiple instances so
    *   each instance publishes to its own namespace.
    */
-  constructor(app: any, config: any = {}) {
+  constructor(app: SignalKApp, config: Record<string, unknown> = {}) {
     this.app = app;
     this.config = config;
-    this.pathPrefix = config.pathPrefix || "networking.edgeLink";
+    this.pathPrefix = String(config.pathPrefix || "networking.edgeLink");
     // sourceLabel identifies this instance in Signal K source tracking.
     // Pass a per-instance label so Signal K can distinguish between multiple
     // concurrently running instances of this plugin.
-    this.sourceLabel = config.sourceLabel || "signalk-edge-link";
+    this.sourceLabel = String(config.sourceLabel || "signalk-edge-link");
 
     // Moving average windows (CircularBuffer for O(1) push, no splice overhead)
     this.windowSize = 10; // 10 seconds
@@ -54,23 +55,23 @@ class MetricsPublisher {
    *
    * @param {Object} metrics - Metrics object
    */
-  publish(metrics: any): void {
-    const values: Array<{ path: string; value: any }> = [];
+  publish(metrics: Record<string, number | string | undefined>): void {
+    const values: Array<{ path: string; value: unknown }> = [];
 
     // Core metrics
-    if (metrics.rtt !== undefined) {
+    if (typeof metrics.rtt === "number") {
       this._addToWindow(this.rttWindow, metrics.rtt);
       const avgRtt = this._calculateAverage(this.rttWindow);
       values.push({ path: `${this.pathPrefix}.rtt`, value: parseFloat(avgRtt.toFixed(1)) });
     }
 
-    if (metrics.jitter !== undefined) {
+    if (typeof metrics.jitter === "number") {
       this._addToWindow(this.jitterWindow, metrics.jitter);
       const avgJitter = this._calculateAverage(this.jitterWindow);
       values.push({ path: `${this.pathPrefix}.jitter`, value: parseFloat(avgJitter.toFixed(1)) });
     }
 
-    if (metrics.packetLoss !== undefined) {
+    if (typeof metrics.packetLoss === "number") {
       this._addToWindow(this.lossWindow, metrics.packetLoss);
       const avgLoss = this._calculateAverage(this.lossWindow);
       values.push({ path: `${this.pathPrefix}.packetLoss`, value: parseFloat(avgLoss.toFixed(3)) });
@@ -132,7 +133,7 @@ class MetricsPublisher {
       rtt: this._calculateAverage(this.rttWindow),
       jitter: this._calculateAverage(this.jitterWindow),
       packetLoss: this._calculateAverage(this.lossWindow),
-      retransmitRate: metrics.retransmitRate || 0
+      retransmitRate: typeof metrics.retransmitRate === "number" ? metrics.retransmitRate : 0
     });
 
     values.push({
@@ -160,14 +161,16 @@ class MetricsPublisher {
     if (this._hasChanged(values)) {
       this.app.handleMessage(this.sourceLabel, {
         context: "vessels.self",
-        updates: [{
-          source: {
-            label: this.sourceLabel,
-            type: "plugin"
-          },
-          timestamp: new Date().toISOString(),
-          values: values
-        }]
+        updates: [
+          {
+            source: {
+              label: this.sourceLabel,
+              type: "plugin"
+            },
+            timestamp: new Date().toISOString(),
+            values: values
+          }
+        ]
       });
 
       this._updateLastPublished(values);
@@ -180,25 +183,25 @@ class MetricsPublisher {
    * @param {Object} params
    * @returns {number} Quality score
    */
-  calculateLinkQuality({ rtt, jitter, packetLoss, retransmitRate }: {
+  calculateLinkQuality({
+    rtt,
+    jitter,
+    packetLoss,
+    retransmitRate
+  }: {
     rtt: number;
     jitter: number;
     packetLoss: number;
     retransmitRate: number;
   }): number {
     // Normalize to 0-1 scores
-    const rttScore = this._clamp(1 - (rtt / 1000), 0, 1);
-    const jitterScore = this._clamp(1 - (jitter / 500), 0, 1);
+    const rttScore = this._clamp(1 - rtt / 1000, 0, 1);
+    const jitterScore = this._clamp(1 - jitter / 500, 0, 1);
     const lossScore = this._clamp(1 - packetLoss, 0, 1);
-    const retransmitScore = this._clamp(1 - (retransmitRate / 0.1), 0, 1);
+    const retransmitScore = this._clamp(1 - retransmitRate / 0.1, 0, 1);
 
     // Weighted average
-    const quality = (
-      lossScore * 40 +
-      rttScore * 30 +
-      jitterScore * 20 +
-      retransmitScore * 10
-    );
+    const quality = lossScore * 40 + rttScore * 30 + jitterScore * 20 + retransmitScore * 10;
 
     return Math.round(quality);
   }
@@ -209,11 +212,24 @@ class MetricsPublisher {
    * @param {string} linkName - "primary" or "backup"
    * @param {Object} linkMetrics - Link-specific metrics
    */
-  publishLinkMetrics(linkName: string, linkMetrics: any): void {
+  publishLinkMetrics(
+    linkName: string,
+    linkMetrics: {
+      rtt?: number;
+      jitter?: number;
+      loss?: number;
+      packetLoss?: number;
+      retransmitRate?: number;
+      status?: string;
+    }
+  ): void {
     const basePath = `${this.pathPrefix}.links.${linkName}`;
-    const linkLoss = linkMetrics.loss !== undefined
-      ? linkMetrics.loss
-      : (linkMetrics.packetLoss !== undefined ? linkMetrics.packetLoss : 0);
+    const linkLoss =
+      linkMetrics.loss !== undefined
+        ? linkMetrics.loss
+        : linkMetrics.packetLoss !== undefined
+          ? linkMetrics.packetLoss
+          : 0;
 
     const values = [
       { path: `${basePath}.status`, value: linkMetrics.status },
@@ -232,11 +248,13 @@ class MetricsPublisher {
 
     this.app.handleMessage(this.sourceLabel, {
       context: "vessels.self",
-      updates: [{
-        source: { label: this.sourceLabel, type: "plugin" },
-        timestamp: new Date().toISOString(),
-        values: values
-      }]
+      updates: [
+        {
+          source: { label: this.sourceLabel, type: "plugin" },
+          timestamp: new Date().toISOString(),
+          values: values
+        }
+      ]
     });
   }
 
@@ -245,7 +263,7 @@ class MetricsPublisher {
    *
    * @private
    */
-  _addToWindow(window: any, value: number): void {
+  _addToWindow(window: CircularBuffer<number>, value: number): void {
     window.push(value);
   }
 
@@ -254,8 +272,10 @@ class MetricsPublisher {
    *
    * @private
    */
-  _calculateAverage(window: any): number {
-    if (window.length === 0) {return 0;}
+  _calculateAverage(window: CircularBuffer<number>): number {
+    if (window.length === 0) {
+      return 0;
+    }
     const arr = window.toArray();
     const sum = arr.reduce((a: number, b: number) => a + b, 0);
     return sum / arr.length;
@@ -275,7 +295,7 @@ class MetricsPublisher {
    *
    * @private
    */
-  _hasChanged(values: Array<{ path: string; value: any }>): boolean {
+  _hasChanged(values: Array<{ path: string; value: unknown }>): boolean {
     for (const { path, value } of values) {
       if (!Object.is(this.lastPublished[path], value)) {
         return true;
@@ -289,7 +309,7 @@ class MetricsPublisher {
    *
    * @private
    */
-  _updateLastPublished(values: Array<{ path: string; value: any }>): void {
+  _updateLastPublished(values: Array<{ path: string; value: unknown }>): void {
     for (const { path, value } of values) {
       this.lastPublished[path] = value;
     }

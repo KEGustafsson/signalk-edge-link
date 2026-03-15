@@ -1,5 +1,6 @@
 import { findConnectionIndexByInstanceId } from "../connection-config";
-import { RouteRequest, RouteResponse } from "./types";
+import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
+import type { ConnectionConfig } from "../types";
 
 /**
  * Registers monitoring and capture routes:
@@ -10,7 +11,7 @@ import { RouteRequest, RouteResponse } from "./types";
  * @param router - Express router
  * @param ctx - Shared route context
  */
-function register(router: any, ctx: any): void {
+function register(router: Router, ctx: RouteContext): void {
   const {
     app,
     rateLimitMiddleware,
@@ -20,11 +21,16 @@ function register(router: any, ctx: any): void {
     pluginRef
   } = ctx;
 
-  function getPersistedConfigConnections(configuration: any, bundle: any): any {
+  function getPersistedConfigConnections(
+    configuration: Record<string, unknown>,
+    bundle: InstanceBundle
+  ): { usesConnectionsArray: boolean; connections: Record<string, unknown>[] } {
     if (Array.isArray(configuration.connections)) {
       return {
         usesConnectionsArray: true,
-        connections: configuration.connections.map((connection: any) => ({ ...connection }))
+        connections: configuration.connections.map((connection: unknown) => ({
+          ...(connection as object)
+        }))
       };
     }
 
@@ -41,7 +47,10 @@ function register(router: any, ctx: any): void {
     };
   }
 
-  function persistAlertThresholds(bundle: any, thresholds: any): void {
+  function persistAlertThresholds(
+    bundle: InstanceBundle,
+    thresholds: Record<string, unknown>
+  ): void {
     if (
       typeof app.readPluginOptions !== "function" ||
       typeof app.savePluginOptions !== "function"
@@ -50,8 +59,8 @@ function register(router: any, ctx: any): void {
     }
 
     try {
-      const pluginOptions = app.readPluginOptions() || {};
-      const currentConfig = pluginOptions.configuration || {};
+      const pluginOptions = (app.readPluginOptions() || {}) as Record<string, unknown>;
+      const currentConfig = (pluginOptions.configuration || {}) as Record<string, unknown>;
       const persisted = getPersistedConfigConnections(currentConfig, bundle);
       let nextConfig = null;
 
@@ -62,7 +71,7 @@ function register(router: any, ctx: any): void {
         }
 
         if (index !== -1) {
-          const nextConnections = persisted.connections.map((connection: any) => ({
+          const nextConnections = persisted.connections.map((connection) => ({
             ...connection
           }));
           nextConnections[index] = {
@@ -81,7 +90,7 @@ function register(router: any, ctx: any): void {
             if (persisted.usesConnectionsArray) {
               pluginRef._currentOptions = {
                 ...pluginRef._currentOptions,
-                connections: nextConnections
+                connections: nextConnections as unknown as ConnectionConfig[]
               };
             } else {
               pluginRef._currentOptions = {
@@ -244,7 +253,7 @@ function register(router: any, ctx: any): void {
             .json({ error: `metric must be one of: ${validAlertMetrics.join(", ")}` });
         }
 
-        const update: any = {};
+        const update: { warning?: number; critical?: number } = {};
         if (warning !== undefined) {
           if (typeof warning !== "number" || !Number.isFinite(warning)) {
             return res.status(400).json({ error: "warning must be a finite number" });
@@ -292,7 +301,10 @@ function register(router: any, ctx: any): void {
           };
         }
 
-        persistAlertThresholds(bundle, (state.options && state.options.alertThresholds) || {});
+        persistAlertThresholds(
+          bundle,
+          ((state.options && state.options.alertThresholds) || {}) as Record<string, unknown>
+        );
 
         res.json({
           success: true,

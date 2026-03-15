@@ -1,7 +1,8 @@
 "use strict";
 
 import { getAllPaths, PATH_CATEGORIES } from "../pathDictionary";
-import { RouteRequest, RouteResponse } from "./types";
+import { RouteRequest, RouteResponse, Router, RouteContext, RouteHandler } from "./types";
+import type { ConnectionConfig } from "../types";
 import {
   validateConnectionConfig,
   sanitizeConnectionConfig,
@@ -16,7 +17,7 @@ import { validateRuntimeConfigBody } from "./config-validation";
  * @param router - Express router
  * @param ctx - Shared route context
  */
-function register(router: any, ctx: any): void {
+function register(router: Router, ctx: RouteContext): void {
   const {
     app,
     rateLimitMiddleware,
@@ -31,7 +32,7 @@ function register(router: any, ctx: any): void {
   } = ctx;
   const REDACTED_SECRET = "[redacted]";
 
-  function redactSecretKeys(value: any): any {
+  function redactSecretKeys(value: unknown): unknown {
     if (Array.isArray(value)) {
       return value.map((entry) => redactSecretKeys(entry));
     }
@@ -40,8 +41,8 @@ function register(router: any, ctx: any): void {
       return value;
     }
 
-    const out: any = {};
-    for (const [key, entry] of Object.entries(value)) {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
       out[key] = key === "secretKey" ? REDACTED_SECRET : redactSecretKeys(entry);
     }
     return out;
@@ -53,9 +54,9 @@ function register(router: any, ctx: any): void {
     return options.configuration || {};
   }
 
-  function getPersistedConnections(config: any) {
+  function getPersistedConnections(config: Record<string, unknown>) {
     if (Array.isArray(config.connections)) {
-      return config.connections.map((connection: any) => ({ ...connection }));
+      return config.connections.map((connection: unknown) => ({ ...(connection as object) }));
     }
 
     if (config && typeof config === "object" && config.serverType) {
@@ -65,7 +66,7 @@ function register(router: any, ctx: any): void {
     return [];
   }
 
-  function getConnectionIdentityKey(connection: any): string | null {
+  function getConnectionIdentityKey(connection: Record<string, unknown>): string | null {
     if (!connection || typeof connection !== "object") {
       return null;
     }
@@ -86,9 +87,12 @@ function register(router: any, ctx: any): void {
     return `legacy:${connection.name}::${connection.serverType}::${connection.udpPort}`;
   }
 
-  function restoreRedactedSecretKeys(connectionList: any[], persistedConfig: any) {
+  function restoreRedactedSecretKeys(
+    connectionList: Record<string, unknown>[],
+    persistedConfig: Record<string, unknown>
+  ) {
     const persistedConnections = getPersistedConnections(persistedConfig);
-    const persistedByIdentity = new Map<string, any>();
+    const persistedByIdentity = new Map<string, Record<string, unknown>>();
     const duplicateIdentityKeys = new Set<string>();
 
     for (const persisted of persistedConnections) {
@@ -139,9 +143,12 @@ function register(router: any, ctx: any): void {
 
   router.get("/paths", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     const paths = getAllPaths();
-    const categorized: any = {};
 
-    for (const [key, category] of Object.entries(PATH_CATEGORIES) as [string, any][]) {
+    const categorized: Record<string, unknown> = {};
+    for (const [key, category] of Object.entries(PATH_CATEGORIES) as [
+      string,
+      { prefix: string }
+    ][]) {
       categorized[key] = {
         ...category,
         paths: paths.filter((path: string) => path.startsWith(category.prefix))
@@ -183,7 +190,7 @@ function register(router: any, ctx: any): void {
             .json({ success: false, error: "Request body must be a JSON object" });
         }
 
-        const persistedConfig = getPersistedConfiguration();
+        const persistedConfig = getPersistedConfiguration() as Record<string, unknown>;
         let connectionList;
         if (Array.isArray(req.body.connections)) {
           if (req.body.connections.length === 0) {
@@ -191,7 +198,9 @@ function register(router: any, ctx: any): void {
               .status(400)
               .json({ success: false, error: "connections array must contain at least one entry" });
           }
-          connectionList = req.body.connections.map((connection: any) => ({ ...connection }));
+          connectionList = req.body.connections.map((connection: unknown) => ({
+            ...(connection as object)
+          }));
         } else if (req.body.serverType) {
           connectionList = [{ ...req.body }];
         } else {
@@ -221,7 +230,9 @@ function register(router: any, ctx: any): void {
         }
 
         const finalConfig = {
-          connections: connectionList.map((connection: any) => sanitizeConnectionConfig(connection))
+          connections: connectionList.map((connection: Record<string, unknown>) =>
+            sanitizeConnectionConfig(connection as unknown as ConnectionConfig)
+          )
         };
 
         if (typeof pluginRef._restartPlugin === "function") {
@@ -233,7 +244,7 @@ function register(router: any, ctx: any): void {
           });
         }
 
-        app.savePluginOptions(finalConfig, (error: any) => {
+        app.savePluginOptions?.(finalConfig, (error) => {
           if (error) {
             app.error(`Error saving plugin config: ${error.message}`);
             return res.status(500).json({ success: false, error: error.message });
@@ -260,7 +271,7 @@ function register(router: any, ctx: any): void {
     });
   });
 
-  const clientModeMiddleware = (req: any, res: any, next: any) => {
+  const clientModeMiddleware: RouteHandler = (req, res, next) => {
     const bundle = getFirstClientBundle();
     if (!bundle) {
       return res.status(404).json({ error: "Not available in server mode" });
@@ -268,7 +279,7 @@ function register(router: any, ctx: any): void {
     if (!bundle.state.deltaTimerFile || !bundle.state.subscriptionFile) {
       return res.status(503).json({ error: "Plugin not fully initialized" });
     }
-    next();
+    if (next) next();
   };
 
   router.get(

@@ -19,9 +19,11 @@ import zlib from "node:zlib";
 import * as msgpack from "@msgpack/msgpack";
 import { decryptBinary } from "./crypto";
 import { decodeDelta } from "./pathDictionary";
-import { PacketBuilder, PacketParser, PacketType } from "./packet";
+import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "./packet";
+import * as dgram from "dgram";
 import { SequenceTracker } from "./sequence";
 import { MetricsPublisher } from "./metrics-publisher";
+import type { SignalKApp, MetricsApi, InstanceState, Delta, DeltaValue } from "./types";
 
 import {
   MAX_DECOMPRESSED_SIZE,
@@ -41,15 +43,33 @@ const brotliDecompressAsync = promisify(zlib.brotliDecompress);
  * @param metricsApi - Metrics API from lib/metrics.js
  * @returns Pipeline API
  */
-function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
+interface ClientSession {
+  key: string;
+  address: string;
+  port: number;
+  sequenceTracker: SequenceTracker;
+  lastAckSeq: number | null;
+  lastAckSentAt: number;
+  hasReceivedData: boolean;
+  lastPacketTime: number;
+  lossBaseSeq: number | null;
+  lossHighestSeq: number | null;
+  lossReceivedCount: number;
+  lastLossExpected: number;
+  lastLossReceived: number;
+  rateLimitCount: number;
+  rateLimitWindowStart: number;
+}
+
+function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
   const { metrics, recordError, trackPathStats, updateBandwidthRates } = metricsApi;
   const protocolVersion = state.options && state.options.protocolVersion === 3 ? 3 : 2;
   const packetParser = new PacketParser({
-    secretKey: state.options && state.options.secretKey
+    secretKey: state.options?.secretKey ?? undefined
   });
   const packetBuilder = new PacketBuilder({
     protocolVersion,
-    secretKey: state.options && state.options.secretKey
+    secretKey: state.options?.secretKey ?? undefined
   });
   const CLIENT_TELEMETRY_SOURCE = "signalk-edge-link-client-telemetry";
   const CLIENT_TELEMETRY_PATHS = new Set([
@@ -74,13 +94,13 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
   /**
    * Per-client session map, keyed by "address:port".
    */
-  const clientSessions = new Map<string, any>();
+  const clientSessions = new Map<string, ClientSession>();
 
   /**
    * Get or create a session object for the given rinfo.
    * @private
    */
-  function _getOrCreateSession(rinfo: { address: string; port: number }): any {
+  function _getOrCreateSession(rinfo: { address: string; port: number }): ClientSession {
     const key = `${rinfo.address}:${rinfo.port}`;
 
     // Fast path: session already exists (most common case).
@@ -113,7 +133,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
     // Create new session. Guard against a re-entrant creation that may have
     // already added the session during the eviction scan above.
     if (clientSessions.has(key)) {
-      const session = clientSessions.get(key);
+      const session = clientSessions.get(key)!;
       session.lastPacketTime = Date.now();
       return session;
     }
@@ -192,7 +212,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
   let lastBytesReceived = 0;
   let lastPacketsReceived = 0;
 
-  function _toFiniteNumber(value: any): number | null {
+  function _toFiniteNumber(value: unknown): number | null {
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   }
@@ -202,14 +222,14 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
     return Number.isFinite(last) && last > 0 && now - last <= REMOTE_TELEMETRY_TTL_MS;
   }
 
-  function _ingestRemoteTelemetry(deltaMessage: any): void {
+  function _ingestRemoteTelemetry(deltaMessage: Delta): void {
     if (!deltaMessage || !Array.isArray(deltaMessage.updates)) {
       return;
     }
 
     let changed = false;
     const remote = metrics.remoteNetworkQuality || {};
-    const filteredUpdates: any[] = [];
+    const filteredUpdates: Delta["updates"] = [];
 
     for (const update of deltaMessage.updates) {
       if (!update || !Array.isArray(update.values)) {
@@ -223,7 +243,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
         continue;
       }
 
-      const remainingValues: any[] = [];
+      const remainingValues: DeltaValue[] = [];
       for (const entry of update.values) {
         if (!entry || typeof entry.path !== "string" || !CLIENT_TELEMETRY_PATHS.has(entry.path)) {
           remainingValues.push(entry);
@@ -316,7 +336,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
   }
 
   // sequenceTracker is now per-session; kept for backward-compat test access
-  function _getFirstSessionTracker(): any {
+  function _getFirstSessionTracker(): SequenceTracker {
     const first = clientSessions.values().next().value;
     return first
       ? first.sequenceTracker
@@ -342,7 +362,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
       const nakPacket = packetBuilder.buildNAKPacket(missingSeqs);
       await _sendUDP(nakPacket, destination);
 
-      metrics.naksSent++;
+      metrics.naksSent = (metrics.naksSent ?? 0) + 1;
       app.debug(
         `Sent NAK to ${destination.address}:${destination.port}: missing=${missingSeqs.join(", ")}`
       );
@@ -379,7 +399,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
 
         session.lastAckSeq = ackSeq;
         session.lastAckSentAt = Date.now();
-        metrics.acksSent++;
+        metrics.acksSent = (metrics.acksSent ?? 0) + 1;
         app.debug(`Sent ACK to ${session.key}: seq=${ackSeq}`);
       } catch (err: any) {
         app.error(`Failed to send ACK to ${session.key}: ${err.message}`);
@@ -425,7 +445,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
     }
 
     return new Promise<void>((resolve, reject) => {
-      state.socketUdp.send(packet, destination.port, destination.address, (err: any) => {
+      state.socketUdp!.send(packet, destination.port, destination.address, (err: Error | null) => {
         if (err) {
           reject(err);
         } else {
@@ -524,12 +544,12 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
 
       if (seqResult.duplicate) {
         app.debug(`v2 duplicate packet: seq=${parsed.sequence}`);
-        metrics.duplicatePackets++;
+        metrics.duplicatePackets = (metrics.duplicatePackets ?? 0) + 1;
         return;
       }
 
       // Count valid DATA packets for accurate packet loss calculation
-      metrics.dataPacketsReceived++;
+      metrics.dataPacketsReceived = (metrics.dataPacketsReceived ?? 0) + 1;
       if (session) {
         session.hasReceivedData = true;
       }
@@ -544,7 +564,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
           app.debug(`v2 sequence resync at seq=${dataSeq} for ${session.key}`);
         } else {
           session.lossReceivedCount++;
-          if (isAhead(dataSeq, session.lossHighestSeq)) {
+          if (isAhead(dataSeq, session.lossHighestSeq ?? 0)) {
             session.lossHighestSeq = dataSeq;
           }
         }
@@ -561,7 +581,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
       metrics.bandwidth.bytesInRaw += decompressed.length;
 
       // Parse content
-      let jsonContent: any;
+      let jsonContent: unknown;
       if (parsed.flags.messagepack) {
         try {
           jsonContent = msgpack.decode(decompressed);
@@ -581,7 +601,9 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
       }
 
       // Process deltas: payload may be an Array of deltas or an indexed object
-      const deltas: any[] = Array.isArray(jsonContent) ? jsonContent : Object.values(jsonContent);
+      const deltas: Delta[] = Array.isArray(jsonContent)
+        ? (jsonContent as Delta[])
+        : Object.values(jsonContent as Record<string, Delta>);
       const deltaCount = Math.min(deltas.length, MAX_DELTAS_PER_PACKET);
 
       if (deltas.length > MAX_DELTAS_PER_PACKET) {
@@ -644,21 +666,21 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
   /**
    * Get the sequence tracker for the first active session (backward-compat for tests).
    */
-  function getSequenceTracker(): any {
+  function getSequenceTracker(): SequenceTracker {
     return _getFirstSessionTracker();
   }
 
   /**
    * Get the packet builder (for testing/metrics)
    */
-  function getPacketBuilder(): any {
+  function getPacketBuilder(): PacketBuilder {
     return packetBuilder;
   }
 
   /**
    * Get server pipeline metrics including per-session state.
    */
-  function getMetrics(): any {
+  function getMetrics(): Record<string, unknown> {
     const sessions = [...clientSessions.values()].map((s) => ({
       address: s.key,
       expectedSeq: s.sequenceTracker.expectedSeq,
@@ -679,7 +701,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
   /**
    * Get the metrics publisher (for testing/external access)
    */
-  function getMetricsPublisher(): any {
+  function getMetricsPublisher(): MetricsPublisher {
     return metricsPublisher;
   }
 
@@ -779,7 +801,7 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
       queueDepth: effectiveQueueDepth,
       retransmitRate: effectiveRetransmitRate,
       activeLink: effectiveActiveLink,
-      sequenceNumber: _getFirstSessionTracker().expectedSeq,
+      sequenceNumber: _getFirstSessionTracker().expectedSeq ?? undefined,
       compressionRatio: metrics.bandwidth.compressionRatio || 0
     });
 

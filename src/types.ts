@@ -22,6 +22,7 @@ export interface DeltaUpdate {
     label?: string;
     type?: string;
   };
+  $source?: string;
   timestamp?: string;
   values: DeltaValue[];
 }
@@ -181,6 +182,8 @@ export interface ConnectionConfig {
   testPort?: number;
   /** Interval between PING keepalive packets (ms). Default 25000. */
   pingIntervalTime?: number;
+  /** Interval between heartbeat packets (ms). */
+  heartbeatInterval?: number;
   /** ARQ reliability layer configuration (ACK/NAK/retransmit). */
   reliability?: ReliabilityConfig;
   /** Automatic congestion-control configuration. */
@@ -274,6 +277,7 @@ export interface Metrics {
   naksSent?: number;
   duplicatePackets?: number;
   dataPacketsReceived?: number;
+  rateLimitedPackets?: number;
   droppedDeltaBatches?: number;
   droppedDeltaCount?: number;
 }
@@ -358,20 +362,30 @@ export interface InstanceState {
   helloMessageSender: ReturnType<typeof setInterval> | null;
   /** Ping-response watchdog timer handle; null when not active. */
   pingTimeout: ReturnType<typeof setTimeout> | null;
-  /** Ping monitor instance; null when not running. */
-  pingMonitor: unknown | null;
+  /** Pending subscription retry timer; null when not scheduled. */
+  subscriptionRetryTimer: ReturnType<typeof setTimeout> | null;
+  /** Pending UDP socket recovery timer; null when not scheduled. */
+  socketRecoveryTimer: ReturnType<typeof setTimeout> | null;
   /** Batch-flush timer handle; null when not armed. */
   deltaTimer: ReturnType<typeof setTimeout> | null;
   /** Active v2/v3 client pipeline instance; null in server mode or before start. */
-  pipeline: unknown | null;
+  pipeline: ClientPipelineApi | null;
   /** Active v2/v3 server pipeline instance; null in client mode or before start. */
-  pipelineServer: unknown | null;
+  pipelineServer: ServerPipelineApi | null;
   /** Heartbeat timer handle returned by `startHeartbeat()`; null when stopped. */
-  heartbeatHandle: unknown | null;
+  heartbeatHandle: { stop(): void } | null;
   /** Enhanced monitoring subsystem instance; null when not initialised. */
-  monitoring: unknown | null;
+  monitoring: MonitoringState | null;
   /** Network condition simulator instance (dev/test only); null in production. */
-  networkSimulator: unknown | null;
+  networkSimulator: {
+    getConditions(): Record<string, unknown>;
+    getStats(): Record<string, unknown>;
+  } | null;
+  /** Ping/TCP monitor instance; null when not running. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  pingMonitor: { on(event: string, handler: (...args: any[]) => void): void; stop(): void } | null;
+  /** File-system watcher objects registered for config files. */
+  configWatcherObjects: Array<{ close(): void }>;
   /** Per-config-file debounce timers, keyed by file path. */
   configDebounceTimers: Record<string, ReturnType<typeof setTimeout>>;
   /** Last-seen content hashes for watched config files, used to skip no-op reloads. */
@@ -405,6 +419,8 @@ export interface SignalKApp {
   reportOutputMessages: () => void;
   getSelfPath: (path: string) => unknown;
   getDataDirPath: () => string;
+  readPluginOptions?: () => Record<string, unknown>;
+  savePluginOptions?: (config: unknown, callback: (error: Error | null) => void) => void;
   subscriptionmanager: {
     subscribe: (
       subscription: unknown,
@@ -413,6 +429,186 @@ export interface SignalKApp {
       onDelta: (delta: Delta) => void
     ) => void;
   };
+}
+
+// ── Plugin Reference ─────────────────────────────────────────────────────────
+
+/** Reference to the plugin object used by route handlers. */
+export interface PluginRef {
+  _currentOptions?: {
+    managementApiToken?: string;
+    connections?: ConnectionConfig[];
+    [key: string]: unknown;
+  } | null;
+  _restartPlugin?: ((config: unknown) => Promise<void>) | null;
+  schema?: unknown;
+}
+
+// ── Effective Network Quality ────────────────────────────────────────────────
+
+/** Resolved network quality snapshot (merges local and remote-telemetry sources). */
+export interface EffectiveNetworkQuality {
+  rtt: number;
+  jitter: number;
+  packetLoss: number;
+  retransmissions: number;
+  queueDepth: number;
+  retransmitRate: number;
+  activeLink: string;
+  dataSource: string;
+  lastUpdate: number;
+}
+
+// ── Monitoring State ─────────────────────────────────────────────────────────
+
+/** Structural interface for the monitoring sub-system attached to each instance. */
+export interface MonitoringState {
+  packetLossTracker?: {
+    record(lost: boolean): void;
+    recordBatch(sent: number, lost: number): void;
+    getHeatmapData(): Array<{ timestamp: number; total: number; lost: number; lossRate: number }>;
+    getSummary(): {
+      overallLossRate: number;
+      maxLossRate: number;
+      trend: string;
+      bucketCount: number;
+    };
+    reset(): void;
+  };
+  pathLatencyTracker?: {
+    record(path: string, latencyMs: number): void;
+    getAllStats(topN?: number): unknown[];
+    reset(): void;
+  };
+  retransmissionTracker?: {
+    snapshot(totalPacketsSent: number, totalRetransmissions: number): void;
+    getChartData(limit?: number): unknown[];
+    getSummary(): { avgRate: number; maxRate: number; currentRate: number; entries: number };
+    reset(): void;
+  };
+  alertManager?: {
+    thresholds: Record<string, { warning?: number; critical?: number }>;
+    checkAll(metrics: Record<string, number | undefined>): unknown[];
+    getState(): { thresholds: unknown; activeAlerts: Record<string, unknown> };
+    setThreshold(metric: string, thresholds: { warning?: number; critical?: number }): void;
+    reset(): void;
+  };
+  packetCapture?: {
+    capture(data: Buffer, direction: string, meta?: { address?: string; port?: number }): void;
+    getStats(): unknown;
+    exportPcap(): Buffer;
+    start(): void;
+    stop(): void;
+    reset(): void;
+  };
+  packetInspector?: {
+    inspect(data: Buffer, direction: string, meta?: { address?: string; port?: number }): void;
+    getStats(): unknown;
+    reset(): void;
+  };
+}
+
+// ── Pipeline API Interfaces ──────────────────────────────────────────────────
+
+/** Structural interface for the bonding manager returned by getBondingManager(). */
+export interface BondingManagerApi {
+  getState(): {
+    enabled: boolean;
+    mode: string;
+    activeLink: string;
+    lastFailoverTime: number;
+    failoverThresholds: Record<string, number>;
+    links: Record<string, unknown>;
+  };
+  forceFailover(): void;
+  getActiveLinkName(): string;
+  getLinkHealth(): Record<
+    string,
+    {
+      address: string;
+      port: number;
+      status: string;
+      rtt: number;
+      loss: number;
+      quality: number;
+      heartbeatsSent: number;
+      heartbeatResponses: number;
+    }
+  >;
+  failoverThresholds: Record<string, number>;
+}
+
+/** Structural interface for the congestion controller returned by getCongestionControl(). */
+export interface CongestionControlApi {
+  getState(): {
+    enabled: boolean;
+    manualMode: boolean;
+    currentDeltaTimer: number;
+    nominalDeltaTimer: number;
+    avgRTT: number;
+    avgLoss: number;
+    targetRTT: number;
+    minDeltaTimer: number;
+    maxDeltaTimer: number;
+    adjustInterval: number;
+    maxAdjustment: number;
+  };
+  enableAutoMode(): void;
+  getCurrentDeltaTimer(): number;
+  setManualDeltaTimer(value: number): void;
+}
+
+/** Structural interface for the metrics publisher exposed by getMetricsPublisher(). */
+export interface MetricsPublisherApi {
+  calculateLinkQuality(params: {
+    rtt: number;
+    jitter: number;
+    packetLoss: number;
+    retransmitRate: number;
+  }): number;
+  publish(metrics: Record<string, number | string | undefined>): void;
+  publishLinkMetrics(linkName: string, metrics: Record<string, number | undefined>): void;
+}
+
+/** Public API returned by createPipelineV2Client(). */
+export interface ClientPipelineApi {
+  sendDelta(
+    deltas: Delta | Delta[],
+    secretKey: string,
+    address: string,
+    port: number
+  ): Promise<void>;
+  handleControlPacket(msg: Buffer, rinfo: import("dgram").RemoteInfo): Promise<void>;
+  startMetricsPublishing(): void;
+  stopMetricsPublishing(): void;
+  startCongestionControl(): void;
+  stopCongestionControl(): void;
+  startHeartbeat(
+    address: string,
+    port: number,
+    options?: { heartbeatInterval?: number }
+  ): { stop(): void };
+  initBonding(config: Record<string, unknown>): Promise<BondingManagerApi>;
+  stopBonding(): void;
+  getBondingManager(): BondingManagerApi | null;
+  getCongestionControl(): CongestionControlApi;
+  getMetricsPublisher(): MetricsPublisherApi;
+  getPacketBuilder(): unknown;
+  getRetransmitQueue(): unknown;
+  setMonitoring(hooks: MonitoringState | null): void;
+}
+
+/** Public API returned by createPipelineV2Server(). */
+export interface ServerPipelineApi {
+  receivePacket(packet: Buffer, secretKey: string, rinfo: import("dgram").RemoteInfo): void;
+  startACKTimer(): void;
+  stopACKTimer(): void;
+  startMetricsPublishing(): void;
+  stopMetricsPublishing(): void;
+  getSequenceTracker(): { reset(): void } | undefined;
+  getPacketBuilder(): unknown;
+  getMetrics(): unknown;
+  getMetricsPublisher(): MetricsPublisherApi;
 }
 
 export {};
