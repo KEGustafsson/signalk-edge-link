@@ -35,7 +35,7 @@ function makeResponse() {
       this.body = payload;
       return this;
     },
-    set(k, v) {
+    set(_k, _v) {
       return this;
     },
     contentType(t) {
@@ -69,7 +69,9 @@ function makeCtx(overrides = {}) {
 
 function findHandler(router, method, path) {
   const route = router.routes.find((r) => r.method === method && r.path === path);
-  if (!route) {throw new Error(`Route ${method.toUpperCase()} ${path} not found`);}
+  if (!route) {
+    throw new Error(`Route ${method.toUpperCase()} ${path} not found`);
+  }
   return route.handlers.at(-1);
 }
 
@@ -83,9 +85,9 @@ function makeMonitoringBundle(monitoringOverrides = {}) {
           getHeatmapData: () => [1, 2],
           getSummary: () => ({ overallLossRate: 0.01 })
         },
-        pathLatencyTracker: { getAllStats: (n) => [{ path: "test", latency: 10 }] },
+        pathLatencyTracker: { getAllStats: (_n) => [{ path: "test", latency: 10 }] },
         retransmissionTracker: {
-          getChartData: (limit) => [{ t: 1, rate: 0 }],
+          getChartData: (_limit) => [{ t: 1, rate: 0 }],
           getSummary: () => ({ avgRate: 0, maxRate: 0, currentRate: 0, entries: 1 })
         },
         alertManager: {

@@ -78,7 +78,7 @@ function makeCtx(overrides = {}) {
       retransmitRate: 0
     }),
     getActiveMetricsPublisher: () => null,
-    buildFullMetricsResponse: (bundle) => ({ ok: true }),
+    buildFullMetricsResponse: (_bundle) => ({ ok: true }),
     ...overrides,
     // Expose a default metrics object for bundle construction
     _defaultMetrics: defaultMetrics
@@ -87,7 +87,9 @@ function makeCtx(overrides = {}) {
 
 function findHandler(router, method, path) {
   const route = router.routes.find((r) => r.method === method && r.path === path);
-  if (!route) {throw new Error(`Route ${method.toUpperCase()} ${path} not found`);}
+  if (!route) {
+    throw new Error(`Route ${method.toUpperCase()} ${path} not found`);
+  }
   return route.handlers.at(-1);
 }
 
