@@ -34,12 +34,18 @@ describe("pipeline-v2-client authenticated control packets", () => {
     const metricsApi = createMetrics();
     const pipeline = createPipelineV2Client(app, state, metricsApi);
 
-    const dataBuilder = new PacketBuilder({ protocolVersion: 3, secretKey: state.options.secretKey, initialSequence: 12 });
+    const dataBuilder = new PacketBuilder({
+      protocolVersion: 3,
+      secretKey: state.options.secretKey,
+      initialSequence: 12
+    });
     const dataPacket = dataBuilder.buildDataPacket(Buffer.from("payload"));
     pipeline.getRetransmitQueue().add(12, dataPacket);
 
-    const ackPacket = new PacketBuilder({ protocolVersion: 3, secretKey: state.options.secretKey })
-      .buildACKPacket(12);
+    const ackPacket = new PacketBuilder({
+      protocolVersion: 3,
+      secretKey: state.options.secretKey
+    }).buildACKPacket(12);
 
     await pipeline.handleControlPacket(ackPacket, { address: "127.0.0.1", port: 4446 });
 
@@ -53,12 +59,18 @@ describe("pipeline-v2-client authenticated control packets", () => {
     const metricsApi = createMetrics();
     const pipeline = createPipelineV2Client(app, state, metricsApi);
 
-    const dataBuilder = new PacketBuilder({ protocolVersion: 3, secretKey: state.options.secretKey, initialSequence: 21 });
+    const dataBuilder = new PacketBuilder({
+      protocolVersion: 3,
+      secretKey: state.options.secretKey,
+      initialSequence: 21
+    });
     const dataPacket = dataBuilder.buildDataPacket(Buffer.from("payload"));
     pipeline.getRetransmitQueue().add(21, dataPacket);
 
-    const forgedNak = new PacketBuilder({ protocolVersion: 3, secretKey: "abcdefghijklmnopqrstuvwxyz123456" })
-      .buildNAKPacket([21]);
+    const forgedNak = new PacketBuilder({
+      protocolVersion: 3,
+      secretKey: "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536"
+    }).buildNAKPacket([21]);
 
     await pipeline.handleControlPacket(forgedNak, { address: "127.0.0.1", port: 4446 });
 
@@ -70,14 +82,21 @@ describe("pipeline-v2-client authenticated control packets", () => {
     const app = makeApp();
     const state = makeState({
       socketUdp: {
-        send: jest.fn((_message, _port, _host, cb) => cb(Object.assign(new Error("forced UDP send failure"), { code: "EIO" })))
+        send: jest.fn((_message, _port, _host, cb) =>
+          cb(Object.assign(new Error("forced UDP send failure"), { code: "EIO" }))
+        )
       }
     });
     const metricsApi = createMetrics();
     const pipeline = createPipelineV2Client(app, state, metricsApi);
 
     await expect(
-      pipeline.sendDelta([{ updates: [{ values: [{ path: "navigation.courseOverGroundTrue", value: 3.1 }] }] }], state.options.secretKey, "127.0.0.1", 4446)
+      pipeline.sendDelta(
+        [{ updates: [{ values: [{ path: "navigation.courseOverGroundTrue", value: 3.1 }] }] }],
+        state.options.secretKey,
+        "127.0.0.1",
+        4446
+      )
     ).rejects.toThrow("forced UDP send failure");
 
     expect(metricsApi.metrics.udpSendErrors).toBeGreaterThanOrEqual(1);
@@ -85,5 +104,4 @@ describe("pipeline-v2-client authenticated control packets", () => {
     expect(metricsApi.metrics.errorCounts.general).toBe(1);
     expect(app.error).toHaveBeenCalledWith(expect.stringContaining("v2 sendDelta error"));
   });
-
 });

@@ -168,6 +168,25 @@ export function validateSecretKey(key: string): boolean {
     }
   }
 
+  // Check for long sequential character runs (e.g., 20+ chars of "abcdefghij...").
+  // Only flags extreme sequences (≥20 consecutive chars); short runs can appear
+  // legitimately in randomly-generated keys.
+  let maxRunLength = 1;
+  let currentRunLength = 1;
+  for (let i = 1; i < key.length; i++) {
+    if (key.charCodeAt(i) === key.charCodeAt(i - 1) + 1) {
+      currentRunLength++;
+      if (currentRunLength > maxRunLength) {
+        maxRunLength = currentRunLength;
+      }
+    } else {
+      currentRunLength = 1;
+    }
+  }
+  if (maxRunLength >= 20) {
+    throw new Error("Secret key has insufficient entropy (long sequential character run detected)");
+  }
+
   // Check character diversity
   const uniqueChars = new Set(key.split("")).size;
   if (uniqueChars < 8) {

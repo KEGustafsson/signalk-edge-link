@@ -2,6 +2,7 @@
 
 import createRoutes = require("./routes");
 import { createInstance, slugify } from "./instance";
+import { validateConnectionConfig } from "./connection-config";
 import type { ConnectionConfig, SignalKApp, InstanceState, MetricsApi } from "./types";
 import type { Router } from "./routes/types";
 
@@ -159,6 +160,18 @@ module.exports = function createPlugin(app: SignalKApp) {
       );
       setStatus("Configuration error: duplicate server ports");
       return;
+    }
+
+    // ── Deep-validate all connections before creating any instances ───────
+    // This prevents a partial-start where early connections are created and
+    // then torn down when a later connection fails validation.
+    for (let i = 0; i < connectionList.length; i++) {
+      const validationError = validateConnectionConfig(connectionList[i], `connections[${i}].`);
+      if (validationError) {
+        app.error(`Connection ${i + 1} validation failed: ${validationError}`);
+        setStatus(`Configuration error in connection ${i + 1}: ${validationError}`);
+        return;
+      }
     }
 
     // ── Start rate limiting ───────────────────────────────────────────────
@@ -694,7 +707,14 @@ module.exports = function createPlugin(app: SignalKApp) {
         type: "string",
         title: "Management API Token",
         description:
-          "Optional shared secret to protect management API endpoints. Leave empty for open access. Can also be set via SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN environment variable."
+          "Shared secret to protect management API endpoints. Strongly recommended for production. Can also be set via SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN environment variable."
+      },
+      requireManagementApiToken: {
+        type: "boolean",
+        title: "Require Management API Token",
+        description:
+          "If true, all management API requests are rejected when no managementApiToken is configured. Enables a fail-closed security posture. Default: false (open access when no token is set).",
+        default: false
       },
       connections: {
         type: "array",

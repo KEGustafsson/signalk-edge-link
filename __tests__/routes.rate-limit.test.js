@@ -225,7 +225,6 @@ describe("rate limit middleware client identity", () => {
 
     expect(nextB).toHaveBeenCalled();
   });
-
 });
 
 describe("instances management route", () => {
@@ -268,8 +267,6 @@ describe("instances management route", () => {
     ]);
   });
 
-
-
   test("supports /instances filtering by state and paginated responses", () => {
     const app = { get: jest.fn(() => false) };
     const a = makeBundle();
@@ -298,15 +295,23 @@ describe("instances management route", () => {
     routes.registerWithRouter(router);
 
     const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
-    const req = { query: { state: "running", limit: "1", page: "2" }, headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const req = {
+      query: { state: "running", limit: "1", page: "2" },
+      headers: {},
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
     const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
 
     instancesRoute.handlers[1](req, res);
 
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      items: [expect.objectContaining({ id: "c", state: "running" })],
-      pagination: expect.objectContaining({ page: 2, limit: 1, total: 2, totalPages: 2 })
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [expect.objectContaining({ id: "c", state: "running" })],
+        pagination: expect.objectContaining({ page: 2, limit: 1, total: 2, totalPages: 2 })
+      })
+    );
   });
 
   test("rejects invalid /instances pagination params", () => {
@@ -324,7 +329,13 @@ describe("instances management route", () => {
 
     const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
     const json = jest.fn();
-    const req = { query: { limit: "0" }, headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const req = {
+      query: { limit: "0" },
+      headers: {},
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
     const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
 
     instancesRoute.handlers[1](req, res);
@@ -350,24 +361,34 @@ describe("instances management route", () => {
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
-    const instanceRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances/:id");
+    const instanceRoute = router.routes.find(
+      (r) => r.method === "get" && r.path === "/instances/:id"
+    );
     expect(instanceRoute).toBeDefined();
 
-    const req = { params: { id: "test" }, headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const req = {
+      params: { id: "test" },
+      headers: {},
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
     const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
 
     instanceRoute.handlers[1](req, res);
 
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      id: "test",
-      protocolVersion: 2,
-      state: "running",
-      readyToSend: true,
-      config: expect.objectContaining({ someOption: true }),
-      network: expect.objectContaining({ rtt: 0, dataSource: "local" }),
-      metrics: expect.objectContaining({ deltasSent: 0, duplicatePackets: 0 }),
-      bonding: expect.objectContaining({ enabled: false })
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "test",
+        protocolVersion: 2,
+        state: "running",
+        readyToSend: true,
+        config: expect.objectContaining({ someOption: true }),
+        network: expect.objectContaining({ rtt: 0, dataSource: "local" }),
+        metrics: expect.objectContaining({ deltasSent: 0, duplicatePackets: 0 }),
+        bonding: expect.objectContaining({ enabled: false })
+      })
+    );
   });
 
   test("registers /bonding and reports per-instance bonding state", () => {
@@ -398,11 +419,13 @@ describe("instances management route", () => {
 
     bondingRoute.handlers[1](req, res);
 
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      totalInstances: 1,
-      bondingEnabledInstances: 1,
-      instances: [expect.objectContaining({ enabled: true })]
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        totalInstances: 1,
+        bondingEnabledInstances: 1,
+        instances: [expect.objectContaining({ enabled: true })]
+      })
+    );
   });
 
   test("registers POST /bonding and validates unsupported keys", () => {
@@ -451,20 +474,32 @@ describe("instances management route", () => {
 
     const routes = createRoutes(app, instanceRegistry, {
       _restartPlugin: jest.fn(),
-      _currentOptions: { connections: [{ name: "test", serverType: "client", udpPort: 4446, secretKey: "123" }] }
+      _currentOptions: {
+        connections: [{ name: "test", serverType: "client", udpPort: 4446, secretKey: "123" }]
+      }
     });
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
-    const instanceRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances/:id");
-    const req = { params: { id: "test" }, headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
+    const instanceRoute = router.routes.find(
+      (r) => r.method === "get" && r.path === "/instances/:id"
+    );
+    const req = {
+      params: { id: "test" },
+      headers: {},
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
     const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
 
     instanceRoute.handlers[1](req, res);
 
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({ secretKey: "[redacted]" })
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ secretKey: "[redacted]" })
+      })
+    );
   });
 
   test("POST /instances appends a new connection and triggers restart", async () => {
@@ -474,7 +509,14 @@ describe("instances management route", () => {
     const pluginRef = {
       _restartPlugin: restart,
       _currentOptions: {
-        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+        connections: [
+          {
+            name: "base",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012"
+          }
+        ]
       }
     };
 
@@ -490,7 +532,12 @@ describe("instances management route", () => {
 
     const route = router.routes.find((r) => r.method === "post" && r.path === "/instances");
     const req = {
-      body: { name: "new", serverType: "server", udpPort: 4500, secretKey: "abcdefghijklmnopqrstuvwxyz123456" },
+      body: {
+        name: "new",
+        serverType: "server",
+        udpPort: 4500,
+        secretKey: "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536"
+      },
       headers: { "content-type": "application/json", "x-edge-link-token": "secret-token" },
       ip: "127.0.0.1",
       socket: {},
@@ -500,12 +547,14 @@ describe("instances management route", () => {
 
     await route.handlers[2](req, res);
 
-    expect(restart).toHaveBeenCalledWith(expect.objectContaining({
-      connections: expect.arrayContaining([
-        expect.objectContaining({ name: "base" }),
-        expect.objectContaining({ name: "new", udpPort: 4500 })
-      ])
-    }));
+    expect(restart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connections: expect.arrayContaining([
+          expect.objectContaining({ name: "base" }),
+          expect.objectContaining({ name: "new", udpPort: 4500 })
+        ])
+      })
+    );
   });
 
   test("POST /instances preserves managementApiToken across restart and keeps auth enforced", async () => {
@@ -516,7 +565,14 @@ describe("instances management route", () => {
       _restartPlugin: restart,
       _currentOptions: {
         managementApiToken: "secret-token",
-        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+        connections: [
+          {
+            name: "base",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012"
+          }
+        ]
       }
     };
 
@@ -532,7 +588,12 @@ describe("instances management route", () => {
 
     const createRoute = router.routes.find((r) => r.method === "post" && r.path === "/instances");
     const createReq = {
-      body: { name: "new", serverType: "server", udpPort: 4500, secretKey: "abcdefghijklmnopqrstuvwxyz123456" },
+      body: {
+        name: "new",
+        serverType: "server",
+        udpPort: 4500,
+        secretKey: "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536"
+      },
       headers: { "content-type": "application/json", "x-edge-link-token": "secret-token" },
       ip: "127.0.0.1",
       socket: {},
@@ -542,11 +603,19 @@ describe("instances management route", () => {
 
     await createRoute.handlers[2](createReq, createRes);
 
-    expect(restart).toHaveBeenCalledWith(expect.objectContaining({ managementApiToken: "secret-token" }));
+    expect(restart).toHaveBeenCalledWith(
+      expect.objectContaining({ managementApiToken: "secret-token" })
+    );
     expect(pluginRef._currentOptions.managementApiToken).toBe("secret-token");
 
     const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
-    const deniedReq = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false }, query: {} };
+    const deniedReq = {
+      headers: {},
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false },
+      query: {}
+    };
     const deniedJson = jest.fn();
     const deniedRes = { json: jest.fn(), status: jest.fn(() => ({ json: deniedJson })) };
 
@@ -556,7 +625,6 @@ describe("instances management route", () => {
     expect(deniedJson).toHaveBeenCalledWith({ error: "Unauthorized management API request" });
   });
 
-
   test("PUT /instances/:id rejects immutable field updates", async () => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();
@@ -565,7 +633,14 @@ describe("instances management route", () => {
     const pluginRef = {
       _restartPlugin: jest.fn().mockResolvedValue(undefined),
       _currentOptions: {
-        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+        connections: [
+          {
+            name: "base",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012"
+          }
+        ]
       }
     };
 
@@ -594,11 +669,10 @@ describe("instances management route", () => {
     await route.handlers[2](req, res);
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(json).toHaveBeenCalledWith({ error: "Field 'udpPort' is not updatable via /instances/:id" });
+    expect(json).toHaveBeenCalledWith({
+      error: "Field 'udpPort' is not updatable via /instances/:id"
+    });
   });
-
-
-
 
   test("PUT /instances/:id rejects unknown mutable keys", async () => {
     const app = { get: jest.fn(() => false) };
@@ -608,7 +682,14 @@ describe("instances management route", () => {
     const pluginRef = {
       _restartPlugin: jest.fn().mockResolvedValue(undefined),
       _currentOptions: {
-        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+        connections: [
+          {
+            name: "base",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012"
+          }
+        ]
       }
     };
 
@@ -637,23 +718,36 @@ describe("instances management route", () => {
     await route.handlers[2](req, res);
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(json).toHaveBeenCalledWith({ error: "Field 'foo' is not supported for /instances/:id updates" });
+    expect(json).toHaveBeenCalledWith({
+      error: "Field 'foo' is not supported for /instances/:id updates"
+    });
   });
   test("POST /instances validates secretKey length", async () => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();
     const restart = jest.fn().mockResolvedValue(undefined);
 
-    const routes = createRoutes(app, {
-      get: jest.fn(() => bundle),
-      getFirst: jest.fn(() => bundle),
-      getAll: jest.fn(() => [bundle])
-    }, {
-      _restartPlugin: restart,
-      _currentOptions: {
-        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+    const routes = createRoutes(
+      app,
+      {
+        get: jest.fn(() => bundle),
+        getFirst: jest.fn(() => bundle),
+        getAll: jest.fn(() => [bundle])
+      },
+      {
+        _restartPlugin: restart,
+        _currentOptions: {
+          connections: [
+            {
+              name: "base",
+              serverType: "client",
+              udpPort: 4446,
+              secretKey: "12345678901234567890123456789012"
+            }
+          ]
+        }
       }
-    });
+    );
 
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
@@ -673,7 +767,8 @@ describe("instances management route", () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(json).toHaveBeenCalledWith({
-      error: "Secret key must be exactly 32 bytes: use a 32-character ASCII string, 64-character hex string, or 44-character base64 string"
+      error:
+        "Secret key must be exactly 32 bytes: use a 32-character ASCII string, 64-character hex string, or 44-character base64 string"
     });
     expect(restart).not.toHaveBeenCalled();
   });
@@ -683,16 +778,27 @@ describe("instances management route", () => {
     const bundle = makeBundle();
     const restart = jest.fn().mockResolvedValue(undefined);
 
-    const routes = createRoutes(app, {
-      get: jest.fn(() => bundle),
-      getFirst: jest.fn(() => bundle),
-      getAll: jest.fn(() => [bundle])
-    }, {
-      _restartPlugin: restart,
-      _currentOptions: {
-        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+    const routes = createRoutes(
+      app,
+      {
+        get: jest.fn(() => bundle),
+        getFirst: jest.fn(() => bundle),
+        getAll: jest.fn(() => [bundle])
+      },
+      {
+        _restartPlugin: restart,
+        _currentOptions: {
+          connections: [
+            {
+              name: "base",
+              serverType: "client",
+              udpPort: 4446,
+              secretKey: "12345678901234567890123456789012"
+            }
+          ]
+        }
       }
-    });
+    );
 
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
@@ -714,14 +820,16 @@ describe("instances management route", () => {
 
     await route.handlers[2](req, res);
 
-    expect(restart).toHaveBeenCalledWith(expect.objectContaining({
-      connections: expect.arrayContaining([
-        expect.objectContaining({
-          name: "hex-key",
-          secretKey: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
-        })
-      ])
-    }));
+    expect(restart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connections: expect.arrayContaining([
+          expect.objectContaining({
+            name: "hex-key",
+            secretKey: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+          })
+        ])
+      })
+    );
   });
 
   test("POST /instances accepts 44-character base64 secret keys", async () => {
@@ -729,16 +837,27 @@ describe("instances management route", () => {
     const bundle = makeBundle();
     const restart = jest.fn().mockResolvedValue(undefined);
 
-    const routes = createRoutes(app, {
-      get: jest.fn(() => bundle),
-      getFirst: jest.fn(() => bundle),
-      getAll: jest.fn(() => [bundle])
-    }, {
-      _restartPlugin: restart,
-      _currentOptions: {
-        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+    const routes = createRoutes(
+      app,
+      {
+        get: jest.fn(() => bundle),
+        getFirst: jest.fn(() => bundle),
+        getAll: jest.fn(() => [bundle])
+      },
+      {
+        _restartPlugin: restart,
+        _currentOptions: {
+          connections: [
+            {
+              name: "base",
+              serverType: "client",
+              udpPort: 4446,
+              secretKey: "12345678901234567890123456789012"
+            }
+          ]
+        }
       }
-    });
+    );
 
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
@@ -760,14 +879,16 @@ describe("instances management route", () => {
 
     await route.handlers[2](req, res);
 
-    expect(restart).toHaveBeenCalledWith(expect.objectContaining({
-      connections: expect.arrayContaining([
-        expect.objectContaining({
-          name: "base64-key",
-          secretKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-        })
-      ])
-    }));
+    expect(restart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connections: expect.arrayContaining([
+          expect.objectContaining({
+            name: "base64-key",
+            secretKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+          })
+        ])
+      })
+    );
   });
 
   test("PUT /instances/:id validates the fully merged connection", async () => {
@@ -821,7 +942,6 @@ describe("instances management route", () => {
     expect(pluginRef._restartPlugin).not.toHaveBeenCalled();
   });
 
-
   test("PUT /instances/:id preserves managementApiToken across restart and keeps auth enforced", async () => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();
@@ -832,7 +952,20 @@ describe("instances management route", () => {
       _restartPlugin: restart,
       _currentOptions: {
         managementApiToken: "secret-token",
-        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012", protocolVersion: 2, udpAddress: "127.0.0.1", testAddress: "127.0.0.1", testPort: 80, pingIntervalTime: 10, helloMessageSender: 60 }]
+        connections: [
+          {
+            name: "base",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012",
+            protocolVersion: 2,
+            udpAddress: "127.0.0.1",
+            testAddress: "127.0.0.1",
+            testPort: 80,
+            pingIntervalTime: 10,
+            helloMessageSender: 60
+          }
+        ]
       }
     };
 
@@ -846,7 +979,9 @@ describe("instances management route", () => {
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
-    const updateRoute = router.routes.find((r) => r.method === "put" && r.path === "/instances/:id");
+    const updateRoute = router.routes.find(
+      (r) => r.method === "put" && r.path === "/instances/:id"
+    );
     const updateReq = {
       params: { id: "base" },
       body: { protocolVersion: 3 },
@@ -859,11 +994,19 @@ describe("instances management route", () => {
 
     await updateRoute.handlers[2](updateReq, updateRes);
 
-    expect(restart).toHaveBeenCalledWith(expect.objectContaining({ managementApiToken: "secret-token" }));
+    expect(restart).toHaveBeenCalledWith(
+      expect.objectContaining({ managementApiToken: "secret-token" })
+    );
     expect(pluginRef._currentOptions.managementApiToken).toBe("secret-token");
 
     const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
-    const deniedReq = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false }, query: {} };
+    const deniedReq = {
+      headers: {},
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false },
+      query: {}
+    };
     const deniedJson = jest.fn();
     const deniedRes = { json: jest.fn(), status: jest.fn(() => ({ json: deniedJson })) };
 
@@ -884,8 +1027,18 @@ describe("instances management route", () => {
       _currentOptions: {
         managementApiToken: "secret-token",
         connections: [
-          { name: "alpha", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" },
-          { name: "beta", serverType: "client", udpPort: 4447, secretKey: "12345678901234567890123456789012" }
+          {
+            name: "alpha",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012"
+          },
+          {
+            name: "beta",
+            serverType: "client",
+            udpPort: 4447,
+            secretKey: "12345678901234567890123456789012"
+          }
         ]
       }
     };
@@ -900,7 +1053,9 @@ describe("instances management route", () => {
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
-    const deleteRoute = router.routes.find((r) => r.method === "delete" && r.path === "/instances/:id");
+    const deleteRoute = router.routes.find(
+      (r) => r.method === "delete" && r.path === "/instances/:id"
+    );
     const deleteReq = {
       params: { id: "alpha" },
       headers: { "x-edge-link-token": "secret-token" },
@@ -912,11 +1067,19 @@ describe("instances management route", () => {
 
     await deleteRoute.handlers[1](deleteReq, deleteRes);
 
-    expect(restart).toHaveBeenCalledWith(expect.objectContaining({ managementApiToken: "secret-token" }));
+    expect(restart).toHaveBeenCalledWith(
+      expect.objectContaining({ managementApiToken: "secret-token" })
+    );
     expect(pluginRef._currentOptions.managementApiToken).toBe("secret-token");
 
     const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
-    const deniedReq = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false }, query: {} };
+    const deniedReq = {
+      headers: {},
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false },
+      query: {}
+    };
     const deniedJson = jest.fn();
     const deniedRes = { json: jest.fn(), status: jest.fn(() => ({ json: deniedJson })) };
 
@@ -926,22 +1089,32 @@ describe("instances management route", () => {
     expect(deniedJson).toHaveBeenCalledWith({ error: "Unauthorized management API request" });
   });
 
-
   test("POST /instances rejects duplicate server UDP ports", async () => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();
     const restart = jest.fn().mockResolvedValue(undefined);
 
-    const routes = createRoutes(app, {
-      get: jest.fn(() => bundle),
-      getFirst: jest.fn(() => bundle),
-      getAll: jest.fn(() => [bundle])
-    }, {
-      _restartPlugin: restart,
-      _currentOptions: {
-        connections: [{ name: "s1", serverType: "server", udpPort: 4500, secretKey: "12345678901234567890123456789012" }]
+    const routes = createRoutes(
+      app,
+      {
+        get: jest.fn(() => bundle),
+        getFirst: jest.fn(() => bundle),
+        getAll: jest.fn(() => [bundle])
+      },
+      {
+        _restartPlugin: restart,
+        _currentOptions: {
+          connections: [
+            {
+              name: "s1",
+              serverType: "server",
+              udpPort: 4500,
+              secretKey: "12345678901234567890123456789012"
+            }
+          ]
+        }
       }
-    });
+    );
 
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
@@ -949,7 +1122,12 @@ describe("instances management route", () => {
 
     const json = jest.fn();
     const req = {
-      body: { name: "s2", serverType: "server", udpPort: 4500, secretKey: "abcdefghijklmnopqrstuvwxyz123456" },
+      body: {
+        name: "s2",
+        serverType: "server",
+        udpPort: 4500,
+        secretKey: "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536"
+      },
       headers: { "content-type": "application/json" },
       ip: "127.0.0.1",
       socket: {},
@@ -973,7 +1151,12 @@ describe("instances management route", () => {
       _restartPlugin: jest.fn().mockResolvedValue(undefined),
       _currentOptions: {
         connections: [
-          { name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }
+          {
+            name: "base",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012"
+          }
         ]
       }
     };
@@ -1003,10 +1186,11 @@ describe("instances management route", () => {
     await route.handlers[2](req, res);
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(json).toHaveBeenCalledWith({ error: "Request body must include at least one field to update" });
+    expect(json).toHaveBeenCalledWith({
+      error: "Request body must include at least one field to update"
+    });
     expect(pluginRef._restartPlugin).not.toHaveBeenCalled();
   });
-
 
   test("DELETE /instances/:id rejects deleting the last configured instance", async () => {
     const app = { get: jest.fn(() => false) };
@@ -1016,7 +1200,14 @@ describe("instances management route", () => {
     const pluginRef = {
       _restartPlugin: jest.fn().mockResolvedValue(undefined),
       _currentOptions: {
-        connections: [{ name: "solo", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+        connections: [
+          {
+            name: "solo",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012"
+          }
+        ]
       }
     };
 
@@ -1052,15 +1243,26 @@ describe("instances management route", () => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();
 
-    const routes = createRoutes(app, {
-      get: jest.fn(() => bundle),
-      getFirst: jest.fn(() => bundle),
-      getAll: jest.fn(() => [bundle])
-    }, {
-      _currentOptions: {
-        connections: [{ name: "base", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }]
+    const routes = createRoutes(
+      app,
+      {
+        get: jest.fn(() => bundle),
+        getFirst: jest.fn(() => bundle),
+        getAll: jest.fn(() => [bundle])
+      },
+      {
+        _currentOptions: {
+          connections: [
+            {
+              name: "base",
+              serverType: "client",
+              udpPort: 4446,
+              secretKey: "12345678901234567890123456789012"
+            }
+          ]
+        }
       }
-    });
+    );
 
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
@@ -1072,7 +1274,7 @@ describe("instances management route", () => {
         name: "new",
         serverType: "client",
         udpPort: 4447,
-        secretKey: "abcdefghijklmnopqrstuvwxyz123456",
+        secretKey: "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536",
         udpAddress: "127.0.0.1",
         testAddress: "8.8.8.8",
         testPort: 53
@@ -1089,9 +1291,7 @@ describe("instances management route", () => {
     expect(res.status).toHaveBeenCalledWith(503);
     expect(json).toHaveBeenCalledWith({ error: "Runtime restart handler unavailable" });
   });
-
 });
-
 
 describe("status and error summary routes", () => {
   test("returns aggregated /status with recent errors", () => {
@@ -1103,7 +1303,9 @@ describe("status and error summary routes", () => {
     bundle.metricsApi.metrics.lastError = "Subscription error";
     bundle.metricsApi.metrics.lastErrorTime = 123;
     bundle.metricsApi.metrics.errorCounts = { subscription: 3, general: 1 };
-    bundle.metricsApi.metrics.recentErrors = [{ category: "subscription", message: "failed", timestamp: 111 }];
+    bundle.metricsApi.metrics.recentErrors = [
+      { category: "subscription", message: "failed", timestamp: 111 }
+    ];
 
     const instanceRegistry = {
       get: jest.fn(() => bundle),
@@ -1123,23 +1325,29 @@ describe("status and error summary routes", () => {
 
     statusRoute.handlers[1](req, res);
 
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      healthyInstances: 0,
-      totalInstances: 1,
-      instances: [expect.objectContaining({
-        id: "alpha",
-        healthy: false,
-        errorCounts: { subscription: 3, general: 1 },
-        recentErrors: [{ category: "subscription", message: "failed", timestamp: 111 }]
-      })]
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        healthyInstances: 0,
+        totalInstances: 1,
+        instances: [
+          expect.objectContaining({
+            id: "alpha",
+            healthy: false,
+            errorCounts: { subscription: 3, general: 1 },
+            recentErrors: [{ category: "subscription", message: "failed", timestamp: 111 }]
+          })
+        ]
+      })
+    );
   });
 
   test("includes error summaries in /metrics response", () => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();
     bundle.metricsApi.metrics.errorCounts = { general: 2, udpSend: 1 };
-    bundle.metricsApi.metrics.recentErrors = [{ category: "udpSend", message: "socket down", timestamp: 42 }];
+    bundle.metricsApi.metrics.recentErrors = [
+      { category: "udpSend", message: "socket down", timestamp: 42 }
+    ];
 
     const instanceRegistry = {
       get: jest.fn(() => bundle),
@@ -1157,12 +1365,14 @@ describe("status and error summary routes", () => {
 
     metricsRoute.handlers[1](req, res);
 
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      stats: expect.objectContaining({
-        errorCounts: { general: 2, udpSend: 1 }
-      }),
-      recentErrors: [{ category: "udpSend", message: "socket down", timestamp: 42 }]
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stats: expect.objectContaining({
+          errorCounts: { general: 2, udpSend: 1 }
+        }),
+        recentErrors: [{ category: "udpSend", message: "socket down", timestamp: 42 }]
+      })
+    );
   });
 });
 
@@ -1234,8 +1444,18 @@ describe("monitoring alert persistence", () => {
     const pluginRef = {
       _currentOptions: {
         connections: [
-          { name: "alpha", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" },
-          { name: "beta", serverType: "client", udpPort: 4447, secretKey: "12345678901234567890123456789012" }
+          {
+            name: "alpha",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: "12345678901234567890123456789012"
+          },
+          {
+            name: "beta",
+            serverType: "client",
+            udpPort: 4447,
+            secretKey: "12345678901234567890123456789012"
+          }
         ]
       }
     };
@@ -1271,7 +1491,6 @@ describe("monitoring alert persistence", () => {
   });
 });
 
-
 describe("management API token authorization", () => {
   test("rejects /instances when managementApiToken is configured and missing", () => {
     const app = { get: jest.fn(() => false) };
@@ -1282,7 +1501,9 @@ describe("management API token authorization", () => {
       getAll: jest.fn(() => [bundle])
     };
 
-    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const routes = createRoutes(app, instanceRegistry, {
+      _currentOptions: { managementApiToken: "secret-token" }
+    });
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
@@ -1306,7 +1527,9 @@ describe("management API token authorization", () => {
       getAll: jest.fn(() => [bundle])
     };
 
-    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const routes = createRoutes(app, instanceRegistry, {
+      _currentOptions: { managementApiToken: "secret-token" }
+    });
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
@@ -1335,7 +1558,9 @@ describe("management API token authorization", () => {
       getAll: jest.fn(() => [bundle])
     };
 
-    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const routes = createRoutes(app, instanceRegistry, {
+      _currentOptions: { managementApiToken: "secret-token" }
+    });
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
@@ -1353,9 +1578,10 @@ describe("management API token authorization", () => {
 
     expect(res.status).not.toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalled();
-    expect(app.debug).toHaveBeenCalledWith(expect.stringContaining("authorized action=instances.list"));
+    expect(app.debug).toHaveBeenCalledWith(
+      expect.stringContaining("authorized action=instances.list")
+    );
   });
-
 
   test("allows /instances with legacy x-management-token header", () => {
     const app = { get: jest.fn(() => false), debug: jest.fn() };
@@ -1366,7 +1592,9 @@ describe("management API token authorization", () => {
       getAll: jest.fn(() => [bundle])
     };
 
-    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const routes = createRoutes(app, instanceRegistry, {
+      _currentOptions: { managementApiToken: "secret-token" }
+    });
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
@@ -1386,7 +1614,6 @@ describe("management API token authorization", () => {
     expect(res.json).toHaveBeenCalled();
   });
 
-
   test("accepts valid Bearer token when x-edge-link-token is present but invalid", () => {
     const app = { get: jest.fn(() => false), debug: jest.fn() };
     const bundle = makeBundle();
@@ -1396,7 +1623,9 @@ describe("management API token authorization", () => {
       getAll: jest.fn(() => [bundle])
     };
 
-    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const routes = createRoutes(app, instanceRegistry, {
+      _currentOptions: { managementApiToken: "secret-token" }
+    });
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
@@ -1427,7 +1656,9 @@ describe("management API token authorization", () => {
       getAll: jest.fn(() => [bundle])
     };
 
-    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const routes = createRoutes(app, instanceRegistry, {
+      _currentOptions: { managementApiToken: "secret-token" }
+    });
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
@@ -1496,7 +1727,9 @@ describe("management API token authorization", () => {
       getAll: jest.fn(() => [bundle])
     };
 
-    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const routes = createRoutes(app, instanceRegistry, {
+      _currentOptions: { managementApiToken: "secret-token" }
+    });
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
@@ -1517,7 +1750,12 @@ describe("management API token authorization", () => {
       readPluginOptions: jest.fn(() => ({
         configuration: {
           connections: [
-            { name: "alpha", serverType: "client", udpPort: 4446, secretKey: "12345678901234567890123456789012" }
+            {
+              name: "alpha",
+              serverType: "client",
+              udpPort: 4446,
+              secretKey: "12345678901234567890123456789012"
+            }
           ]
         }
       }))
@@ -1566,17 +1804,35 @@ describe("management API token authorization", () => {
       getAll: jest.fn(() => [bundle])
     };
 
-    const routes = createRoutes(app, instanceRegistry, { _currentOptions: { managementApiToken: "secret-token" } });
+    const routes = createRoutes(app, instanceRegistry, {
+      _currentOptions: { managementApiToken: "secret-token" }
+    });
     const router = makeRouterCollector();
     routes.registerWithRouter(router);
 
     const specs = [
       { method: "get", path: "/plugin-config" },
       { method: "post", path: "/plugin-config" },
-      { method: "get", path: "/config/:filename", req: { params: { filename: "delta_timer.json" } } },
-      { method: "post", path: "/config/:filename", req: { params: { filename: "delta_timer.json" }, body: {} } },
-      { method: "get", path: "/connections/:id/config/:filename", req: { params: { id: "alpha", filename: "delta_timer.json" } } },
-      { method: "post", path: "/connections/:id/config/:filename", req: { params: { id: "alpha", filename: "delta_timer.json" }, body: {} } },
+      {
+        method: "get",
+        path: "/config/:filename",
+        req: { params: { filename: "delta_timer.json" } }
+      },
+      {
+        method: "post",
+        path: "/config/:filename",
+        req: { params: { filename: "delta_timer.json" }, body: {} }
+      },
+      {
+        method: "get",
+        path: "/connections/:id/config/:filename",
+        req: { params: { id: "alpha", filename: "delta_timer.json" } }
+      },
+      {
+        method: "post",
+        path: "/connections/:id/config/:filename",
+        req: { params: { id: "alpha", filename: "delta_timer.json" }, body: {} }
+      },
       { method: "get", path: "/monitoring/alerts" },
       { method: "post", path: "/monitoring/alerts", req: { body: { metric: "rtt", warning: 1 } } },
       { method: "get", path: "/capture" },
@@ -1585,11 +1841,17 @@ describe("management API token authorization", () => {
       { method: "get", path: "/capture/export" },
       { method: "post", path: "/delta-timer", req: { body: { value: 200 } } },
       { method: "post", path: "/bonding/failover" },
-      { method: "post", path: "/connections/:id/bonding/failover", req: { params: { id: "alpha" } } }
+      {
+        method: "post",
+        path: "/connections/:id/bonding/failover",
+        req: { params: { id: "alpha" } }
+      }
     ];
 
     for (const spec of specs) {
-      const route = router.routes.find((entry) => entry.method === spec.method && entry.path === spec.path);
+      const route = router.routes.find(
+        (entry) => entry.method === spec.method && entry.path === spec.path
+      );
       expect(route).toBeDefined();
 
       const json = jest.fn();

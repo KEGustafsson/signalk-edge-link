@@ -53,9 +53,12 @@ export class PacketLossTracker {
   record(lost: boolean): void {
     const now = Date.now();
     this._ensureBucket(now);
-    this._currentBucket!.total++;
+    if (!this._currentBucket) {
+      return;
+    }
+    this._currentBucket.total++;
     if (lost) {
-      this._currentBucket!.lost++;
+      this._currentBucket.lost++;
     }
   }
 
@@ -67,8 +70,11 @@ export class PacketLossTracker {
   recordBatch(sent: number, lost: number): void {
     const now = Date.now();
     this._ensureBucket(now);
-    this._currentBucket!.total += sent;
-    this._currentBucket!.lost += lost;
+    if (!this._currentBucket) {
+      return;
+    }
+    this._currentBucket.total += sent;
+    this._currentBucket.lost += lost;
   }
 
   /**
@@ -235,9 +241,7 @@ export class PathLatencyTracker {
    * @param {string} path - Signal K path
    * @returns {Object|null} Latency stats or null
    */
-  getPathStats(
-    path: string
-  ): {
+  getPathStats(path: string): {
     path: string;
     sampleCount: number;
     avg: number;
@@ -261,9 +265,7 @@ export class PathLatencyTracker {
    * @param {number} [topN=20] - Maximum number of paths to return
    * @returns {Array<Object>} Sorted by average latency (descending)
    */
-  getAllStats(
-    topN: number = 20
-  ): Array<{
+  getAllStats(topN: number = 20): Array<{
     path: string;
     sampleCount: number;
     avg: number;
@@ -446,9 +448,7 @@ export class RetransmissionTracker {
    * @param {number} [limit] - Maximum entries to return
    * @returns {Array<Object>} Time series data
    */
-  getChartData(
-    limit?: number
-  ): Array<{
+  getChartData(limit?: number): Array<{
     timestamp: number;
     rate: number;
     retransmitsPerSec: number;

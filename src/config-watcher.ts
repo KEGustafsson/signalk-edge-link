@@ -59,8 +59,8 @@ export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): () => v
 
   return function handleChange() {
     clearTimeout(state.configDebounceTimers[name]);
-    state.configDebounceTimers[name] = setTimeout(async () => {
-      try {
+    state.configDebounceTimers[name] = setTimeout(() => {
+      (async () => {
         let content: string | null;
         const filePath = getFilePath();
         if (readFallback !== undefined) {
@@ -83,9 +83,10 @@ export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): () => v
         const parsed = content ? JSON.parse(content) : readFallback;
         await processConfig(parsed);
         state.configContentHashes[name] = contentHash;
-      } catch (err: any) {
-        app.error(`[${instanceId}] Error handling ${name} change: ${err.message}`);
-      }
+      })().catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        app.error(`[${instanceId}] Error handling ${name} change: ${msg}`);
+      });
     }, FILE_WATCH_DEBOUNCE_DELAY);
   };
 }
@@ -277,7 +278,7 @@ export async function initializePersistentStorage({
   ];
 
   for (const { file, data, name } of defaults) {
-    const existing = await loadConfigFile(file) as any;
+    const existing = (await loadConfigFile(file)) as any;
     if (!existing) {
       await saveConfigFile(file, data);
       app.debug(`[${instanceId}] Initialized ${name} with defaults`);

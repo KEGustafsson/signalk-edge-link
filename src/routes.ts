@@ -69,10 +69,43 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     return null;
   }
 
+  function isTokenRequired(): boolean {
+    // Explicit opt-in to enforce token-based auth even when no token is set yet
+    // (allows admins to lock the API before the token is provisioned).
+    const fromOptions =
+      pluginRef && pluginRef._currentOptions && pluginRef._currentOptions.requireManagementApiToken;
+    if (fromOptions === true) {
+      return true;
+    }
+    const fromEnv = process.env.SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN;
+    return fromEnv === "true" || fromEnv === "1";
+  }
+
   function authorizeManagement(req: RouteRequest, res: RouteResponse, action?: string): boolean {
     const expectedToken = getManagementToken();
     if (!expectedToken) {
-      return true;
+      // No token configured → allow open access unless the admin explicitly
+      // requires one.  This preserves backwards-compatible behaviour for
+      // existing deployments.  A startup warning is logged to encourage
+      // operators to configure a token (see registerWithRouter below).
+      if (!isTokenRequired()) {
+        return true;
+      }
+      // Token required but not yet configured → deny with a helpful message.
+      if (app && typeof app.error === "function") {
+        const ip = req.ip || (req.socket && req.socket.remoteAddress) || "unknown";
+        app.error(
+          `[management-api] blocked unauthenticated request action=${action || "unknown"} ip=${ip} — ` +
+            "requireManagementApiToken is set but no token is configured. " +
+            "Set managementApiToken or SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN."
+        );
+      }
+      res.status(403).json({
+        error:
+          "Management API token required. " +
+          "Configure managementApiToken in plugin settings or set SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN env var."
+      });
+      return false;
     }
 
     const headerToken = req.headers
@@ -268,29 +301,27 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         : 0;
     const hasOnlyLocalServerValues = state.isServerMode && !hasFreshRemote;
 
+    // Select a metric value based on data availability:
+    // - hasFreshRemote  → use client-reported telemetry
+    // - server with no fresh remote → no meaningful value (return 0)
+    // - client mode → use locally-measured value
+    function selectMetric(remoteVal: number | undefined, localVal: number | undefined): number {
+      if (hasFreshRemote) {
+        return remoteVal ?? 0;
+      }
+      if (hasOnlyLocalServerValues) {
+        return 0;
+      }
+      return localVal ?? 0;
+    }
+
     return {
-      rtt: hasFreshRemote ? (remote.rtt ?? 0) : hasOnlyLocalServerValues ? 0 : (metrics.rtt ?? 0),
-      jitter: hasFreshRemote
-        ? (remote.jitter ?? 0)
-        : hasOnlyLocalServerValues
-          ? 0
-          : (metrics.jitter ?? 0),
+      rtt: selectMetric(remote.rtt, metrics.rtt),
+      jitter: selectMetric(remote.jitter, metrics.jitter),
       packetLoss: hasFreshRemote ? (remote.packetLoss ?? 0) : (metrics.packetLoss ?? 0),
-      retransmissions: hasFreshRemote
-        ? (remote.retransmissions ?? 0)
-        : hasOnlyLocalServerValues
-          ? 0
-          : (metrics.retransmissions ?? 0),
-      queueDepth: hasFreshRemote
-        ? (remote.queueDepth ?? 0)
-        : hasOnlyLocalServerValues
-          ? 0
-          : (metrics.queueDepth ?? 0),
-      retransmitRate: hasFreshRemote
-        ? (remote.retransmitRate ?? 0)
-        : hasOnlyLocalServerValues
-          ? 0
-          : clientRetransmitRate,
+      retransmissions: selectMetric(remote.retransmissions, metrics.retransmissions),
+      queueDepth: selectMetric(remote.queueDepth, metrics.queueDepth),
+      retransmitRate: selectMetric(remote.retransmitRate, clientRetransmitRate),
       activeLink: hasFreshRemote ? (remote.activeLink ?? "primary") : "primary",
       dataSource: hasFreshRemote ? "remote-client" : "local",
       lastUpdate: hasFreshRemote ? remote.lastUpdate : 0
@@ -481,11 +512,15 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       if (next) next();
     };
 
-    // Warn once at startup if the management API has no token configured.
-    if (!getManagementToken() && app && typeof app.debug === "function") {
-      app.debug(
+    // Warn at startup when the management API is running without a token (open access).
+    // This is the default for backwards compatibility; operators should configure a
+    // token for production deployments.
+    if (!getManagementToken() && !isTokenRequired() && app && typeof app.error === "function") {
+      app.error(
         "[edge-link] WARNING: Management API is open — no managementApiToken configured. " +
-          "Set SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN or configure managementApiToken to restrict access."
+          "Anyone with network access can read metrics and modify connection settings. " +
+          "Set managementApiToken in plugin settings or SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN env var " +
+          "to restrict access. Set requireManagementApiToken: true to deny access until a token is configured."
       );
     }
 

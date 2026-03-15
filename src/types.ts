@@ -366,6 +366,8 @@ export interface InstanceState {
   subscriptionRetryTimer: ReturnType<typeof setTimeout> | null;
   /** Pending UDP socket recovery timer; null when not scheduled. */
   socketRecoveryTimer: ReturnType<typeof setTimeout> | null;
+  /** True while a socket recovery is in progress; gates send operations during recovery. */
+  socketRecoveryInProgress: boolean;
   /** Batch-flush timer handle; null when not armed. */
   deltaTimer: ReturnType<typeof setTimeout> | null;
   /** Active v2/v3 client pipeline instance; null in server mode or before start. */
@@ -437,6 +439,7 @@ export interface SignalKApp {
 export interface PluginRef {
   _currentOptions?: {
     managementApiToken?: string;
+    requireManagementApiToken?: boolean;
     connections?: ConnectionConfig[];
     [key: string]: unknown;
   } | null;

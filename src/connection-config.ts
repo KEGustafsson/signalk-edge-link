@@ -1,7 +1,13 @@
 "use strict";
 
 import { validateSecretKey } from "./crypto";
-import type { ConnectionConfig, BondingConfig, CongestionControlConfig, ReliabilityConfig, AlertThresholds } from "./types";
+import type {
+  ConnectionConfig,
+  BondingConfig,
+  CongestionControlConfig,
+  ReliabilityConfig,
+  AlertThresholds
+} from "./types";
 
 export const VALID_CONNECTION_KEYS: string[] = [
   "name",
@@ -39,7 +45,11 @@ function numberRangeError(
   label: string
 ): string | null {
   if (object && object[key] !== undefined) {
-    if (!isFiniteNumber(object[key]) || (object[key] as number) < min || (object[key] as number) > max) {
+    if (
+      !isFiniteNumber(object[key]) ||
+      (object[key] as number) < min ||
+      (object[key] as number) > max
+    ) {
       return `${label} must be a number between ${min} and ${max}`;
     }
   }
@@ -108,7 +118,10 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   if (conn.enableNotifications !== undefined && typeof conn.enableNotifications !== "boolean") {
     return `${p}enableNotifications must be a boolean`;
   }
-  if (conn.name !== undefined && (typeof conn.name !== "string" || (conn.name as string).length > 40)) {
+  if (
+    conn.name !== undefined &&
+    (typeof conn.name !== "string" || (conn.name as string).length > 40)
+  ) {
     return `${p}name must be a string of at most 40 characters`;
   }
 
@@ -122,22 +135,40 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     if (!isValidPort(conn.testPort, 1)) {
       return `${p}testPort must be between 1 and 65535 in client mode`;
     }
-    const helloError = numberRangeError(conn as Record<string, unknown>, "helloMessageSender", 10, 3600, `${p}helloMessageSender`);
+    const helloError = numberRangeError(
+      conn as Record<string, unknown>,
+      "helloMessageSender",
+      10,
+      3600,
+      `${p}helloMessageSender`
+    );
     if (helloError) {
       return helloError;
     }
-    const pingError = numberRangeError(conn as Record<string, unknown>, "pingIntervalTime", 0.1, 60, `${p}pingIntervalTime`);
+    const pingError = numberRangeError(
+      conn as Record<string, unknown>,
+      "pingIntervalTime",
+      0.1,
+      60,
+      `${p}pingIntervalTime`
+    );
     if (pingError) {
       return pingError;
     }
   }
 
   if (conn.alertThresholds !== undefined) {
-    if (!conn.alertThresholds || typeof conn.alertThresholds !== "object" || Array.isArray(conn.alertThresholds)) {
+    if (
+      !conn.alertThresholds ||
+      typeof conn.alertThresholds !== "object" ||
+      Array.isArray(conn.alertThresholds)
+    ) {
       return `${p}alertThresholds must be an object`;
     }
     const validMetrics = ["rtt", "packetLoss", "retransmitRate", "jitter", "queueDepth"];
-    for (const [metric, threshold] of Object.entries(conn.alertThresholds as Record<string, unknown>)) {
+    for (const [metric, threshold] of Object.entries(
+      conn.alertThresholds as Record<string, unknown>
+    )) {
       if (!validMetrics.includes(metric)) {
         return `${p}alertThresholds: unknown metric '${metric}'`;
       }
@@ -151,45 +182,81 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
       if (t.critical !== undefined && !isFiniteNumber(t.critical)) {
         return `${p}alertThresholds.${metric}.critical must be a finite number`;
       }
-      if (t.warning !== undefined && t.critical !== undefined && (t.warning as number) > (t.critical as number)) {
+      // Domain-specific range checks
+      const ratioMetrics = ["packetLoss", "retransmitRate"];
+      if (ratioMetrics.includes(metric)) {
+        if (t.warning !== undefined && ((t.warning as number) < 0 || (t.warning as number) > 1)) {
+          return `${p}alertThresholds.${metric}.warning must be between 0 and 1`;
+        }
+        if (
+          t.critical !== undefined &&
+          ((t.critical as number) < 0 || (t.critical as number) > 1)
+        ) {
+          return `${p}alertThresholds.${metric}.critical must be between 0 and 1`;
+        }
+      } else {
+        // rtt, jitter, queueDepth must be positive
+        if (t.warning !== undefined && (t.warning as number) <= 0) {
+          return `${p}alertThresholds.${metric}.warning must be > 0`;
+        }
+        if (t.critical !== undefined && (t.critical as number) <= 0) {
+          return `${p}alertThresholds.${metric}.critical must be > 0`;
+        }
+      }
+      if (
+        t.warning !== undefined &&
+        t.critical !== undefined &&
+        (t.warning as number) > (t.critical as number)
+      ) {
         return `${p}alertThresholds.${metric}.warning must be <= critical`;
       }
     }
   }
 
   if (conn.reliability !== undefined) {
-    if (!conn.reliability || typeof conn.reliability !== "object" || Array.isArray(conn.reliability)) {
+    if (
+      !conn.reliability ||
+      typeof conn.reliability !== "object" ||
+      Array.isArray(conn.reliability)
+    ) {
       return `${p}reliability must be an object`;
     }
     const reliability = conn.reliability as Record<string, unknown>;
-    const reliabilityChecks = serverType === "server"
-      ? [
-        ["ackInterval", 20, 5000, `${p}reliability.ackInterval`],
-        ["ackResendInterval", 100, 10000, `${p}reliability.ackResendInterval`],
-        ["nakTimeout", 20, 5000, `${p}reliability.nakTimeout`]
-      ] as [string, number, number, string][]
-      : [
-        ["retransmitQueueSize", 100, 50000, `${p}reliability.retransmitQueueSize`],
-        ["maxRetransmits", 1, 20, `${p}reliability.maxRetransmits`],
-        ["retransmitMaxAge", 1000, 300000, `${p}reliability.retransmitMaxAge`],
-        ["retransmitMinAge", 200, 30000, `${p}reliability.retransmitMinAge`],
-        ["retransmitRttMultiplier", 2, 20, `${p}reliability.retransmitRttMultiplier`],
-        ["ackIdleDrainAge", 500, 30000, `${p}reliability.ackIdleDrainAge`],
-        ["forceDrainAfterMs", 2000, 120000, `${p}reliability.forceDrainAfterMs`],
-        ["recoveryBurstSize", 10, 1000, `${p}reliability.recoveryBurstSize`],
-        ["recoveryBurstIntervalMs", 50, 5000, `${p}reliability.recoveryBurstIntervalMs`],
-        ["recoveryAckGapMs", 500, 120000, `${p}reliability.recoveryAckGapMs`]
-      ] as [string, number, number, string][];
+    const reliabilityChecks =
+      serverType === "server"
+        ? ([
+            ["ackInterval", 20, 5000, `${p}reliability.ackInterval`],
+            ["ackResendInterval", 100, 10000, `${p}reliability.ackResendInterval`],
+            ["nakTimeout", 20, 5000, `${p}reliability.nakTimeout`]
+          ] as [string, number, number, string][])
+        : ([
+            ["retransmitQueueSize", 100, 50000, `${p}reliability.retransmitQueueSize`],
+            ["maxRetransmits", 1, 20, `${p}reliability.maxRetransmits`],
+            ["retransmitMaxAge", 1000, 300000, `${p}reliability.retransmitMaxAge`],
+            ["retransmitMinAge", 200, 30000, `${p}reliability.retransmitMinAge`],
+            ["retransmitRttMultiplier", 2, 20, `${p}reliability.retransmitRttMultiplier`],
+            ["ackIdleDrainAge", 500, 30000, `${p}reliability.ackIdleDrainAge`],
+            ["forceDrainAfterMs", 2000, 120000, `${p}reliability.forceDrainAfterMs`],
+            ["recoveryBurstSize", 10, 1000, `${p}reliability.recoveryBurstSize`],
+            ["recoveryBurstIntervalMs", 50, 5000, `${p}reliability.recoveryBurstIntervalMs`],
+            ["recoveryAckGapMs", 500, 120000, `${p}reliability.recoveryAckGapMs`]
+          ] as [string, number, number, string][]);
     for (const [key, min, max, label] of reliabilityChecks) {
       const error = numberRangeError(reliability, key, min, max, label);
       if (error) {
         return error;
       }
     }
-    if (reliability.forceDrainAfterAckIdle !== undefined && typeof reliability.forceDrainAfterAckIdle !== "boolean") {
+    if (
+      reliability.forceDrainAfterAckIdle !== undefined &&
+      typeof reliability.forceDrainAfterAckIdle !== "boolean"
+    ) {
       return `${p}reliability.forceDrainAfterAckIdle must be a boolean`;
     }
-    if (reliability.recoveryBurstEnabled !== undefined && typeof reliability.recoveryBurstEnabled !== "boolean") {
+    if (
+      reliability.recoveryBurstEnabled !== undefined &&
+      typeof reliability.recoveryBurstEnabled !== "boolean"
+    ) {
       return `${p}reliability.recoveryBurstEnabled must be a boolean`;
     }
     if (
@@ -230,7 +297,11 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
       }
     }
     if (bonding.failover !== undefined) {
-      if (!bonding.failover || typeof bonding.failover !== "object" || Array.isArray(bonding.failover)) {
+      if (
+        !bonding.failover ||
+        typeof bonding.failover !== "object" ||
+        Array.isArray(bonding.failover)
+      ) {
         return `${p}bonding.failover must be an object`;
       }
       const failoverChecks: [string, number, number, string][] = [
@@ -241,7 +312,13 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
         ["heartbeatTimeout", 1000, 30000, `${p}bonding.failover.heartbeatTimeout`]
       ];
       for (const [key, min, max, label] of failoverChecks) {
-        const error = numberRangeError(bonding.failover as Record<string, unknown>, key, min, max, label);
+        const error = numberRangeError(
+          bonding.failover as Record<string, unknown>,
+          key,
+          min,
+          max,
+          label
+        );
         if (error) {
           return error;
         }
@@ -250,7 +327,11 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   }
 
   if (conn.congestionControl !== undefined) {
-    if (!conn.congestionControl || typeof conn.congestionControl !== "object" || Array.isArray(conn.congestionControl)) {
+    if (
+      !conn.congestionControl ||
+      typeof conn.congestionControl !== "object" ||
+      Array.isArray(conn.congestionControl)
+    ) {
       return `${p}congestionControl must be an object`;
     }
     const congestionControl = conn.congestionControl as Record<string, unknown>;
@@ -355,7 +436,9 @@ export function findConnectionIndexByInstanceId(
   return ids.findIndex((id) => id === instanceId);
 }
 
-export function validateUniqueServerPorts(connections: Array<Partial<ConnectionConfig>>): string | null {
+export function validateUniqueServerPorts(
+  connections: Array<Partial<ConnectionConfig>>
+): string | null {
   const serverPorts = connections
     .filter((connection) => connection && normalizeServerType(connection.serverType) === "server")
     .map((connection) => Number(connection.udpPort))

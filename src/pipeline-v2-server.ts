@@ -27,6 +27,7 @@ import type { SignalKApp, MetricsApi, InstanceState, Delta, DeltaValue } from ".
 
 import {
   MAX_DECOMPRESSED_SIZE,
+  MAX_PARSE_PAYLOAD_SIZE,
   MAX_DELTAS_PER_PACKET,
   MAX_CLIENT_SESSIONS,
   METRICS_PUBLISH_INTERVAL,
@@ -579,6 +580,21 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       });
 
       metrics.bandwidth.bytesInRaw += decompressed.length;
+
+      // Reject payloads that exceed the safe parse limit to prevent DoS via
+      // deeply-nested JSON objects that fit within the decompression cap but
+      // still cause multi-second parse stalls.
+      if (decompressed.length > MAX_PARSE_PAYLOAD_SIZE) {
+        app.error(
+          `[v2] Received decompressed payload too large to parse: ${decompressed.length} bytes ` +
+            `(limit ${MAX_PARSE_PAYLOAD_SIZE})`
+        );
+        recordError(
+          "general",
+          `[v2] Payload too large to parse: ${decompressed.length} bytes (limit ${MAX_PARSE_PAYLOAD_SIZE})`
+        );
+        return;
+      }
 
       // Parse content
       let jsonContent: unknown;

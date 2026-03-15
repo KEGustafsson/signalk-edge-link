@@ -12,6 +12,7 @@ import {
 import {
   MAX_SAFE_UDP_PAYLOAD,
   MAX_DECOMPRESSED_SIZE,
+  MAX_PARSE_PAYLOAD_SIZE,
   MAX_DELTAS_PER_PACKET,
   SMART_BATCH_SMOOTHING,
   calculateMaxDeltasPerBatch
@@ -174,6 +175,21 @@ function createPipeline(
 
       // Track raw bytes
       metrics.bandwidth.bytesInRaw += decompressed.length;
+
+      // Reject payloads that exceed the safe parse limit to prevent DoS via
+      // deeply-nested JSON objects that fit within the decompression cap but
+      // still cause multi-second parse stalls.
+      if (decompressed.length > MAX_PARSE_PAYLOAD_SIZE) {
+        app.error(
+          `Received decompressed payload too large to parse: ${decompressed.length} bytes ` +
+            `(limit ${MAX_PARSE_PAYLOAD_SIZE})`
+        );
+        recordError(
+          "general",
+          `Payload too large to parse: ${decompressed.length} bytes (limit ${MAX_PARSE_PAYLOAD_SIZE})`
+        );
+        return;
+      }
 
       // Parse content (JSON or MessagePack)
       let jsonContent: unknown;

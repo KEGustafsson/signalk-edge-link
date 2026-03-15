@@ -33,6 +33,7 @@ import {
   PING_TIMEOUT_BUFFER,
   MILLISECONDS_PER_MINUTE,
   MAX_DELTAS_BUFFER_SIZE,
+  DELTA_BUFFER_DROP_RATIO,
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch
 } from "./constants";
@@ -105,6 +106,7 @@ function createInstance(
     batchSendInFlight: false,
     pendingRetry: null,
     socketRecoveryTimer: null,
+    socketRecoveryInProgress: false,
     droppedDeltaBatches: 0,
     droppedDeltaCount: 0,
     deltaTimerTime: DEFAULT_DELTA_TIMER,
@@ -212,7 +214,7 @@ function createInstance(
   ): void {
     state.readyToSend = true;
     _setStatus("Connected", true);
-    clearTimeout(state.pingTimeout ?? undefined);
+    clearTimeout(state.pingTimeout ?? undefined); // null is safe for clearTimeout
     state.pingTimeout = setTimeout(
       () => {
         state.readyToSend = false;
@@ -315,7 +317,12 @@ function createInstance(
     batchSize: number = state.deltas.length,
     retryCount: number = 0
   ): Promise<void> {
-    if (state.batchSendInFlight || state.stopped || !state.readyToSend) {
+    if (
+      state.batchSendInFlight ||
+      state.stopped ||
+      !state.readyToSend ||
+      state.socketRecoveryInProgress
+    ) {
       return;
     }
 
@@ -372,7 +379,7 @@ function createInstance(
     }
 
     if (state.deltas.length >= MAX_DELTAS_BUFFER_SIZE) {
-      const dropCount = Math.floor(MAX_DELTAS_BUFFER_SIZE / 2);
+      const dropCount = Math.floor(MAX_DELTAS_BUFFER_SIZE * DELTA_BUFFER_DROP_RATIO);
       state.deltas.splice(0, dropCount);
       app.debug(`[${instanceId}] Delta buffer overflow, dropped ${dropCount} oldest items`);
       metrics.droppedDeltaCount = (metrics.droppedDeltaCount || 0) + dropCount;
@@ -405,6 +412,63 @@ function createInstance(
 
   state.processDelta = processDelta;
 
+  const SUBSCRIPTION_RETRY_BASE_DELAY = 5000;
+  const SUBSCRIPTION_RETRY_MAX_DELAY = 300000;
+  const SUBSCRIPTION_RETRY_MAX_ATTEMPTS = 10;
+
+  /**
+   * Schedule a subscription retry with exponential backoff.
+   * Gives up after SUBSCRIPTION_RETRY_MAX_ATTEMPTS consecutive failures.
+   */
+  function scheduleSubscriptionRetry(attempt: number): void {
+    if (attempt > SUBSCRIPTION_RETRY_MAX_ATTEMPTS) {
+      app.error(
+        `[${instanceId}] Subscription failed after ${SUBSCRIPTION_RETRY_MAX_ATTEMPTS} attempts — ` +
+          "giving up. Restart the plugin to retry."
+      );
+      recordError(
+        "subscription",
+        `Subscription permanently failed after ${SUBSCRIPTION_RETRY_MAX_ATTEMPTS} attempts`
+      );
+      return;
+    }
+
+    const delay = Math.min(
+      SUBSCRIPTION_RETRY_BASE_DELAY * Math.pow(2, attempt - 1),
+      SUBSCRIPTION_RETRY_MAX_DELAY
+    );
+
+    app.debug(
+      `[${instanceId}] Scheduling subscription retry (attempt ${attempt}/${SUBSCRIPTION_RETRY_MAX_ATTEMPTS}) in ${delay}ms`
+    );
+
+    state.subscriptionRetryTimer = setTimeout(() => {
+      state.subscriptionRetryTimer = null;
+      if (state.stopped) {
+        return;
+      }
+      app.debug(`[${instanceId}] Retrying subscription (attempt ${attempt})...`);
+      try {
+        app.subscriptionmanager.subscribe(
+          state.localSubscription,
+          state.unsubscribes,
+          (retrySubError: unknown) => {
+            app.error(`[${instanceId}] Subscription error (attempt ${attempt}): ${retrySubError}`);
+            state.readyToSend = false;
+            _setStatus("Subscription error - data transmission paused", false);
+            recordError("subscription", `Subscription error: ${retrySubError}`);
+          },
+          processDelta
+        );
+      } catch (retryError: unknown) {
+        const msg = retryError instanceof Error ? retryError.message : String(retryError);
+        app.error(`[${instanceId}] Subscription retry ${attempt} failed: ${msg}`);
+        recordError("subscription", `Subscription retry ${attempt} failed: ${msg}`);
+        scheduleSubscriptionRetry(attempt + 1);
+      }
+    }, delay);
+  }
+
   // Subscription change handler (also wires up the main delta subscription)
   const handleSubscriptionChange = createDebouncedConfigHandler({
     name: "Subscription",
@@ -428,37 +492,17 @@ function createInstance(
           },
           processDelta
         );
-      } catch (subscribeError: any) {
-        app.error(`[${instanceId}] Failed to subscribe: ${subscribeError.message}`);
+      } catch (subscribeError: unknown) {
+        const subErrMsg =
+          subscribeError instanceof Error ? subscribeError.message : String(subscribeError);
+        app.error(`[${instanceId}] Failed to subscribe: ${subErrMsg}`);
         state.readyToSend = false;
         _setStatus("Failed to subscribe - data transmission paused", false);
-        recordError("subscription", `Failed to subscribe: ${subscribeError.message}`);
+        recordError("subscription", `Failed to subscribe: ${subErrMsg}`);
 
-        // Retry once after 5 seconds to recover from transient failures.
+        // Retry with exponential backoff (5s, 10s, 20s, 40s … up to 300s max).
         // Store the handle so stop() can cancel it before it fires.
-        state.subscriptionRetryTimer = setTimeout(() => {
-          state.subscriptionRetryTimer = null;
-          if (state.stopped) {
-            return;
-          }
-          app.debug(`[${instanceId}] Retrying subscription after failure...`);
-          try {
-            app.subscriptionmanager.subscribe(
-              state.localSubscription,
-              state.unsubscribes,
-              (retrySubError: any) => {
-                app.error(`[${instanceId}] Subscription error (retry): ${retrySubError}`);
-                state.readyToSend = false;
-                _setStatus("Subscription error - data transmission paused", false);
-                recordError("subscription", `Subscription error (retry): ${retrySubError}`);
-              },
-              processDelta
-            );
-          } catch (retryError: any) {
-            app.error(`[${instanceId}] Subscription retry failed: ${retryError.message}`);
-            recordError("subscription", `Subscription retry failed: ${retryError.message}`);
-          }
-        }, 5000);
+        scheduleSubscriptionRetry(1);
       }
     },
     state,
@@ -700,8 +744,13 @@ function createInstance(
       state.socketUdp = dgram.createSocket({ type: "udp4", reuseAddr: true });
 
       state.socketUdp.on("error", (err: any) => {
+        // Ignore errors that arrive after recovery has already started.
+        if (state.socketRecoveryInProgress) {
+          return;
+        }
         app.error(`[${instanceId}] Client UDP socket error: ${err.message}`);
         state.readyToSend = false;
+        state.socketRecoveryInProgress = true;
         // Stop v2 periodic workers if the client socket is no longer usable.
         state.pipeline?.stopMetricsPublishing?.();
         state.pipeline?.stopCongestionControl?.();
@@ -725,6 +774,7 @@ function createInstance(
           state.socketRecoveryTimer = setTimeout(() => {
             state.socketRecoveryTimer = null;
             if (state.stopped) {
+              state.socketRecoveryInProgress = false;
               return;
             }
             app.debug(`[${instanceId}] Attempting UDP socket recovery`);
@@ -768,10 +818,12 @@ function createInstance(
                 }
               }
 
+              state.socketRecoveryInProgress = false;
               state.readyToSend = true;
               _setStatus("UDP socket recovered", true);
               app.debug(`[${instanceId}] UDP socket recovered`);
             } catch (recoveryErr: any) {
+              state.socketRecoveryInProgress = false;
               app.error(`[${instanceId}] UDP socket recovery failed: ${recoveryErr.message}`);
               _setStatus(`UDP socket recovery failed: ${recoveryErr.message}`, false);
             }
@@ -909,6 +961,16 @@ function createInstance(
   }
 
   function stop(): void {
+    // If a batch send is in progress, log the warning. We cannot reliably
+    // await it here because stop() must remain synchronous (called by the
+    // Signal K lifecycle). The in-flight send will detect state.stopped and
+    // skip any further action once it completes.
+    if (state.batchSendInFlight) {
+      app.debug(
+        `[${instanceId}] stop() called while batch send in flight — last delta batch may be lost`
+      );
+    }
+
     state.stopped = true;
     state.readyToSend = false;
     state.isHealthy = false;
@@ -922,6 +984,7 @@ function createInstance(
     state.deltas = [];
     state.timer = false;
     state.batchSendInFlight = false;
+    state.socketRecoveryInProgress = false;
     state.droppedDeltaBatches = 0;
     state.droppedDeltaCount = 0;
     Object.keys(state.configContentHashes).forEach(
@@ -936,7 +999,7 @@ function createInstance(
     // Clear timers
     clearInterval(state.helloMessageSender ?? undefined);
     state.helloMessageSender = null;
-    clearTimeout(state.pingTimeout ?? undefined);
+    clearTimeout(state.pingTimeout ?? undefined); // null is safe for clearTimeout
     state.pingTimeout = null;
     clearTimeout(state.deltaTimer ?? undefined);
     state.deltaTimer = null;
