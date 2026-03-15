@@ -157,9 +157,10 @@ export class PacketLossTracker {
       // Finalize previous bucket
       if (this._currentBucket) {
         this.buckets.push(this._currentBucket);
-        // Trim to max buckets
+        // Trim to max buckets — we push exactly one bucket per interval, so at
+        // most one needs to be dropped here (shift is O(n) but n = maxBuckets).
         if (this.buckets.length > this.maxBuckets) {
-          this.buckets.splice(0, this.buckets.length - this.maxBuckets);
+          this.buckets.shift();
         }
       }
       this._currentBucket = {
