@@ -7,7 +7,7 @@
 
 const { createPipeline } = require("../lib/pipeline-factory");
 const createMetrics = require("../lib/metrics");
-const { PacketBuilder, PacketParser, PacketType } = require("../lib/packet");
+const { PacketBuilder } = require("../lib/packet");
 const zlib = require("zlib");
 const { promisify } = require("util");
 
@@ -320,7 +320,7 @@ describe("receivePacket – duplicate detection", () => {
 
     // Send packet once
     const encrypted1 = encryptBinary(compressed, SECRET_KEY);
-    const seq = builder.getCurrentSequence();
+    builder.getCurrentSequence();
     const packet1 = builder.buildDataPacket(encrypted1, {
       compressed: true,
       encrypted: true,
@@ -330,7 +330,6 @@ describe("receivePacket – duplicate detection", () => {
     await pipeline.receivePacket(packet1, SECRET_KEY, rinfo);
 
     // Re-send same sequence (simulate duplicate)
-    const builder2 = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
     // Force same sequence by using a raw approach: just send the original packet again
     await pipeline.receivePacket(packet1, SECRET_KEY, rinfo);
 
