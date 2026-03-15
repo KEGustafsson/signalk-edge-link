@@ -8,21 +8,32 @@ import { formatPrometheusMetrics } from "../prometheus";
  */
 function register(router: any, ctx: any): void {
   const {
-    rateLimitMiddleware, instanceRegistry,
-    getFirstBundle, getEffectiveNetworkQuality,
-    getActiveMetricsPublisher, buildFullMetricsResponse
+    rateLimitMiddleware,
+    instanceRegistry,
+    getFirstBundle,
+    getEffectiveNetworkQuality,
+    getActiveMetricsPublisher,
+    buildFullMetricsResponse
   } = ctx;
 
   router.get("/metrics", rateLimitMiddleware, (req: any, res: any) => {
-    const bundle = getFirstBundle();
-    if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
-    res.json(buildFullMetricsResponse(bundle));
+    try {
+      const bundle = getFirstBundle();
+      if (!bundle) {
+        return res.status(503).json({ error: "Plugin not started" });
+      }
+      res.json(buildFullMetricsResponse(bundle));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   router.get("/network-metrics", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
+      if (!bundle) {
+        return res.status(503).json({ error: "Plugin not started" });
+      }
       const { state } = bundle;
       const { metrics } = bundle.metricsApi;
       const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);

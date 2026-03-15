@@ -153,7 +153,7 @@ function register(router: any, ctx: any): void {
         if (!state.monitoring || !state.monitoring.pathLatencyTracker) {
           return res.json({ paths: [] });
         }
-        const topN = parseInt(req.query.limit, 10) || 20;
+        const topN = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 20), 1000);
         res.json({
           paths: state.monitoring.pathLatencyTracker.getAllStats(topN)
         });
@@ -180,7 +180,9 @@ function register(router: any, ctx: any): void {
             summary: { avgRate: 0, maxRate: 0, currentRate: 0, entries: 0 }
           });
         }
-        const limit = parseInt(req.query.limit, 10) || undefined;
+        const rawLimit = parseInt(req.query.limit, 10);
+        const limit =
+          Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 1000) : undefined;
         res.json({
           chartData: state.monitoring.retransmissionTracker.getChartData(limit),
           summary: state.monitoring.retransmissionTracker.getSummary()
