@@ -52,9 +52,16 @@ describe("apiFetch module", () => {
       expect(getAuthToken()).toBe("spaced-token");
     });
 
-    it("returns token from query parameter", () => {
+    it("returns token from query parameter when includeTokenInQuery is enabled", () => {
+      // Query-param token is opt-in (default is false to avoid leaking into browser history).
+      window.__EDGE_LINK_AUTH__ = { includeTokenInQuery: true };
       window.location.search = "?edgeLinkToken=query-token";
       expect(getAuthToken()).toBe("query-token");
+    });
+
+    it("does NOT return token from query parameter by default (secure default)", () => {
+      window.location.search = "?edgeLinkToken=query-token";
+      expect(getAuthToken()).toBe("");
     });
 
     it("returns token from localStorage", () => {
@@ -74,10 +81,17 @@ describe("apiFetch module", () => {
       expect(getAuthToken()).toBe("direct");
     });
 
-    it("prioritises query param over localStorage", () => {
+    it("prioritises query param over localStorage when includeTokenInQuery is enabled", () => {
+      window.__EDGE_LINK_AUTH__ = { includeTokenInQuery: true };
       window.location.search = "?edgeLinkToken=query";
       window.localStorage.setItem("signalkEdgeLinkManagementToken", "stored");
       expect(getAuthToken()).toBe("query");
+    });
+
+    it("falls back to localStorage when includeTokenInQuery is false (default)", () => {
+      window.location.search = "?edgeLinkToken=query";
+      window.localStorage.setItem("signalkEdgeLinkManagementToken", "stored");
+      expect(getAuthToken()).toBe("stored");
     });
 
     it("uses custom localStorageKey from runtime config", () => {
@@ -86,17 +100,23 @@ describe("apiFetch module", () => {
       expect(getAuthToken()).toBe("custom-stored");
     });
 
-    it("uses custom queryParam from runtime config", () => {
-      window.__EDGE_LINK_AUTH__ = { queryParam: "myToken" };
+    it("uses custom queryParam from runtime config when includeTokenInQuery is enabled", () => {
+      window.__EDGE_LINK_AUTH__ = { queryParam: "myToken", includeTokenInQuery: true };
       window.location.search = "?myToken=custom-query";
       expect(getAuthToken()).toBe("custom-query");
     });
 
-    it("skips query param when includeTokenInQuery is false", () => {
+    it("skips query param when includeTokenInQuery is false (explicit)", () => {
       window.__EDGE_LINK_AUTH__ = { includeTokenInQuery: false };
       window.location.search = "?edgeLinkToken=should-skip";
       window.localStorage.setItem("signalkEdgeLinkManagementToken", "fallback");
       expect(getAuthToken()).toBe("fallback");
+    });
+
+    it("skips query param by default (includeTokenInQuery defaults to false)", () => {
+      // No __EDGE_LINK_AUTH__ override — default should NOT read query param.
+      window.location.search = "?edgeLinkToken=should-skip";
+      expect(getAuthToken()).toBe("");
     });
 
     it("ignores non-object __EDGE_LINK_AUTH__ values", () => {

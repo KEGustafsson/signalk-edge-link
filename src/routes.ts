@@ -462,6 +462,14 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
       next();
     };
 
+    // Warn once at startup if the management API has no token configured.
+    if (!getManagementToken() && app && typeof app.debug === "function") {
+      app.debug(
+        "[edge-link] WARNING: Management API is open — no managementApiToken configured. " +
+          "Set SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN or configure managementApiToken to restrict access."
+      );
+    }
+
     // Shared context passed to all route sub-modules
     const ctx = {
       app,
