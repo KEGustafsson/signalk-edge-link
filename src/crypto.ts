@@ -9,12 +9,45 @@ export const AUTH_TAG_LENGTH = 16; // GCM authentication tag length
 export const CONTROL_AUTH_TAG_LENGTH = 16; // Truncated HMAC-SHA256 tag for v3 control packets
 
 /**
+ * Derive a 32-byte AES key from a human-chosen passphrase using PBKDF2-SHA256.
+ *
+ * Use this when the secret key is a human-memorable password rather than a
+ * randomly generated hex or base64 string. PBKDF2 stretches the passphrase to
+ * full 256-bit security regardless of its entropy, and makes brute-force
+ * attacks computationally expensive.
+ *
+ * Both ends of the connection must call this function with the same passphrase
+ * and salt before passing the result to encryptBinary / decryptBinary.
+ *
+ * @param passphrase - Human-chosen password of any length
+ * @param salt - Application-specific salt (defaults to "signalk-edge-link-v1")
+ * @param iterations - PBKDF2 iteration count (defaults to 600_000, NIST SP 800-132)
+ * @returns 32-byte derived key buffer
+ */
+export function deriveKeyFromPassphrase(
+  passphrase: string,
+  salt: string = "signalk-edge-link-v1",
+  iterations: number = 600_000
+): Buffer {
+  if (!passphrase || typeof passphrase !== "string") {
+    throw new Error("Passphrase must be a non-empty string");
+  }
+  return crypto.pbkdf2Sync(passphrase, salt, iterations, 32, "sha256");
+}
+
+/**
  * Normalize a secret key string into a 32-byte Buffer.
  *
  * Accepts three formats:
  * - 64-character hex string  → decoded to 32 bytes (full 256-bit entropy)
  * - 44-character base64 string → decoded to 32 bytes (full 256-bit entropy)
  * - 32-character ASCII string → used as-is (~208 bits effective entropy)
+ *
+ * **Note on ASCII keys:** A 32-character ASCII string provides approximately
+ * 208 bits of effective entropy (~6.5 bits/char). For human-chosen passwords
+ * use `deriveKeyFromPassphrase()` instead, which runs PBKDF2 to achieve full
+ * 256-bit security. For new deployments prefer randomly generated 64-char hex
+ * or 44-char base64 keys which carry full entropy without key derivation.
  *
  * @param secretKey - Secret key in any supported format
  * @returns 32-byte key buffer
@@ -47,7 +80,7 @@ export function normalizeKey(secretKey: string): Buffer {
 
   throw new Error(
     "Secret key must be exactly 32 bytes: use a 32-character ASCII string, " +
-    "64-character hex string, or 44-character base64 string"
+      "64-character hex string, or 44-character base64 string"
   );
 }
 

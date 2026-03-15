@@ -1,3 +1,5 @@
+import { RouteRequest, RouteResponse } from "./types";
+
 /**
  * Registers control routes: /congestion, /delta-timer, /bonding, /bonding/failover
  *
@@ -18,7 +20,7 @@ function register(router: any, ctx: any): void {
     "/congestion",
     rateLimitMiddleware,
     managementAuthMiddleware("congestion.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {
@@ -46,7 +48,7 @@ function register(router: any, ctx: any): void {
     rateLimitMiddleware,
     managementAuthMiddleware("delta-timer.update"),
     requireJson,
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {
@@ -93,7 +95,7 @@ function register(router: any, ctx: any): void {
     }
   );
 
-  router.get("/bonding", rateLimitMiddleware, (req: any, res: any) => {
+  router.get("/bonding", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     try {
       if (!authorizeManagement(req, res, "bonding.read")) {
         return;
@@ -128,72 +130,77 @@ function register(router: any, ctx: any): void {
     }
   });
 
-  router.post("/bonding", rateLimitMiddleware, requireJson, (req: any, res: any) => {
-    try {
-      if (!authorizeManagement(req, res, "bonding.update")) {
-        return;
-      }
-      const allowedKeys = new Set([
-        "rttThreshold",
-        "lossThreshold",
-        "healthCheckInterval",
-        "failbackDelay",
-        "heartbeatTimeout"
-      ]);
-      const body = req.body || {};
-
-      if (typeof body !== "object" || Array.isArray(body)) {
-        return res.status(400).json({ error: "Request body must be a JSON object" });
-      }
-
-      const updates: any = {};
-      for (const [key, value] of Object.entries(body)) {
-        if (!allowedKeys.has(key)) {
-          return res.status(400).json({ error: `Unsupported bonding setting '${key}'` });
+  router.post(
+    "/bonding",
+    rateLimitMiddleware,
+    requireJson,
+    (req: RouteRequest, res: RouteResponse) => {
+      try {
+        if (!authorizeManagement(req, res, "bonding.update")) {
+          return;
         }
-        const numericValue = Number(value);
-        if (!Number.isFinite(numericValue) || numericValue < 0) {
-          return res.status(400).json({ error: `${key} must be a non-negative number` });
+        const allowedKeys = new Set([
+          "rttThreshold",
+          "lossThreshold",
+          "healthCheckInterval",
+          "failbackDelay",
+          "heartbeatTimeout"
+        ]);
+        const body = req.body || {};
+
+        if (typeof body !== "object" || Array.isArray(body)) {
+          return res.status(400).json({ error: "Request body must be a JSON object" });
         }
-        updates[key] = numericValue;
-      }
 
-      if (Object.keys(updates).length === 0) {
-        return res.status(400).json({ error: "At least one bonding setting must be provided" });
-      }
-
-      const updatedInstances: any[] = [];
-      for (const bundle of instanceRegistry.getAll()) {
-        const { state } = bundle;
-        const bondingManager =
-          state.pipeline && state.pipeline.getBondingManager
-            ? state.pipeline.getBondingManager()
-            : null;
-        if (!bondingManager || !bondingManager.failoverThresholds) {
-          continue;
+        const updates: any = {};
+        for (const [key, value] of Object.entries(body)) {
+          if (!allowedKeys.has(key)) {
+            return res.status(400).json({ error: `Unsupported bonding setting '${key}'` });
+          }
+          const numericValue = Number(value);
+          if (!Number.isFinite(numericValue) || numericValue < 0) {
+            return res.status(400).json({ error: `${key} must be a non-negative number` });
+          }
+          updates[key] = numericValue;
         }
-        Object.assign(bondingManager.failoverThresholds, updates);
-        updatedInstances.push({
-          id: bundle.id,
-          thresholds: { ...bondingManager.failoverThresholds }
-        });
-      }
 
-      if (updatedInstances.length === 0) {
-        return res.status(503).json({ error: "No bonding-enabled instances available" });
-      }
+        if (Object.keys(updates).length === 0) {
+          return res.status(400).json({ error: "At least one bonding setting must be provided" });
+        }
 
-      res.json({ success: true, updated: updates, instances: updatedInstances });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+        const updatedInstances: any[] = [];
+        for (const bundle of instanceRegistry.getAll()) {
+          const { state } = bundle;
+          const bondingManager =
+            state.pipeline && state.pipeline.getBondingManager
+              ? state.pipeline.getBondingManager()
+              : null;
+          if (!bondingManager || !bondingManager.failoverThresholds) {
+            continue;
+          }
+          Object.assign(bondingManager.failoverThresholds, updates);
+          updatedInstances.push({
+            id: bundle.id,
+            thresholds: { ...bondingManager.failoverThresholds }
+          });
+        }
+
+        if (updatedInstances.length === 0) {
+          return res.status(503).json({ error: "No bonding-enabled instances available" });
+        }
+
+        res.json({ success: true, updated: updates, instances: updatedInstances });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
     }
-  });
+  );
 
   router.post(
     "/bonding/failover",
     rateLimitMiddleware,
     managementAuthMiddleware("bonding.failover"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {

@@ -7,6 +7,7 @@ import {
   findConnectionIndexByInstanceId
 } from "../connection-config";
 import { validateRuntimeConfigBody } from "./config-validation";
+import { RouteRequest, RouteResponse } from "./types";
 
 /**
  * Registers multi-instance connection routes:
@@ -82,7 +83,7 @@ function register(router: any, ctx: any): void {
     pluginRef._currentOptions = nextOptions;
     return res.status(successStatus).json({ success: true });
   }
-  router.get("/connections", rateLimitMiddleware, (req: any, res: any) => {
+  router.get("/connections", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     try {
       const all = instanceRegistry.getAll();
       res.json(
@@ -104,7 +105,7 @@ function register(router: any, ctx: any): void {
 
   // Alias for management tooling: keep shape close to the implementation plan
   // by exposing current status and a compact metrics summary.
-  router.get("/instances", rateLimitMiddleware, (req: any, res: any) => {
+  router.get("/instances", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     try {
       if (!authorizeManagement(req, res, "instances.list")) {
         return;
@@ -117,7 +118,7 @@ function register(router: any, ctx: any): void {
 
       let limit: number | null = null;
       if (limitRaw !== undefined) {
-        limit = Number.parseInt(limitRaw, 10);
+        limit = Number.parseInt(String(limitRaw), 10);
         if (!Number.isInteger(limit) || limit! <= 0) {
           return res.status(400).json({ error: "limit must be a positive integer" });
         }
@@ -125,7 +126,7 @@ function register(router: any, ctx: any): void {
 
       let page = 1;
       if (pageRaw !== undefined) {
-        page = Number.parseInt(pageRaw, 10);
+        page = Number.parseInt(String(pageRaw), 10);
         if (!Number.isInteger(page) || page <= 0) {
           return res.status(400).json({ error: "page must be a positive integer" });
         }
@@ -176,7 +177,7 @@ function register(router: any, ctx: any): void {
     }
   });
 
-  router.get("/instances/:id", rateLimitMiddleware, (req: any, res: any) => {
+  router.get("/instances/:id", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     try {
       if (!authorizeManagement(req, res, "instances.show")) {
         return;
@@ -224,119 +225,129 @@ function register(router: any, ctx: any): void {
     }
   });
 
-  router.post("/instances", rateLimitMiddleware, requireJson, (req: any, res: any) => {
-    try {
-      if (!authorizeManagement(req, res, "instances.create")) {
-        return;
-      }
-      const body = req.body || {};
-      if (!body || typeof body !== "object" || Array.isArray(body)) {
-        return res.status(400).json({ error: "Request body must be a JSON object" });
-      }
-      if (!body.name) {
-        return res.status(400).json({ error: "Missing required field 'name'" });
-      }
+  router.post(
+    "/instances",
+    rateLimitMiddleware,
+    requireJson,
+    (req: RouteRequest, res: RouteResponse) => {
+      try {
+        if (!authorizeManagement(req, res, "instances.create")) {
+          return;
+        }
+        const body = req.body || {};
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          return res.status(400).json({ error: "Request body must be a JSON object" });
+        }
+        if (!body.name) {
+          return res.status(400).json({ error: "Missing required field 'name'" });
+        }
 
-      const validationError = validateConnectionConfig(body);
-      if (validationError) {
-        return res.status(400).json({ error: validationError });
+        const validationError = validateConnectionConfig(body);
+        if (validationError) {
+          return res.status(400).json({ error: validationError });
+        }
+
+        const connections = getCurrentConnectionsConfig();
+        connections.push(sanitizeConnectionConfig(body));
+
+        const portError = validateUniqueServerPorts(connections);
+        if (portError) {
+          return res.status(400).json({ error: portError });
+        }
+
+        return restartWithConnections(res, connections, 201);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-
-      const connections = getCurrentConnectionsConfig();
-      connections.push(sanitizeConnectionConfig(body));
-
-      const portError = validateUniqueServerPorts(connections);
-      if (portError) {
-        return res.status(400).json({ error: portError });
-      }
-
-      return restartWithConnections(res, connections, 201);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
-  router.put("/instances/:id", rateLimitMiddleware, requireJson, (req: any, res: any) => {
-    try {
-      if (!authorizeManagement(req, res, "instances.update")) {
-        return;
-      }
-      const bundle = getBundleById(req.params.id);
-      if (!bundle) {
-        return res.status(404).json({ error: `Instance '${req.params.id}' not found` });
-      }
+  router.put(
+    "/instances/:id",
+    rateLimitMiddleware,
+    requireJson,
+    (req: RouteRequest, res: RouteResponse) => {
+      try {
+        if (!authorizeManagement(req, res, "instances.update")) {
+          return;
+        }
+        const bundle = getBundleById(req.params.id);
+        if (!bundle) {
+          return res.status(404).json({ error: `Instance '${req.params.id}' not found` });
+        }
 
-      const patch = req.body || {};
-      if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
-        return res.status(400).json({ error: "Request body must be a JSON object" });
-      }
+        const patch = req.body || {};
+        if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+          return res.status(400).json({ error: "Request body must be a JSON object" });
+        }
 
-      const patchKeys = Object.keys(patch);
-      if (patchKeys.length === 0) {
-        return res
-          .status(400)
-          .json({ error: "Request body must include at least one field to update" });
-      }
-
-      const connections = getCurrentConnectionsConfig();
-      const idx = findConnectionIndexByInstanceId(connections, req.params.id);
-      if (idx === -1) {
-        return res
-          .status(404)
-          .json({ error: `Configuration for instance '${req.params.id}' not found` });
-      }
-
-      const immutable = new Set(["serverType", "udpPort", "secretKey"]);
-      const mutableAllowed = new Set([
-        "name",
-        "protocolVersion",
-        "useMsgpack",
-        "usePathDictionary",
-        "enableNotifications",
-        "udpAddress",
-        "helloMessageSender",
-        "testAddress",
-        "testPort",
-        "pingIntervalTime",
-        "reliability",
-        "congestionControl",
-        "bonding",
-        "alertThresholds"
-      ]);
-
-      for (const key of patchKeys) {
-        if (immutable.has(key)) {
+        const patchKeys = Object.keys(patch);
+        if (patchKeys.length === 0) {
           return res
             .status(400)
-            .json({ error: `Field '${key}' is not updatable via /instances/:id` });
+            .json({ error: "Request body must include at least one field to update" });
         }
-        if (!mutableAllowed.has(key)) {
+
+        const connections = getCurrentConnectionsConfig();
+        const idx = findConnectionIndexByInstanceId(connections, req.params.id);
+        if (idx === -1) {
           return res
-            .status(400)
-            .json({ error: `Field '${key}' is not supported for /instances/:id updates` });
+            .status(404)
+            .json({ error: `Configuration for instance '${req.params.id}' not found` });
         }
+
+        const immutable = new Set(["serverType", "udpPort", "secretKey"]);
+        const mutableAllowed = new Set([
+          "name",
+          "protocolVersion",
+          "useMsgpack",
+          "usePathDictionary",
+          "enableNotifications",
+          "udpAddress",
+          "helloMessageSender",
+          "testAddress",
+          "testPort",
+          "pingIntervalTime",
+          "reliability",
+          "congestionControl",
+          "bonding",
+          "alertThresholds"
+        ]);
+
+        for (const key of patchKeys) {
+          if (immutable.has(key)) {
+            return res
+              .status(400)
+              .json({ error: `Field '${key}' is not updatable via /instances/:id` });
+          }
+          if (!mutableAllowed.has(key)) {
+            return res
+              .status(400)
+              .json({ error: `Field '${key}' is not supported for /instances/:id updates` });
+          }
+        }
+
+        const mergedConnection = { ...connections[idx], ...patch };
+        const validationError = validateConnectionConfig(mergedConnection);
+        if (validationError) {
+          return res.status(400).json({ error: validationError });
+        }
+
+        connections[idx] = sanitizeConnectionConfig(mergedConnection);
+
+        const portError = validateUniqueServerPorts(connections);
+        if (portError) {
+          return res.status(400).json({ error: portError });
+        }
+
+        return restartWithConnections(res, connections, 200);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-
-      const mergedConnection = { ...connections[idx], ...patch };
-      const validationError = validateConnectionConfig(mergedConnection);
-      if (validationError) {
-        return res.status(400).json({ error: validationError });
-      }
-
-      connections[idx] = sanitizeConnectionConfig(mergedConnection);
-
-      const portError = validateUniqueServerPorts(connections);
-      if (portError) {
-        return res.status(400).json({ error: portError });
-      }
-
-      return restartWithConnections(res, connections, 200);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
-  router.delete("/instances/:id", rateLimitMiddleware, (req: any, res: any) => {
+  router.delete("/instances/:id", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     try {
       if (!authorizeManagement(req, res, "instances.delete")) {
         return;
@@ -364,7 +375,7 @@ function register(router: any, ctx: any): void {
     "/connections/:id/metrics",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -379,7 +390,7 @@ function register(router: any, ctx: any): void {
     "/connections/:id/network-metrics",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -395,7 +406,7 @@ function register(router: any, ctx: any): void {
     "/connections/:id/bonding",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-bonding.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -416,7 +427,7 @@ function register(router: any, ctx: any): void {
     "/connections/:id/congestion",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -436,7 +447,7 @@ function register(router: any, ctx: any): void {
     "/connections/:id/config/:filename",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-config.read"),
-    async (req: any, res: any) => {
+    async (req: RouteRequest, res: RouteResponse) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -463,7 +474,7 @@ function register(router: any, ctx: any): void {
     rateLimitMiddleware,
     managementAuthMiddleware("connection-config.update"),
     requireJson,
-    async (req: any, res: any) => {
+    async (req: RouteRequest, res: RouteResponse) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -493,7 +504,7 @@ function register(router: any, ctx: any): void {
     "/connections/:id/monitoring/alerts",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -510,7 +521,7 @@ function register(router: any, ctx: any): void {
     "/connections/:id/monitoring/packet-loss",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -533,7 +544,7 @@ function register(router: any, ctx: any): void {
     "/connections/:id/monitoring/retransmissions",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -545,7 +556,7 @@ function register(router: any, ctx: any): void {
           summary: { avgRate: 0, maxRate: 0, currentRate: 0, entries: 0 }
         });
       }
-      const limit = parseInt(req.query.limit, 10) || undefined;
+      const limit = parseInt(String(req.query.limit ?? ""), 10) || undefined;
       res.json({
         chartData: state.monitoring.retransmissionTracker.getChartData(limit),
         summary: state.monitoring.retransmissionTracker.getSummary()
@@ -557,7 +568,7 @@ function register(router: any, ctx: any): void {
     "/connections/:id/bonding/failover",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-bonding.failover"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });

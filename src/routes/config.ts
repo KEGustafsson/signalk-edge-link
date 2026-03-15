@@ -1,6 +1,7 @@
 "use strict";
 
 import { getAllPaths, PATH_CATEGORIES } from "../pathDictionary";
+import { RouteRequest, RouteResponse } from "./types";
 import {
   validateConnectionConfig,
   sanitizeConnectionConfig,
@@ -136,7 +137,7 @@ function register(router: any, ctx: any): void {
     });
   }
 
-  router.get("/paths", rateLimitMiddleware, (req: any, res: any) => {
+  router.get("/paths", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     const paths = getAllPaths();
     const categorized: any = {};
 
@@ -154,7 +155,7 @@ function register(router: any, ctx: any): void {
     "/plugin-config",
     rateLimitMiddleware,
     managementAuthMiddleware("config.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const pluginConfig =
           (typeof app.readPluginOptions === "function" ? app.readPluginOptions() : {}) || {};
@@ -174,7 +175,7 @@ function register(router: any, ctx: any): void {
     rateLimitMiddleware,
     managementAuthMiddleware("config.update"),
     requireJson,
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
           return res
@@ -251,7 +252,7 @@ function register(router: any, ctx: any): void {
     }
   );
 
-  router.get("/plugin-schema", rateLimitMiddleware, (req: any, res: any) => {
+  router.get("/plugin-schema", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     const bundle = getFirstBundle();
     res.json({
       schema: pluginRef.schema,
@@ -275,7 +276,7 @@ function register(router: any, ctx: any): void {
     rateLimitMiddleware,
     managementAuthMiddleware("config-file.read"),
     clientModeMiddleware,
-    async (req: any, res: any) => {
+    async (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstClientBundle();
         if (!bundle) {
@@ -302,7 +303,7 @@ function register(router: any, ctx: any): void {
     managementAuthMiddleware("config-file.update"),
     requireJson,
     clientModeMiddleware,
-    async (req: any, res: any) => {
+    async (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstClientBundle();
         if (!bundle) {

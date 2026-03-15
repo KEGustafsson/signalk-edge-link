@@ -1,4 +1,5 @@
 import { formatPrometheusMetrics } from "../prometheus";
+import { RouteRequest, RouteResponse } from "./types";
 
 /**
  * Registers metrics-related routes: /metrics, /network-metrics, /prometheus
@@ -16,7 +17,7 @@ function register(router: any, ctx: any): void {
     buildFullMetricsResponse
   } = ctx;
 
-  router.get("/metrics", rateLimitMiddleware, (req: any, res: any) => {
+  router.get("/metrics", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {
@@ -28,7 +29,7 @@ function register(router: any, ctx: any): void {
     }
   });
 
-  router.get("/network-metrics", rateLimitMiddleware, (req: any, res: any) => {
+  router.get("/network-metrics", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     try {
       const bundle = getFirstBundle();
       if (!bundle) {
@@ -69,7 +70,7 @@ function register(router: any, ctx: any): void {
     }
   });
 
-  router.get("/prometheus", rateLimitMiddleware, (req: any, res: any) => {
+  router.get("/prometheus", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     try {
       const allBundles = instanceRegistry.getAll();
       if (!allBundles || allBundles.length === 0) {

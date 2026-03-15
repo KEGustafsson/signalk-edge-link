@@ -1,4 +1,5 @@
 import { findConnectionIndexByInstanceId } from "../connection-config";
+import { RouteRequest, RouteResponse } from "./types";
 
 /**
  * Registers monitoring and capture routes:
@@ -116,7 +117,7 @@ function register(router: any, ctx: any): void {
     "/monitoring/packet-loss",
     rateLimitMiddleware,
     managementAuthMiddleware("monitoring.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {
@@ -143,7 +144,7 @@ function register(router: any, ctx: any): void {
     "/monitoring/path-latency",
     rateLimitMiddleware,
     managementAuthMiddleware("monitoring.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {
@@ -153,7 +154,7 @@ function register(router: any, ctx: any): void {
         if (!state.monitoring || !state.monitoring.pathLatencyTracker) {
           return res.json({ paths: [] });
         }
-        const topN = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 20), 1000);
+        const topN = Math.min(Math.max(1, parseInt(String(req.query.limit ?? ""), 10) || 20), 1000);
         res.json({
           paths: state.monitoring.pathLatencyTracker.getAllStats(topN)
         });
@@ -167,7 +168,7 @@ function register(router: any, ctx: any): void {
     "/monitoring/retransmissions",
     rateLimitMiddleware,
     managementAuthMiddleware("monitoring.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {
@@ -180,7 +181,7 @@ function register(router: any, ctx: any): void {
             summary: { avgRate: 0, maxRate: 0, currentRate: 0, entries: 0 }
           });
         }
-        const rawLimit = parseInt(req.query.limit, 10);
+        const rawLimit = parseInt(String(req.query.limit ?? ""), 10);
         const limit =
           Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 1000) : undefined;
         res.json({
@@ -197,7 +198,7 @@ function register(router: any, ctx: any): void {
     "/monitoring/alerts",
     rateLimitMiddleware,
     managementAuthMiddleware("monitoring.alerts.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {
@@ -219,7 +220,7 @@ function register(router: any, ctx: any): void {
     rateLimitMiddleware,
     managementAuthMiddleware("monitoring.alerts.update"),
     requireJson,
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {
@@ -230,7 +231,9 @@ function register(router: any, ctx: any): void {
           return res.status(503).json({ error: "Alert manager not initialized" });
         }
 
-        const { metric, warning, critical } = req.body;
+        const metric = req.body["metric"] as string;
+        const warning = req.body["warning"];
+        const critical = req.body["critical"];
         if (!metric) {
           return res.status(400).json({ error: "metric is required" });
         }
@@ -258,7 +261,13 @@ function register(router: any, ctx: any): void {
           return res.status(400).json({ error: "At least one of warning or critical is required" });
         }
 
-        const existingThreshold = state.monitoring.alertManager.thresholds[metric] || {};
+        const existingThreshold =
+          (
+            state.monitoring.alertManager.thresholds as Record<
+              string,
+              { warning?: number; critical?: number } | undefined
+            >
+          )[metric] || {};
         const effectiveWarning =
           update.warning !== undefined ? update.warning : existingThreshold.warning;
         const effectiveCritical =
@@ -277,8 +286,8 @@ function register(router: any, ctx: any): void {
           if (!state.options.alertThresholds || typeof state.options.alertThresholds !== "object") {
             state.options.alertThresholds = {};
           }
-          state.options.alertThresholds[metric] = {
-            ...(state.options.alertThresholds[metric] || {}),
+          (state.options.alertThresholds as Record<string, unknown>)[metric] = {
+            ...((state.options.alertThresholds as Record<string, unknown>)[metric] || {}),
             ...update
           };
         }
@@ -300,7 +309,7 @@ function register(router: any, ctx: any): void {
     "/capture",
     rateLimitMiddleware,
     managementAuthMiddleware("capture.read"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {
@@ -321,7 +330,7 @@ function register(router: any, ctx: any): void {
     "/capture/start",
     rateLimitMiddleware,
     managementAuthMiddleware("capture.update"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {
@@ -343,7 +352,7 @@ function register(router: any, ctx: any): void {
     "/capture/stop",
     rateLimitMiddleware,
     managementAuthMiddleware("capture.update"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {
@@ -365,7 +374,7 @@ function register(router: any, ctx: any): void {
     "/capture/export",
     rateLimitMiddleware,
     managementAuthMiddleware("capture.export"),
-    (req: any, res: any) => {
+    (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
         if (!bundle) {
@@ -388,41 +397,49 @@ function register(router: any, ctx: any): void {
     }
   );
 
-  router.get("/monitoring/inspector", rateLimitMiddleware, (req: any, res: any) => {
-    try {
-      const bundle = getFirstBundle();
-      if (!bundle) {
-        return res.status(503).json({ error: "Plugin not started" });
+  router.get(
+    "/monitoring/inspector",
+    rateLimitMiddleware,
+    (req: RouteRequest, res: RouteResponse) => {
+      try {
+        const bundle = getFirstBundle();
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
+        const { state } = bundle;
+        if (!state.monitoring || !state.monitoring.packetInspector) {
+          return res.json({ enabled: false, packetsInspected: 0, clientsConnected: 0 });
+        }
+        res.json(state.monitoring.packetInspector.getStats());
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.packetInspector) {
-        return res.json({ enabled: false, packetsInspected: 0, clientsConnected: 0 });
-      }
-      res.json(state.monitoring.packetInspector.getStats());
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
-  router.get("/monitoring/simulation", rateLimitMiddleware, (req: any, res: any) => {
-    try {
-      const bundle = getFirstBundle();
-      if (!bundle) {
-        return res.status(503).json({ error: "Plugin not started" });
+  router.get(
+    "/monitoring/simulation",
+    rateLimitMiddleware,
+    (req: RouteRequest, res: RouteResponse) => {
+      try {
+        const bundle = getFirstBundle();
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
+        const { state } = bundle;
+        if (!state.networkSimulator) {
+          return res.json({ enabled: false });
+        }
+        res.json({
+          enabled: true,
+          conditions: state.networkSimulator.getConditions(),
+          stats: state.networkSimulator.getStats()
+        });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-      const { state } = bundle;
-      if (!state.networkSimulator) {
-        return res.json({ enabled: false });
-      }
-      res.json({
-        enabled: true,
-        conditions: state.networkSimulator.getConditions(),
-        stats: state.networkSimulator.getStats()
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 }
 
 export { register };
