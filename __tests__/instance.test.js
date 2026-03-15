@@ -230,58 +230,60 @@ describe("createInstance", () => {
     expect(inst.getState().socketUdp).toBeNull();
   });
 
-  test("marks client unhealthy when post-connectivity ping timeout elapses", async () => {
-    jest.useFakeTimers();
+  test("readyToSend is true immediately after start() for client mode (v1)", async () => {
     const app = makeMockApp();
-    const inst = createInstance(
-      app,
-      makeClientOptions({ pingIntervalTime: 0.001 }),
-      "x",
-      "plugin",
-      jest.fn()
-    );
-
+    const inst = createInstance(app, makeClientOptions(), "x", "plugin", jest.fn());
+    await inst.start();
     try {
-      await inst.start();
-      const monitor = monitorInstances[0];
-      expect(monitor).toBeDefined();
-      monitor.emit("up", { time: 18 });
-
-      const before = inst.getStatus().text;
-      expect(before).toBe("Connected");
-
-      await jest.advanceTimersByTimeAsync(12000);
-
-      expect(inst.getState().isHealthy).toBe(false);
-      expect(inst.getStatus().text).toBe("Connection monitor timeout");
-      expect(inst.getState().readyToSend).toBe(false);
+      expect(inst.getState().readyToSend).toBe(true);
+      expect(inst.getState().isHealthy).toBe(true);
     } finally {
       inst.stop();
-      jest.useRealTimers();
     }
   });
 
-  test("marks client unhealthy on monitor down/timeout/error events", async () => {
+  test("v1 ping-monitor events do not affect readyToSend or isHealthy", async () => {
     const app = makeMockApp();
     const inst = createInstance(app, makeClientOptions(), "x", "plugin", jest.fn());
 
     await inst.start();
 
+    // v1 creates a ping-monitor (for RTT only)
     const monitor = monitorInstances[0];
     expect(monitor).toBeDefined();
 
-    monitor.emit("up", { time: 22 });
+    // Socket creation already set readyToSend and isHealthy
+    expect(inst.getState().readyToSend).toBe(true);
     expect(inst.getState().isHealthy).toBe(true);
 
+    // ping events no longer gate transmission or health
     monitor.emit("down");
-    expect(inst.getState().isHealthy).toBe(false);
-    expect(inst.getStatus().text).toContain("Connection monitor: down");
+    expect(inst.getState().readyToSend).toBe(true);
+    expect(inst.getState().isHealthy).toBe(true);
 
     monitor.emit("error", { message: "simulated" });
-    expect(inst.getState().isHealthy).toBe(false);
-    expect(inst.getStatus().text).toContain("Connection monitor error");
+    expect(inst.getState().readyToSend).toBe(true);
+    expect(inst.getState().isHealthy).toBe(true);
 
     inst.stop();
+  });
+
+  test("v2/v3 instances do not create a ping-monitor", async () => {
+    const app = makeMockApp();
+    const inst = createInstance(
+      app,
+      makeClientOptions({ protocolVersion: 2 }),
+      "x",
+      "plugin",
+      jest.fn()
+    );
+    await inst.start();
+    try {
+      expect(monitorInstances).toHaveLength(0);
+      expect(inst.getState().readyToSend).toBe(true);
+    } finally {
+      inst.stop();
+    }
   });
   test("retries one failed batch then drops it with explicit metrics", async () => {
     jest.useFakeTimers();
