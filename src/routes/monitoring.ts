@@ -11,8 +11,12 @@ import { findConnectionIndexByInstanceId } from "../connection-config";
  */
 function register(router: any, ctx: any): void {
   const {
-    app, rateLimitMiddleware, requireJson, getFirstBundle,
-    managementAuthMiddleware, pluginRef
+    app,
+    rateLimitMiddleware,
+    requireJson,
+    getFirstBundle,
+    managementAuthMiddleware,
+    pluginRef
   } = ctx;
 
   function getPersistedConfigConnections(configuration: any, bundle: any): any {
@@ -37,7 +41,10 @@ function register(router: any, ctx: any): void {
   }
 
   function persistAlertThresholds(bundle: any, thresholds: any): void {
-    if (typeof app.readPluginOptions !== "function" || typeof app.savePluginOptions !== "function") {
+    if (
+      typeof app.readPluginOptions !== "function" ||
+      typeof app.savePluginOptions !== "function"
+    ) {
       return;
     }
 
@@ -54,7 +61,9 @@ function register(router: any, ctx: any): void {
         }
 
         if (index !== -1) {
-          const nextConnections = persisted.connections.map((connection: any) => ({ ...connection }));
+          const nextConnections = persisted.connections.map((connection: any) => ({
+            ...connection
+          }));
           nextConnections[index] = {
             ...nextConnections[index],
             alertThresholds: {
@@ -103,71 +112,105 @@ function register(router: any, ctx: any): void {
     }
   }
 
-  router.get("/monitoring/packet-loss", rateLimitMiddleware, (req: any, res: any) => {
-    try {
-      const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.packetLossTracker) {
-        return res.json({ heatmap: [], summary: { overallLossRate: 0, maxLossRate: 0, trend: "stable", bucketCount: 0 } });
+  router.get(
+    "/monitoring/packet-loss",
+    rateLimitMiddleware,
+    managementAuthMiddleware("monitoring.read"),
+    (req: any, res: any) => {
+      try {
+        const bundle = getFirstBundle();
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
+        const { state } = bundle;
+        if (!state.monitoring || !state.monitoring.packetLossTracker) {
+          return res.json({
+            heatmap: [],
+            summary: { overallLossRate: 0, maxLossRate: 0, trend: "stable", bucketCount: 0 }
+          });
+        }
+        res.json({
+          heatmap: state.monitoring.packetLossTracker.getHeatmapData(),
+          summary: state.monitoring.packetLossTracker.getSummary()
+        });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-      res.json({
-        heatmap: state.monitoring.packetLossTracker.getHeatmapData(),
-        summary: state.monitoring.packetLossTracker.getSummary()
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
-  router.get("/monitoring/path-latency", rateLimitMiddleware, (req: any, res: any) => {
-    try {
-      const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.pathLatencyTracker) {
-        return res.json({ paths: [] });
+  router.get(
+    "/monitoring/path-latency",
+    rateLimitMiddleware,
+    managementAuthMiddleware("monitoring.read"),
+    (req: any, res: any) => {
+      try {
+        const bundle = getFirstBundle();
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
+        const { state } = bundle;
+        if (!state.monitoring || !state.monitoring.pathLatencyTracker) {
+          return res.json({ paths: [] });
+        }
+        const topN = parseInt(req.query.limit, 10) || 20;
+        res.json({
+          paths: state.monitoring.pathLatencyTracker.getAllStats(topN)
+        });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-      const topN = parseInt(req.query.limit, 10) || 20;
-      res.json({
-        paths: state.monitoring.pathLatencyTracker.getAllStats(topN)
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
-  router.get("/monitoring/retransmissions", rateLimitMiddleware, (req: any, res: any) => {
-    try {
-      const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.retransmissionTracker) {
-        return res.json({ chartData: [], summary: { avgRate: 0, maxRate: 0, currentRate: 0, entries: 0 } });
+  router.get(
+    "/monitoring/retransmissions",
+    rateLimitMiddleware,
+    managementAuthMiddleware("monitoring.read"),
+    (req: any, res: any) => {
+      try {
+        const bundle = getFirstBundle();
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
+        const { state } = bundle;
+        if (!state.monitoring || !state.monitoring.retransmissionTracker) {
+          return res.json({
+            chartData: [],
+            summary: { avgRate: 0, maxRate: 0, currentRate: 0, entries: 0 }
+          });
+        }
+        const limit = parseInt(req.query.limit, 10) || undefined;
+        res.json({
+          chartData: state.monitoring.retransmissionTracker.getChartData(limit),
+          summary: state.monitoring.retransmissionTracker.getSummary()
+        });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-      const limit = parseInt(req.query.limit, 10) || undefined;
-      res.json({
-        chartData: state.monitoring.retransmissionTracker.getChartData(limit),
-        summary: state.monitoring.retransmissionTracker.getSummary()
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
-  router.get("/monitoring/alerts", rateLimitMiddleware, managementAuthMiddleware("monitoring.alerts.read"), (req: any, res: any) => {
-    try {
-      const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.alertManager) {
-        return res.json({ thresholds: {}, activeAlerts: {} });
+  router.get(
+    "/monitoring/alerts",
+    rateLimitMiddleware,
+    managementAuthMiddleware("monitoring.alerts.read"),
+    (req: any, res: any) => {
+      try {
+        const bundle = getFirstBundle();
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
+        const { state } = bundle;
+        if (!state.monitoring || !state.monitoring.alertManager) {
+          return res.json({ thresholds: {}, activeAlerts: {} });
+        }
+        res.json(state.monitoring.alertManager.getState());
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-      res.json(state.monitoring.alertManager.getState());
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
   router.post(
     "/monitoring/alerts",
@@ -177,7 +220,9 @@ function register(router: any, ctx: any): void {
     (req: any, res: any) => {
       try {
         const bundle = getFirstBundle();
-        if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
         const { state } = bundle;
         if (!state.monitoring || !state.monitoring.alertManager) {
           return res.status(503).json({ error: "Alert manager not initialized" });
@@ -189,7 +234,9 @@ function register(router: any, ctx: any): void {
         }
         const validAlertMetrics = ["rtt", "packetLoss", "retransmitRate", "jitter", "queueDepth"];
         if (!validAlertMetrics.includes(metric)) {
-          return res.status(400).json({ error: `metric must be one of: ${validAlertMetrics.join(", ")}` });
+          return res
+            .status(400)
+            .json({ error: `metric must be one of: ${validAlertMetrics.join(", ")}` });
         }
 
         const update: any = {};
@@ -210,9 +257,15 @@ function register(router: any, ctx: any): void {
         }
 
         const existingThreshold = state.monitoring.alertManager.thresholds[metric] || {};
-        const effectiveWarning  = update.warning  !== undefined ? update.warning  : existingThreshold.warning;
-        const effectiveCritical = update.critical !== undefined ? update.critical : existingThreshold.critical;
-        if (effectiveWarning !== undefined && effectiveCritical !== undefined && effectiveWarning > effectiveCritical) {
+        const effectiveWarning =
+          update.warning !== undefined ? update.warning : existingThreshold.warning;
+        const effectiveCritical =
+          update.critical !== undefined ? update.critical : existingThreshold.critical;
+        if (
+          effectiveWarning !== undefined &&
+          effectiveCritical !== undefined &&
+          effectiveWarning > effectiveCritical
+        ) {
           return res.status(400).json({ error: "warning must be less than or equal to critical" });
         }
 
@@ -241,71 +294,104 @@ function register(router: any, ctx: any): void {
   );
 
   // Packet capture routes
-  router.get("/capture", rateLimitMiddleware, managementAuthMiddleware("capture.read"), (req: any, res: any) => {
-    try {
-      const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.packetCapture) {
-        return res.json({ enabled: false, captured: 0, dropped: 0, buffered: 0 });
+  router.get(
+    "/capture",
+    rateLimitMiddleware,
+    managementAuthMiddleware("capture.read"),
+    (req: any, res: any) => {
+      try {
+        const bundle = getFirstBundle();
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
+        const { state } = bundle;
+        if (!state.monitoring || !state.monitoring.packetCapture) {
+          return res.json({ enabled: false, captured: 0, dropped: 0, buffered: 0 });
+        }
+        res.json(state.monitoring.packetCapture.getStats());
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-      res.json(state.monitoring.packetCapture.getStats());
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
-  router.post("/capture/start", rateLimitMiddleware, managementAuthMiddleware("capture.update"), (req: any, res: any) => {
-    try {
-      const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.packetCapture) {
-        return res.status(503).json({ error: "Packet capture not initialized" });
+  router.post(
+    "/capture/start",
+    rateLimitMiddleware,
+    managementAuthMiddleware("capture.update"),
+    (req: any, res: any) => {
+      try {
+        const bundle = getFirstBundle();
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
+        const { state } = bundle;
+        if (!state.monitoring || !state.monitoring.packetCapture) {
+          return res.status(503).json({ error: "Packet capture not initialized" });
+        }
+        state.monitoring.packetCapture.start();
+        res.json({ success: true, enabled: true });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-      state.monitoring.packetCapture.start();
-      res.json({ success: true, enabled: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
-  router.post("/capture/stop", rateLimitMiddleware, managementAuthMiddleware("capture.update"), (req: any, res: any) => {
-    try {
-      const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.packetCapture) {
-        return res.status(503).json({ error: "Packet capture not initialized" });
+  router.post(
+    "/capture/stop",
+    rateLimitMiddleware,
+    managementAuthMiddleware("capture.update"),
+    (req: any, res: any) => {
+      try {
+        const bundle = getFirstBundle();
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
+        const { state } = bundle;
+        if (!state.monitoring || !state.monitoring.packetCapture) {
+          return res.status(503).json({ error: "Packet capture not initialized" });
+        }
+        state.monitoring.packetCapture.stop();
+        res.json({ success: true, enabled: false });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-      state.monitoring.packetCapture.stop();
-      res.json({ success: true, enabled: false });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
-  router.get("/capture/export", rateLimitMiddleware, managementAuthMiddleware("capture.export"), (req: any, res: any) => {
-    try {
-      const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.packetCapture) {
-        return res.status(503).json({ error: "Packet capture not initialized" });
+  router.get(
+    "/capture/export",
+    rateLimitMiddleware,
+    managementAuthMiddleware("capture.export"),
+    (req: any, res: any) => {
+      try {
+        const bundle = getFirstBundle();
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
+        const { state } = bundle;
+        if (!state.monitoring || !state.monitoring.packetCapture) {
+          return res.status(503).json({ error: "Packet capture not initialized" });
+        }
+        const pcapBuffer = state.monitoring.packetCapture.exportPcap();
+        res.set("Content-Type", "application/vnd.tcpdump.pcap");
+        res.set(
+          "Content-Disposition",
+          `attachment; filename="edge-link-capture-${Date.now()}.pcap"`
+        );
+        res.send(pcapBuffer);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-      const pcapBuffer = state.monitoring.packetCapture.exportPcap();
-      res.set("Content-Type", "application/vnd.tcpdump.pcap");
-      res.set("Content-Disposition", `attachment; filename="edge-link-capture-${Date.now()}.pcap"`);
-      res.send(pcapBuffer);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
   router.get("/monitoring/inspector", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
+      if (!bundle) {
+        return res.status(503).json({ error: "Plugin not started" });
+      }
       const { state } = bundle;
       if (!state.monitoring || !state.monitoring.packetInspector) {
         return res.json({ enabled: false, packetsInspected: 0, clientsConnected: 0 });
@@ -319,7 +405,9 @@ function register(router: any, ctx: any): void {
   router.get("/monitoring/simulation", rateLimitMiddleware, (req: any, res: any) => {
     try {
       const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
+      if (!bundle) {
+        return res.status(503).json({ error: "Plugin not started" });
+      }
       const { state } = bundle;
       if (!state.networkSimulator) {
         return res.json({ enabled: false });
