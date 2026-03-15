@@ -231,12 +231,16 @@ describe("PacketBuilder", () => {
       const packet = v3Builder.buildACKPacket(7);
       const v3Parser = new PacketParser();
 
-      expect(() => v3Parser.parseHeader(packet)).toThrow("Control packet authentication requires secretKey");
+      expect(() => v3Parser.parseHeader(packet)).toThrow(
+        "Control packet authentication requires secretKey"
+      );
     });
 
     test("rejects v3 control packets signed with the wrong key", () => {
       const v3Builder = new PacketBuilder({ protocolVersion: PROTOCOL_VERSION_V3, secretKey });
-      const wrongParser = new PacketParser({ secretKey: "abcdefghijklmnopqrstuvwxyz123456" });
+      const wrongParser = new PacketParser({
+        secretKey: "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536"
+      });
       const packet = v3Builder.buildNAKPacket([3, 5, 7]);
 
       expect(() => wrongParser.parseHeader(packet)).toThrow("Control packet authentication failed");
@@ -372,8 +376,9 @@ describe("PacketParser", () => {
     });
 
     test("returns true for valid v3 packet", () => {
-      const packet = new PacketBuilder({ protocolVersion: PROTOCOL_VERSION_V3 })
-        .buildDataPacket(Buffer.from("test"));
+      const packet = new PacketBuilder({ protocolVersion: PROTOCOL_VERSION_V3 }).buildDataPacket(
+        Buffer.from("test")
+      );
       expect(parser.isV2Packet(packet)).toBe(true);
     });
 
@@ -669,7 +674,9 @@ describe("Integration scenarios", () => {
 
     // Create binary payload with all byte values
     const payload = Buffer.alloc(256);
-    for (let i = 0; i < 256; i++) {payload[i] = i;}
+    for (let i = 0; i < 256; i++) {
+      payload[i] = i;
+    }
 
     const packet = builder.buildDataPacket(payload);
     const parsed = parser.parseHeader(packet);

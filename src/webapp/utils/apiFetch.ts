@@ -18,7 +18,10 @@ const DEFAULT_AUTH_CONFIG: AuthConfig = {
   token: null,
   localStorageKey: "signalkEdgeLinkManagementToken",
   queryParam: "edgeLinkToken",
-  includeTokenInQuery: true,
+  // Default to false: query-parameter tokens leak into browser history, server
+  // access logs, and Referer headers. Set includeTokenInQuery: true in
+  // window.__EDGE_LINK_AUTH__ only when you explicitly need URL-based auth.
+  includeTokenInQuery: false,
   headerMode: "both"
 };
 

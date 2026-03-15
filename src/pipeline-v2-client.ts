@@ -21,11 +21,20 @@ import {
   compressPayload,
   udpSendAsync as _udpSendAsyncShared
 } from "./pipeline-utils";
-import { PacketBuilder, PacketParser, PacketType } from "./packet";
+import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "./packet";
 import { RetransmitQueue } from "./retransmit-queue";
 import { MetricsPublisher } from "./metrics-publisher";
 import { CongestionControl } from "./congestion";
 import { BondingManager } from "./bonding";
+import type {
+  SignalKApp,
+  MetricsApi,
+  InstanceState,
+  Delta,
+  MonitoringState,
+  BondingConfig
+} from "./types";
+import * as dgram from "dgram";
 import {
   MAX_SAFE_UDP_PAYLOAD,
   SMART_BATCH_SMOOTHING,
@@ -40,16 +49,16 @@ import {
  * @param metricsApi - Metrics API from lib/metrics.js
  * @returns Pipeline API
  */
-function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
+function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
   const { metrics, recordError, trackPathStats, updateBandwidthRates } = metricsApi;
   const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
   const protocolVersion = state.options && state.options.protocolVersion === 3 ? 3 : 2;
   const packetBuilder = new PacketBuilder({
     protocolVersion,
-    secretKey: state.options && state.options.secretKey
+    secretKey: state.options?.secretKey ?? undefined
   });
   const packetParser = new PacketParser({
-    secretKey: state.options && state.options.secretKey
+    secretKey: state.options?.secretKey ?? undefined
   });
   const clientTelemetrySource = "signalk-edge-link-client-telemetry";
 
@@ -94,16 +103,16 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
   const rawCongestionConfig = (state.options && state.options.congestionControl) || {};
   const congestionConfig = {
     ...rawCongestionConfig,
-    initialDeltaTimer:
-      rawCongestionConfig.initialDeltaTimer !== undefined
-        ? rawCongestionConfig.initialDeltaTimer
+    nominalDeltaTimer:
+      rawCongestionConfig.nominalDeltaTimer !== undefined
+        ? rawCongestionConfig.nominalDeltaTimer
         : state.deltaTimerTime
   };
   const congestionControl = new CongestionControl(congestionConfig);
   let congestionAdjustInterval: ReturnType<typeof setInterval> | null = null;
 
   // Connection bonding (initialized lazily via initBonding)
-  let bondingManager: any = null;
+  let bondingManager: BondingManager | null = null;
 
   // Metrics collection state
   let metricsInterval: ReturnType<typeof setInterval> | null = null;
@@ -113,7 +122,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
   let lastRetransmissions = 0;
 
   // Enhanced monitoring hooks (set externally via setMonitoring)
-  let monitoringHooks: any = null;
+  let monitoringHooks: MonitoringState | null = null;
 
   // RTT tracking for jitter calculation (CircularBuffer gives O(1) push with auto-eviction)
   const rttSamples = new CircularBuffer<number>(10);
@@ -134,7 +143,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
     return distance !== 0 && distance < 0x80000000;
   }
 
-  function recordPathLatencies(deltaPayload: any): void {
+  function recordPathLatencies(deltaPayload: Delta | Delta[]): void {
     if (!monitoringHooks || !monitoringHooks.pathLatencyTracker) {
       return;
     }
@@ -167,8 +176,8 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
   function _effectiveRetransmitAge(): number {
     let maxAge = retransmitMaxAge;
 
-    if (metrics.rtt > 0) {
-      const rttBasedAge = Math.round(metrics.rtt * retransmitRttMultiplier);
+    if ((metrics.rtt ?? 0) > 0) {
+      const rttBasedAge = Math.round((metrics.rtt ?? 0) * retransmitRttMultiplier);
       maxAge = Math.min(maxAge, Math.max(retransmitMinAge, rttBasedAge));
     }
 
@@ -220,7 +229,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
       const toRetransmit = retransmitQueue.retransmit(pendingSeqs);
       for (const { packet: retransmitPacket } of toRetransmit) {
         await udpSendAsync(retransmitPacket, lastAckRinfo.address, lastAckRinfo.port);
-        metrics.retransmissions++;
+        metrics.retransmissions = (metrics.retransmissions ?? 0) + 1;
         if (monitoringHooks && monitoringHooks.packetLossTracker) {
           monitoringHooks.packetLossTracker.record(true);
         }
@@ -270,7 +279,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
    * @param udpPort   - Destination UDP port
    */
   async function sendDelta(
-    delta: any,
+    delta: Delta | Delta[],
     secretKey: string,
     udpAddress: string,
     udpPort: number
@@ -294,14 +303,14 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
       metrics.bandwidth.bytesOutRaw += serialized.length;
 
       if (Array.isArray(delta)) {
-        delta.forEach((d: any) => trackPathStats(d, serialized.length / delta.length));
+        delta.forEach((d) => trackPathStats(d, serialized.length / delta.length));
       } else {
         trackPathStats(delta, serialized.length);
       }
       recordPathLatencies(delta);
 
       // Compress
-      const compressed = await compressPayload(serialized, state.options.useMsgpack);
+      const compressed = await compressPayload(serialized, state.options?.useMsgpack ?? false);
 
       // Encrypt
       const encrypted = encryptBinary(compressed, secretKey);
@@ -395,7 +404,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
    * @param parsed - Pre-parsed packet header (from handleControlPacket)
    * @param rinfo  - Remote address info
    */
-  function receiveACK(parsed: any, rinfo: any): void {
+  function receiveACK(parsed: ParsedPacket, rinfo: dgram.RemoteInfo): void {
     try {
       const ackedSeq = packetParser.parseACKPayload(parsed.payload);
 
@@ -436,7 +445,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
 
       // Update congestion control with latest network metrics
       congestionControl.updateMetrics({
-        rtt: metrics.rtt,
+        rtt: metrics.rtt ?? 0,
         packetLoss: _calculatePacketLoss()
       });
 
@@ -462,7 +471,11 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
    * @param udpAddress - Address to retransmit to
    * @param udpPort    - Port to retransmit to
    */
-  async function receiveNAK(parsed: any, udpAddress: string, udpPort: number): Promise<void> {
+  async function receiveNAK(
+    parsed: ParsedPacket,
+    udpAddress: string,
+    udpPort: number
+  ): Promise<void> {
     try {
       const missingSeqs = packetParser.parseNAKPayload(parsed.payload);
 
@@ -475,7 +488,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
       for (const { sequence, packet: retransmitPacket, attempt } of toRetransmit) {
         app.debug(`Retransmitting seq=${sequence}, attempt=${attempt}`);
         await udpSendAsync(retransmitPacket, udpAddress, udpPort);
-        metrics.retransmissions++;
+        metrics.retransmissions = (metrics.retransmissions ?? 0) + 1;
         if (monitoringHooks && monitoringHooks.packetLossTracker) {
           monitoringHooks.packetLossTracker.record(true);
         }
@@ -499,7 +512,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
    * @param msg   - Raw packet data
    * @param rinfo - Remote address info
    */
-  async function handleControlPacket(msg: Buffer, rinfo: any): Promise<void> {
+  async function handleControlPacket(msg: Buffer, rinfo: dgram.RemoteInfo): Promise<void> {
     try {
       // Quick check: is this a v2 packet?
       if (!packetParser.isV2Packet(msg)) {
@@ -531,17 +544,20 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
    */
   function udpSendAsync(message: Buffer, host: string, port: number): Promise<void> {
     // Determine socket and destination based on bonding state
-    let socket: any;
+    let socket: dgram.Socket | undefined;
     let sendHost = host;
     let sendPort = port;
 
     if (bondingManager) {
-      socket = bondingManager.getActiveSocket();
-      const dest = bondingManager.getActiveAddress();
+      // Use getActiveDestination() to read socket + address atomically so that
+      // a failover between two separate getActive*() calls cannot produce a
+      // mismatched socket/destination pair.
+      const dest = bondingManager.getActiveDestination();
+      socket = dest.socket ?? undefined;
       sendHost = dest.address;
       sendPort = dest.port;
     } else {
-      socket = state.socketUdp;
+      socket = state.socketUdp ?? undefined;
     }
 
     if (!socket) {
@@ -552,11 +568,11 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
     }
 
     return _udpSendAsyncShared(socket, message, sendHost, sendPort, {
-      onRetry(retryCount: number, err: any) {
+      onRetry(retryCount: number, err: NodeJS.ErrnoException) {
         metrics.udpRetries++;
         app.debug(`UDP send error (${err.code}), retry ${retryCount}/${3}`);
       },
-      onError(err: any, retryCount: number) {
+      onError(err: NodeJS.ErrnoException, retryCount: number) {
         metrics.udpSendErrors++;
         app.error(`UDP send error to ${sendHost}:${sendPort} - ${err.message} (code: ${err.code})`);
         recordError("udpSend", `UDP send error: ${err.message} (${err.code})`);
@@ -570,21 +586,21 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
   /**
    * Get the packet builder (for testing/metrics)
    */
-  function getPacketBuilder(): any {
+  function getPacketBuilder(): PacketBuilder {
     return packetBuilder;
   }
 
   /**
    * Get the retransmit queue (for testing/metrics)
    */
-  function getRetransmitQueue(): any {
+  function getRetransmitQueue(): RetransmitQueue {
     return retransmitQueue;
   }
 
   /**
    * Get the metrics publisher (for testing/external access)
    */
-  function getMetricsPublisher(): any {
+  function getMetricsPublisher(): MetricsPublisher {
     return metricsPublisher;
   }
 
@@ -598,7 +614,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
     lastMetricsTime = Date.now();
     lastBytesSent = metrics.bandwidth.bytesOut;
     lastPacketsSent = metrics.bandwidth.packetsOut;
-    lastRetransmissions = metrics.retransmissions;
+    lastRetransmissions = metrics.retransmissions ?? 0;
 
     metricsInterval = setInterval(() => {
       _publishMetrics();
@@ -642,7 +658,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
     const packetsSentPerSec = packetsSent / elapsed;
 
     // Calculate retransmit rate for this period (not cumulative lifetime)
-    const periodRetransmissions = metrics.retransmissions - lastRetransmissions;
+    const periodRetransmissions = (metrics.retransmissions ?? 0) - lastRetransmissions;
     const retransmitRate = packetsSent > 0 ? periodRetransmissions / packetsSent : 0;
     const packetLoss = _calculatePacketLoss();
     metrics.packetLoss = packetLoss;
@@ -667,7 +683,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
       if (monitoringHooks.retransmissionTracker) {
         monitoringHooks.retransmissionTracker.snapshot(
           metrics.bandwidth.packetsOut,
-          metrics.retransmissions
+          metrics.retransmissions ?? 0
         );
       }
       if (monitoringHooks.alertManager) {
@@ -686,7 +702,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
       !telemetrySendInFlight &&
       state.readyToSend &&
       state.options &&
-      state.options.protocolVersion >= 2 &&
+      (state.options.protocolVersion ?? 0) >= 2 &&
       state.options.secretKey &&
       state.options.udpAddress &&
       state.options.udpPort
@@ -738,7 +754,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
     lastMetricsTime = now;
     lastBytesSent = metrics.bandwidth.bytesOut;
     lastPacketsSent = metrics.bandwidth.packetsOut;
-    lastRetransmissions = metrics.retransmissions;
+    lastRetransmissions = metrics.retransmissions ?? 0;
   }
 
   /**
@@ -757,7 +773,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
   /**
    * Get the congestion control instance (for testing/API access)
    */
-  function getCongestionControl(): any {
+  function getCongestionControl(): CongestionControl {
     return congestionControl;
   }
 
@@ -832,15 +848,32 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
    *
    * @param bondingConfig - Bonding configuration
    */
-  async function initBonding(bondingConfig: any): Promise<any> {
-    bondingManager = new BondingManager(bondingConfig, app);
+  async function initBonding(bondingConfig: Record<string, unknown>): Promise<BondingManager> {
+    bondingManager = new BondingManager(
+      bondingConfig as unknown as {
+        mode?: string;
+        primary: { address: string; port: number; interface?: string };
+        backup: { address: string; port: number; interface?: string };
+        failover?: Record<string, unknown>;
+        instanceId?: string;
+        notificationsEnabled?: boolean;
+      },
+      app
+    );
     bondingManager.setMetricsPublisher(metricsPublisher);
 
     // Forward control packets from bonding sockets to pipeline
     bondingManager.onControlPacket((linkName: string, msg: Buffer) => {
+      if (!bondingManager) {
+        return;
+      }
+      const linkHealth = bondingManager.getLinkHealth();
+      const link = linkHealth[linkName];
       handleControlPacket(msg, {
-        address: bondingManager.links[linkName].address,
-        port: bondingManager.links[linkName].port
+        address: link?.address ?? "127.0.0.1",
+        port: link?.port ?? 0,
+        family: "IPv4",
+        size: msg.length
       });
     });
 
@@ -861,7 +894,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
   /**
    * Get the bonding manager instance (for API/testing)
    */
-  function getBondingManager(): any {
+  function getBondingManager(): BondingManager | null {
     return bondingManager;
   }
 
@@ -869,7 +902,7 @@ function createPipelineV2Client(app: any, state: any, metricsApi: any): any {
    * Set enhanced monitoring hooks
    * @param hooks - Monitoring objects from lib/monitoring.js and lib/packet-capture.js
    */
-  function setMonitoring(hooks: any): void {
+  function setMonitoring(hooks: MonitoringState | null): void {
     monitoringHooks = hooks;
   }
 

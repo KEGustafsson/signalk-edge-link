@@ -9,7 +9,7 @@
  * @module lib/prometheus
  */
 
-import type { Metrics } from "./types";
+import type { Metrics, InstanceState } from "./types";
 
 interface PrometheusOpts {
   sharedMeta?: Set<string>;
@@ -31,7 +31,7 @@ interface PrometheusExtra {
  */
 export function formatPrometheusMetrics(
   metrics: Metrics,
-  state: any,
+  state: InstanceState,
   extra: PrometheusExtra = {},
   opts: PrometheusOpts = {}
 ): string {
@@ -44,7 +44,12 @@ export function formatPrometheusMetrics(
   // Base labels present on every time-series.
   const baseLabels: Record<string, string> = instanceId ? { mode, instance: instanceId } : { mode };
 
-  function gauge(name: string, help: string, value: number, labels: Record<string, string> = {}): void {
+  function gauge(
+    name: string,
+    help: string,
+    value: number,
+    labels: Record<string, string> = {}
+  ): void {
     const fullName = `${prefix}_${name}`;
     if (!metricMeta.has(fullName)) {
       lines.push(`# HELP ${fullName} ${help}`);
@@ -55,7 +60,12 @@ export function formatPrometheusMetrics(
     lines.push(`${fullName}${labelStr} ${value}`);
   }
 
-  function counter(name: string, help: string, value: number, labels: Record<string, string> = {}): void {
+  function counter(
+    name: string,
+    help: string,
+    value: number,
+    labels: Record<string, string> = {}
+  ): void {
     const fullName = `${prefix}_${name}`;
     if (!metricMeta.has(fullName)) {
       lines.push(`# HELP ${fullName} ${help}`);
@@ -80,29 +90,46 @@ export function formatPrometheusMetrics(
   counter("compression_errors_total", "Total compression errors", metrics.compressionErrors);
   counter("encryption_errors_total", "Total encryption errors", metrics.encryptionErrors);
   counter("subscription_errors_total", "Total subscription errors", metrics.subscriptionErrors);
-  counter("malformed_packets_total", "Total malformed packets dropped", metrics.malformedPackets || 0);
+  counter(
+    "malformed_packets_total",
+    "Total malformed packets dropped",
+    metrics.malformedPackets || 0
+  );
 
   if (metrics.errorCounts && typeof metrics.errorCounts === "object") {
     for (const [category, value] of Object.entries(metrics.errorCounts)) {
-      counter(
-        "errors_by_category_total",
-        "Total errors grouped by category",
-        value || 0,
-        { category: sanitizeMetricNameComponent(category) }
-      );
+      counter("errors_by_category_total", "Total errors grouped by category", value || 0, {
+        category: sanitizeMetricNameComponent(category)
+      });
     }
   }
 
   // Bandwidth
   counter("bytes_out_total", "Total bytes sent (compressed)", metrics.bandwidth.bytesOut);
   counter("bytes_in_total", "Total bytes received (compressed)", metrics.bandwidth.bytesIn);
-  counter("bytes_out_raw_total", "Total bytes sent (raw/uncompressed)", metrics.bandwidth.bytesOutRaw);
-  counter("bytes_in_raw_total", "Total bytes received (raw/uncompressed)", metrics.bandwidth.bytesInRaw);
+  counter(
+    "bytes_out_raw_total",
+    "Total bytes sent (raw/uncompressed)",
+    metrics.bandwidth.bytesOutRaw
+  );
+  counter(
+    "bytes_in_raw_total",
+    "Total bytes received (raw/uncompressed)",
+    metrics.bandwidth.bytesInRaw
+  );
   counter("packets_out_total", "Total packets sent", metrics.bandwidth.packetsOut);
   counter("packets_in_total", "Total packets received", metrics.bandwidth.packetsIn);
-  gauge("bandwidth_rate_out_bytes", "Current outbound bandwidth (bytes/s)", metrics.bandwidth.rateOut);
+  gauge(
+    "bandwidth_rate_out_bytes",
+    "Current outbound bandwidth (bytes/s)",
+    metrics.bandwidth.rateOut
+  );
   gauge("bandwidth_rate_in_bytes", "Current inbound bandwidth (bytes/s)", metrics.bandwidth.rateIn);
-  gauge("compression_ratio_percent", "Current compression ratio percentage", metrics.bandwidth.compressionRatio);
+  gauge(
+    "compression_ratio_percent",
+    "Current compression ratio percentage",
+    metrics.bandwidth.compressionRatio
+  );
 
   // Network quality (v2 pipeline)
   gauge("rtt_milliseconds", "Round trip time in milliseconds", metrics.rtt || 0);
@@ -114,15 +141,39 @@ export function formatPrometheusMetrics(
 
   // Smart batching (client only)
   if (!state.isServerMode && metrics.smartBatching) {
-    counter("smart_batch_early_sends_total", "Smart batch early sends", metrics.smartBatching.earlySends);
-    counter("smart_batch_timer_sends_total", "Smart batch timer sends", metrics.smartBatching.timerSends);
-    counter("smart_batch_oversized_total", "Smart batch oversized packets", metrics.smartBatching.oversizedPackets);
-    gauge("smart_batch_avg_bytes_per_delta", "Average bytes per delta", metrics.smartBatching.avgBytesPerDelta);
+    counter(
+      "smart_batch_early_sends_total",
+      "Smart batch early sends",
+      metrics.smartBatching.earlySends
+    );
+    counter(
+      "smart_batch_timer_sends_total",
+      "Smart batch timer sends",
+      metrics.smartBatching.timerSends
+    );
+    counter(
+      "smart_batch_oversized_total",
+      "Smart batch oversized packets",
+      metrics.smartBatching.oversizedPackets
+    );
+    gauge(
+      "smart_batch_avg_bytes_per_delta",
+      "Average bytes per delta",
+      metrics.smartBatching.avgBytesPerDelta
+    );
   }
 
   // Status
-  gauge("ready_to_send", "Whether plugin is ready to send (1=yes, 0=no)", state.readyToSend ? 1 : 0);
-  gauge("deltas_buffered", "Number of deltas currently buffered", state.deltas ? state.deltas.length : 0);
+  gauge(
+    "ready_to_send",
+    "Whether plugin is ready to send (1=yes, 0=no)",
+    state.readyToSend ? 1 : 0
+  );
+  gauge(
+    "deltas_buffered",
+    "Number of deltas currently buffered",
+    state.deltas ? state.deltas.length : 0
+  );
 
   // Extra monitoring metrics
   if (extra.packetLoss !== undefined) {
@@ -147,16 +198,21 @@ export function formatPrometheusMetrics(
   // Bonding metrics
   if (extra.bonding) {
     const { activeLink, links } = extra.bonding;
-    gauge("bonding_active_link", "Active bonding link (1=primary, 2=backup)",
-      activeLink === "primary" ? 1 : 2);
+    gauge(
+      "bonding_active_link",
+      "Active bonding link (1=primary, 2=backup)",
+      activeLink === "primary" ? 1 : 2
+    );
 
     if (links) {
       for (const [name, link] of Object.entries(links)) {
-        const statusNum = link.status === "active" ? 1 : (link.status === "standby" ? 0 : -1);
+        const statusNum = link.status === "active" ? 1 : link.status === "standby" ? 0 : -1;
         gauge("bonding_link_status", "Bonding link status", statusNum, { link: name });
         gauge("bonding_link_rtt_milliseconds", "Bonding link RTT", link.rtt || 0, { link: name });
         gauge("bonding_link_loss_rate", "Bonding link loss rate", link.loss || 0, { link: name });
-        gauge("bonding_link_quality", "Bonding link quality score", link.quality || 0, { link: name });
+        gauge("bonding_link_quality", "Bonding link quality score", link.quality || 0, {
+          link: name
+        });
       }
     }
   }
@@ -172,16 +228,15 @@ export function formatPrometheusMetrics(
  */
 export function formatLabels(labels: Record<string, string>): string {
   const entries = Object.entries(labels);
-  if (entries.length === 0) { return ""; }
+  if (entries.length === 0) {
+    return "";
+  }
   const parts = entries.map(([k, v]) => `${k}="${escapeLabelValue(v)}"`);
   return `{${parts.join(",")}}`;
 }
 
 export function escapeLabelValue(value: unknown): string {
-  return String(value)
-    .replace(/\\/g, "\\\\")
-    .replace(/\n/g, "\\n")
-    .replace(/"/g, "\\\"");
+  return String(value).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/"/g, '\\"');
 }
 
 export function sanitizeMetricNameComponent(name: unknown): string {
@@ -209,7 +264,9 @@ export function validatePrometheusFormat(metricsText: string): PrometheusValidat
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (line === "") { continue; }
+    if (line === "") {
+      continue;
+    }
 
     if (line.startsWith("# HELP ")) {
       // HELP line - validated by presence check
@@ -223,7 +280,9 @@ export function validatePrometheusFormat(metricsText: string): PrometheusValidat
       // Other comment - ok
     } else {
       // Metric line
-      const match = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[^}]*\})?\s+(-?[0-9.eE+-]+|NaN|[+-]Inf)$/);
+      const match = line.match(
+        /^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[^}]*\})?\s+(-?[0-9.eE+-]+|NaN|[+-]Inf)$/
+      );
       if (!match) {
         // Try simpler match
         const simpleMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)/);

@@ -22,6 +22,7 @@ export interface DeltaUpdate {
     label?: string;
     type?: string;
   };
+  $source?: string;
   timestamp?: string;
   values: DeltaValue[];
 }
@@ -57,29 +58,49 @@ export interface PacketHeader {
 
 /** Reliability configuration for v2+ protocol. */
 export interface ReliabilityConfig {
+  /** How often the server sends ACK packets to the client (ms). Default 100. */
   ackInterval?: number;
+  /** Minimum gap between identical ACKs (duplicate suppression window, ms). Default 1000. */
   ackResendInterval?: number;
+  /** Idle time after the last received sequence before a NAK is emitted (ms). Default 100. */
   nakTimeout?: number;
+  /** Maximum number of entries held in the retransmit queue. Default 5000. */
   retransmitQueueSize?: number;
+  /** Maximum retransmit attempts per packet before it is dropped. Default 3. */
   maxRetransmits?: number;
+  /** Hard upper bound on retransmit queue entry age (ms). Default 120000. */
   retransmitMaxAge?: number;
+  /** Lower bound on retransmit entry age; entries newer than this are never expired (ms). Default 10000. */
   retransmitMinAge?: number;
+  /** Scale factor applied to the current RTT to compute the dynamic retransmit timeout. Default 12. */
   retransmitRttMultiplier?: number;
+  /** Time without an ACK after which the retransmit queue is capped to this age (ms). Default 20000. */
   ackIdleDrainAge?: number;
+  /** When true, force-clears the retransmit queue after `forceDrainAfterMs` of ACK silence. Default false. */
   forceDrainAfterAckIdle?: boolean;
+  /** ACK-idle duration that triggers a force drain when `forceDrainAfterAckIdle` is enabled (ms). Default 45000. */
   forceDrainAfterMs?: number;
+  /** Enable burst retransmission of the oldest queued packets after a long ACK gap. Default true. */
   recoveryBurstEnabled?: boolean;
+  /** Maximum number of packets sent in a single recovery burst. Default 100. */
   recoveryBurstSize?: number;
+  /** Interval between successive recovery burst rounds (ms). Default 200. */
   recoveryBurstIntervalMs?: number;
+  /** ACK-gap threshold that triggers a recovery burst (ms). Default 4000. */
   recoveryAckGapMs?: number;
 }
 
 /** Congestion control configuration. */
 export interface CongestionControlConfig {
+  /** Enable automatic congestion-based delta timer adjustment. Default true. */
   enabled?: boolean;
+  /** RTT target that the algorithm aims for (ms). Default 150. */
   targetRTT?: number;
+  /** Normal delta send interval used as the starting point for adjustment (ms). Default 1000. */
   nominalDeltaTimer?: number;
+  /** Minimum delta send interval the algorithm will set (ms). Default 100. */
   minDeltaTimer?: number;
+  /** Maximum delta send interval the algorithm will set (ms). Default 10000. */
   maxDeltaTimer?: number;
 }
 
@@ -92,19 +113,29 @@ export interface LinkConfig {
 
 /** Failover threshold configuration. */
 export interface FailoverConfig {
+  /** RTT (ms) above which the primary link is considered degraded and failover is triggered. */
   rttThreshold?: number;
+  /** Packet-loss ratio (0–1) above which failover is triggered. E.g. 0.05 = 5 %. */
   lossThreshold?: number;
+  /** Interval between bonding health-check probes (ms). */
   healthCheckInterval?: number;
+  /** Minimum time the backup link must remain healthy before failing back to primary (ms). */
   failbackDelay?: number;
+  /** Duration without a heartbeat response before a link is declared dead (ms). */
   heartbeatTimeout?: number;
 }
 
 /** Connection bonding configuration. */
 export interface BondingConfig {
+  /** Enable dual-link bonding with automatic failover. Default false. */
   enabled?: boolean;
+  /** Bonding mode. Currently only "failover" is supported. */
   mode?: string;
+  /** Primary link address and port. */
   primary?: LinkConfig;
+  /** Backup link address and port, used when primary is degraded. */
   backup?: LinkConfig;
+  /** Thresholds and timing that control when failover and failback occur. */
   failover?: FailoverConfig;
 }
 
@@ -125,23 +156,43 @@ export interface AlertThresholds {
 
 /** Per-connection configuration. */
 export interface ConnectionConfig {
+  /** Human-readable label shown in the UI and logs. */
   name?: string;
+  /** Role of this end of the connection: "client" or "server". */
   serverType: string;
+  /** UDP port to send/receive data on. */
   udpPort: number;
+  /** AES-256 encryption key: 64-char hex, 44-char base64, or 32-char ASCII string. */
   secretKey: string;
+  /** Wire protocol version (1, 2, or 3). Default 2. */
   protocolVersion?: number;
+  /** Serialize deltas with MessagePack instead of JSON (smaller, faster). Default false. */
   useMsgpack?: boolean;
+  /** Compress Signal K path strings with a shared dictionary to reduce packet size. Default false. */
   usePathDictionary?: boolean;
+  /** Forward Signal K notification deltas over the link. Default false. */
   enableNotifications?: boolean;
+  /** Destination IP address for client mode. Not used in server mode. */
   udpAddress?: string;
+  /** Number of HELLO retransmits sent on connection start. Default 3. */
   helloMessageSender?: number;
+  /** Override destination address used in automated tests. */
   testAddress?: string;
+  /** Override destination port used in automated tests. */
   testPort?: number;
+  /** Interval between PING keepalive packets (ms). Default 25000. */
   pingIntervalTime?: number;
+  /** Interval between heartbeat packets (ms). */
+  heartbeatInterval?: number;
+  /** ARQ reliability layer configuration (ACK/NAK/retransmit). */
   reliability?: ReliabilityConfig;
+  /** Automatic congestion-control configuration. */
   congestionControl?: CongestionControlConfig;
+  /** Dual-link bonding and failover configuration. */
   bonding?: BondingConfig;
+  /** Alert threshold overrides for the monitoring subsystem. */
   alertThresholds?: AlertThresholds;
+  /** Bearer token required to call the management API for this connection. */
   managementApiToken?: string;
 }
 
@@ -168,7 +219,12 @@ export interface BandwidthMetrics {
   rateOut: number;
   rateIn: number;
   compressionRatio: number;
-  history: import("./CircularBuffer");
+  history: import("./CircularBuffer")<{
+    timestamp: number;
+    rateOut: number;
+    rateIn: number;
+    compressionRatio: number;
+  }>;
 }
 
 /** Smart batching metrics. */
@@ -221,6 +277,7 @@ export interface Metrics {
   naksSent?: number;
   duplicatePackets?: number;
   dataPacketsReceived?: number;
+  rateLimitedPackets?: number;
   droppedDeltaBatches?: number;
   droppedDeltaCount?: number;
 }
@@ -251,42 +308,91 @@ export interface PathStatEntry {
 
 /** Shared mutable per-instance state. */
 export interface InstanceState {
+  /** Stable identifier for this connection instance (used in registry lookups). */
   instanceId: string;
+  /** Human-readable connection name shown in logs and the UI. */
   instanceName: string;
+  /** Short status string forwarded to the Signal K plugin status indicator. */
   instanceStatus: string;
+  /** True while the connection is operating normally and sending/receiving data. */
   isHealthy: boolean;
+  /** Active configuration for this instance; null when the plugin is stopped. */
   options: ConnectionConfig | null;
+  /** Bound UDP socket; null before `start()` or after `stop()`. */
   socketUdp: import("dgram").Socket | null;
+  /** True once the UDP socket is ready and a destination is known. */
   readyToSend: boolean;
+  /** True after `stop()` has been called; prevents stale timer callbacks from acting. */
   stopped: boolean;
+  /** True when running as a server (receiving) rather than a client (sending). */
   isServerMode: boolean;
+  /** Delta batch being accumulated for the current send window. */
   deltas: Delta[];
+  /** True while the batch-flush timer is armed. */
   timer: boolean;
+  /** True while an async UDP batch send is in progress (back-pressure guard). */
   batchSendInFlight: boolean;
+  /** Handle for the pending connection-retry timer; null when not retrying. */
   pendingRetry: ReturnType<typeof setTimeout> | null;
+  /** Running total of delta batches dropped due to back-pressure. */
   droppedDeltaBatches: number;
+  /** Running total of individual deltas dropped due to back-pressure. */
   droppedDeltaCount: number;
+  /** Current delta send interval in ms (may be adjusted by congestion control). */
   deltaTimerTime: number;
+  /** Exponentially smoothed estimate of bytes per delta (for smart batching). */
   avgBytesPerDelta: number;
+  /** Current cap on deltas per batch computed from `avgBytesPerDelta`. */
   maxDeltasPerBatch: number;
+  /** Path to the delta-timer override config file; null if not set. */
   deltaTimerFile: string | null;
+  /** Path to the Signal K subscription filter file; null if not set. */
   subscriptionFile: string | null;
+  /** Path to the NMEA sentence filter file; null if not set. */
   sentenceFilterFile: string | null;
+  /** NMEA sentence types excluded from forwarding. */
   excludedSentences: string[];
+  /** Timestamp (ms since epoch) of the last successfully received packet. */
   lastPacketTime: number;
+  /** Cleanup callbacks registered by Signal K subscriptions. */
   unsubscribes: Array<() => void>;
+  /** The active Signal K subscription handle; null when unsubscribed. */
   localSubscription: unknown | null;
+  /** Periodic HELLO retransmit timer handle; null when not active. */
   helloMessageSender: ReturnType<typeof setInterval> | null;
+  /** Ping-response watchdog timer handle; null when not active. */
   pingTimeout: ReturnType<typeof setTimeout> | null;
-  pingMonitor: unknown | null;
+  /** Pending subscription retry timer; null when not scheduled. */
+  subscriptionRetryTimer: ReturnType<typeof setTimeout> | null;
+  /** Pending UDP socket recovery timer; null when not scheduled. */
+  socketRecoveryTimer: ReturnType<typeof setTimeout> | null;
+  /** True while a socket recovery is in progress; gates send operations during recovery. */
+  socketRecoveryInProgress: boolean;
+  /** Batch-flush timer handle; null when not armed. */
   deltaTimer: ReturnType<typeof setTimeout> | null;
-  pipeline: unknown | null;
-  pipelineServer: unknown | null;
-  heartbeatHandle: unknown | null;
-  monitoring: unknown | null;
-  networkSimulator: unknown | null;
+  /** Active v2/v3 client pipeline instance; null in server mode or before start. */
+  pipeline: ClientPipelineApi | null;
+  /** Active v2/v3 server pipeline instance; null in client mode or before start. */
+  pipelineServer: ServerPipelineApi | null;
+  /** Heartbeat timer handle returned by `startHeartbeat()`; null when stopped. */
+  heartbeatHandle: { stop(): void } | null;
+  /** Enhanced monitoring subsystem instance; null when not initialised. */
+  monitoring: MonitoringState | null;
+  /** Network condition simulator instance (dev/test only); null in production. */
+  networkSimulator: {
+    getConditions(): Record<string, unknown>;
+    getStats(): Record<string, unknown>;
+  } | null;
+  /** Ping/TCP monitor instance; null when not running. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  pingMonitor: { on(event: string, handler: (...args: any[]) => void): void; stop(): void } | null;
+  /** File-system watcher objects registered for config files. */
+  configWatcherObjects: Array<{ close(): void }>;
+  /** Per-config-file debounce timers, keyed by file path. */
   configDebounceTimers: Record<string, ReturnType<typeof setTimeout>>;
+  /** Last-seen content hashes for watched config files, used to skip no-op reloads. */
   configContentHashes: Record<string, string>;
+  /** Callback invoked for each incoming delta (set by the pipeline); null before ready. */
   processDelta: ((delta: Delta) => void) | null;
 }
 
@@ -315,6 +421,8 @@ export interface SignalKApp {
   reportOutputMessages: () => void;
   getSelfPath: (path: string) => unknown;
   getDataDirPath: () => string;
+  readPluginOptions?: () => Record<string, unknown>;
+  savePluginOptions?: (config: unknown, callback: (error: Error | null) => void) => void;
   subscriptionmanager: {
     subscribe: (
       subscription: unknown,
@@ -323,6 +431,187 @@ export interface SignalKApp {
       onDelta: (delta: Delta) => void
     ) => void;
   };
+}
+
+// ── Plugin Reference ─────────────────────────────────────────────────────────
+
+/** Reference to the plugin object used by route handlers. */
+export interface PluginRef {
+  _currentOptions?: {
+    managementApiToken?: string;
+    requireManagementApiToken?: boolean;
+    connections?: ConnectionConfig[];
+    [key: string]: unknown;
+  } | null;
+  _restartPlugin?: ((config: unknown) => Promise<void>) | null;
+  schema?: unknown;
+}
+
+// ── Effective Network Quality ────────────────────────────────────────────────
+
+/** Resolved network quality snapshot (merges local and remote-telemetry sources). */
+export interface EffectiveNetworkQuality {
+  rtt: number;
+  jitter: number;
+  packetLoss: number;
+  retransmissions: number;
+  queueDepth: number;
+  retransmitRate: number;
+  activeLink: string;
+  dataSource: string;
+  lastUpdate: number;
+}
+
+// ── Monitoring State ─────────────────────────────────────────────────────────
+
+/** Structural interface for the monitoring sub-system attached to each instance. */
+export interface MonitoringState {
+  packetLossTracker?: {
+    record(lost: boolean): void;
+    recordBatch(sent: number, lost: number): void;
+    getHeatmapData(): Array<{ timestamp: number; total: number; lost: number; lossRate: number }>;
+    getSummary(): {
+      overallLossRate: number;
+      maxLossRate: number;
+      trend: string;
+      bucketCount: number;
+    };
+    reset(): void;
+  };
+  pathLatencyTracker?: {
+    record(path: string, latencyMs: number): void;
+    getAllStats(topN?: number): unknown[];
+    reset(): void;
+  };
+  retransmissionTracker?: {
+    snapshot(totalPacketsSent: number, totalRetransmissions: number): void;
+    getChartData(limit?: number): unknown[];
+    getSummary(): { avgRate: number; maxRate: number; currentRate: number; entries: number };
+    reset(): void;
+  };
+  alertManager?: {
+    thresholds: Record<string, { warning?: number; critical?: number }>;
+    checkAll(metrics: Record<string, number | undefined>): unknown[];
+    getState(): { thresholds: unknown; activeAlerts: Record<string, unknown> };
+    setThreshold(metric: string, thresholds: { warning?: number; critical?: number }): void;
+    reset(): void;
+  };
+  packetCapture?: {
+    capture(data: Buffer, direction: string, meta?: { address?: string; port?: number }): void;
+    getStats(): unknown;
+    exportPcap(): Buffer;
+    start(): void;
+    stop(): void;
+    reset(): void;
+  };
+  packetInspector?: {
+    inspect(data: Buffer, direction: string, meta?: { address?: string; port?: number }): void;
+    getStats(): unknown;
+    reset(): void;
+  };
+}
+
+// ── Pipeline API Interfaces ──────────────────────────────────────────────────
+
+/** Structural interface for the bonding manager returned by getBondingManager(). */
+export interface BondingManagerApi {
+  getState(): {
+    enabled: boolean;
+    mode: string;
+    activeLink: string;
+    lastFailoverTime: number;
+    failoverThresholds: Record<string, number>;
+    links: Record<string, unknown>;
+  };
+  forceFailover(): void;
+  getActiveLinkName(): string;
+  getLinkHealth(): Record<
+    string,
+    {
+      address: string;
+      port: number;
+      status: string;
+      rtt: number;
+      loss: number;
+      quality: number;
+      heartbeatsSent: number;
+      heartbeatResponses: number;
+    }
+  >;
+  failoverThresholds: Record<string, number>;
+}
+
+/** Structural interface for the congestion controller returned by getCongestionControl(). */
+export interface CongestionControlApi {
+  getState(): {
+    enabled: boolean;
+    manualMode: boolean;
+    currentDeltaTimer: number;
+    nominalDeltaTimer: number;
+    avgRTT: number;
+    avgLoss: number;
+    targetRTT: number;
+    minDeltaTimer: number;
+    maxDeltaTimer: number;
+    adjustInterval: number;
+    maxAdjustment: number;
+  };
+  enableAutoMode(): void;
+  getCurrentDeltaTimer(): number;
+  setManualDeltaTimer(value: number): void;
+}
+
+/** Structural interface for the metrics publisher exposed by getMetricsPublisher(). */
+export interface MetricsPublisherApi {
+  calculateLinkQuality(params: {
+    rtt: number;
+    jitter: number;
+    packetLoss: number;
+    retransmitRate: number;
+  }): number;
+  publish(metrics: Record<string, number | string | undefined>): void;
+  publishLinkMetrics(linkName: string, metrics: Record<string, number | undefined>): void;
+}
+
+/** Public API returned by createPipelineV2Client(). */
+export interface ClientPipelineApi {
+  sendDelta(
+    deltas: Delta | Delta[],
+    secretKey: string,
+    address: string,
+    port: number
+  ): Promise<void>;
+  handleControlPacket(msg: Buffer, rinfo: import("dgram").RemoteInfo): Promise<void>;
+  startMetricsPublishing(): void;
+  stopMetricsPublishing(): void;
+  startCongestionControl(): void;
+  stopCongestionControl(): void;
+  startHeartbeat(
+    address: string,
+    port: number,
+    options?: { heartbeatInterval?: number }
+  ): { stop(): void };
+  initBonding(config: Record<string, unknown>): Promise<BondingManagerApi>;
+  stopBonding(): void;
+  getBondingManager(): BondingManagerApi | null;
+  getCongestionControl(): CongestionControlApi;
+  getMetricsPublisher(): MetricsPublisherApi;
+  getPacketBuilder(): unknown;
+  getRetransmitQueue(): unknown;
+  setMonitoring(hooks: MonitoringState | null): void;
+}
+
+/** Public API returned by createPipelineV2Server(). */
+export interface ServerPipelineApi {
+  receivePacket(packet: Buffer, secretKey: string, rinfo: import("dgram").RemoteInfo): void;
+  startACKTimer(): void;
+  stopACKTimer(): void;
+  startMetricsPublishing(): void;
+  stopMetricsPublishing(): void;
+  getSequenceTracker(): { reset(): void } | undefined;
+  getPacketBuilder(): unknown;
+  getMetrics(): unknown;
+  getMetricsPublisher(): MetricsPublisherApi;
 }
 
 export {};

@@ -53,9 +53,12 @@ export class PacketLossTracker {
   record(lost: boolean): void {
     const now = Date.now();
     this._ensureBucket(now);
-    this._currentBucket!.total++;
+    if (!this._currentBucket) {
+      return;
+    }
+    this._currentBucket.total++;
     if (lost) {
-      this._currentBucket!.lost++;
+      this._currentBucket.lost++;
     }
   }
 
@@ -67,8 +70,11 @@ export class PacketLossTracker {
   recordBatch(sent: number, lost: number): void {
     const now = Date.now();
     this._ensureBucket(now);
-    this._currentBucket!.total += sent;
-    this._currentBucket!.lost += lost;
+    if (!this._currentBucket) {
+      return;
+    }
+    this._currentBucket.total += sent;
+    this._currentBucket.lost += lost;
   }
 
   /**
@@ -157,9 +163,10 @@ export class PacketLossTracker {
       // Finalize previous bucket
       if (this._currentBucket) {
         this.buckets.push(this._currentBucket);
-        // Trim to max buckets
+        // Trim to max buckets — we push exactly one bucket per interval, so at
+        // most one needs to be dropped here (shift is O(n) but n = maxBuckets).
         if (this.buckets.length > this.maxBuckets) {
-          this.buckets.splice(0, this.buckets.length - this.maxBuckets);
+          this.buckets.shift();
         }
       }
       this._currentBucket = {
@@ -234,7 +241,17 @@ export class PathLatencyTracker {
    * @param {string} path - Signal K path
    * @returns {Object|null} Latency stats or null
    */
-  getPathStats(path: string): any | null {
+  getPathStats(path: string): {
+    path: string;
+    sampleCount: number;
+    avg: number;
+    min: number;
+    max: number;
+    p50: number;
+    p95: number;
+    p99: number;
+    lastUpdate: number;
+  } | null {
     const entry = this.paths.get(path);
     if (!entry || entry.samples.length === 0) {
       return null;
@@ -248,13 +265,33 @@ export class PathLatencyTracker {
    * @param {number} [topN=20] - Maximum number of paths to return
    * @returns {Array<Object>} Sorted by average latency (descending)
    */
-  getAllStats(topN: number = 20): any[] {
+  getAllStats(topN: number = 20): Array<{
+    path: string;
+    sampleCount: number;
+    avg: number;
+    min: number;
+    max: number;
+    p50: number;
+    p95: number;
+    p99: number;
+    lastUpdate: number;
+  }> {
     const limit = Math.max(0, topN);
     if (limit === 0) {
       return [];
     }
 
-    const stats: any[] = [];
+    const stats: Array<{
+      path: string;
+      sampleCount: number;
+      avg: number;
+      min: number;
+      max: number;
+      p50: number;
+      p95: number;
+      p99: number;
+      lastUpdate: number;
+    }> = [];
     for (const [path, entry] of this.paths) {
       if (entry.samples.length === 0) {
         continue;
@@ -288,7 +325,20 @@ export class PathLatencyTracker {
    * Calculate statistics for a path entry
    * @private
    */
-  _calculateStats(path: string, entry: { samples: number[]; lastUpdate: number }): any {
+  _calculateStats(
+    path: string,
+    entry: { samples: number[]; lastUpdate: number }
+  ): {
+    path: string;
+    sampleCount: number;
+    avg: number;
+    min: number;
+    max: number;
+    p50: number;
+    p95: number;
+    p99: number;
+    lastUpdate: number;
+  } {
     const samples = entry.samples;
     const sampleCount = samples.length;
     const sorted = new Array(sampleCount);
@@ -398,7 +448,13 @@ export class RetransmissionTracker {
    * @param {number} [limit] - Maximum entries to return
    * @returns {Array<Object>} Time series data
    */
-  getChartData(limit?: number): any[] {
+  getChartData(limit?: number): Array<{
+    timestamp: number;
+    rate: number;
+    retransmitsPerSec: number;
+    periodPackets: number;
+    periodRetransmissions: number;
+  }> {
     if (limit && limit < this.history.length) {
       return this.history.slice(-limit);
     }
@@ -453,10 +509,14 @@ export class RetransmissionTracker {
  * when network metrics exceed configured limits.
  */
 export class AlertManager {
-  app: any;
+  app: {
+    handleMessage(source: string, delta: unknown): void;
+    error(msg: string): void;
+    debug?(msg: string): void;
+  };
   instanceId: string;
   sourceLabel: string;
-  thresholds: any;
+  thresholds: Record<string, { warning?: number; critical?: number }>;
   cooldown: number;
   _perMetricCooldown: Map<string, number>;
   notificationsEnabled: boolean;
@@ -471,11 +531,18 @@ export class AlertManager {
    * @param {Object} [config]
    * @param {Object} [config.thresholds] - Alert thresholds
    */
-  constructor(app: any, config: any = {}) {
+  constructor(
+    app: {
+      handleMessage(source: string, delta: unknown): void;
+      error(msg: string): void;
+      debug?(msg: string): void;
+    },
+    config: Record<string, unknown> = {}
+  ) {
     this.app = app;
     // instanceId is used to namespace notification paths so multiple instances
     // don't overwrite each other's alerts in Signal K.
-    this.instanceId = (config && config.instanceId) || "";
+    this.instanceId = String((config && config.instanceId) || "");
     this.sourceLabel = this.instanceId
       ? `signalk-edge-link:${this.instanceId}`
       : "signalk-edge-link";
@@ -486,14 +553,19 @@ export class AlertManager {
       typeof config.thresholds === "object"
         ? config.thresholds
         : config;
+    const tc = thresholdsConfig as Record<
+      string,
+      { warning?: number; critical?: number } | undefined
+    >;
     this.thresholds = {
-      rtt: thresholdsConfig?.rtt || { warning: 300, critical: 800 },
-      packetLoss: thresholdsConfig?.packetLoss || { warning: 0.03, critical: 0.1 },
-      retransmitRate: thresholdsConfig?.retransmitRate || { warning: 0.05, critical: 0.15 },
-      jitter: thresholdsConfig?.jitter || { warning: 100, critical: 300 },
-      queueDepth: thresholdsConfig?.queueDepth || { warning: 100, critical: 500 }
+      rtt: tc?.rtt || { warning: 300, critical: 800 },
+      packetLoss: tc?.packetLoss || { warning: 0.03, critical: 0.1 },
+      retransmitRate: tc?.retransmitRate || { warning: 0.05, critical: 0.15 },
+      jitter: tc?.jitter || { warning: 100, critical: 300 },
+      queueDepth: tc?.queueDepth || { warning: 100, critical: 500 }
     };
-    this.cooldown = config.cooldown || MONITORING_ALERT_COOLDOWN;
+    this.cooldown =
+      typeof config.cooldown === "number" ? config.cooldown : MONITORING_ALERT_COOLDOWN;
     // Per-metric cooldown overrides: e.g. { rtt: 30000, packetLoss: 120000 }
     this._perMetricCooldown = new Map();
     if (config.cooldowns && typeof config.cooldowns === "object") {
@@ -516,16 +588,19 @@ export class AlertManager {
    * @param {number} value - Current metric value
    * @returns {Object|null} Alert object if threshold exceeded, null otherwise
    */
-  check(metricName: string, value: number): any | null {
+  check(
+    metricName: string,
+    value: number
+  ): { metric: string; level: string; value: number; threshold: number; timestamp: number } | null {
     const threshold = this.thresholds[metricName];
     if (!threshold) {
       return null;
     }
 
     let level: string | null = null;
-    if (value >= threshold.critical) {
+    if (threshold.critical !== undefined && value >= threshold.critical) {
       level = "critical";
-    } else if (value >= threshold.warning) {
+    } else if (threshold.warning !== undefined && value >= threshold.warning) {
       level = "warning";
     }
 
@@ -543,7 +618,7 @@ export class AlertManager {
           metric: metricName,
           level,
           value,
-          threshold: threshold[level],
+          threshold: threshold[level as "warning" | "critical"] ?? 0,
           timestamp: Date.now()
         };
 
@@ -566,8 +641,16 @@ export class AlertManager {
    * @param {Object} metrics - { rtt, packetLoss, retransmitRate, jitter, queueDepth }
    * @returns {Array<Object>} Array of triggered alerts
    */
-  checkAll(metrics: Record<string, number | undefined>): any[] {
-    const alerts: any[] = [];
+  checkAll(
+    metrics: Record<string, number | undefined>
+  ): Array<{ metric: string; level: string; value: number; threshold: number; timestamp: number }> {
+    const alerts: Array<{
+      metric: string;
+      level: string;
+      value: number;
+      threshold: number;
+      timestamp: number;
+    }> = [];
     for (const [name, value] of Object.entries(metrics)) {
       if (value !== undefined && this.thresholds[name]) {
         const alert = this.check(name, value);
@@ -600,8 +683,17 @@ export class AlertManager {
    * Get current alert state
    * @returns {Object} Active alerts and thresholds
    */
-  getState(): { thresholds: any; activeAlerts: Record<string, any> } {
-    const alerts: Record<string, any> = {};
+  getState(): {
+    thresholds: Record<string, { warning?: number; critical?: number }>;
+    activeAlerts: Record<
+      string,
+      { metric: string; level: string; value: number; threshold: number; timestamp: number }
+    >;
+  } {
+    const alerts: Record<
+      string,
+      { metric: string; level: string; value: number; threshold: number; timestamp: number }
+    > = {};
     for (const [name, alert] of this.activeAlerts) {
       alerts[name] = { ...alert };
     }
@@ -631,7 +723,7 @@ export class AlertManager {
         ]
       });
     } catch (err: any) {
-      this.app.debug(`[Alert] Failed to emit notification: ${err.message}`);
+      this.app.debug?.(`[Alert] Failed to emit notification: ${err.message}`);
     }
   }
 

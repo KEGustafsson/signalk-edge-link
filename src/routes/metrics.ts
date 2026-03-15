@@ -1,4 +1,5 @@
 import { formatPrometheusMetrics } from "../prometheus";
+import { RouteRequest, RouteResponse, Router, RouteContext } from "./types";
 
 /**
  * Registers metrics-related routes: /metrics, /network-metrics, /prometheus
@@ -6,27 +7,38 @@ import { formatPrometheusMetrics } from "../prometheus";
  * @param router - Express router
  * @param ctx - Shared route context (helpers, middleware, registry)
  */
-function register(router: any, ctx: any): void {
+function register(router: Router, ctx: RouteContext): void {
   const {
-    rateLimitMiddleware, instanceRegistry,
-    getFirstBundle, getEffectiveNetworkQuality,
-    getActiveMetricsPublisher, buildFullMetricsResponse
+    rateLimitMiddleware,
+    instanceRegistry,
+    getFirstBundle,
+    getEffectiveNetworkQuality,
+    getActiveMetricsPublisher,
+    buildFullMetricsResponse
   } = ctx;
 
-  router.get("/metrics", rateLimitMiddleware, (req: any, res: any) => {
-    const bundle = getFirstBundle();
-    if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
-    res.json(buildFullMetricsResponse(bundle));
-  });
-
-  router.get("/network-metrics", rateLimitMiddleware, (req: any, res: any) => {
+  router.get("/metrics", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     try {
       const bundle = getFirstBundle();
-      if (!bundle) {return res.status(503).json({ error: "Plugin not started" });}
+      if (!bundle) {
+        return res.status(503).json({ error: "Plugin not started" });
+      }
+      res.json(buildFullMetricsResponse(bundle));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get("/network-metrics", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
+    try {
+      const bundle = getFirstBundle();
+      if (!bundle) {
+        return res.status(503).json({ error: "Plugin not started" });
+      }
       const { state } = bundle;
       const { metrics } = bundle.metricsApi;
       const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
-      const networkMetrics: any = {
+      const networkMetrics: Record<string, unknown> = {
         rtt: effectiveNetwork.rtt,
         jitter: effectiveNetwork.jitter,
         packetLoss: effectiveNetwork.packetLoss,
@@ -58,7 +70,7 @@ function register(router: any, ctx: any): void {
     }
   });
 
-  router.get("/prometheus", rateLimitMiddleware, (req: any, res: any) => {
+  router.get("/prometheus", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
     try {
       const allBundles = instanceRegistry.getAll();
       if (!allBundles || allBundles.length === 0) {
@@ -74,7 +86,7 @@ function register(router: any, ctx: any): void {
         updateBandwidthRates(state.isServerMode);
         const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
 
-        const extra: any = {};
+        const extra: Record<string, unknown> = {};
         if (state.monitoring) {
           if (state.monitoring.packetLossTracker) {
             const summary = state.monitoring.packetLossTracker.getSummary();

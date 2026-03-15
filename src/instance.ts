@@ -33,6 +33,7 @@ import {
   PING_TIMEOUT_BUFFER,
   MILLISECONDS_PER_MINUTE,
   MAX_DELTAS_BUFFER_SIZE,
+  DELTA_BUFFER_DROP_RATIO,
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch
 } from "./constants";
@@ -42,6 +43,7 @@ import {
   createWatcherWithRecovery,
   initializePersistentStorage
 } from "./config-watcher";
+import type { SignalKApp, ConnectionConfig, InstanceState, MetricsApi, Delta } from "./types";
 
 const DELTA_SEND_MAX_RETRIES = 1;
 const DELTA_SEND_RETRY_BACKOFF_MS = 100;
@@ -74,8 +76,8 @@ function slugify(name: string): string {
  * @returns Instance API: { start, stop, getId, getName, getStatus, getState, getMetricsApi }
  */
 function createInstance(
-  app: any,
-  options: any,
+  app: SignalKApp,
+  options: ConnectionConfig,
   instanceId: string,
   pluginId: string,
   onStatusChange: (instanceId: string, message: string) => void
@@ -85,11 +87,11 @@ function createInstance(
   getId: () => string;
   getName: () => string;
   getStatus: () => { text: string; healthy: boolean };
-  getState: () => any;
-  getMetricsApi: () => any;
+  getState: () => InstanceState;
+  getMetricsApi: () => MetricsApi;
 } {
   // ── Per-instance state ────────────────────────────────────────────────────
-  const state: any = {
+  const state: InstanceState = {
     instanceId,
     instanceName: options.name || instanceId,
     instanceStatus: "",
@@ -103,6 +105,8 @@ function createInstance(
     timer: false,
     batchSendInFlight: false,
     pendingRetry: null,
+    socketRecoveryTimer: null,
+    socketRecoveryInProgress: false,
     droppedDeltaBatches: 0,
     droppedDeltaCount: 0,
     deltaTimerTime: DEFAULT_DELTA_TIMER,
@@ -119,6 +123,7 @@ function createInstance(
     pingTimeout: null,
     pingMonitor: null,
     deltaTimer: null,
+    subscriptionRetryTimer: null,
     pipeline: null,
     pipelineServer: null,
     heartbeatHandle: null,
@@ -134,8 +139,24 @@ function createInstance(
   const { metrics, recordError, resetMetrics } = metricsApi;
 
   // v1 pipeline is created lazily on first use (only needed in client v1 mode)
-  let v1Pipeline: any = null;
-  function getV1Pipeline(): any {
+  let v1Pipeline: {
+    packCrypt(
+      delta: Delta | Delta[],
+      secretKey: string,
+      address: string,
+      port: number
+    ): Promise<void>;
+    unpackDecrypt(msg: Buffer, secretKey: string): Promise<void>;
+  } | null = null;
+  function getV1Pipeline(): {
+    packCrypt(
+      delta: Delta | Delta[],
+      secretKey: string,
+      address: string,
+      port: number
+    ): Promise<void>;
+    unpackDecrypt(msg: Buffer, secretKey: string): Promise<void>;
+  } {
     if (!v1Pipeline) {
       v1Pipeline = createPipeline(app, state, metricsApi);
     }
@@ -145,11 +166,11 @@ function createInstance(
   // ── App proxy: redirects setPluginStatus to per-instance status ───────────
   // This prevents individual instances from overwriting the global status bar.
   const appProxy = new Proxy(app, {
-    get(target: any, prop: string) {
+    get(target: SignalKApp, prop: string) {
       if (prop === "setPluginStatus" || prop === "setProviderStatus") {
         return (msg: string) => _setStatus(msg);
       }
-      return target[prop];
+      return (target as unknown as Record<string, unknown>)[prop];
     }
   });
 
@@ -186,10 +207,14 @@ function createInstance(
     }
   }
 
-  function handlePingSuccess(res: any, eventName: string, pingIntervalMinutes: number): void {
+  function handlePingSuccess(
+    res: { time?: number } | null,
+    eventName: string,
+    pingIntervalMinutes: number
+  ): void {
     state.readyToSend = true;
     _setStatus("Connected", true);
-    clearTimeout(state.pingTimeout);
+    clearTimeout(state.pingTimeout ?? undefined); // null is safe for clearTimeout
     state.pingTimeout = setTimeout(
       () => {
         state.readyToSend = false;
@@ -207,7 +232,7 @@ function createInstance(
 
   // ── Delta timer ───────────────────────────────────────────────────────────
   function scheduleDeltaTimer(): void {
-    clearTimeout(state.deltaTimer);
+    clearTimeout(state.deltaTimer ?? undefined);
     state.deltaTimer = setTimeout(() => {
       if (state.stopped) {
         return;
@@ -221,18 +246,19 @@ function createInstance(
   const handleDeltaTimerChange = createDebouncedConfigHandler({
     name: "Delta timer",
     getFilePath: () => state.deltaTimerFile,
-    processConfig: (config: any) => {
-      if (config && config.deltaTimer) {
-        const newVal = config.deltaTimer;
-        if (newVal >= 100 && newVal <= 10000) {
+    processConfig: (config: unknown) => {
+      const c = config as Record<string, unknown>;
+      if (c && c.deltaTimer) {
+        const newVal = Number(c.deltaTimer);
+        if (Number.isFinite(newVal) && newVal >= 100 && newVal <= 10000) {
           if (state.deltaTimerTime !== newVal) {
             state.deltaTimerTime = newVal;
-            clearTimeout(state.deltaTimer);
+            clearTimeout(state.deltaTimer ?? undefined);
             scheduleDeltaTimer();
             app.debug(`[${instanceId}] Delta timer updated to ${newVal}ms`);
           }
         } else {
-          app.error(`[${instanceId}] Invalid delta timer value: ${newVal}`);
+          app.error(`[${instanceId}] Invalid delta timer value: ${c.deltaTimer}`);
         }
       }
     },
@@ -245,7 +271,7 @@ function createInstance(
    * Outbound filtering is intentionally disabled:
    * forward all subscribed deltas as-is.
    */
-  function filterOutboundDelta(delta: any): any | null {
+  function filterOutboundDelta(delta: Delta): Delta | null {
     if (!delta || !Array.isArray(delta.updates) || delta.updates.length === 0) {
       return null;
     }
@@ -258,20 +284,25 @@ function createInstance(
    *
    * @param batch - Array of SignalK delta messages
    */
-  async function sendDeltaBatch(batch: any[]): Promise<void> {
+  async function sendDeltaBatch(batch: Delta[]): Promise<void> {
     if (state.pipeline) {
-      await state.pipeline.sendDelta(batch, options.secretKey, options.udpAddress, options.udpPort);
+      await state.pipeline.sendDelta(
+        batch,
+        options.secretKey,
+        options.udpAddress ?? "",
+        options.udpPort
+      );
     } else {
       await getV1Pipeline().packCrypt(
         batch,
         options.secretKey,
-        options.udpAddress,
+        options.udpAddress ?? "",
         options.udpPort
       );
     }
   }
 
-  function scheduleBatchRetry(batch: any[], retryCount: number): void {
+  function scheduleBatchRetry(batch: Delta[], retryCount: number): void {
     if (state.pendingRetry || state.stopped) {
       return;
     }
@@ -286,7 +317,12 @@ function createInstance(
     batchSize: number = state.deltas.length,
     retryCount: number = 0
   ): Promise<void> {
-    if (state.batchSendInFlight || state.stopped || !state.readyToSend) {
+    if (
+      state.batchSendInFlight ||
+      state.stopped ||
+      !state.readyToSend ||
+      state.socketRecoveryInProgress
+    ) {
       return;
     }
 
@@ -332,7 +368,7 @@ function createInstance(
     }
   }
 
-  function processDelta(delta: any): void {
+  function processDelta(delta: Delta): void {
     if (!state.readyToSend) {
       return;
     }
@@ -343,7 +379,7 @@ function createInstance(
     }
 
     if (state.deltas.length >= MAX_DELTAS_BUFFER_SIZE) {
-      const dropCount = Math.floor(MAX_DELTAS_BUFFER_SIZE / 2);
+      const dropCount = Math.floor(MAX_DELTAS_BUFFER_SIZE * DELTA_BUFFER_DROP_RATIO);
       state.deltas.splice(0, dropCount);
       app.debug(`[${instanceId}] Delta buffer overflow, dropped ${dropCount} oldest items`);
       metrics.droppedDeltaCount = (metrics.droppedDeltaCount || 0) + dropCount;
@@ -376,11 +412,68 @@ function createInstance(
 
   state.processDelta = processDelta;
 
+  const SUBSCRIPTION_RETRY_BASE_DELAY = 5000;
+  const SUBSCRIPTION_RETRY_MAX_DELAY = 300000;
+  const SUBSCRIPTION_RETRY_MAX_ATTEMPTS = 10;
+
+  /**
+   * Schedule a subscription retry with exponential backoff.
+   * Gives up after SUBSCRIPTION_RETRY_MAX_ATTEMPTS consecutive failures.
+   */
+  function scheduleSubscriptionRetry(attempt: number): void {
+    if (attempt > SUBSCRIPTION_RETRY_MAX_ATTEMPTS) {
+      app.error(
+        `[${instanceId}] Subscription failed after ${SUBSCRIPTION_RETRY_MAX_ATTEMPTS} attempts — ` +
+          "giving up. Restart the plugin to retry."
+      );
+      recordError(
+        "subscription",
+        `Subscription permanently failed after ${SUBSCRIPTION_RETRY_MAX_ATTEMPTS} attempts`
+      );
+      return;
+    }
+
+    const delay = Math.min(
+      SUBSCRIPTION_RETRY_BASE_DELAY * Math.pow(2, attempt - 1),
+      SUBSCRIPTION_RETRY_MAX_DELAY
+    );
+
+    app.debug(
+      `[${instanceId}] Scheduling subscription retry (attempt ${attempt}/${SUBSCRIPTION_RETRY_MAX_ATTEMPTS}) in ${delay}ms`
+    );
+
+    state.subscriptionRetryTimer = setTimeout(() => {
+      state.subscriptionRetryTimer = null;
+      if (state.stopped) {
+        return;
+      }
+      app.debug(`[${instanceId}] Retrying subscription (attempt ${attempt})...`);
+      try {
+        app.subscriptionmanager.subscribe(
+          state.localSubscription,
+          state.unsubscribes,
+          (retrySubError: unknown) => {
+            app.error(`[${instanceId}] Subscription error (attempt ${attempt}): ${retrySubError}`);
+            state.readyToSend = false;
+            _setStatus("Subscription error - data transmission paused", false);
+            recordError("subscription", `Subscription error: ${retrySubError}`);
+          },
+          processDelta
+        );
+      } catch (retryError: unknown) {
+        const msg = retryError instanceof Error ? retryError.message : String(retryError);
+        app.error(`[${instanceId}] Subscription retry ${attempt} failed: ${msg}`);
+        recordError("subscription", `Subscription retry ${attempt} failed: ${msg}`);
+        scheduleSubscriptionRetry(attempt + 1);
+      }
+    }, delay);
+  }
+
   // Subscription change handler (also wires up the main delta subscription)
   const handleSubscriptionChange = createDebouncedConfigHandler({
     name: "Subscription",
     getFilePath: () => state.subscriptionFile,
-    processConfig: (config: any) => {
+    processConfig: (config: unknown) => {
       state.localSubscription = config;
       app.debug(`[${instanceId}] Subscription configuration updated`);
 
@@ -399,35 +492,17 @@ function createInstance(
           },
           processDelta
         );
-      } catch (subscribeError: any) {
-        app.error(`[${instanceId}] Failed to subscribe: ${subscribeError.message}`);
+      } catch (subscribeError: unknown) {
+        const subErrMsg =
+          subscribeError instanceof Error ? subscribeError.message : String(subscribeError);
+        app.error(`[${instanceId}] Failed to subscribe: ${subErrMsg}`);
         state.readyToSend = false;
         _setStatus("Failed to subscribe - data transmission paused", false);
-        recordError("subscription", `Failed to subscribe: ${subscribeError.message}`);
+        recordError("subscription", `Failed to subscribe: ${subErrMsg}`);
 
-        // Retry once after 5 seconds to recover from transient failures
-        setTimeout(() => {
-          if (state.stopped) {
-            return;
-          }
-          app.debug(`[${instanceId}] Retrying subscription after failure...`);
-          try {
-            app.subscriptionmanager.subscribe(
-              state.localSubscription,
-              state.unsubscribes,
-              (retrySubError: any) => {
-                app.error(`[${instanceId}] Subscription error (retry): ${retrySubError}`);
-                state.readyToSend = false;
-                _setStatus("Subscription error - data transmission paused", false);
-                recordError("subscription", `Subscription error (retry): ${retrySubError}`);
-              },
-              processDelta
-            );
-          } catch (retryError: any) {
-            app.error(`[${instanceId}] Subscription retry failed: ${retryError.message}`);
-            recordError("subscription", `Subscription retry failed: ${retryError.message}`);
-          }
-        }, 5000);
+        // Retry with exponential backoff (5s, 10s, 20s, 40s … up to 300s max).
+        // Store the handle so stop() can cancel it before it fires.
+        scheduleSubscriptionRetry(1);
       }
     },
     state,
@@ -439,10 +514,11 @@ function createInstance(
   const handleSentenceFilterChange = createDebouncedConfigHandler({
     name: "Sentence filter",
     getFilePath: () => state.sentenceFilterFile,
-    processConfig: (config: any) => {
-      if (config && Array.isArray(config.excludedSentences)) {
-        state.excludedSentences = config.excludedSentences
-          .map((s: any) => String(s).trim().toUpperCase())
+    processConfig: (config: unknown) => {
+      const c = config as Record<string, unknown>;
+      if (c && Array.isArray(c.excludedSentences)) {
+        state.excludedSentences = c.excludedSentences
+          .map((s: unknown) => String(s).trim().toUpperCase())
           .filter((s: string) => s.length > 0);
         app.debug(
           `[${instanceId}] Sentence filter updated: [${state.excludedSentences.join(", ")}]`
@@ -508,7 +584,7 @@ function createInstance(
       throw new Error(`[${instanceId}] ${msg}`);
     }
 
-    if (options.serverType === true || options.serverType === "server") {
+    if ((options.serverType as unknown) === true || options.serverType === "server") {
       // ── Server mode ──
       state.isServerMode = true;
       app.debug(`[${instanceId}] Starting server on port ${options.udpPort}`);
@@ -518,14 +594,8 @@ function createInstance(
         app.error(`[${instanceId}] UDP socket error: ${err.message}`);
         state.readyToSend = false;
         // Stop v2 periodic workers if the server socket is no longer usable.
-        if (state.pipelineServer) {
-          if (state.pipelineServer.stopACKTimer) {
-            state.pipelineServer.stopACKTimer();
-          }
-          if (state.pipelineServer.stopMetricsPublishing) {
-            state.pipelineServer.stopMetricsPublishing();
-          }
-        }
+        state.pipelineServer?.stopACKTimer?.();
+        state.pipelineServer?.stopMetricsPublishing?.();
         if (err.code === "EADDRINUSE") {
           _setStatus(`Failed to start – port ${options.udpPort} already in use`, false);
         } else if (err.code === "EACCES") {
@@ -549,13 +619,13 @@ function createInstance(
         state.readyToSend = true;
       });
 
-      const useReliableProtocolServer = options.protocolVersion >= 2;
+      const useReliableProtocolServer = (options.protocolVersion ?? 0) >= 2;
       const reliableServerLabel = options.protocolVersion === 3 ? "v3" : "v2";
       if (useReliableProtocolServer) {
         const v2Server = createPipelineV2Server(appProxy, state, metricsApi);
         state.pipelineServer = v2Server;
 
-        state.socketUdp.on("message", (packet: Buffer, rinfo: any) => {
+        state.socketUdp.on("message", (packet: Buffer, rinfo: dgram.RemoteInfo) => {
           v2Server.receivePacket(packet, options.secretKey, rinfo);
         });
 
@@ -617,20 +687,23 @@ function createInstance(
       state.isServerMode = false;
       await initializePersistentStorage({ instanceId, app, state });
 
-      const deltaTimerTimeFile = (await loadConfigFile(state.deltaTimerFile)) as any;
-      state.deltaTimerTime =
-        deltaTimerTimeFile &&
-        Number.isFinite(deltaTimerTimeFile.deltaTimer) &&
-        deltaTimerTimeFile.deltaTimer >= 100
-          ? deltaTimerTimeFile.deltaTimer
-          : DEFAULT_DELTA_TIMER;
+      const deltaTimerTimeFile = (await loadConfigFile(state.deltaTimerFile ?? "")) as Record<
+        string,
+        unknown
+      > | null;
+      const rawDt =
+        typeof deltaTimerTimeFile?.deltaTimer === "number" ? deltaTimerTimeFile.deltaTimer : NaN;
+      state.deltaTimerTime = Number.isFinite(rawDt) && rawDt >= 100 ? rawDt : DEFAULT_DELTA_TIMER;
 
-      const helloIntervalSeconds = Number.isFinite(options.helloMessageSender)
-        ? options.helloMessageSender
-        : 60;
-      const pingIntervalMinutes = Number.isFinite(options.pingIntervalTime)
-        ? options.pingIntervalTime
-        : 1;
+      const helloIntervalSeconds =
+        typeof options.helloMessageSender === "number" &&
+        Number.isFinite(options.helloMessageSender)
+          ? options.helloMessageSender
+          : 60;
+      const pingIntervalMinutes =
+        typeof options.pingIntervalTime === "number" && Number.isFinite(options.pingIntervalTime)
+          ? options.pingIntervalTime
+          : 1;
       const helloInterval = helloIntervalSeconds * 1000;
 
       state.helloMessageSender = setInterval(async () => {
@@ -649,14 +722,14 @@ function createInstance(
               await state.pipeline.sendDelta(
                 [fixedDelta],
                 options.secretKey,
-                options.udpAddress,
+                options.udpAddress ?? "",
                 options.udpPort
               );
             } else {
               await getV1Pipeline().packCrypt(
                 [fixedDelta],
                 options.secretKey,
-                options.udpAddress,
+                options.udpAddress ?? "",
                 options.udpPort
               );
             }
@@ -671,17 +744,16 @@ function createInstance(
       state.socketUdp = dgram.createSocket({ type: "udp4", reuseAddr: true });
 
       state.socketUdp.on("error", (err: any) => {
+        // Ignore errors that arrive after recovery has already started.
+        if (state.socketRecoveryInProgress) {
+          return;
+        }
         app.error(`[${instanceId}] Client UDP socket error: ${err.message}`);
         state.readyToSend = false;
+        state.socketRecoveryInProgress = true;
         // Stop v2 periodic workers if the client socket is no longer usable.
-        if (state.pipeline) {
-          if (state.pipeline.stopMetricsPublishing) {
-            state.pipeline.stopMetricsPublishing();
-          }
-          if (state.pipeline.stopCongestionControl) {
-            state.pipeline.stopCongestionControl();
-          }
-        }
+        state.pipeline?.stopMetricsPublishing?.();
+        state.pipeline?.stopCongestionControl?.();
         if (state.heartbeatHandle) {
           state.heartbeatHandle.stop();
           state.heartbeatHandle = null;
@@ -696,10 +768,13 @@ function createInstance(
           state.socketUdp = null;
         }
 
-        // Attempt socket recovery after a short delay
+        // Attempt socket recovery after a short delay.
+        // Store the handle so stop() can cancel it before it fires.
         if (!state.stopped) {
-          setTimeout(() => {
+          state.socketRecoveryTimer = setTimeout(() => {
+            state.socketRecoveryTimer = null;
             if (state.stopped) {
+              state.socketRecoveryInProgress = false;
               return;
             }
             app.debug(`[${instanceId}] Attempting UDP socket recovery`);
@@ -712,9 +787,9 @@ function createInstance(
               });
 
               // Re-attach v2 control packet listener if pipeline exists
-              if (state.pipeline && state.pipeline.handleControlPacket) {
-                state.socketUdp.on("message", (msg: Buffer, rinfo: any) => {
-                  state.pipeline.handleControlPacket(msg, rinfo).catch((cpErr: any) => {
+              if (state.pipeline) {
+                state.socketUdp.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+                  state.pipeline!.handleControlPacket(msg, rinfo).catch((cpErr: any) => {
                     app.error(`[${instanceId}] Control packet error: ${cpErr.message}`);
                   });
                 });
@@ -734,7 +809,7 @@ function createInstance(
                 }
                 if (state.pipeline.startHeartbeat) {
                   state.heartbeatHandle = state.pipeline.startHeartbeat(
-                    options.udpAddress,
+                    options.udpAddress ?? "",
                     options.udpPort,
                     {
                       heartbeatInterval: options.heartbeatInterval
@@ -743,10 +818,12 @@ function createInstance(
                 }
               }
 
+              state.socketRecoveryInProgress = false;
               state.readyToSend = true;
               _setStatus("UDP socket recovered", true);
               app.debug(`[${instanceId}] UDP socket recovered`);
             } catch (recoveryErr: any) {
+              state.socketRecoveryInProgress = false;
               app.error(`[${instanceId}] UDP socket recovery failed: ${recoveryErr.message}`);
               _setStatus(`UDP socket recovery failed: ${recoveryErr.message}`, false);
             }
@@ -759,14 +836,16 @@ function createInstance(
 
       // Ping / connectivity monitor
       state.pingMonitor = new Monitor({
-        address: options.testAddress,
+        address: options.testAddress ?? "",
         port: options.testPort,
         interval: pingIntervalMinutes,
         protocol: "tcp"
       });
 
-      state.pingMonitor.on("up", (res: any) => handlePingSuccess(res, "up", pingIntervalMinutes));
-      state.pingMonitor.on("restored", (res: any) =>
+      state.pingMonitor.on("up", (res: { time?: number } | null) =>
+        handlePingSuccess(res, "up", pingIntervalMinutes)
+      );
+      state.pingMonitor.on("restored", (res: { time?: number } | null) =>
         handlePingSuccess(res, "restored", pingIntervalMinutes)
       );
 
@@ -801,7 +880,7 @@ function createInstance(
       );
 
       // Reliable client pipeline (v2/v3)
-      const useReliableProtocol = options.protocolVersion >= 2;
+      const useReliableProtocol = (options.protocolVersion ?? 0) >= 2;
       const reliableProtocolLabel = options.protocolVersion === 3 ? "v3" : "v2";
       if (useReliableProtocol) {
         state.monitoring = {
@@ -828,11 +907,15 @@ function createInstance(
           v2Pipeline.startCongestionControl();
         }
 
-        state.heartbeatHandle = v2Pipeline.startHeartbeat(options.udpAddress, options.udpPort, {
-          heartbeatInterval: options.heartbeatInterval
-        });
+        state.heartbeatHandle = v2Pipeline.startHeartbeat(
+          options.udpAddress ?? "",
+          options.udpPort,
+          {
+            heartbeatInterval: options.heartbeatInterval
+          }
+        );
 
-        state.socketUdp.on("message", (msg: Buffer, rinfo: any) => {
+        state.socketUdp.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
           v2Pipeline.handleControlPacket(msg, rinfo).catch((err: any) => {
             app.error(`[${instanceId}] Control packet error: ${err.message}`);
             recordError("general", `Control packet error: ${err.message}`);
@@ -878,6 +961,16 @@ function createInstance(
   }
 
   function stop(): void {
+    // If a batch send is in progress, log the warning. We cannot reliably
+    // await it here because stop() must remain synchronous (called by the
+    // Signal K lifecycle). The in-flight send will detect state.stopped and
+    // skip any further action once it completes.
+    if (state.batchSendInFlight) {
+      app.debug(
+        `[${instanceId}] stop() called while batch send in flight — last delta batch may be lost`
+      );
+    }
+
     state.stopped = true;
     state.readyToSend = false;
     state.isHealthy = false;
@@ -891,6 +984,7 @@ function createInstance(
     state.deltas = [];
     state.timer = false;
     state.batchSendInFlight = false;
+    state.socketRecoveryInProgress = false;
     state.droppedDeltaBatches = 0;
     state.droppedDeltaCount = 0;
     Object.keys(state.configContentHashes).forEach(
@@ -903,54 +997,42 @@ function createInstance(
     resetMetrics();
 
     // Clear timers
-    clearInterval(state.helloMessageSender);
+    clearInterval(state.helloMessageSender ?? undefined);
     state.helloMessageSender = null;
-    clearTimeout(state.pingTimeout);
+    clearTimeout(state.pingTimeout ?? undefined); // null is safe for clearTimeout
     state.pingTimeout = null;
-    clearTimeout(state.deltaTimer);
+    clearTimeout(state.deltaTimer ?? undefined);
     state.deltaTimer = null;
-    clearTimeout(state.pendingRetry);
+    clearTimeout(state.pendingRetry ?? undefined);
     state.pendingRetry = null;
+    clearTimeout(state.subscriptionRetryTimer ?? undefined);
+    state.subscriptionRetryTimer = null;
+    clearTimeout(state.socketRecoveryTimer ?? undefined);
+    state.socketRecoveryTimer = null;
     Object.keys(state.configDebounceTimers).forEach((k: string) => {
       clearTimeout(state.configDebounceTimers[k]);
       delete state.configDebounceTimers[k];
     });
 
     // Stop file-system watchers
-    state.configWatcherObjects.forEach((w: any) => w.close());
+    state.configWatcherObjects.forEach((w) => w.close());
     state.configWatcherObjects = [];
 
     // Stop v2 client pipeline
-    if (state.pipeline) {
-      if (state.pipeline.stopBonding) {
-        state.pipeline.stopBonding();
-      }
-      if (state.pipeline.stopMetricsPublishing) {
-        state.pipeline.stopMetricsPublishing();
-      }
-      if (state.pipeline.stopCongestionControl) {
-        state.pipeline.stopCongestionControl();
-      }
-      state.pipeline = null;
-    }
+    state.pipeline?.stopBonding?.();
+    state.pipeline?.stopMetricsPublishing?.();
+    state.pipeline?.stopCongestionControl?.();
+    state.pipeline = null;
     if (state.heartbeatHandle) {
       state.heartbeatHandle.stop();
       state.heartbeatHandle = null;
     }
 
     // Stop v2 server pipeline
-    if (state.pipelineServer) {
-      if (state.pipelineServer.stopACKTimer) {
-        state.pipelineServer.stopACKTimer();
-      }
-      if (state.pipelineServer.stopMetricsPublishing) {
-        state.pipelineServer.stopMetricsPublishing();
-      }
-      if (state.pipelineServer.getSequenceTracker) {
-        state.pipelineServer.getSequenceTracker().reset();
-      }
-      state.pipelineServer = null;
-    }
+    state.pipelineServer?.stopACKTimer?.();
+    state.pipelineServer?.stopMetricsPublishing?.();
+    state.pipelineServer?.getSequenceTracker?.()?.reset();
+    state.pipelineServer = null;
 
     // Clean up enhanced monitoring
     if (state.monitoring) {

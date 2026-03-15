@@ -11,6 +11,9 @@ class CircularBuffer<T = unknown> {
   private filled: boolean;
 
   constructor(size: number) {
+    if (!Number.isInteger(size) || size <= 0) {
+      throw new Error(`CircularBuffer size must be a positive integer, got ${size}`);
+    }
     this.buffer = new Array(size);
     this.size = size;
     this.index = 0;

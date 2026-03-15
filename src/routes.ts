@@ -8,6 +8,17 @@ import {
   loadConfigFile as loadConfigFileShared,
   saveConfigFile as saveConfigFileShared
 } from "./config-io";
+import type {
+  SignalKApp,
+  InstanceRegistry,
+  InstanceBundle,
+  InstanceState,
+  Metrics,
+  PluginRef,
+  EffectiveNetworkQuality,
+  PathStatEntry
+} from "./types";
+import type { RouteRequest, RouteResponse, NextFn, RouteHandler, Router } from "./routes/types";
 
 // Route sub-modules
 import * as metricsRoutes from "./routes/metrics";
@@ -23,16 +34,19 @@ import * as connectionsRoutes from "./routes/connections";
  * @param pluginRef - Reference to plugin object (for schema access)
  * @returns Routes API
  */
-function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
+function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, pluginRef: PluginRef) {
   const REMOTE_TELEMETRY_TTL_MS = 15000;
 
   function getFirstBundle() {
     return instanceRegistry.getFirst() || null;
   }
 
-  function getFirstHeaderValue(value: any): string | null {
+  function getFirstHeaderValue(value: string | string[] | undefined): string | null {
     if (Array.isArray(value)) {
-      return value.find((entry: any) => typeof entry === "string" && entry.trim()) || null;
+      return (
+        value.find((entry: unknown) => typeof entry === "string" && (entry as string).trim()) ||
+        null
+      );
     }
     if (typeof value === "string" && value.trim()) {
       return value;
@@ -55,10 +69,43 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
     return null;
   }
 
-  function authorizeManagement(req: any, res: any, action?: string): any {
+  function isTokenRequired(): boolean {
+    // Explicit opt-in to enforce token-based auth even when no token is set yet
+    // (allows admins to lock the API before the token is provisioned).
+    const fromOptions =
+      pluginRef && pluginRef._currentOptions && pluginRef._currentOptions.requireManagementApiToken;
+    if (fromOptions === true) {
+      return true;
+    }
+    const fromEnv = process.env.SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN;
+    return fromEnv === "true" || fromEnv === "1";
+  }
+
+  function authorizeManagement(req: RouteRequest, res: RouteResponse, action?: string): boolean {
     const expectedToken = getManagementToken();
     if (!expectedToken) {
-      return true;
+      // No token configured → allow open access unless the admin explicitly
+      // requires one.  This preserves backwards-compatible behaviour for
+      // existing deployments.  A startup warning is logged to encourage
+      // operators to configure a token (see registerWithRouter below).
+      if (!isTokenRequired()) {
+        return true;
+      }
+      // Token required but not yet configured → deny with a helpful message.
+      if (app && typeof app.error === "function") {
+        const ip = req.ip || (req.socket && req.socket.remoteAddress) || "unknown";
+        app.error(
+          `[management-api] blocked unauthenticated request action=${action || "unknown"} ip=${ip} — ` +
+            "requireManagementApiToken is set but no token is configured. " +
+            "Set managementApiToken or SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN."
+        );
+      }
+      res.status(403).json({
+        error:
+          "Management API token required. " +
+          "Configure managementApiToken in plugin settings or set SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN env var."
+      });
+      return false;
     }
 
     const headerToken = req.headers
@@ -98,11 +145,11 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
   }
 
   function managementAuthMiddleware(action: string) {
-    return function managementAuth(req: any, res: any, next: any) {
+    return function managementAuth(req: RouteRequest, res: RouteResponse, next?: NextFn) {
       if (!authorizeManagement(req, res, action)) {
         return;
       }
-      next();
+      if (next) next();
     };
   }
 
@@ -196,7 +243,7 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
    * @param filename - Config filename
    * @returns Full file path or null if invalid
    */
-  function getConfigFilePath(state: any, filename: string): string | null {
+  function getConfigFilePath(state: InstanceState, filename: string): string | null {
     switch (filename) {
       case "delta_timer.json":
         return state.deltaTimerFile;
@@ -213,7 +260,7 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
     return loadConfigFileShared(filePath, app);
   }
 
-  function saveConfigFile(filePath: string, data: any) {
+  function saveConfigFile(filePath: string, data: unknown) {
     return saveConfigFileShared(filePath, data, app);
   }
 
@@ -222,7 +269,7 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
    * @param state - Instance state
    * @returns MetricsPublisher instance or null
    */
-  function getActiveMetricsPublisher(state: any) {
+  function getActiveMetricsPublisher(state: InstanceState) {
     if (state.pipeline && state.pipeline.getMetricsPublisher) {
       return state.pipeline.getMetricsPublisher();
     }
@@ -236,7 +283,11 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
    * Returns the effective network quality snapshot for API/UI.
    * In server mode, prefers recent client-reported telemetry.
    */
-  function getEffectiveNetworkQuality(state: any, metrics: any, now: number = Date.now()) {
+  function getEffectiveNetworkQuality(
+    state: InstanceState,
+    metrics: Metrics,
+    now: number = Date.now()
+  ): EffectiveNetworkQuality {
     const remote = metrics.remoteNetworkQuality || {};
     const hasFreshRemote =
       state.isServerMode &&
@@ -250,29 +301,27 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
         : 0;
     const hasOnlyLocalServerValues = state.isServerMode && !hasFreshRemote;
 
+    // Select a metric value based on data availability:
+    // - hasFreshRemote  → use client-reported telemetry
+    // - server with no fresh remote → no meaningful value (return 0)
+    // - client mode → use locally-measured value
+    function selectMetric(remoteVal: number | undefined, localVal: number | undefined): number {
+      if (hasFreshRemote) {
+        return remoteVal ?? 0;
+      }
+      if (hasOnlyLocalServerValues) {
+        return 0;
+      }
+      return localVal ?? 0;
+    }
+
     return {
-      rtt: hasFreshRemote ? (remote.rtt ?? 0) : hasOnlyLocalServerValues ? 0 : (metrics.rtt ?? 0),
-      jitter: hasFreshRemote
-        ? (remote.jitter ?? 0)
-        : hasOnlyLocalServerValues
-          ? 0
-          : (metrics.jitter ?? 0),
+      rtt: selectMetric(remote.rtt, metrics.rtt),
+      jitter: selectMetric(remote.jitter, metrics.jitter),
       packetLoss: hasFreshRemote ? (remote.packetLoss ?? 0) : (metrics.packetLoss ?? 0),
-      retransmissions: hasFreshRemote
-        ? (remote.retransmissions ?? 0)
-        : hasOnlyLocalServerValues
-          ? 0
-          : (metrics.retransmissions ?? 0),
-      queueDepth: hasFreshRemote
-        ? (remote.queueDepth ?? 0)
-        : hasOnlyLocalServerValues
-          ? 0
-          : (metrics.queueDepth ?? 0),
-      retransmitRate: hasFreshRemote
-        ? (remote.retransmitRate ?? 0)
-        : hasOnlyLocalServerValues
-          ? 0
-          : clientRetransmitRate,
+      retransmissions: selectMetric(remote.retransmissions, metrics.retransmissions),
+      queueDepth: selectMetric(remote.queueDepth, metrics.queueDepth),
+      retransmitRate: selectMetric(remote.retransmitRate, clientRetransmitRate),
       activeLink: hasFreshRemote ? (remote.activeLink ?? "primary") : "primary",
       dataSource: hasFreshRemote ? "remote-client" : "local",
       lastUpdate: hasFreshRemote ? remote.lastUpdate : 0
@@ -283,7 +332,7 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
    * Build the full metrics response object for a given bundle.
    * Shared by GET /metrics and GET /connections/:id/metrics.
    */
-  function buildFullMetricsResponse(bundle: any) {
+  function buildFullMetricsResponse(bundle: InstanceBundle): Record<string, unknown> {
     const { state } = bundle;
     const { metrics, updateBandwidthRates, formatBytes, getTopNPaths } = bundle.metricsApi;
     updateBandwidthRates(state.isServerMode);
@@ -295,12 +344,15 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
 
     const pathStatsArray = getTopNPaths(50, uptimeSeconds);
 
-    const totalPathBytes = pathStatsArray.reduce((sum: number, p: any) => sum + p.bytes, 0);
-    pathStatsArray.forEach((p: any) => {
+    const totalPathBytes = pathStatsArray.reduce(
+      (sum: number, p: PathStatEntry) => sum + p.bytes,
+      0
+    );
+    pathStatsArray.forEach((p: PathStatEntry) => {
       p.percentage = totalPathBytes > 0 ? Math.round((p.bytes / totalPathBytes) * 100) : 0;
     });
 
-    const metricsData: any = {
+    const metricsData: Record<string, unknown> = {
       uptime: {
         milliseconds: uptime,
         seconds: uptimeSeconds,
@@ -363,7 +415,7 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
           },
       networkQuality: (() => {
         const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
-        const networkData: any = {
+        const networkData: Record<string, unknown> = {
           rtt: effectiveNetwork.rtt,
           jitter: effectiveNetwork.jitter,
           packetLoss: effectiveNetwork.packetLoss,
@@ -393,7 +445,7 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
         return networkData;
       })(),
       recentErrors: Array.isArray(metrics.recentErrors)
-        ? metrics.recentErrors.slice(-10).map((err: any) => ({
+        ? metrics.recentErrors.slice(-10).map((err) => ({
             category: err.category,
             message: err.message,
             timestamp: err.timestamp
@@ -414,22 +466,22 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
   /**
    * Registers all HTTP routes with the Express router
    */
-  function registerWithRouter(router: any) {
+  function registerWithRouter(router: Router) {
     /**
      * Content-Type validation middleware for JSON POST endpoints
      */
-    const requireJson = (req: any, res: any, next: any) => {
+    const requireJson: RouteHandler = (req, res, next) => {
       const contentType = req.headers["content-type"];
       if (!contentType || !contentType.includes("application/json")) {
         return res.status(415).json({ error: "Content-Type must be application/json" });
       }
-      next();
+      if (next) next();
     };
 
     /**
      * Rate limiting middleware for API endpoints
      */
-    const rateLimitMiddleware = (req: any, res: any, next: any) => {
+    const rateLimitMiddleware: RouteHandler = (req, res, next) => {
       const headers = req.headers || {};
       const trustProxy =
         req.app && typeof req.app.get === "function" && !!req.app.get("trust proxy");
@@ -448,9 +500,7 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
         headers["accept-language"] || "na",
         headers.host || "na"
       ];
-      const unknownIdentity = unknownIdentityParts
-        .map((p: string) => String(p).slice(0, 64))
-        .join("|");
+      const unknownIdentity = unknownIdentityParts.map((p) => String(p).slice(0, 64)).join("|");
 
       const rateLimitKey =
         typeof clientIp === "string" && clientIp.length > 0
@@ -459,8 +509,20 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
       if (!checkRateLimit(rateLimitKey)) {
         return res.status(429).json({ error: "Too many requests, please try again later" });
       }
-      next();
+      if (next) next();
     };
+
+    // Warn at startup when the management API is running without a token (open access).
+    // This is the default for backwards compatibility; operators should configure a
+    // token for production deployments.
+    if (!getManagementToken() && !isTokenRequired() && app && typeof app.error === "function") {
+      app.error(
+        "[edge-link] WARNING: Management API is open — no managementApiToken configured. " +
+          "Anyone with network access can read metrics and modify connection settings. " +
+          "Set managementApiToken in plugin settings or SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN env var " +
+          "to restrict access. Set requireManagementApiToken: true to deny access until a token is configured."
+      );
+    }
 
     // Shared context passed to all route sub-modules
     const ctx = {
@@ -482,7 +544,7 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
       managementAuthMiddleware
     };
 
-    router.get("/status", rateLimitMiddleware, (req: any, res: any) => {
+    router.get("/status", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
       if (!authorizeManagement(req, res, "status.read")) {
         return;
       }
@@ -492,10 +554,10 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
         return res.status(503).json({ error: "Plugin not started" });
       }
 
-      const statusInstances = allBundles.map((bundle: any) => {
+      const statusInstances = allBundles.map((bundle: InstanceBundle) => {
         const status = bundle.state.instanceStatus || "unknown";
         const healthy = typeof status === "string" ? !/error|fail|stopped/i.test(status) : false;
-        const bundleMetrics =
+        const bundleMetrics: Partial<Metrics> =
           bundle.metricsApi && bundle.metricsApi.metrics ? bundle.metricsApi.metrics : {};
         return {
           id: bundle.id,
@@ -511,7 +573,7 @@ function createRoutes(app: any, instanceRegistry: any, pluginRef: any) {
         };
       });
 
-      const healthyInstances = statusInstances.filter((item: any) => item.healthy).length;
+      const healthyInstances = statusInstances.filter((item) => item.healthy).length;
       res.json({
         healthyInstances,
         totalInstances: statusInstances.length,

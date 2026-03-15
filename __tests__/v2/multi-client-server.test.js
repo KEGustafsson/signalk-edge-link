@@ -28,7 +28,7 @@ function makeState(overrides = {}) {
   return {
     instanceId: null,
     options: {
-      secretKey: "abcdefghijklmnopqrstuvwxyz123456",
+      secretKey: "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536",
       protocolVersion: 2,
       reliability: {
         ackInterval: 100,
@@ -61,7 +61,7 @@ describe("pipeline-v2-server multi-client sessions", () => {
   let state;
   let metricsApi;
   let server;
-  const SECRET = "abcdefghijklmnopqrstuvwxyz123456";
+  const SECRET = "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536";
 
   const clientA = { address: "10.0.0.1", port: 12345 };
   const clientB = { address: "10.0.0.2", port: 12346 };

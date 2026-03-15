@@ -60,16 +60,21 @@ describe("Outbound delta forwarding", () => {
       await new Promise((resolve) => probeServer.close(() => resolve()));
       probeServer = null;
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Wait longer than FILE_WATCH_DEBOUNCE_DELAY (300 ms) so any in-flight
+    // debounce IIFEs have time to observe state.stopped and bail out before
+    // the next test suite starts.
+    await new Promise((resolve) => setTimeout(resolve, 400));
   });
 
   async function waitForReadyToSend() {
     const probeDelta = {
       context: "vessels.self",
-      updates: [{
-        source: { label: "probe" },
-        values: [{ path: "navigation.speedOverGround", value: 1.1 }]
-      }]
+      updates: [
+        {
+          source: { label: "probe" },
+          values: [{ path: "navigation.speedOverGround", value: 1.1 }]
+        }
+      ]
     };
 
     const deadline = Date.now() + 5000;
@@ -106,10 +111,12 @@ describe("Outbound delta forwarding", () => {
 
     mockApp._deltaCallback({
       context: "vessels.self",
-      updates: [{
-        source: { label: "signalk-edge-link" },
-        values: [{ path: "networking.edgeLink.linkQuality", value: 99 }]
-      }]
+      updates: [
+        {
+          source: { label: "signalk-edge-link" },
+          values: [{ path: "networking.edgeLink.linkQuality", value: 99 }]
+        }
+      ]
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -124,10 +131,12 @@ describe("Outbound delta forwarding", () => {
 
     mockApp._deltaCallback({
       context: "vessels.self",
-      updates: [{
-        source: { label: "other-plugin" },
-        values: [{ path: "navigation.speedOverGround", value: 5.1 }]
-      }]
+      updates: [
+        {
+          source: { label: "other-plugin" },
+          values: [{ path: "navigation.speedOverGround", value: 5.1 }]
+        }
+      ]
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -142,9 +151,11 @@ describe("Outbound delta forwarding", () => {
 
     mockApp._deltaCallback({
       context: "vessels.self",
-      updates: [{
-        values: [{ path: "networking.modem.rtt", value: 0.012 }]
-      }]
+      updates: [
+        {
+          values: [{ path: "networking.modem.rtt", value: 0.012 }]
+        }
+      ]
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -159,9 +170,11 @@ describe("Outbound delta forwarding", () => {
 
     mockApp._deltaCallback({
       context: "vessels.self",
-      updates: [{
-        values: [{ path: "networking.modem.default.rtt", value: 0.015 }]
-      }]
+      updates: [
+        {
+          values: [{ path: "networking.modem.default.rtt", value: 0.015 }]
+        }
+      ]
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -176,12 +189,16 @@ describe("Outbound delta forwarding", () => {
 
     mockApp._deltaCallback({
       context: "vessels.self",
-      updates: [{
-        values: [{
-          path: "notifications.signalk-edge-link.default.packetLoss",
-          value: { state: "alert", message: "test", method: ["visual"] }
-        }]
-      }]
+      updates: [
+        {
+          values: [
+            {
+              path: "notifications.signalk-edge-link.default.packetLoss",
+              value: { state: "alert", message: "test", method: ["visual"] }
+            }
+          ]
+        }
+      ]
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -196,12 +213,16 @@ describe("Outbound delta forwarding", () => {
 
     mockApp._deltaCallback({
       context: "vessels.self",
-      updates: [{
-        values: [{
-          path: "notifications.signalk-edge-link.other-instance.packetLoss",
-          value: { state: "alert", message: "test", method: ["visual"] }
-        }]
-      }]
+      updates: [
+        {
+          values: [
+            {
+              path: "notifications.signalk-edge-link.other-instance.packetLoss",
+              value: { state: "alert", message: "test", method: ["visual"] }
+            }
+          ]
+        }
+      ]
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));

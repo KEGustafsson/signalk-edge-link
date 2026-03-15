@@ -42,7 +42,7 @@ export class SequenceTracker {
     this.maxOutOfOrder = config.maxOutOfOrder ?? 100;
     this.nakTimeout = config.nakTimeout ?? 100;
     this.maxGapTracking = config.maxGapTracking ?? Math.max(this.maxOutOfOrder * 4, 1024);
-    this.behindResyncThreshold = config.behindResyncThreshold ?? (this.maxGapTracking * 2);
+    this.behindResyncThreshold = config.behindResyncThreshold ?? this.maxGapTracking * 2;
     this.nakTimers = new Map();
     this.onLossDetected = config.onLossDetected || (() => {});
   }
@@ -183,9 +183,10 @@ export class SequenceTracker {
       return [];
     }
     const missing: number[] = [];
-    const trackingSpan = this._firstSeq !== null
-      ? this._distanceForward(this._firstSeq, this.expectedSeq)
-      : this.expectedSeq;
+    const trackingSpan =
+      this._firstSeq !== null
+        ? this._distanceForward(this._firstSeq, this.expectedSeq)
+        : this.expectedSeq;
     const windowSize = Math.min(this.maxOutOfOrder, trackingSpan);
     for (let i = 1; i <= windowSize; i++) {
       const seq = (this.expectedSeq - i) >>> 0;
@@ -234,8 +235,12 @@ export class SequenceTracker {
    * @private
    */
   private _scheduleNAK(sequence: number): void {
-    if (this.nakTimers.has(sequence)) { return; }
-    if (this.nakTimers.size >= this.maxGapTracking) { return; }
+    if (this.nakTimers.has(sequence)) {
+      return;
+    }
+    if (this.nakTimers.size >= this.maxGapTracking) {
+      return;
+    }
 
     const timer = setTimeout(() => {
       if (!this.receivedSeqs.has(sequence)) {
@@ -253,10 +258,16 @@ export class SequenceTracker {
    */
   private _cleanupOldSequences(): void {
     const cutoff = (this.expectedSeq! - this.maxOutOfOrder) >>> 0;
+    // Collect sequences to delete first, then delete — avoids modifying the Set
+    // during iteration, which can cause entries to be silently skipped in V8.
+    const toDelete: number[] = [];
     for (const seq of this.receivedSeqs) {
       if (this._isBehind(seq, cutoff)) {
-        this.receivedSeqs.delete(seq);
+        toDelete.push(seq);
       }
+    }
+    for (const seq of toDelete) {
+      this.receivedSeqs.delete(seq);
     }
   }
 }

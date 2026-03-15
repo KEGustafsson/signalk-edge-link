@@ -103,19 +103,23 @@ export class RetransmitQueue {
       return 0;
     }
 
-    let removed = 0;
+    // Collect keys to delete first, then delete — avoids modifying the Map
+    // during iteration, which can cause entries to be silently skipped in V8.
+    const toDelete: number[] = [];
     for (const seq of this.queue.keys()) {
       const distanceStartToSeq = (seq - oldestOutstanding) >>> 0;
       if (distanceStartToSeq <= distanceStartToEnd) {
-        this.queue.delete(seq);
-        removed++;
+        toDelete.push(seq);
       } else {
         // Map preserves insertion order; once we pass the ACK range,
         // all remaining entries are ahead — stop scanning.
         break;
       }
     }
-    return removed;
+    for (const seq of toDelete) {
+      this.queue.delete(seq);
+    }
+    return toDelete.length;
   }
 
   /**
@@ -145,20 +149,23 @@ export class RetransmitQueue {
     if (distanceStartToEnd >= 0x80000000) {
       return 0;
     }
-    let removed = 0;
-
+    // Collect keys to delete first, then delete — avoids modifying the Map
+    // during iteration, which can cause entries to be silently skipped in V8.
+    const toDelete: number[] = [];
     for (const seq of this.queue.keys()) {
       const distanceStartToSeq = (seq - prevSeq) >>> 0;
       if (distanceStartToSeq > 0 && distanceStartToSeq <= distanceStartToEnd) {
-        this.queue.delete(seq);
-        removed++;
+        toDelete.push(seq);
       } else if (distanceStartToSeq > distanceStartToEnd) {
         // Past the ACK range in insertion order — stop scanning.
         break;
       }
     }
+    for (const seq of toDelete) {
+      this.queue.delete(seq);
+    }
 
-    return removed;
+    return toDelete.length;
   }
 
   /**
@@ -173,7 +180,9 @@ export class RetransmitQueue {
 
     for (const seq of sequences) {
       const entry = this.queue.get(seq);
-      if (!entry) { continue; }
+      if (!entry) {
+        continue;
+      }
 
       // Check max attempts
       if (entry.attempts >= this.maxRetransmits) {
@@ -259,16 +268,18 @@ export class RetransmitQueue {
    */
   expireOld(maxAge: number): number {
     const now = Date.now();
-    let removed = 0;
+    const toDelete: number[] = [];
 
     for (const [seq, entry] of this.queue.entries()) {
       if (now - entry.originalTimestamp > maxAge) {
-        this.queue.delete(seq);
-        removed++;
+        toDelete.push(seq);
       }
     }
+    for (const seq of toDelete) {
+      this.queue.delete(seq);
+    }
 
-    return removed;
+    return toDelete.length;
   }
 
   /**
@@ -276,7 +287,9 @@ export class RetransmitQueue {
    * @private
    */
   private _evictOldest(): void {
-    if (this.queue.size === 0) { return; }
+    if (this.queue.size === 0) {
+      return;
+    }
 
     // Map preserves insertion order: first key is oldest queued packet.
     const oldest = this.queue.keys().next().value as number;

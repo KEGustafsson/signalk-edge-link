@@ -71,10 +71,14 @@ describe("pipeline-v2-server", () => {
 
     const pipeline = createPipelineV2Server(app, state, metricsApi);
 
-    const packet = buildDataPacket(0, {
-      context: "vessels.self",
-      updates: [{ values: [{ path: "navigation.speedOverGround", value: 4.2 }] }]
-    }, secretKey);
+    const packet = buildDataPacket(
+      0,
+      {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.speedOverGround", value: 4.2 }] }]
+      },
+      secretKey
+    );
 
     await pipeline.receivePacket(packet, secretKey, { address: "127.0.0.1", port: 12000 });
 
@@ -98,10 +102,14 @@ describe("pipeline-v2-server", () => {
 
     const pipeline = createPipelineV2Server(app, state, metricsApi);
 
-    const packet = buildDataPacket(7, {
-      context: "vessels.self",
-      updates: [{ values: [{ path: "navigation.courseOverGroundTrue", value: 1.1 }] }]
-    }, secretKey);
+    const packet = buildDataPacket(
+      7,
+      {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.courseOverGroundTrue", value: 1.1 }] }]
+      },
+      secretKey
+    );
 
     await pipeline.receivePacket(packet, secretKey, { address: "127.0.0.1", port: 12001 });
     await pipeline.receivePacket(packet, secretKey, { address: "127.0.0.1", port: 12001 });
@@ -126,14 +134,22 @@ describe("pipeline-v2-server", () => {
 
     const pipeline = createPipelineV2Server(app, state, metricsApi);
 
-    const seq10 = buildDataPacket(10, {
-      context: "vessels.self",
-      updates: [{ values: [{ path: "navigation.headingTrue", value: 1.2 }] }]
-    }, secretKey);
-    const seq12 = buildDataPacket(12, {
-      context: "vessels.self",
-      updates: [{ values: [{ path: "navigation.headingMagnetic", value: 1.3 }] }]
-    }, secretKey);
+    const seq10 = buildDataPacket(
+      10,
+      {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.headingTrue", value: 1.2 }] }]
+      },
+      secretKey
+    );
+    const seq12 = buildDataPacket(
+      12,
+      {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.headingMagnetic", value: 1.3 }] }]
+      },
+      secretKey
+    );
 
     await pipeline.receivePacket(seq10, secretKey, { address: "127.0.0.1", port: 12002 });
     await pipeline.receivePacket(seq12, secretKey, { address: "127.0.0.1", port: 12002 });
@@ -174,14 +190,24 @@ describe("pipeline-v2-server", () => {
     const metricsApi = makeMetricsApi();
     const pipeline = createPipelineV2Server(app, state, metricsApi);
 
-    const seq10 = buildDataPacket(10, {
-      context: "vessels.self",
-      updates: [{ values: [{ path: "navigation.headingTrue", value: 1.2 }] }]
-    }, secretKey, 3);
-    const seq12 = buildDataPacket(12, {
-      context: "vessels.self",
-      updates: [{ values: [{ path: "navigation.headingMagnetic", value: 1.3 }] }]
-    }, secretKey, 3);
+    const seq10 = buildDataPacket(
+      10,
+      {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.headingTrue", value: 1.2 }] }]
+      },
+      secretKey,
+      3
+    );
+    const seq12 = buildDataPacket(
+      12,
+      {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.headingMagnetic", value: 1.3 }] }]
+      },
+      secretKey,
+      3
+    );
 
     await pipeline.receivePacket(seq10, secretKey, { address: "127.0.0.1", port: 12002 });
     await pipeline.receivePacket(seq12, secretKey, { address: "127.0.0.1", port: 12002 });
@@ -221,11 +247,15 @@ describe("pipeline-v2-server", () => {
     const metricsApi = makeMetricsApi();
     const pipeline = createPipelineV2Server(app, state, metricsApi);
 
-    const forgedHeartbeat = new PacketBuilder({ protocolVersion: 3, secretKey: "abcdefghijklmnopqrstuvwxyz123456" })
-      .buildHeartbeatPacket();
+    const forgedHeartbeat = new PacketBuilder({
+      protocolVersion: 3,
+      secretKey: "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536"
+    }).buildHeartbeatPacket();
 
     await pipeline.receivePacket(forgedHeartbeat, secretKey, { address: "127.0.0.1", port: 12003 });
 
-    expect(app.error).toHaveBeenCalledWith("v2 authentication failed: packet tampered or wrong key");
+    expect(app.error).toHaveBeenCalledWith(
+      "v2 authentication failed: packet tampered or wrong key"
+    );
   });
 });

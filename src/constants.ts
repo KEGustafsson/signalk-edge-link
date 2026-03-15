@@ -5,6 +5,7 @@ export const DEFAULT_DELTA_TIMER = 1000; // milliseconds
 export const PING_TIMEOUT_BUFFER = 10000; // milliseconds - extra buffer for ping timeout
 export const MILLISECONDS_PER_MINUTE = 60000;
 export const MAX_DELTAS_BUFFER_SIZE = 1000; // prevent memory leaks
+export const DELTA_BUFFER_DROP_RATIO = 0.5; // fraction of buffer dropped on overflow
 export const MAX_DELTAS_PER_PACKET = 500; // max deltas to process from a single received packet
 
 // File watching
@@ -47,7 +48,7 @@ export const CONGESTION_DECREASE_FACTOR = 1.5; // Multiplicative decrease: timer
 // Connection bonding
 export const BONDING_HEALTH_CHECK_INTERVAL = 1000; // Health check interval (ms)
 export const BONDING_RTT_THRESHOLD = 500; // RTT threshold for failover (ms)
-export const BONDING_LOSS_THRESHOLD = 0.10; // Packet loss threshold for failover (10%)
+export const BONDING_LOSS_THRESHOLD = 0.1; // Packet loss threshold for failover (10%)
 export const BONDING_FAILBACK_DELAY = 30000; // Delay before failback (ms) - prevents oscillation
 export const BONDING_HEARTBEAT_TIMEOUT = 5000; // Heartbeat response timeout (ms)
 export const BONDING_FAILBACK_RTT_HYSTERESIS = 0.8; // Failback requires RTT < threshold * 0.8
@@ -62,6 +63,9 @@ export const UDP_RATE_LIMIT_MAX_PACKETS = 200; // Max DATA packets per client pe
 
 // Decompression safety
 export const MAX_DECOMPRESSED_SIZE = 10 * 1024 * 1024; // 10 MB - reject decompression bombs
+// After decompression, cap the JSON/MessagePack parse size to prevent multi-second stalls
+// caused by deeply-nested objects within the allowed 10 MB decompression window.
+export const MAX_PARSE_PAYLOAD_SIZE = 512 * 1024; // 512 KB
 
 // Metrics
 export const METRICS_PUBLISH_INTERVAL = 1000; // Interval (ms) for publishing metrics to Signal K

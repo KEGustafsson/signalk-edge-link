@@ -6,21 +6,25 @@
 
 // Mock external packages not available in the test environment
 const monitorInstances = [];
-jest.mock("ping-monitor", () => jest.fn().mockImplementation(() => {
-  const handlers = new Map();
-  const monitor = {
-    on: jest.fn((event, cb) => {
-      handlers.set(event, cb);
-    }),
-    emit: (event, payload) => {
-      const cb = handlers.get(event);
-      if (cb) { cb(payload); }
-    },
-    stop: jest.fn()
-  };
-  monitorInstances.push(monitor);
-  return monitor;
-}), { virtual: true });
+jest.mock("ping-monitor", () =>
+  jest.fn().mockImplementation(() => {
+    const handlers = new Map();
+    const monitor = {
+      on: jest.fn((event, cb) => {
+        handlers.set(event, cb);
+      }),
+      emit: (event, payload) => {
+        const cb = handlers.get(event);
+        if (cb) {
+          cb(payload);
+        }
+      },
+      stop: jest.fn()
+    };
+    monitorInstances.push(monitor);
+    return monitor;
+  })
+);
 
 const { createInstance, slugify } = require("../lib/instance");
 
@@ -75,7 +79,7 @@ function makeClientOptions(overrides = {}) {
     name: "test-client",
     serverType: "client",
     udpPort: 14446,
-    secretKey: "abcdefghijklmnopqrstuvwxyz123456",
+    secretKey: "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536",
     protocolVersion: 1,
     udpAddress: "127.0.0.1",
     testAddress: "127.0.0.1",
@@ -114,7 +118,13 @@ describe("createInstance", () => {
   });
 
   test("getName returns the name from options", () => {
-    const inst = createInstance(makeMockApp(), makeClientOptions({ name: "Shore Server" }), "shore-server", "plugin", jest.fn());
+    const inst = createInstance(
+      makeMockApp(),
+      makeClientOptions({ name: "Shore Server" }),
+      "shore-server",
+      "plugin",
+      jest.fn()
+    );
     expect(inst.getName()).toBe("Shore Server");
   });
 
@@ -175,7 +185,13 @@ describe("createInstance", () => {
   });
 
   test("state has correct initial defaults", () => {
-    const inst = createInstance(makeMockApp(), makeClientOptions(), "defaults-test", "plugin", jest.fn());
+    const inst = createInstance(
+      makeMockApp(),
+      makeClientOptions(),
+      "defaults-test",
+      "plugin",
+      jest.fn()
+    );
     const state = inst.getState();
     expect(state.stopped).toBe(false);
     expect(state.isServerMode).toBe(false);
@@ -213,7 +229,6 @@ describe("createInstance", () => {
     expect(app.error).toHaveBeenCalled();
     expect(inst.getState().socketUdp).toBeNull();
   });
-
 
   test("marks client unhealthy when post-connectivity ping timeout elapses", async () => {
     jest.useFakeTimers();
@@ -290,7 +305,8 @@ describe("createInstance", () => {
       state.maxDeltasPerBatch = 1;
 
       const sendError = new Error("forced UDP send failure");
-      state.pipeline.sendDelta = jest.fn()
+      state.pipeline.sendDelta = jest
+        .fn()
         .mockRejectedValueOnce(sendError)
         .mockRejectedValueOnce(sendError);
 
@@ -316,5 +332,4 @@ describe("createInstance", () => {
       jest.useRealTimers();
     }
   });
-
 });

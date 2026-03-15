@@ -6,7 +6,7 @@
  * Based on official Signal K specification: https://github.com/SignalK/specification
  */
 
-import type { Delta } from "./types";
+import type { Delta, DeltaValue } from "./types";
 
 // Path to ID mapping (encode)
 export const PATH_TO_ID: Record<string, number> = {
@@ -410,7 +410,7 @@ export function decodePath(id: number | string): string {
 function transformDelta(
   delta: Delta,
   pathTransform: (path: string) => number | string,
-  shouldTransform: (value: any) => boolean
+  shouldTransform: (value: DeltaValue) => boolean
 ): Delta {
   if (!delta || !delta.updates) {
     return delta;
@@ -440,7 +440,7 @@ function transformDelta(
       // Ensure source is always an object (never null/undefined)
       source: update.source ?? {},
       timestamp: update.timestamp,
-      $source: (update as any).$source,
+      $source: update.$source,
       values: transformedValues
     };
   }

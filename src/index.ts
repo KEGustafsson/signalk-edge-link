@@ -2,19 +2,32 @@
 
 import createRoutes = require("./routes");
 import { createInstance, slugify } from "./instance";
-import type { ConnectionConfig } from "./types";
+import { validateConnectionConfig } from "./connection-config";
+import type { ConnectionConfig, SignalKApp, InstanceState, MetricsApi } from "./types";
+import type { Router } from "./routes/types";
+
+/** API surface returned by createInstance, used locally in the registry. */
+interface InstanceApi {
+  start(): Promise<void>;
+  stop(): void;
+  getId(): string;
+  getName(): string;
+  getStatus(): { text: string; healthy: boolean };
+  getState(): InstanceState;
+  getMetricsApi(): MetricsApi;
+}
 
 const pkg = require("../package.json");
 
-module.exports = function createPlugin(app: any) {
-  const plugin: any = {};
+module.exports = function createPlugin(app: SignalKApp) {
+  const plugin: Record<string, unknown> = {};
   plugin.id = pkg.name;
   plugin.name = "Signal K Edge Link";
   plugin.description = pkg.description;
 
   // ── Instance registry ────────────────────────────────────────────────────
   // Map<instanceId, instanceObject> — populated in plugin.start()
-  const instances = new Map<string, any>();
+  const instances = new Map<string, InstanceApi>();
 
   /**
    * Instance registry object passed to routes so that route handlers can
@@ -71,13 +84,13 @@ module.exports = function createPlugin(app: any) {
       setStatus("No connections configured");
       return;
     }
-    const healthy = all.filter((inst: any) => inst.getStatus().healthy).length;
+    const healthy = all.filter((inst) => inst.getStatus().healthy).length;
     if (healthy === all.length) {
       setStatus(all.length === 1 ? all[0].getStatus().text : `${all.length} connections active`);
     } else {
       const details = all
-        .filter((inst: any) => !inst.getStatus().healthy)
-        .map((inst: any) => `${inst.getName()}: ${inst.getStatus().text}`)
+        .filter((inst) => !inst.getStatus().healthy)
+        .map((inst) => `${inst.getName()}: ${inst.getStatus().text}`)
         .join("; ");
       setStatus(`${healthy}/${all.length} active — ${details}`);
     }
@@ -98,11 +111,14 @@ module.exports = function createPlugin(app: any) {
 
   // ── Plugin lifecycle ─────────────────────────────────────────────────────
 
-  plugin.registerWithRouter = (router: any) => {
+  plugin.registerWithRouter = (router: Router) => {
     routes.registerWithRouter(router);
   };
 
-  plugin.start = async function start(options: any = {}, restartPlugin?: Function) {
+  plugin.start = async function start(
+    options: Record<string, unknown> = {},
+    restartPlugin?: (config: unknown) => Promise<void>
+  ) {
     plugin._currentOptions = options;
     // Store restartPlugin on the plugin itself so any route handler can access it
     // regardless of how many instances are running.
@@ -123,7 +139,9 @@ module.exports = function createPlugin(app: any) {
       connectionList = options.connections;
     } else if (options.serverType) {
       // Legacy flat config: wrap as single "default" connection
-      connectionList = [{ ...options, name: options.name || "default" }];
+      connectionList = [
+        { ...options, name: String(options.name || "default") } as ConnectionConfig
+      ];
     } else {
       app.error("No connections configured. Add at least one connection.");
       setStatus("No connections configured");
@@ -132,7 +150,7 @@ module.exports = function createPlugin(app: any) {
 
     // ── Port collision detection (server mode) ────────────────────────────
     const serverPorts = connectionList
-      .filter((c) => c.serverType === "server" || (c.serverType as any) === true)
+      .filter((c) => c.serverType === "server" || (c.serverType as unknown) === true)
       .map((c) => c.udpPort);
     const duplicatePorts = serverPorts.filter((p, i) => serverPorts.indexOf(p) !== i);
     if (duplicatePorts.length > 0) {
@@ -142,6 +160,18 @@ module.exports = function createPlugin(app: any) {
       );
       setStatus("Configuration error: duplicate server ports");
       return;
+    }
+
+    // ── Deep-validate all connections before creating any instances ───────
+    // This prevents a partial-start where early connections are created and
+    // then torn down when a later connection fails validation.
+    for (let i = 0; i < connectionList.length; i++) {
+      const validationError = validateConnectionConfig(connectionList[i], `connections[${i}].`);
+      if (validationError) {
+        app.error(`Connection ${i + 1} validation failed: ${validationError}`);
+        setStatus(`Configuration error in connection ${i + 1}: ${validationError}`);
+        return;
+      }
     }
 
     // ── Start rate limiting ───────────────────────────────────────────────
@@ -157,7 +187,7 @@ module.exports = function createPlugin(app: any) {
         app,
         cfg,
         instanceId,
-        plugin.id,
+        String(plugin.id),
         (_id: string, _msg: string) => {
           // Per-instance status change → re-aggregate global status
           updateAggregatedStatus();
@@ -173,7 +203,7 @@ module.exports = function createPlugin(app: any) {
       await Promise.all([...instances.values()].map((inst) => inst.start()));
     } catch (err: any) {
       app.error(`Failed to start one or more connections: ${err.message}`);
-      plugin.stop();
+      (plugin.stop as () => void)();
       setStatus(`Startup failed: ${err.message}`);
       return;
     }
@@ -677,7 +707,14 @@ module.exports = function createPlugin(app: any) {
         type: "string",
         title: "Management API Token",
         description:
-          "Optional shared secret to protect management API endpoints. Leave empty for open access. Can also be set via SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN environment variable."
+          "Shared secret to protect management API endpoints. Strongly recommended for production. Can also be set via SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN environment variable."
+      },
+      requireManagementApiToken: {
+        type: "boolean",
+        title: "Require Management API Token",
+        description:
+          "If true, all management API requests are rejected when no managementApiToken is configured. Enables a fail-closed security posture. Default: false (open access when no token is set).",
+        default: false
       },
       connections: {
         type: "array",

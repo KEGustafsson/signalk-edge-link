@@ -61,17 +61,23 @@ function registerLegacyConfigPostHandler() {
     pluginRef: {},
     getFirstBundle: () => clientBundle,
     getFirstClientBundle: () => clientBundle,
-    getConfigFilePath: (state, filename) => state && state[{
-      "delta_timer.json": "deltaTimerFile",
-      "subscription.json": "subscriptionFile",
-      "sentence_filter.json": "sentenceFilterFile"
-    }[filename]],
+    getConfigFilePath: (state, filename) =>
+      state &&
+      state[
+        {
+          "delta_timer.json": "deltaTimerFile",
+          "subscription.json": "subscriptionFile",
+          "sentence_filter.json": "sentenceFilterFile"
+        }[filename]
+      ],
     loadConfigFile: () => Promise.resolve({}),
     saveConfigFile: () => Promise.resolve(true),
     managementAuthMiddleware: () => (req, res, next) => next()
   });
 
-  return router.routes.find((route) => route.method === "post" && route.path === "/config/:filename").handlers.at(-1);
+  return router.routes
+    .find((route) => route.method === "post" && route.path === "/config/:filename")
+    .handlers.at(-1);
 }
 
 function registerConnectionConfigPostHandler() {
@@ -91,11 +97,15 @@ function registerConnectionConfigPostHandler() {
     instanceRegistry: { getAll: () => [] },
     getBundleById: () => bundle,
     getEffectiveNetworkQuality: () => ({}),
-    getConfigFilePath: (state, filename) => state && state[{
-      "delta_timer.json": "deltaTimerFile",
-      "subscription.json": "subscriptionFile",
-      "sentence_filter.json": "sentenceFilterFile"
-    }[filename]],
+    getConfigFilePath: (state, filename) =>
+      state &&
+      state[
+        {
+          "delta_timer.json": "deltaTimerFile",
+          "subscription.json": "subscriptionFile",
+          "sentence_filter.json": "sentenceFilterFile"
+        }[filename]
+      ],
     loadConfigFile: () => Promise.resolve({}),
     saveConfigFile: () => Promise.resolve(true),
     buildFullMetricsResponse: () => ({}),
@@ -104,7 +114,9 @@ function registerConnectionConfigPostHandler() {
     managementAuthMiddleware: () => (req, res, next) => next()
   });
 
-  return router.routes.find((route) => route.method === "post" && route.path === "/connections/:id/config/:filename").handlers.at(-1);
+  return router.routes
+    .find((route) => route.method === "post" && route.path === "/connections/:id/config/:filename")
+    .handlers.at(-1);
 }
 
 describe("validateRuntimeConfigBody", () => {
@@ -124,12 +136,62 @@ describe("validateRuntimeConfigBody", () => {
     ["delta_timer.json", [], "Request body must be a JSON object"],
     ["subscription.json", "bad", "Request body must be a JSON object"],
     ["delta_timer.json", { deltaTimer: 99 }, "deltaTimer must be a number between 100 and 10000"],
-    ["delta_timer.json", { deltaTimer: 10001 }, "deltaTimer must be a number between 100 and 10000"],
-    ["delta_timer.json", { deltaTimer: "1000" }, "deltaTimer must be a number between 100 and 10000"],
+    [
+      "delta_timer.json",
+      { deltaTimer: 10001 },
+      "deltaTimer must be a number between 100 and 10000"
+    ],
+    [
+      "delta_timer.json",
+      { deltaTimer: "1000" },
+      "deltaTimer must be a number between 100 and 10000"
+    ],
     ["subscription.json", { subscribe: {} }, "subscribe must be an array"],
     ["sentence_filter.json", { excludedSentences: {} }, "excludedSentences must be an array"]
   ])("rejects invalid payload for %s", (filename, body, expected) => {
     expect(validateRuntimeConfigBody(filename, body)).toBe(expected);
+  });
+
+  test("rejects subscribe array with non-object item", () => {
+    expect(validateRuntimeConfigBody("subscription.json", { subscribe: ["not-an-object"] })).toBe(
+      "subscribe[0] must be an object"
+    );
+  });
+
+  test("rejects subscribe array with null item", () => {
+    expect(validateRuntimeConfigBody("subscription.json", { subscribe: [null] })).toBe(
+      "subscribe[0] must be an object"
+    );
+  });
+
+  test("rejects subscribe array with nested array item", () => {
+    expect(validateRuntimeConfigBody("subscription.json", { subscribe: [[]] })).toBe(
+      "subscribe[0] must be an object"
+    );
+  });
+
+  test("accepts subscribe array with valid objects", () => {
+    expect(
+      validateRuntimeConfigBody("subscription.json", { subscribe: [{ path: "foo" }] })
+    ).toBeNull();
+  });
+
+  test("rejects excludedSentences array with non-string item", () => {
+    expect(validateRuntimeConfigBody("sentence_filter.json", { excludedSentences: [42] })).toBe(
+      "excludedSentences[0] must be a string"
+    );
+  });
+
+  test("rejects excludedSentences array with null item", () => {
+    expect(validateRuntimeConfigBody("sentence_filter.json", { excludedSentences: [null] })).toBe(
+      "excludedSentences[0] must be a string"
+    );
+  });
+
+  test("accepts excludedSentences array with valid strings", () => {
+    expect(
+      validateRuntimeConfigBody("sentence_filter.json", { excludedSentences: ["GSV", "GLL"] })
+    ).toBeNull();
   });
 });
 
