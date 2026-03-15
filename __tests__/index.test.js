@@ -1,14 +1,11 @@
 /* eslint-disable no-undef */
 
 // Mock external packages not available in the test environment
-jest.mock(
-  "ping-monitor",
-  () =>
-    jest.fn().mockImplementation(() => ({
-      on: jest.fn(),
-      stop: jest.fn()
-    })),
-  { virtual: true }
+jest.mock("ping-monitor", () =>
+  jest.fn().mockImplementation(() => ({
+    on: jest.fn(),
+    stop: jest.fn()
+  }))
 );
 
 jest.mock(
