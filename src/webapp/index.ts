@@ -69,6 +69,21 @@ const renderMetricItem = (label: string, value: string | number, statusClass = "
   </div>
 `;
 
+// Variants that accept a pre-sanitized HTML string as the value (label is still escaped)
+const renderMetricItemHtml = (label: string, htmlValue: string, statusClass = "") => `
+  <div class="metric-item${statusClass ? " " + statusClass : ""}">
+    <div class="metric-label">${escapeHtml(label)}</div>
+    <div class="metric-value">${htmlValue}</div>
+  </div>
+`;
+
+const renderStatItemHtml = (label: string, htmlValue: string, hasError = false) => `
+  <div class="stat-item${hasError ? " error" : ""}">
+    <span class="stat-label">${escapeHtml(label)}:</span>
+    <span class="stat-value">${htmlValue}</span>
+  </div>
+`;
+
 const renderBwStat = (
   label: string,
   value: string | number,
@@ -872,10 +887,10 @@ class DataConnectorConfig {
       const keyCount = Object.keys(summaryConfig).length;
       summary.innerHTML = `
         <div class="plugin-summary-grid">
-          ${renderStatItem("Scope", this.escapeHtml(summaryScope))}
-          ${renderStatItem("Mode", this.escapeHtml(mode.toUpperCase()))}
-          ${renderStatItem("Protocol", "v" + this.escapeHtml(String(protocol)))}
-          ${renderStatItem(keyLabel, this.escapeHtml(String(keyCount)))}
+          ${renderStatItem("Scope", summaryScope)}
+          ${renderStatItem("Mode", mode.toUpperCase())}
+          ${renderStatItem("Protocol", "v" + String(protocol))}
+          ${renderStatItem(keyLabel, String(keyCount))}
         </div>
       `;
     }
@@ -1526,7 +1541,7 @@ class DataConnectorConfig {
     const html = `
       <div class="v2-dashboard">
         <div class="metrics-grid">
-          ${renderMetricItem("State", `<span class="congestion-state ${stateClass}">${stateLabel}</span>`)}
+          ${renderMetricItemHtml("State", `<span class="congestion-state ${stateClass}">${stateLabel}</span>`)}
           ${renderMetricItem("Mode", modeLabel)}
           ${renderMetricItem("Current Timer", currentDeltaTimer + " ms")}
           ${renderMetricItem("Nominal Timer", nominalDeltaTimer + " ms")}
@@ -1696,8 +1711,8 @@ class DataConnectorConfig {
         .map((entry) => {
           const alertValue =
             entry.value !== undefined ? ` (${this.escapeHtml(String(entry.value))})` : "";
-          return renderStatItem(
-            this.escapeHtml(entry.metric),
+          return renderStatItemHtml(
+            entry.metric,
             `<span class="alert-level alert-${entry.level}">${this.escapeHtml(entry.level.toUpperCase())}${alertValue}</span>`,
             entry.level === "critical"
           );
