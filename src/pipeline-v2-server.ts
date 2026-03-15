@@ -82,56 +82,69 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
    */
   function _getOrCreateSession(rinfo: { address: string; port: number }): any {
     const key = `${rinfo.address}:${rinfo.port}`;
-    if (!clientSessions.has(key)) {
-      if (clientSessions.size >= MAX_CLIENT_SESSIONS) {
-        let oldestKey: string | null = null;
-        let oldestTime = Infinity;
-        for (const [k, s] of clientSessions) {
-          if (s.lastPacketTime < oldestTime) {
-            oldestTime = s.lastPacketTime;
-            oldestKey = k;
-          }
-        }
-        if (oldestKey) {
-          const evicted = clientSessions.get(oldestKey);
-          if (evicted) {
-            evicted.sequenceTracker.reset();
-          }
-          clientSessions.delete(oldestKey);
-          app.error(
-            `[v2-server] Session evicted (at capacity ${MAX_CLIENT_SESSIONS}): ${oldestKey}`
-          );
+
+    // Fast path: session already exists (most common case).
+    const existing = clientSessions.get(key);
+    if (existing) {
+      existing.lastPacketTime = Date.now();
+      return existing;
+    }
+
+    // Evict the oldest idle session if we are at capacity.
+    if (clientSessions.size >= MAX_CLIENT_SESSIONS) {
+      let oldestKey: string | null = null;
+      let oldestTime = Infinity;
+      for (const [k, s] of clientSessions) {
+        if (s.lastPacketTime < oldestTime) {
+          oldestTime = s.lastPacketTime;
+          oldestKey = k;
         }
       }
-      clientSessions.set(key, {
-        key,
-        address: rinfo.address,
-        port: rinfo.port,
-        sequenceTracker: new SequenceTracker({
-          nakTimeout: reliabilityConfig.nakTimeout || 100,
-          onLossDetected: (missing: number[]) => {
-            app.debug(`[v2-server] packet loss from ${key}: seqs ${missing.join(", ")}`);
-            _sendNAK(missing, { address: rinfo.address, port: rinfo.port });
-          }
-        }),
-        lastAckSeq: null,
-        lastAckSentAt: 0,
-        hasReceivedData: false,
-        lastPacketTime: Date.now(),
-        // per-session loss window counters
-        lossBaseSeq: null,
-        lossHighestSeq: null,
-        lossReceivedCount: 0,
-        lastLossExpected: 0,
-        lastLossReceived: 0,
-        // per-session UDP rate limiting
-        rateLimitCount: 0,
-        rateLimitWindowStart: Date.now()
-      });
-      app.debug(`[v2-server] new client session: ${key}`);
+      if (oldestKey) {
+        const evicted = clientSessions.get(oldestKey);
+        if (evicted) {
+          evicted.sequenceTracker.reset();
+        }
+        clientSessions.delete(oldestKey);
+        app.error(`[v2-server] Session evicted (at capacity ${MAX_CLIENT_SESSIONS}): ${oldestKey}`);
+      }
     }
-    const session = clientSessions.get(key);
-    session.lastPacketTime = Date.now();
+
+    // Create new session. Guard against a re-entrant creation that may have
+    // already added the session during the eviction scan above.
+    if (clientSessions.has(key)) {
+      const session = clientSessions.get(key);
+      session.lastPacketTime = Date.now();
+      return session;
+    }
+
+    const session = {
+      key,
+      address: rinfo.address,
+      port: rinfo.port,
+      sequenceTracker: new SequenceTracker({
+        nakTimeout: reliabilityConfig.nakTimeout || 100,
+        onLossDetected: (missing: number[]) => {
+          app.debug(`[v2-server] packet loss from ${key}: seqs ${missing.join(", ")}`);
+          _sendNAK(missing, { address: rinfo.address, port: rinfo.port });
+        }
+      }),
+      lastAckSeq: null,
+      lastAckSentAt: 0,
+      hasReceivedData: false,
+      lastPacketTime: Date.now(),
+      // per-session loss window counters
+      lossBaseSeq: null,
+      lossHighestSeq: null,
+      lossReceivedCount: 0,
+      lastLossExpected: 0,
+      lastLossReceived: 0,
+      // per-session UDP rate limiting
+      rateLimitCount: 0,
+      rateLimitWindowStart: Date.now()
+    };
+    clientSessions.set(key, session);
+    app.debug(`[v2-server] new client session: ${key}`);
     return session;
   }
 
@@ -141,8 +154,17 @@ function createPipelineV2Server(app: any, state: any, metricsApi: any): any {
    */
   function _expireIdleSessions(): void {
     const now = Date.now();
+    // Collect keys to evict first, then delete — avoids modifying the Map
+    // during iteration, which can cause entries to be silently skipped in V8.
+    const toEvict: string[] = [];
     for (const [key, session] of clientSessions) {
       if (now - session.lastPacketTime > SESSION_IDLE_TTL_MS) {
+        toEvict.push(key);
+      }
+    }
+    for (const key of toEvict) {
+      const session = clientSessions.get(key);
+      if (session) {
         session.sequenceTracker.reset();
         clientSessions.delete(key);
         app.debug(`[v2-server] session expired (idle): ${key}`);

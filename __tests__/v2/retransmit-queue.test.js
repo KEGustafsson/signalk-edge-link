@@ -508,6 +508,57 @@ describe("RetransmitQueue", () => {
       expect(queue.get(0)).toBeUndefined();
     });
 
+    test("acknowledge removes exactly the acknowledged packets and no others", () => {
+      // Regression test: deleting Map entries during iteration can cause V8 to
+      // skip adjacent entries. Verify acknowledge(4) on a 10-packet queue
+      // removes exactly packets 0-4 and leaves 5-9 intact.
+      const queue = new RetransmitQueue();
+      for (let i = 0; i < 10; i++) {
+        queue.add(i, Buffer.from(`p${i}`));
+      }
+
+      const removed = queue.acknowledge(4);
+
+      expect(removed).toBe(5);
+      expect(queue.getSize()).toBe(5);
+      for (let i = 0; i < 5; i++) {
+        expect(queue.get(i)).toBeUndefined();
+      }
+      for (let i = 5; i < 10; i++) {
+        expect(queue.get(i)).toBeDefined();
+      }
+    });
+
+    test("acknowledgeRange removes exactly the range and no others", () => {
+      // Regression test: deleting Map entries during iteration can cause V8 to
+      // skip adjacent entries. Verify acknowledgeRange removes only in-range packets.
+      //
+      // acknowledgeRange(prevSeq, cumSeq) removes entries where the sequence is
+      // AFTER prevSeq and AT OR BEFORE cumSeq. The queue must not contain entries
+      // before prevSeq (they would be treated as "past the end" and cause an early
+      // break due to uint32 serial arithmetic).
+      const queue = new RetransmitQueue();
+
+      // Add packets 2-9 (simulating state after acknowledge(1) already ran)
+      for (let i = 2; i < 10; i++) {
+        queue.add(i, Buffer.from(`p${i}`));
+      }
+
+      // Acknowledge packets 2-6 (range from prev=1 to cumulative=6)
+      const removed = queue.acknowledgeRange(1, 6);
+
+      expect(removed).toBe(5);
+      expect(queue.getSize()).toBe(3);
+      // 2-6 removed
+      for (let i = 2; i <= 6; i++) {
+        expect(queue.get(i)).toBeUndefined();
+      }
+      // 7-9 remain
+      for (let i = 7; i < 10; i++) {
+        expect(queue.get(i)).toBeDefined();
+      }
+    });
+
     test("mixed operations sequence", () => {
       const queue = new RetransmitQueue({ maxSize: 10 });
 
