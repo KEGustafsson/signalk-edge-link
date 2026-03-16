@@ -241,6 +241,12 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       );
     } catch (err: any) {
       app.debug(`Recovery burst error: ${err.message}`);
+      // Stop the interval timer on error so it doesn't keep firing against a
+      // broken socket.  A fresh burst will be re-scheduled by the next ACK.
+      if (recoveryDrainTimer) {
+        clearInterval(recoveryDrainTimer);
+        recoveryDrainTimer = null;
+      }
     } finally {
       recoveryDrainInFlight = false;
     }

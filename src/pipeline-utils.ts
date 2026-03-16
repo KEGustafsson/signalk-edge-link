@@ -9,7 +9,12 @@
 import { promisify } from "util";
 import * as zlib from "zlib";
 import * as msgpack from "@msgpack/msgpack";
-import { BROTLI_QUALITY_HIGH, UDP_RETRY_MAX, UDP_RETRY_DELAY } from "./constants";
+import {
+  BROTLI_QUALITY_HIGH,
+  UDP_RETRY_MAX,
+  UDP_RETRY_DELAY,
+  UDP_SEND_TIMEOUT_MS
+} from "./constants";
 import type * as dgram from "dgram";
 
 export const brotliCompressAsync = promisify(zlib.brotliCompress);
@@ -74,13 +79,18 @@ export function udpSendAsync(
     throw new Error("UDP socket not initialized, cannot send message");
   }
 
-  return new Promise((resolve, reject) => {
+  // Race the real send against a hard timeout so a blocked or saturated OS
+  // send buffer doesn't stall the pipeline indefinitely.
+  const sendPromise = new Promise<void>((resolve, reject) => {
     socket.send(message, port, host, async (error) => {
       if (error) {
         const err = error as NodeJS.ErrnoException;
         if (retryCount < UDP_RETRY_MAX && (err.code === "EAGAIN" || err.code === "ENOBUFS")) {
-          if (callbacks.onRetry) { callbacks.onRetry(retryCount + 1, err); }
-          await new Promise((res) => setTimeout(res, UDP_RETRY_DELAY * (retryCount + 1)));
+          if (callbacks.onRetry) {
+            callbacks.onRetry(retryCount + 1, err);
+          }
+          // Exponential back-off: 100ms, 200ms, 400ms for attempts 0, 1, 2.
+          await new Promise((res) => setTimeout(res, UDP_RETRY_DELAY * Math.pow(2, retryCount)));
           try {
             await udpSendAsync(socket, message, host, port, callbacks, retryCount + 1);
             resolve();
@@ -88,7 +98,9 @@ export function udpSendAsync(
             reject(retryError);
           }
         } else {
-          if (callbacks.onError) { callbacks.onError(err, retryCount); }
+          if (callbacks.onError) {
+            callbacks.onError(err, retryCount);
+          }
           reject(err);
         }
       } else {
@@ -96,4 +108,13 @@ export function udpSendAsync(
       }
     });
   });
+
+  const timeoutPromise = new Promise<void>((_, reject) =>
+    setTimeout(
+      () => reject(new Error(`UDP send timed out after ${UDP_SEND_TIMEOUT_MS}ms`)),
+      UDP_SEND_TIMEOUT_MS
+    )
+  );
+
+  return Promise.race([sendPromise, timeoutPromise]);
 }

@@ -196,7 +196,10 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     const now = Date.now();
     const clientData = rateLimitMap.get(key);
 
-    if (!clientData || now > clientData.resetTime) {
+    // Compare against the stored resetTime (an absolute timestamp) rather than
+    // relying on interval alignment.  This prevents a 2× burst that would
+    // otherwise be possible when two requests straddle the cleanup boundary.
+    if (!clientData || now >= clientData.resetTime) {
       rateLimitMap.set(key, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
       return true;
     }

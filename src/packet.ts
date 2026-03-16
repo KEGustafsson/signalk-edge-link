@@ -470,7 +470,14 @@ export class PacketParser {
           );
         }
         payload = payloadData;
-      } else if (payload.length >= 2) {
+      } else {
+        // v2 control packets must include a 2-byte CRC16 trailer.
+        // Reject packets that are too short to contain it — an empty or
+        // undersized payload cannot carry a valid CRC and could otherwise
+        // slip through unverified, allowing forged ACK/NAK frames.
+        if (payload.length < 2) {
+          throw new Error(`Control packet payload too short for CRC: ${payload.length} byte(s)`);
+        }
         const payloadData = payload.subarray(0, payload.length - 2);
         const expectedPayloadCrc = crc16(payloadData);
         const actualPayloadCrc = payload.readUInt16BE(payload.length - 2);

@@ -198,13 +198,34 @@ module.exports = function createPlugin(app: SignalKApp) {
     }
 
     // Start all instances concurrently.
-    // On any failure, stop everything to avoid a half-started state.
-    try {
-      await Promise.all([...instances.values()].map((inst) => inst.start()));
-    } catch (err: any) {
-      app.error(`Failed to start one or more connections: ${err.message}`);
-      (plugin.stop as () => void)();
-      setStatus(`Startup failed: ${err.message}`);
+    // Track which ones started successfully so that, on partial failure,
+    // only the started instances are stopped — avoiding double-cleanup of
+    // instances that never completed start() and the dangling timer / socket
+    // leaks that would follow.
+    const startedInstances: Array<{ stop: () => void }> = [];
+    let startError: Error | null = null;
+
+    await Promise.all(
+      [...instances.values()].map(async (inst) => {
+        try {
+          await inst.start();
+          startedInstances.push(inst);
+        } catch (err: any) {
+          if (!startError) {
+            startError = err;
+          }
+          app.error(`Failed to start connection: ${err.message}`);
+        }
+      })
+    );
+
+    if (startError) {
+      app.error(`One or more connections failed to start — stopping all`);
+      for (const inst of startedInstances) {
+        inst.stop();
+      }
+      instances.clear();
+      setStatus(`Startup failed: ${(startError as Error).message}`);
       return;
     }
 
@@ -703,6 +724,13 @@ module.exports = function createPlugin(app: SignalKApp) {
     description:
       "Configure encrypted UDP data transmission between SignalK units. Add one connection per server listener or client sender.",
     properties: {
+      schemaVersion: {
+        type: "number",
+        title: "Schema Version",
+        description: "Internal schema version for forward-compatibility migrations. Do not edit.",
+        default: 1,
+        readOnly: true
+      },
       managementApiToken: {
         type: "string",
         title: "Management API Token",

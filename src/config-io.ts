@@ -16,33 +16,60 @@ interface Logger {
   error?: (msg: string) => void;
 }
 
+/** Discriminated result returned by {@link loadConfigFileSafe}. */
+export type ConfigFileResult =
+  | { status: "ok"; data: unknown }
+  | { status: "not_found" }
+  | { status: "parse_error"; message: string }
+  | { status: "read_error"; message: string };
+
+/**
+ * Loads a JSON configuration file from disk and returns a discriminated result
+ * so callers can distinguish "file not found" (normal first-run) from a genuine
+ * parse or I/O failure (data corruption, permission denied, etc.).
+ *
+ * @param filePath - Full path to the config file
+ * @param logger - Optional logger with debug/error methods
+ */
+export async function loadConfigFileSafe(
+  filePath: string,
+  logger?: Logger
+): Promise<ConfigFileResult> {
+  let content: string;
+  try {
+    content = await fs.readFile(filePath, "utf-8");
+  } catch (err: any) {
+    if (err && err.code === "ENOENT") {
+      if (logger?.debug) {
+        logger.debug(`Config file not found ${filePath}`);
+      }
+      return { status: "not_found" };
+    }
+    if (logger?.error) {
+      logger.error(`Error loading ${filePath}: ${err.message}`);
+    }
+    return { status: "read_error", message: err.message };
+  }
+
+  try {
+    return { status: "ok", data: JSON.parse(content) };
+  } catch (err: any) {
+    if (logger?.error) {
+      logger.error(`Error parsing JSON in ${filePath}: ${err.message}`);
+    }
+    return { status: "parse_error", message: err.message };
+  }
+}
+
 /**
  * Loads a JSON configuration file from disk.
  * @param filePath - Full path to the config file
  * @param logger - Optional logger with debug/error methods
- * @returns Parsed JSON or null on failure
+ * @returns Parsed JSON or null on failure (both not-found and parse-error map to null)
  */
 export async function loadConfigFile(filePath: string, logger?: Logger): Promise<unknown | null> {
-  try {
-    const content = await fs.readFile(filePath, "utf-8");
-    try {
-      return JSON.parse(content);
-    } catch (err: any) {
-      if (logger && logger.error) {
-        logger.error(`Error parsing JSON in ${filePath}: ${err.message}`);
-      }
-      return null;
-    }
-  } catch (err: any) {
-    if (err && err.code === "ENOENT") {
-      if (logger && logger.debug) {
-        logger.debug(`Config file not found ${filePath}`);
-      }
-    } else if (logger && logger.error) {
-      logger.error(`Error loading ${filePath}: ${err.message}`);
-    }
-    return null;
-  }
+  const result = await loadConfigFileSafe(filePath, logger);
+  return result.status === "ok" ? result.data : null;
 }
 
 /**

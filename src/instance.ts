@@ -37,7 +37,7 @@ import {
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch
 } from "./constants";
-import { loadConfigFile } from "./config-io";
+import { loadConfigFile, loadConfigFileSafe } from "./config-io";
 import {
   createDebouncedConfigHandler,
   createWatcherWithRecovery,
@@ -401,28 +401,36 @@ function createInstance(
   const SUBSCRIPTION_RETRY_BASE_DELAY = 5000;
   const SUBSCRIPTION_RETRY_MAX_DELAY = 300000;
   const SUBSCRIPTION_RETRY_MAX_ATTEMPTS = 10;
+  // After the fast-retry window, keep trying at this interval indefinitely.
+  const SUBSCRIPTION_RETRY_SLOW_DELAY = 5 * 60 * 1000; // 5 minutes
 
   /**
    * Schedule a subscription retry with exponential backoff.
-   * Gives up after SUBSCRIPTION_RETRY_MAX_ATTEMPTS consecutive failures.
+   * After SUBSCRIPTION_RETRY_MAX_ATTEMPTS consecutive failures the backoff
+   * saturates at SUBSCRIPTION_RETRY_SLOW_DELAY and retries continue
+   * indefinitely so that a transient Signal K startup race does not leave
+   * the instance silently dead for the lifetime of the process.
    */
   function scheduleSubscriptionRetry(attempt: number): void {
-    if (attempt > SUBSCRIPTION_RETRY_MAX_ATTEMPTS) {
+    // Beyond the fast-retry window, switch to a slow keep-alive retry.
+    const isSlow = attempt > SUBSCRIPTION_RETRY_MAX_ATTEMPTS;
+    if (isSlow && attempt === SUBSCRIPTION_RETRY_MAX_ATTEMPTS + 1) {
       app.error(
         `[${instanceId}] Subscription failed after ${SUBSCRIPTION_RETRY_MAX_ATTEMPTS} attempts — ` +
-          "giving up. Restart the plugin to retry."
+          `switching to slow retry every ${SUBSCRIPTION_RETRY_SLOW_DELAY / 1000}s`
       );
       recordError(
         "subscription",
-        `Subscription permanently failed after ${SUBSCRIPTION_RETRY_MAX_ATTEMPTS} attempts`
+        `Subscription entering slow-retry mode after ${SUBSCRIPTION_RETRY_MAX_ATTEMPTS} attempts`
       );
-      return;
     }
 
-    const delay = Math.min(
-      SUBSCRIPTION_RETRY_BASE_DELAY * Math.pow(2, attempt - 1),
-      SUBSCRIPTION_RETRY_MAX_DELAY
-    );
+    const delay = isSlow
+      ? SUBSCRIPTION_RETRY_SLOW_DELAY
+      : Math.min(
+          SUBSCRIPTION_RETRY_BASE_DELAY * Math.pow(2, attempt - 1),
+          SUBSCRIPTION_RETRY_MAX_DELAY
+        );
 
     app.debug(
       `[${instanceId}] Scheduling subscription retry (attempt ${attempt}/${SUBSCRIPTION_RETRY_MAX_ATTEMPTS}) in ${delay}ms`
@@ -673,10 +681,16 @@ function createInstance(
       state.isServerMode = false;
       await initializePersistentStorage({ instanceId, app, state });
 
-      const deltaTimerTimeFile = (await loadConfigFile(state.deltaTimerFile ?? "")) as Record<
-        string,
-        unknown
-      > | null;
+      // Load the delta-timer override file and distinguish not-found (first run,
+      // use default) from a parse/read error (log prominently, use default).
+      const dtResult = await loadConfigFileSafe(state.deltaTimerFile ?? "", app);
+      if (dtResult.status === "parse_error" || dtResult.status === "read_error") {
+        app.error(
+          `[${instanceId}] Delta timer config load failed (${dtResult.status}): ${dtResult.message} — using default`
+        );
+      }
+      const deltaTimerTimeFile =
+        dtResult.status === "ok" ? (dtResult.data as Record<string, unknown>) : null;
       const rawDt =
         typeof deltaTimerTimeFile?.deltaTimer === "number" ? deltaTimerTimeFile.deltaTimer : NaN;
       state.deltaTimerTime = Number.isFinite(rawDt) && rawDt >= 100 ? rawDt : DEFAULT_DELTA_TIMER;
@@ -774,11 +788,16 @@ function createInstance(
                 _setStatus(`UDP socket error: ${recoverErr.code || recoverErr.message}`, false);
               });
 
-              // Re-attach v2 control packet listener if pipeline exists
+              // Re-attach v2 control packet listener if pipeline exists.
+              // removeAllListeners("message") is called defensively before
+              // attaching so that repeated recovery calls never accumulate
+              // duplicate handlers on the same socket object.
               if (state.pipeline) {
+                state.socketUdp.removeAllListeners("message");
                 state.socketUdp.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
                   state.pipeline!.handleControlPacket(msg, rinfo).catch((cpErr: any) => {
                     app.error(`[${instanceId}] Control packet error: ${cpErr.message}`);
+                    recordError("general", `Control packet error: ${cpErr.message}`);
                   });
                 });
               }
@@ -911,7 +930,8 @@ function createInstance(
             },
             failover: options.bonding.failover || {},
             instanceId: state.instanceId,
-            notificationsEnabled: options.enableNotifications === true
+            notificationsEnabled: options.enableNotifications === true,
+            secretKey: options.secretKey
           };
           try {
             await v2Pipeline.initBonding(bondingConfig);

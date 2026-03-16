@@ -32,6 +32,9 @@ function register(router: Router, ctx: RouteContext): void {
   } = ctx;
   const REDACTED_SECRET = "[redacted]";
 
+  // Field names whose values should never appear in API responses.
+  const SENSITIVE_FIELDS = new Set(["secretKey", "managementApiToken"]);
+
   function redactSecretKeys(value: unknown): unknown {
     if (Array.isArray(value)) {
       return value.map((entry) => redactSecretKeys(entry));
@@ -43,7 +46,7 @@ function register(router: Router, ctx: RouteContext): void {
 
     const out: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = key === "secretKey" ? REDACTED_SECRET : redactSecretKeys(entry);
+      out[key] = SENSITIVE_FIELDS.has(key) ? REDACTED_SECRET : redactSecretKeys(entry);
     }
     return out;
   }

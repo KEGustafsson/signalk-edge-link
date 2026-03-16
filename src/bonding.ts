@@ -17,9 +17,11 @@
  * @module lib/bonding
  */
 
+import * as crypto from "crypto";
 import * as dgram from "dgram";
 import CircularBuffer from "./CircularBuffer";
 import type { SignalKApp } from "./types";
+import { normalizeKey } from "./crypto";
 import {
   BONDING_HEALTH_CHECK_INTERVAL,
   BONDING_RTT_THRESHOLD,
@@ -96,7 +98,12 @@ interface BondingConfig {
   failover?: FailoverConfig;
   instanceId?: string;
   notificationsEnabled?: boolean;
+  /** Shared secret used to authenticate heartbeat probes (HMAC-SHA256). */
+  secretKey?: string;
 }
+
+// Length in bytes of the truncated HMAC appended to authenticated heartbeat probes.
+const BONDING_HMAC_TAG_LENGTH = 8;
 
 /**
  * Create initial state for a single link
@@ -134,6 +141,7 @@ export class BondingManager {
   private instanceId: string;
   private sourceLabel: string;
   private notificationsEnabled: boolean;
+  private secretKey: string | null;
   private links: { primary: LinkState; backup: LinkState };
   private activeLink: string;
   failoverThresholds: {
@@ -190,6 +198,7 @@ export class BondingManager {
       ? `signalk-edge-link:${this.instanceId}`
       : "signalk-edge-link";
     this.notificationsEnabled = config.notificationsEnabled === true;
+    this.secretKey = config.secretKey || null;
 
     // Link definitions
     this.links = {
@@ -313,6 +322,20 @@ export class BondingManager {
   }
 
   /**
+   * Compute a truncated HMAC-SHA256 tag over the 12-byte heartbeat header.
+   * Used to authenticate probe sends and verify probe responses.
+   * @private
+   */
+  private _computeHbHmac(header: Buffer): Buffer {
+    const keyBuffer = normalizeKey(this.secretKey!);
+    return crypto
+      .createHmac("sha256", keyBuffer)
+      .update(header)
+      .digest()
+      .subarray(0, BONDING_HMAC_TAG_LENGTH);
+  }
+
+  /**
    * Measure health of a specific link by sending a heartbeat probe
    * and evaluating recent response data
    * @private
@@ -324,13 +347,23 @@ export class BondingManager {
       return;
     }
 
-    // Send heartbeat probe
+    // Send heartbeat probe.
+    // When a secretKey is configured, a truncated HMAC-SHA256 tag is appended
+    // after the fixed 12-byte header so the server can reject forged probes.
     const seq = link.heartbeatSeq++;
     const timestamp = Date.now();
-    const probe = Buffer.alloc(12);
-    probe.write("HBPROBE", 0, 7, "ascii");
-    probe.writeUInt32BE(seq, 7);
-    probe.writeUInt8(0, 11); // padding
+    const header = Buffer.alloc(12);
+    header.write("HBPROBE", 0, 7, "ascii");
+    header.writeUInt32BE(seq, 7);
+    header.writeUInt8(0, 11); // padding
+
+    let probe: Buffer;
+    if (this.secretKey) {
+      const tag = this._computeHbHmac(header);
+      probe = Buffer.concat([header, tag]);
+    } else {
+      probe = header;
+    }
 
     link.pendingHeartbeats.set(seq, timestamp);
     link.heartbeatsSent++;
@@ -391,13 +424,30 @@ export class BondingManager {
       return;
     }
 
-    // Validate response format
+    // Validate response format: must start with "HBPROBE" and be at least 12 bytes.
     if (msg.length < 12 || msg.toString("ascii", 0, 7) !== "HBPROBE") {
-      // Not a heartbeat response - might be a control packet, pass through
+      // Not a heartbeat response — might be a control packet, pass through.
       if (this._onControlPacket) {
         this._onControlPacket(name, msg);
       }
       return;
+    }
+
+    // When a secretKey is configured, verify the HMAC tag that follows the
+    // fixed 12-byte header.  Drop unauthenticated (or forged) responses silently
+    // to prevent an on-path attacker from triggering false-positive link recovery.
+    if (this.secretKey) {
+      const expectedTag = this._computeHbHmac(msg.subarray(0, 12));
+      const minLen = 12 + BONDING_HMAC_TAG_LENGTH;
+      if (msg.length < minLen) {
+        this.app.debug(`[Bonding] ${name} heartbeat response too short for HMAC — dropping`);
+        return;
+      }
+      const receivedTag = msg.subarray(msg.length - BONDING_HMAC_TAG_LENGTH);
+      if (!crypto.timingSafeEqual(expectedTag, receivedTag)) {
+        this.app.debug(`[Bonding] ${name} heartbeat HMAC mismatch — dropping`);
+        return;
+      }
     }
 
     const seq = msg.readUInt32BE(7);
