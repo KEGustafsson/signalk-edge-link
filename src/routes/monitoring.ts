@@ -244,10 +244,10 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(503).json({ error: "Alert manager not initialized" });
         }
 
-        const metric = req.body["metric"] as string;
+        const metric: unknown = req.body["metric"];
         const warning = req.body["warning"];
         const critical = req.body["critical"];
-        if (!metric) {
+        if (typeof metric !== "string" || !metric) {
           return res.status(400).json({ error: "metric is required" });
         }
         const validAlertMetrics = ["rtt", "packetLoss", "retransmitRate", "jitter", "queueDepth"];

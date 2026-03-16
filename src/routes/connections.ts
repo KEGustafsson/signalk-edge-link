@@ -126,7 +126,7 @@ function register(router: Router, ctx: RouteContext): void {
       let limit: number | null = null;
       if (limitRaw !== undefined) {
         limit = Number.parseInt(String(limitRaw), 10);
-        if (!Number.isInteger(limit) || limit! <= 0) {
+        if (!Number.isInteger(limit) || limit <= 0) {
           return res.status(400).json({ error: "limit must be a positive integer" });
         }
       }
