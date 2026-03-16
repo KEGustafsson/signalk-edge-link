@@ -261,8 +261,8 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         return restartWithConnections(res, connections, 201);
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -346,8 +346,8 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         return restartWithConnections(res, connections, 200);
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -468,8 +468,8 @@ function register(router: Router, ctx: RouteContext): void {
         }
         const config = await loadConfigFile(filePath);
         res.contentType("application/json").send(JSON.stringify(config || {}));
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -499,8 +499,8 @@ function register(router: Router, ctx: RouteContext): void {
         }
         const success = await saveConfigFile(filePath, req.body);
         res.status(success ? 200 : 500).send(success ? "OK" : "Failed to save configuration");
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
