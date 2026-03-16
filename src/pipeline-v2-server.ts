@@ -459,8 +459,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
     }
     ackTimer = setInterval(() => {
       _expireIdleSessions();
-      _sendPeriodicACKs().catch((err: any) => {
-        app.error(`Periodic ACK error: ${err.message}`);
+      _sendPeriodicACKs().catch((err: unknown) => {
+        app.error(`Periodic ACK error: ${err instanceof Error ? err.message : String(err)}`);
       });
     }, ackInterval);
   }
@@ -590,6 +590,25 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       if (seqResult.duplicate) {
         app.debug(`v2 duplicate packet: seq=${parsed.sequence}`);
         metrics.duplicatePackets = (metrics.duplicatePackets ?? 0) + 1;
+        // The client is retransmitting because it never received our ACK.
+        // Send an immediate ACK so the client stops retransmitting instead of
+        // waiting up to ackResendInterval (1 s) for the next periodic ACK tick.
+        if (session && session.sequenceTracker.expectedSeq !== null && rinfo) {
+          const currentExpected = session.sequenceTracker.expectedSeq >>> 0;
+          const ackSeq = (currentExpected - 1) >>> 0;
+          try {
+            const ackPacket = packetBuilder.buildACKPacket(ackSeq);
+            await _sendUDP(ackPacket, { address: rinfo.address, port: rinfo.port });
+            session.lastAckSeq = ackSeq;
+            session.lastAckSentAt = Date.now();
+            metrics.acksSent = (metrics.acksSent ?? 0) + 1;
+            app.debug(`Sent immediate ACK on duplicate to ${session.key}: seq=${ackSeq}`);
+          } catch (ackErr: unknown) {
+            app.error(
+              `Failed to send immediate ACK to ${session.key}: ${ackErr instanceof Error ? ackErr.message : String(ackErr)}`
+            );
+          }
+        }
         return;
       }
 
