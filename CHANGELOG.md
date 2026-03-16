@@ -86,18 +86,3 @@ type-safety, and documentation gaps identified during the pre-release audit.
 - Base64 key decoding validates decoded length and throws on mismatch rather
   than silently using a truncated key.
 - Management API enforces token authentication and per-route rate limiting.
-
-### Migration from v2.0.0-beta
-
-No configuration changes are required. The stable release is wire-compatible
-with all 2.0.0-beta.x peers. Update the plugin version in your Signal K server
-and restart — existing connection files and subscription configs are unchanged.
-
-### Migration from v1
-
-See `docs/migration-v1-to-v2.md` for a step-by-step guide. The short version:
-
-1. Change `protocolVersion` to `2` (or omit — v2 is the new default).
-2. Replace the single flat connection config with a `connections: [...]` array.
-3. Generate a new 32-byte secret key (`openssl rand -hex 32`) and configure it
-   on both the client and server instance.
