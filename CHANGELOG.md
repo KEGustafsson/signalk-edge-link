@@ -2,11 +2,11 @@
 
 All notable changes to signalk-edge-link are documented here.
 
-## [2.1.0] — 2026-03-16
+## [2.0.0] — 2026-03-16
 
 ### Highlights
 
-First stable release of the v2 series. This release promotes the 2.1.0-beta
+First stable release of the v2 series. This release promotes the 2.0.0-beta
 series (twelve beta iterations) to stable and closes all known reliability,
 type-safety, and documentation gaps identified during the pre-release audit.
 
@@ -87,10 +87,10 @@ type-safety, and documentation gaps identified during the pre-release audit.
   than silently using a truncated key.
 - Management API enforces token authentication and per-route rate limiting.
 
-### Migration from v2.1.0-beta
+### Migration from v2.0.0-beta
 
 No configuration changes are required. The stable release is wire-compatible
-with all 2.1.0-beta.x peers. Update the plugin version in your Signal K server
+with all 2.0.0-beta.x peers. Update the plugin version in your Signal K server
 and restart — existing connection files and subscription configs are unchanged.
 
 ### Migration from v1
