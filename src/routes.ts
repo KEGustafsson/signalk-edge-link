@@ -372,6 +372,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         encryptionErrors: metrics.encryptionErrors,
         subscriptionErrors: metrics.subscriptionErrors,
         duplicatePackets: metrics.duplicatePackets || 0,
+        malformedPackets: metrics.malformedPackets || 0,
         errorCounts: { ...(metrics.errorCounts || {}) }
       },
       status: {
