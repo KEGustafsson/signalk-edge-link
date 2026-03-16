@@ -12,21 +12,17 @@ import {
 } from "../src/webapp/utils/apiFetch";
 
 describe("apiFetch module", () => {
-  let originalLocation;
-
   beforeEach(() => {
     delete window.__EDGE_LINK_AUTH__;
     window.localStorage.clear();
     global.fetch = jest.fn(() => Promise.resolve({ ok: true }));
 
-    // Save and mock location for query param tests
-    originalLocation = window.location;
-    delete window.location;
-    window.location = { search: "", ...originalLocation };
+    // Reset URL for query param tests (jsdom 30+ does not allow reassigning window.location)
+    history.replaceState({}, "", "/");
   });
 
   afterEach(() => {
-    window.location = originalLocation;
+    history.replaceState({}, "", "/");
     jest.restoreAllMocks();
   });
 
@@ -55,12 +51,12 @@ describe("apiFetch module", () => {
     it("returns token from query parameter when includeTokenInQuery is enabled", () => {
       // Query-param token is opt-in (default is false to avoid leaking into browser history).
       window.__EDGE_LINK_AUTH__ = { includeTokenInQuery: true };
-      window.location.search = "?edgeLinkToken=query-token";
+      history.replaceState({}, "", "?edgeLinkToken=query-token");
       expect(getAuthToken()).toBe("query-token");
     });
 
     it("does NOT return token from query parameter by default (secure default)", () => {
-      window.location.search = "?edgeLinkToken=query-token";
+      history.replaceState({}, "", "?edgeLinkToken=query-token");
       expect(getAuthToken()).toBe("");
     });
 
@@ -76,20 +72,20 @@ describe("apiFetch module", () => {
 
     it("prioritises direct token over query param and localStorage", () => {
       window.__EDGE_LINK_AUTH__ = { token: "direct" };
-      window.location.search = "?edgeLinkToken=query";
+      history.replaceState({}, "", "?edgeLinkToken=query");
       window.localStorage.setItem("signalkEdgeLinkManagementToken", "stored");
       expect(getAuthToken()).toBe("direct");
     });
 
     it("prioritises query param over localStorage when includeTokenInQuery is enabled", () => {
       window.__EDGE_LINK_AUTH__ = { includeTokenInQuery: true };
-      window.location.search = "?edgeLinkToken=query";
+      history.replaceState({}, "", "?edgeLinkToken=query");
       window.localStorage.setItem("signalkEdgeLinkManagementToken", "stored");
       expect(getAuthToken()).toBe("query");
     });
 
     it("falls back to localStorage when includeTokenInQuery is false (default)", () => {
-      window.location.search = "?edgeLinkToken=query";
+      history.replaceState({}, "", "?edgeLinkToken=query");
       window.localStorage.setItem("signalkEdgeLinkManagementToken", "stored");
       expect(getAuthToken()).toBe("stored");
     });
@@ -102,20 +98,20 @@ describe("apiFetch module", () => {
 
     it("uses custom queryParam from runtime config when includeTokenInQuery is enabled", () => {
       window.__EDGE_LINK_AUTH__ = { queryParam: "myToken", includeTokenInQuery: true };
-      window.location.search = "?myToken=custom-query";
+      history.replaceState({}, "", "?myToken=custom-query");
       expect(getAuthToken()).toBe("custom-query");
     });
 
     it("skips query param when includeTokenInQuery is false (explicit)", () => {
       window.__EDGE_LINK_AUTH__ = { includeTokenInQuery: false };
-      window.location.search = "?edgeLinkToken=should-skip";
+      history.replaceState({}, "", "?edgeLinkToken=should-skip");
       window.localStorage.setItem("signalkEdgeLinkManagementToken", "fallback");
       expect(getAuthToken()).toBe("fallback");
     });
 
     it("skips query param by default (includeTokenInQuery defaults to false)", () => {
       // No __EDGE_LINK_AUTH__ override — default should NOT read query param.
-      window.location.search = "?edgeLinkToken=should-skip";
+      history.replaceState({}, "", "?edgeLinkToken=should-skip");
       expect(getAuthToken()).toBe("");
     });
 
