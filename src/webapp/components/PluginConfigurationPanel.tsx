@@ -546,6 +546,44 @@ const css = `
 .skel-alert-error   { background: #f8d7da; color: #58151c; border: 1px solid #f1aeb5; }
 .skel-alert-saving  { background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; }
 .skel-dup-warn { font-size: 0.8rem; color: #dc3545; margin-top: 4px; }
+.skel-plugin-settings {
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f8f9fa;
+}
+.skel-plugin-settings h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.skel-field-group {
+  margin-bottom: 14px;
+}
+.skel-field-group label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 4px;
+  font-size: 0.9rem;
+}
+.skel-field-group input[type="text"],
+.skel-field-group input[type="password"] {
+  width: 100%;
+  max-width: 420px;
+  padding: 6px 10px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+.skel-field-group input[type="checkbox"] {
+  margin-right: 6px;
+}
+.skel-field-desc {
+  font-size: 0.8rem;
+  color: #5c6773;
+  margin-top: 3px;
+}
 .skel-config .field-description {
   color: #5c6773;
   font-size: 0.83rem;
@@ -658,6 +696,8 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
 
 function PluginConfigurationPanel(_props: Record<string, unknown>) {
   const [connections, setConnections] = useState<ConnectionData[]>([]);
+  const [managementApiToken, setManagementApiToken] = useState<string>("");
+  const [requireManagementApiToken, setRequireManagementApiToken] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
@@ -693,6 +733,8 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
           list = [defaultClientConnection()];
         }
         setConnections(list);
+        setManagementApiToken(typeof cfg.managementApiToken === "string" ? cfg.managementApiToken : "");
+        setRequireManagementApiToken(cfg.requireManagementApiToken === true);
         setExpandedIndex(0);
         setIsDirty(false);
       } catch (err: unknown) {
@@ -789,7 +831,11 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
       const res = await apiFetch(`${API_BASE}/plugin-config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connections: payload })
+        body: JSON.stringify({
+          connections: payload,
+          managementApiToken: managementApiToken,
+          requireManagementApiToken: requireManagementApiToken
+        })
       });
       if (res.status === 401) {
         throw new Error(MANAGEMENT_TOKEN_ERROR_MESSAGE);
@@ -840,6 +886,42 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
           {saveStatus.message}
         </div>
       )}
+
+      {/* Plugin-level security settings */}
+      <div className="skel-plugin-settings">
+        <h3>Plugin Security Settings</h3>
+        <div className="skel-field-group">
+          <label htmlFor="skel-mgmt-token">Management API Token</label>
+          <input
+            id="skel-mgmt-token"
+            type="password"
+            value={managementApiToken}
+            placeholder="Leave empty for open access"
+            onChange={(e) => { setManagementApiToken(e.target.value); markDirty(); }}
+            autoComplete="new-password"
+          />
+          <div className="skel-field-desc">
+            Shared secret to protect the management API endpoints. Strongly recommended for
+            production. Can also be set via the{" "}
+            <code>SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN</code> environment variable (env var takes
+            priority). Leave empty to allow open access.
+          </div>
+        </div>
+        <div className="skel-field-group">
+          <label>
+            <input
+              type="checkbox"
+              checked={requireManagementApiToken}
+              onChange={(e) => { setRequireManagementApiToken(e.target.checked); markDirty(); }}
+            />
+            Require Management API Token
+          </label>
+          <div className="skel-field-desc">
+            When enabled, all management API requests are rejected if no token is configured
+            (fail-closed). When disabled, requests are allowed if no token is set (open access).
+          </div>
+        </div>
+      </div>
 
       {/* H3: use conn._id as stable React key instead of array index */}
       {connections.map((conn, idx) => (
