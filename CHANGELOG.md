@@ -1,0 +1,103 @@
+# Changelog
+
+All notable changes to signalk-edge-link are documented here.
+
+## [2.0.0] — 2026-03-16
+
+### Highlights
+
+First stable release of the v2 series. This release promotes the 2.0.0-beta
+series (twelve beta iterations) to stable and closes all known reliability,
+type-safety, and documentation gaps identified during the pre-release audit.
+
+### Added
+
+- **Protocol v3**: Control-plane authentication with HMAC-SHA256 over the hello
+  handshake, preventing unauthenticated nodes from injecting control packets.
+- **Connection bonding**: Primary/backup link management with automatic failover,
+  health scoring, and configurable RTT/loss thresholds (`src/bonding.ts`).
+- **AIMD congestion control**: Additive-increase / multiplicative-decrease delta
+  timer adjustment with RTT feedback loop (`src/congestion.ts`).
+- **Recovery burst**: Automatic retransmission burst when ACK silence exceeds
+  `recoveryAckGapMs` (default 4 s), recovering from extended network outages
+  without waiting for explicit NAKs.
+- **Comprehensive observability**: Prometheus metrics endpoint, per-path
+  statistics, packet-loss heatmaps, alert thresholds, and packet capture
+  (`src/monitoring.ts`, `src/packet-capture.ts`).
+- **Path dictionary**: Dictionary-based path compression for up to 40 % payload
+  reduction on typical Signal K delta streams (`src/pathDictionary.ts`).
+- **Smart batching**: Adaptive delta coalescing that learns average delta size
+  and maximises UDP frame utilisation without exceeding `MAX_SAFE_UDP_PAYLOAD`.
+- **Management REST API**: Token-authenticated endpoints for instance CRUD,
+  live metrics, monitoring alerts, and connection health.
+- **Brotli + MessagePack**: Optional binary encoding alongside existing zlib
+  compression; negotiated per-packet via packet flags.
+- **Socket recovery**: Automatic UDP socket recreation on error, with per-worker
+  restart and subscription handover to keep data flowing during recovery.
+- **Retransmit deduplication**: `getOldestSequences(limit, minRetransmitAge)`
+  filter prevents the recovery burst and a concurrent NAK handler from
+  double-sending the same sequence within one burst interval.
+
+### Changed
+
+- **Default protocol**: New connections default to v2 (reliable ACK/NAK). v1
+  remains available for legacy interop via `protocolVersion: 1`.
+- **Configuration schema**: `connections` is now an array of objects; the old
+  single-connection flat schema is auto-migrated on first load.
+- **Sequence numbers**: 32-bit unsigned with correct wraparound arithmetic
+  throughout (serial-space comparisons replace naive subtraction).
+- **Error handling**: All `catch` clauses now type `err: unknown` and narrow via
+  `instanceof Error`; `as any` casts reduced from ~340 to zero in hot paths.
+- **Key validation**: `validateSecretKey` rejects malformed base64 inputs with
+  an explicit error instead of silently falling through to the ASCII key path.
+- **Rate limiting**: Management API routes enforce per-IP request limits to
+  prevent log-flooding and resource exhaustion from misbehaving clients.
+
+### Fixed
+
+- **Timer leak** (`instance.ts`): `clearInterval(state.helloMessageSender)` is
+  now called unconditionally before creating a replacement interval, preventing
+  timer accumulation if `start()` is ever called more than once on an instance.
+- **Telemetry flag** (`pipeline-v2-client.ts`): `telemetrySendInFlight` is now
+  reset inside a `try/catch` that also covers the `sendDelta()` call, so a
+  synchronous throw can never leave the flag permanently `true`.
+- **Socket recovery race** (`instance.ts`): `socketRecoveryInProgress` is set
+  atomically at the start of the error handler; `state.stopped` is checked
+  inside the recovery `setTimeout` callback before recreating the socket.
+- **recoveryDrainTimer teardown** (`pipeline-v2-client.ts`): Timer is cleared
+  in `stopMetricsPublishing()` before any other state is torn down, ensuring
+  `_runRecoveryBurst()` cannot fire against partially cleaned-up state.
+- **Subscription leak** (`instance.ts`): Old unsubscribe handlers are preserved
+  in a local variable during re-subscription; they are released only after the
+  new subscription is confirmed, and restored on failure so `stop()` can always
+  clean up.
+- **NaN/Infinity in congestion control**: `_calculatePacketLoss()` result is
+  clamped to `[0, 1]` before being passed to `congestionControl.updateMetrics()`.
+- **Webpack vulnerability**: Upgraded `copy-webpack-plugin` and
+  `jest-environment-jsdom` to resolve two high-severity CVEs (PR #95).
+- **API warning noise**: Removed misleading management-API token warning that
+  fired even when authentication was correctly configured (PR #94).
+
+### Security
+
+- Protocol v3 hello authentication prevents unauthenticated control packets.
+- AES-256-GCM with a 12-byte random IV per packet; no IV reuse across sessions.
+- Timing-safe comparison for HMAC verification tags.
+- Base64 key decoding validates decoded length and throws on mismatch rather
+  than silently using a truncated key.
+- Management API enforces token authentication and per-route rate limiting.
+
+### Migration from v2.0.0-beta
+
+No configuration changes are required. The stable release is wire-compatible
+with all 2.0.0-beta.x peers. Update the plugin version in your Signal K server
+and restart — existing connection files and subscription configs are unchanged.
+
+### Migration from v1
+
+See `docs/migration-v1-to-v2.md` for a step-by-step guide. The short version:
+
+1. Change `protocolVersion` to `2` (or omit — v2 is the new default).
+2. Replace the single flat connection config with a `connections: [...]` array.
+3. Generate a new 32-byte secret key (`openssl rand -hex 32`) and configure it
+   on both the client and server instance.
