@@ -193,6 +193,26 @@ export function validateSecretKey(key: string): boolean {
     throw new Error("Secret key has insufficient diversity (use at least 8 different characters)");
   }
 
+  // Compute Shannon entropy (bits per character).  A randomly generated 32-char
+  // ASCII key should have at least 3.0 bits/char (≥ 8 unique chars uniformly
+  // distributed gives log2(8) = 3.0).  This catches patterns that slip past
+  // the simpler checks above, e.g. one character dominating most positions
+  // despite nominally having 8 unique chars.
+  const charFreq = new Map<string, number>();
+  for (const ch of key) {
+    charFreq.set(ch, (charFreq.get(ch) ?? 0) + 1);
+  }
+  let shannonEntropy = 0;
+  for (const count of charFreq.values()) {
+    const p = count / key.length;
+    shannonEntropy -= p * Math.log2(p);
+  }
+  if (shannonEntropy < 3.0) {
+    throw new Error(
+      `Secret key has insufficient entropy (${shannonEntropy.toFixed(2)} bits/char; need ≥ 3.0)`
+    );
+  }
+
   return true;
 }
 

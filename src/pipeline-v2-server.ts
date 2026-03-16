@@ -90,6 +90,11 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   const ackResendInterval: number = reliabilityConfig.ackResendInterval ?? 1000;
   // Session idle timeout: expire sessions that have not sent a packet for this long (ms)
   const SESSION_IDLE_TTL_MS = 300000; // 5 minutes
+  // Per-IP session limit: cap how many simultaneous sessions can be created
+  // from a single source IP.  Without this, an attacker can fill the global
+  // session table (MAX_CLIENT_SESSIONS) by spoofing many source ports from one
+  // IP, evicting all legitimate sessions (DoS).
+  const MAX_SESSIONS_PER_IP = 5;
   let ackTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
@@ -137,6 +142,41 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       const session = clientSessions.get(key)!;
       session.lastPacketTime = Date.now();
       return session;
+    }
+
+    // Enforce per-source-IP session limit to prevent a single attacker from
+    // filling the global session table by spoofing many source ports.
+    const ipSessionCount = [...clientSessions.values()].filter(
+      (s) => s.address === rinfo.address
+    ).length;
+    if (ipSessionCount >= MAX_SESSIONS_PER_IP) {
+      app.debug(
+        `[v2-server] Rejecting new session from ${rinfo.address}: per-IP limit (${MAX_SESSIONS_PER_IP}) reached`
+      );
+      // Return a dummy ephemeral session object that is never stored, so the
+      // packet can still be processed for this request without polluting state.
+      return {
+        key,
+        address: rinfo.address,
+        port: rinfo.port,
+        sequenceTracker: new SequenceTracker({
+          nakTimeout: reliabilityConfig.nakTimeout || 100,
+          onLossDetected: () => {
+            /* rate-limited; don't send NAK */
+          }
+        }),
+        lastAckSeq: null,
+        lastAckSentAt: 0,
+        hasReceivedData: false,
+        lastPacketTime: Date.now(),
+        lossBaseSeq: null,
+        lossHighestSeq: null,
+        lossReceivedCount: 0,
+        lastLossExpected: 0,
+        lastLossReceived: 0,
+        rateLimitCount: 0,
+        rateLimitWindowStart: Date.now()
+      };
     }
 
     const session = {

@@ -470,17 +470,26 @@ export class PacketParser {
           );
         }
         payload = payloadData;
-      } else if (payload.length >= 2) {
-        const payloadData = payload.subarray(0, payload.length - 2);
-        const expectedPayloadCrc = crc16(payloadData);
-        const actualPayloadCrc = payload.readUInt16BE(payload.length - 2);
-        if (expectedPayloadCrc !== actualPayloadCrc) {
-          throw new Error(
-            `Payload CRC mismatch: expected 0x${expectedPayloadCrc.toString(16)}, ` +
-              `got 0x${actualPayloadCrc.toString(16)}`
-          );
+      } else {
+        // HEARTBEAT packets carry a 0-byte payload with no CRC — accept as-is.
+        // ACK / NAK / HELLO must include a 2-byte CRC16 trailer; reject
+        // undersized payloads so forged control frames cannot slip through
+        // unverified.
+        if (type !== PacketType.HEARTBEAT) {
+          if (payload.length < 2) {
+            throw new Error(`Control packet payload too short for CRC: ${payload.length} byte(s)`);
+          }
+          const payloadData = payload.subarray(0, payload.length - 2);
+          const expectedPayloadCrc = crc16(payloadData);
+          const actualPayloadCrc = payload.readUInt16BE(payload.length - 2);
+          if (expectedPayloadCrc !== actualPayloadCrc) {
+            throw new Error(
+              `Payload CRC mismatch: expected 0x${expectedPayloadCrc.toString(16)}, ` +
+                `got 0x${actualPayloadCrc.toString(16)}`
+            );
+          }
+          payload = payloadData;
         }
-        payload = payloadData;
       }
     }
 

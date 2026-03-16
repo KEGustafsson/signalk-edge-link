@@ -281,9 +281,12 @@ export const PATH_TO_ID: Record<string, number> = {
   "networking.modem.connectionType": 0x0c03
 };
 
-// ID to Path mapping (decode) - generated from PATH_TO_ID
-export const ID_TO_PATH: Record<number, string> = Object.fromEntries(
-  Object.entries(PATH_TO_ID).map(([k, v]) => [v, k])
+// ID to Path mapping (decode) - generated from PATH_TO_ID.
+// Both maps are frozen so that no caller can accidentally mutate the shared
+// encoding/decoding tables, which would silently corrupt all path lookups.
+Object.freeze(PATH_TO_ID);
+export const ID_TO_PATH: Record<number, string> = Object.freeze(
+  Object.fromEntries(Object.entries(PATH_TO_ID).map(([k, v]) => [v, k]))
 ) as Record<number, string>;
 
 const ALL_PATHS = Object.keys(PATH_TO_ID);

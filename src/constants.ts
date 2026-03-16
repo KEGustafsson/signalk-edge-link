@@ -18,6 +18,7 @@ export const MAX_SAFE_UDP_PAYLOAD = 1400; // Maximum safe UDP payload size (avoi
 export const BROTLI_QUALITY_HIGH = 6; // Balanced quality: ~90% of max compression at ~10% of the CPU cost
 export const UDP_RETRY_MAX = 3; // Maximum UDP send retries
 export const UDP_RETRY_DELAY = 100; // milliseconds - base retry delay
+export const UDP_SEND_TIMEOUT_MS = 5000; // Maximum ms to wait for socket.send() callback
 
 // Smart batching - prevent UDP packets from exceeding MTU
 export const SMART_BATCH_SAFETY_MARGIN = 0.85; // Target 85% of MTU (leaves room for variance)

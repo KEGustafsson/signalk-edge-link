@@ -245,7 +245,11 @@ function createPipeline(
         trackPathStats(deltaMessage, decompressed.length / deltaCount);
 
         app.handleMessage("", deltaMessage);
-        app.debug(JSON.stringify(deltaMessage, null, 2));
+        // Log a compact summary only — never log full delta values which may
+        // contain sensitive data (position, fuel, MMSI) in plaintext logs.
+        app.debug(
+          `delta ctx=${deltaMessage.context ?? "?"} updates=${Array.isArray(deltaMessage.updates) ? deltaMessage.updates.length : 0}`
+        );
         metrics.deltasReceived++;
       }
     } catch (error: any) {

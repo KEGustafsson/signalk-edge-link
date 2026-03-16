@@ -238,8 +238,22 @@ export class SequenceTracker {
     if (this.nakTimers.has(sequence)) {
       return;
     }
+
+    // If the tracker is full, evict the numerically-lowest tracked sequence
+    // (i.e. the oldest gap relative to the current window) rather than silently
+    // dropping the new NAK request.  Silently dropping would cause unbounded
+    // growth of un-tracked gaps on a persistently lossy link.
     if (this.nakTimers.size >= this.maxGapTracking) {
-      return;
+      let oldestSeq: number | null = null;
+      for (const s of this.nakTimers.keys()) {
+        if (oldestSeq === null || this._isBehind(s, oldestSeq)) {
+          oldestSeq = s;
+        }
+      }
+      if (oldestSeq !== null) {
+        clearTimeout(this.nakTimers.get(oldestSeq)!);
+        this.nakTimers.delete(oldestSeq);
+      }
     }
 
     const timer = setTimeout(() => {

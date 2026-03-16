@@ -51,9 +51,7 @@ describe("Crypto Module", () => {
 
       test("should throw error for invalid secret key", () => {
         const data = Buffer.from(testData);
-        expect(() => encryptBinary(data, "short")).toThrow(
-          "Secret key must be exactly 32 bytes"
-        );
+        expect(() => encryptBinary(data, "short")).toThrow("Secret key must be exactly 32 bytes");
         expect(() => encryptBinary(data, null)).toThrow("Secret key must be a non-empty string");
       });
 
@@ -121,9 +119,7 @@ describe("Crypto Module", () => {
 
       test("should throw error for invalid secret key", () => {
         const packet = Buffer.alloc(100);
-        expect(() => decryptBinary(packet, "short")).toThrow(
-          "Secret key must be exactly 32 bytes"
-        );
+        expect(() => decryptBinary(packet, "short")).toThrow("Secret key must be exactly 32 bytes");
       });
     });
 
@@ -198,9 +194,7 @@ describe("Crypto Module", () => {
 
     test("should throw error for null/undefined key", () => {
       expect(() => validateSecretKey(null)).toThrow("Secret key must be a non-empty string");
-      expect(() => validateSecretKey(undefined)).toThrow(
-        "Secret key must be a non-empty string"
-      );
+      expect(() => validateSecretKey(undefined)).toThrow("Secret key must be a non-empty string");
     });
 
     test("should throw error for all same character (weak)", () => {
@@ -217,9 +211,17 @@ describe("Crypto Module", () => {
       );
     });
 
-    test("should accept key with exactly 8 unique characters", () => {
-      const key8Chars = "abcdefgh" + "a".repeat(24); // 8 unique chars, 32 total
-      expect(validateSecretKey(key8Chars)).toBe(true);
+    test("should accept key with 8 unique characters uniformly distributed", () => {
+      // "abcdefgh" repeated 4 times = 8 unique chars, each appearing 4 times
+      // Shannon entropy = log2(8) = 3.0 bits/char — exactly at the minimum threshold
+      const key8Uniform = "abcdefghabcdefghabcdefghabcdefgh"; // 32 chars, 8 unique
+      expect(validateSecretKey(key8Uniform)).toBe(true);
+    });
+
+    test("should reject key with 8 unique characters but heavily skewed distribution", () => {
+      // 'a' appears 25/32 times → Shannon entropy ≈ 1.37 bits/char < 3.0 threshold
+      const keySkewed = "abcdefgh" + "a".repeat(24);
+      expect(() => validateSecretKey(keySkewed)).toThrow("insufficient entropy");
     });
   });
 
