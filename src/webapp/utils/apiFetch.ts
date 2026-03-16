@@ -1,3 +1,5 @@
+/// <reference lib="dom" />
+
 export const MANAGEMENT_TOKEN_ERROR_MESSAGE = "Management token required/invalid.";
 
 interface AuthConfig {
