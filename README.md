@@ -1,5 +1,9 @@
 # Signal K Edge Link
 
+[![npm version](https://img.shields.io/npm/v/signalk-edge-link)](https://www.npmjs.com/package/signalk-edge-link)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D16-brightgreen)](https://nodejs.org)
+
 Signal K Edge Link is a Signal K plugin that transfers vessel deltas between Signal K servers over encrypted UDP.
 
 It is designed for links where latency, packet loss, and bandwidth usage matter (cellular, satellite, and other unstable WAN paths).
@@ -43,7 +47,7 @@ Server Signal K
 - Two Signal K instances (source and destination)
 - UDP reachability from client to server on your chosen port
 - Shared encryption key on both ends (32-character ASCII, 64-character hex, or 44-character base64)
-- Node.js 16+ with TypeScript (if installing from source)
+- Node.js 16+ (if installing from source: dev dependencies including TypeScript are installed automatically via `npm install`)
 
 ## Installation
 
@@ -75,7 +79,7 @@ In Signal K Admin UI:
    - `Connection Name` (for example `shore-server`)
    - `UDP Port` (default `4446`)
    - `Encryption Key` (same shared secret used by client)
-   - `Protocol Version` (`2` recommended)
+   - `Protocol Version` (`3` recommended for new deployments; use `2` only for compatibility with an existing v2 peer)
 4. Save
 
 ### 2) Configure the source (Client mode)
@@ -89,7 +93,7 @@ On the sending Signal K instance:
    - `Server Address` (destination host/IP)
    - `UDP Port` (must match server)
    - `Encryption Key` (must match server)
-   - `Protocol Version` (`2` recommended)
+   - `Protocol Version` (`3` recommended for new deployments; use `2` only for compatibility with an existing v2 peer)
 4. Save
 
 ### 3) Verify traffic
@@ -216,9 +220,42 @@ npm run cli -- bonding update --patch '{"failoverThreshold":300}' --token=$EDGE_
 npm run cli -- status --token=$EDGE_LINK_TOKEN --format=table
 ```
 
-Management API security: set `managementApiToken` in plugin options (or environment variable `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) and send it as `X-Edge-Link-Token` or `Authorization: Bearer <token>` for management/configuration/control routes such as `/instances`, `/bonding`, `/status`, `/plugin-config`, `/config/*`, `/connections/:id/config/*`, `/connections/:id/metrics`, `/connections/:id/network-metrics`, `/connections/:id/bonding`, `/connections/:id/congestion`, `/connections/:id/monitoring/*`, `/monitoring/alerts`, `/capture/*`, and `/delta-timer`. CLI commands support this via `--token=<token>` or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`.
+## Management API security
 
-Web UI token entry: management pages automatically attach auth headers when a token is available. Provide a token using one of: `window.__EDGE_LINK_AUTH__.token` (injected global), URL query parameter `?edgeLinkToken=<token>`, or `localStorage.setItem("signalkEdgeLinkManagementToken", "<token>")`. By default the UI sends both `X-Edge-Link-Token` and `Authorization: Bearer <token>`. You can override behavior with `window.__EDGE_LINK_AUTH__ = { token, queryParam, localStorageKey, headerMode }` where `headerMode` can be `both`, `authorization`, or `x-edge-link-token`.
+Set `managementApiToken` in plugin options (or the environment variable `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`). Protected routes include:
+
+- `/instances`, `/bonding`, `/status`, `/plugin-config`
+- `/config/*`, `/connections/:id/config/*`
+- `/connections/:id/metrics`, `/connections/:id/network-metrics`
+- `/connections/:id/bonding`, `/connections/:id/congestion`
+- `/connections/:id/monitoring/*`, `/monitoring/alerts`
+- `/capture/*`, `/delta-timer`
+
+Send the token as either:
+
+- `X-Edge-Link-Token: <token>`
+- `Authorization: Bearer <token>`
+
+CLI commands support `--token=<token>` or the `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` environment variable.
+
+## Web UI token injection
+
+Management pages automatically attach auth headers when a token is available. Token sources are checked in this order:
+
+1. `window.__EDGE_LINK_AUTH__.token` — injected global (preferred for server-side injection)
+2. URL query parameter `?edgeLinkToken=<token>`
+3. `localStorage.setItem("signalkEdgeLinkManagementToken", "<token>")`
+
+The UI sends both `X-Edge-Link-Token` and `Authorization: Bearer <token>` by default. Override with:
+
+```javascript
+window.__EDGE_LINK_AUTH__ = {
+  token: "<token>",
+  queryParam: "edgeLinkToken",
+  localStorageKey: "signalkEdgeLinkManagementToken",
+  headerMode: "both" // "both" | "authorization" | "x-edge-link-token"
+};
+```
 
 ## Documentation map
 

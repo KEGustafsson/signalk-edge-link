@@ -61,3 +61,39 @@ This document captures operational security practices and implementation notes f
 - Keep plugin and Signal K server updated.
 - Run management API on trusted networks only.
 - Use least-privilege firewall rules between vessel and shore links.
+
+### Firewall examples
+
+Allow UDP ingress only from a specific vessel IP (replace `<VESSEL_IP>` and `<PORT>` with actual values):
+
+**UFW (Ubuntu/Debian):**
+
+```sh
+# Allow UDP from vessel IP on the Edge Link port
+ufw allow from <VESSEL_IP> to any port <PORT> proto udp
+
+# Deny all other UDP on that port
+ufw deny <PORT>/udp
+```
+
+**iptables:**
+
+```sh
+# Allow UDP from trusted peer
+iptables -A INPUT -p udp --dport <PORT> -s <VESSEL_IP> -j ACCEPT
+
+# Drop all other UDP on that port
+iptables -A INPUT -p udp --dport <PORT> -j DROP
+```
+
+**nftables:**
+
+```sh
+nft add rule inet filter input \
+  ip saddr <VESSEL_IP> udp dport <PORT> accept
+
+nft add rule inet filter input \
+  udp dport <PORT> drop
+```
+
+If the vessel IP is dynamic (e.g., cellular), consider restricting by subnet (the operator's APN range) or deploying a VPN to provide a stable peer address.

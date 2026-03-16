@@ -52,22 +52,30 @@ For local static preview/testing of the built UI, serve the repository root and 
 
 ## Instance management
 
+The examples below use `$EDGE_LINK_TOKEN` for the management token. Omit the `-H "X-Edge-Link-Token: ..."` header if no token is configured.
+
 ### List instances
 
 ```sh
-curl -s http://localhost:3000/plugins/signalk-edge-link/instances
+curl -s \
+  -H "X-Edge-Link-Token: $EDGE_LINK_TOKEN" \
+  http://localhost:3000/plugins/signalk-edge-link/instances
 ```
 
 ### List with filters/pagination
 
 ```sh
-curl -s "http://localhost:3000/plugins/signalk-edge-link/instances?state=running&limit=10&page=1"
+curl -s \
+  -H "X-Edge-Link-Token: $EDGE_LINK_TOKEN" \
+  "http://localhost:3000/plugins/signalk-edge-link/instances?state=running&limit=10&page=1"
 ```
 
 ### Show one instance
 
 ```sh
-curl -s http://localhost:3000/plugins/signalk-edge-link/instances/<id>
+curl -s \
+  -H "X-Edge-Link-Token: $EDGE_LINK_TOKEN" \
+  http://localhost:3000/plugins/signalk-edge-link/instances/<id>
 ```
 
 ### Create instance
@@ -75,6 +83,7 @@ curl -s http://localhost:3000/plugins/signalk-edge-link/instances/<id>
 ```sh
 curl -s -X POST \
   -H "Content-Type: application/json" \
+  -H "X-Edge-Link-Token: $EDGE_LINK_TOKEN" \
   -d '{"name":"backup","serverType":"client","udpPort":4447,"secretKey":"0123456789abcdef0123456789abcdef"}' \
   http://localhost:3000/plugins/signalk-edge-link/instances
 ```
@@ -84,6 +93,7 @@ curl -s -X POST \
 ```sh
 curl -s -X PUT \
   -H "Content-Type: application/json" \
+  -H "X-Edge-Link-Token: $EDGE_LINK_TOKEN" \
   -d '{"protocolVersion":2,"useMsgpack":true}' \
   http://localhost:3000/plugins/signalk-edge-link/instances/<id>
 ```
@@ -92,6 +102,7 @@ curl -s -X PUT \
 
 ```sh
 curl -s -X DELETE \
+  -H "X-Edge-Link-Token: $EDGE_LINK_TOKEN" \
   http://localhost:3000/plugins/signalk-edge-link/instances/<id>
 ```
 
@@ -100,7 +111,9 @@ curl -s -X DELETE \
 ### View status
 
 ```sh
-curl -s http://localhost:3000/plugins/signalk-edge-link/bonding
+curl -s \
+  -H "X-Edge-Link-Token: $EDGE_LINK_TOKEN" \
+  http://localhost:3000/plugins/signalk-edge-link/bonding
 ```
 
 ### Update thresholds
@@ -108,6 +121,7 @@ curl -s http://localhost:3000/plugins/signalk-edge-link/bonding
 ```sh
 curl -s -X POST \
   -H "Content-Type: application/json" \
+  -H "X-Edge-Link-Token: $EDGE_LINK_TOKEN" \
   -d '{"rttThreshold":250,"lossThreshold":0.1,"heartbeatTimeout":1200}' \
   http://localhost:3000/plugins/signalk-edge-link/bonding
 ```
@@ -117,7 +131,9 @@ curl -s -X POST \
 ### Aggregated status
 
 ```sh
-curl -s http://localhost:3000/plugins/signalk-edge-link/status
+curl -s \
+  -H "X-Edge-Link-Token: $EDGE_LINK_TOKEN" \
+  http://localhost:3000/plugins/signalk-edge-link/status
 ```
 
 Returns per-instance health, status text, error counters, and recent error entries.
