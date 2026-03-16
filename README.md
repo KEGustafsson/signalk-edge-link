@@ -47,7 +47,7 @@ Server Signal K
 - Two Signal K instances (source and destination)
 - UDP reachability from client to server on your chosen port
 - Shared encryption key on both ends (32-character ASCII, 64-character hex, or 44-character base64)
-- Node.js 16+ with TypeScript (if installing from source)
+- Node.js 16+ (if installing from source: dev dependencies including TypeScript are installed automatically via `npm install`)
 
 ## Installation
 
@@ -79,7 +79,7 @@ In Signal K Admin UI:
    - `Connection Name` (for example `shore-server`)
    - `UDP Port` (default `4446`)
    - `Encryption Key` (same shared secret used by client)
-   - `Protocol Version` (`2` recommended)
+   - `Protocol Version` (`3` recommended for new deployments; use `2` only for compatibility with an existing v2 peer)
 4. Save
 
 ### 2) Configure the source (Client mode)
@@ -93,7 +93,7 @@ On the sending Signal K instance:
    - `Server Address` (destination host/IP)
    - `UDP Port` (must match server)
    - `Encryption Key` (must match server)
-   - `Protocol Version` (`2` recommended)
+   - `Protocol Version` (`3` recommended for new deployments; use `2` only for compatibility with an existing v2 peer)
 4. Save
 
 ### 3) Verify traffic
@@ -220,7 +220,7 @@ npm run cli -- bonding update --patch '{"failoverThreshold":300}' --token=$EDGE_
 npm run cli -- status --token=$EDGE_LINK_TOKEN --format=table
 ```
 
-### Management API security
+## Management API security
 
 Set `managementApiToken` in plugin options (or the environment variable `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`). Protected routes include:
 
@@ -238,7 +238,7 @@ Send the token as either:
 
 CLI commands support `--token=<token>` or the `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` environment variable.
 
-### Web UI token injection
+## Web UI token injection
 
 Management pages automatically attach auth headers when a token is available. Token sources are checked in this order:
 
