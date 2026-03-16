@@ -194,9 +194,10 @@ export function validateSecretKey(key: string): boolean {
   }
 
   // Compute Shannon entropy (bits per character).  A randomly generated 32-char
-  // ASCII key should have at least 4.0 bits/char.  This catches patterns that
-  // slip past the simpler checks above, e.g. "aaaaaaa..." x4 chars repeated
-  // 8 times, which has many unique chars but very low entropy.
+  // ASCII key should have at least 3.0 bits/char (≥ 8 unique chars uniformly
+  // distributed gives log2(8) = 3.0).  This catches patterns that slip past
+  // the simpler checks above, e.g. one character dominating most positions
+  // despite nominally having 8 unique chars.
   const charFreq = new Map<string, number>();
   for (const ch of key) {
     charFreq.set(ch, (charFreq.get(ch) ?? 0) + 1);
@@ -206,9 +207,9 @@ export function validateSecretKey(key: string): boolean {
     const p = count / key.length;
     shannonEntropy -= p * Math.log2(p);
   }
-  if (shannonEntropy < 4.0) {
+  if (shannonEntropy < 3.0) {
     throw new Error(
-      `Secret key has insufficient entropy (${shannonEntropy.toFixed(2)} bits/char; need ≥ 4.0)`
+      `Secret key has insufficient entropy (${shannonEntropy.toFixed(2)} bits/char; need ≥ 3.0)`
     );
   }
 

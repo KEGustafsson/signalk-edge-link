@@ -220,7 +220,7 @@ module.exports = function createPlugin(app: SignalKApp) {
     );
 
     if (startError) {
-      app.error(`One or more connections failed to start — stopping all`);
+      app.error(`Failed to start one or more connections — stopping all started instances`);
       for (const inst of startedInstances) {
         inst.stop();
       }
