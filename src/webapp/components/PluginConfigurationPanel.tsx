@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import Form, { IChangeEvent } from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import { RJSFSchema, UiSchema } from "@rjsf/utils";
-import { apiFetch, getTokenHelpText, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
+import { apiFetch, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
 
 const API_BASE = "/plugins/signalk-edge-link";
 
@@ -704,8 +704,6 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
   const [inlineValidationMessage, setInlineValidationMessage] = useState<string | null>(null);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(0);
   const [isDirty, setIsDirty] = useState(false);
-  const tokenHelpText = getTokenHelpText();
-
   // Synchronous save lock prevents double-submits even if React batching delays
   // the button's disabled state update (M2 fix).
   const savingRef = useRef(false);
@@ -971,9 +969,7 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
           {connections.filter((c) => c.serverType !== "server").length} client
           {connections.filter((c) => c.serverType !== "server").length !== 1 ? "s" : ""}
         </span>
-        <span style={{ fontSize: "0.8rem", color: "#6c757d", flexBasis: "100%" }}>
-          {tokenHelpText}
-        </span>
+
       </div>
     </div>
   );
