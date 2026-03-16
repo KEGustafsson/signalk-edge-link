@@ -138,14 +138,14 @@ function crc16(data: Buffer): number {
 export class PacketBuilder {
   _sequence: number;
   _protocolVersion: number;
-  _secretKey: Buffer | string | null;
+  _secretKey: string | null;
 
   /**
    * @param {Object} [config]
    * @param {number} [config.initialSequence=0] - Starting sequence number
    */
   constructor(
-    config: { initialSequence?: number; protocolVersion?: number; secretKey?: Buffer | string } = {}
+    config: { initialSequence?: number; protocolVersion?: number; secretKey?: string } = {}
   ) {
     this._sequence = config.initialSequence ?? 0;
     this._protocolVersion = normalizeProtocolVersion(config.protocolVersion);
@@ -185,7 +185,7 @@ export class PacketBuilder {
    */
   buildACKPacket(
     ackedSequence: number,
-    options: { receiveWindow?: number; secretKey?: Buffer | string; protocolVersion?: number } = {}
+    options: { receiveWindow?: number; secretKey?: string; protocolVersion?: number } = {}
   ): Buffer {
     const hasWindow = options.receiveWindow !== undefined;
     const payload = Buffer.alloc(hasWindow ? 8 : 4);
@@ -203,7 +203,7 @@ export class PacketBuilder {
    */
   buildNAKPacket(
     missingSequences: number[],
-    options: { secretKey?: Buffer | string; protocolVersion?: number } = {}
+    options: { secretKey?: string; protocolVersion?: number } = {}
   ): Buffer {
     const payload = Buffer.alloc(missingSequences.length * 4);
     for (let i = 0; i < missingSequences.length; i++) {
@@ -216,9 +216,7 @@ export class PacketBuilder {
    * Build a HEARTBEAT packet
    * @returns {Buffer} Heartbeat packet (no payload)
    */
-  buildHeartbeatPacket(
-    options: { secretKey?: Buffer | string; protocolVersion?: number } = {}
-  ): Buffer {
+  buildHeartbeatPacket(options: { secretKey?: string; protocolVersion?: number } = {}): Buffer {
     return this._buildPacket(PacketType.HEARTBEAT, Buffer.alloc(0), {}, options);
   }
 
@@ -232,7 +230,7 @@ export class PacketBuilder {
    */
   buildHelloPacket(
     info: { protocolVersion?: number; clientId?: string; capabilities?: string[] } = {},
-    options: { secretKey?: Buffer | string; protocolVersion?: number } = {}
+    options: { secretKey?: string; protocolVersion?: number } = {}
   ): Buffer {
     const protocolVersion = normalizeProtocolVersion(
       options.protocolVersion ?? info.protocolVersion ?? this._protocolVersion
@@ -285,7 +283,7 @@ export class PacketBuilder {
       messagepack?: boolean;
       pathDictionary?: boolean;
     },
-    options: { secretKey?: Buffer | string | null; protocolVersion?: number } = {}
+    options: { secretKey?: string | null; protocolVersion?: number } = {}
   ): Buffer {
     const header = Buffer.alloc(HEADER_SIZE);
     const payloadBuffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload || "");
@@ -337,7 +335,7 @@ export class PacketBuilder {
         const authTag = createControlPacketAuthTag(
           header.subarray(0, 13),
           payloadBuffer,
-          secretKey as any
+          secretKey
         );
         finalPayload = Buffer.concat([payloadBuffer, authTag]);
       } else if (payloadBuffer.length > 0) {
@@ -372,9 +370,9 @@ export class PacketBuilder {
  * Parses v2 protocol packets
  */
 export class PacketParser {
-  _secretKey: Buffer | string | null;
+  _secretKey: string | null;
 
-  constructor(config: { secretKey?: Buffer | string } = {}) {
+  constructor(config: { secretKey?: string } = {}) {
     this._secretKey = config.secretKey || null;
   }
 
@@ -389,7 +387,7 @@ export class PacketParser {
    */
   parseHeader(
     packet: Buffer,
-    options: { secretKey?: Buffer | string; allowUnauthenticatedControl?: boolean } = {}
+    options: { secretKey?: string; allowUnauthenticatedControl?: boolean } = {}
   ): ParsedPacket {
     if (!Buffer.isBuffer(packet)) {
       throw new Error("Packet must be a Buffer");
@@ -462,12 +460,7 @@ export class PacketParser {
           if (!secretKey) {
             throw new Error("Control packet authentication requires secretKey");
           }
-          verifyControlPacketAuthTag(
-            packet.subarray(0, 13),
-            payloadData,
-            authTag,
-            secretKey as any
-          );
+          verifyControlPacketAuthTag(packet.subarray(0, 13), payloadData, authTag, secretKey);
         }
         payload = payloadData;
       } else {

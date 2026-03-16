@@ -104,8 +104,8 @@ export class SequenceTracker {
       return result;
     }
 
-    // Also duplicate if below expected and already processed
-    if (this._isBehind(sequence, this.expectedSeq) && !this.receivedSeqs.has(sequence)) {
+    // Packet is behind the expected window — treat as late arrival or resync trigger
+    if (this._isBehind(sequence, this.expectedSeq)) {
       const behindDistance = this._distanceForward(sequence, this.expectedSeq);
       if (behindDistance > this.behindResyncThreshold) {
         this._resync(sequence);

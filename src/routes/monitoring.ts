@@ -112,13 +112,17 @@ function register(router: Router, ctx: RouteContext): void {
         };
       }
 
-      app.savePluginOptions(nextConfig, (saveErr: any) => {
+      app.savePluginOptions(nextConfig, (saveErr: unknown) => {
         if (saveErr) {
-          app.error(`Failed to persist alert thresholds: ${saveErr.message}`);
+          app.error(
+            `Failed to persist alert thresholds: ${saveErr instanceof Error ? saveErr.message : String(saveErr)}`
+          );
         }
       });
-    } catch (persistErr: any) {
-      app.error(`Failed to persist alert thresholds: ${persistErr.message}`);
+    } catch (persistErr: unknown) {
+      app.error(
+        `Failed to persist alert thresholds: ${persistErr instanceof Error ? persistErr.message : String(persistErr)}`
+      );
     }
   }
 
@@ -143,8 +147,8 @@ function register(router: Router, ctx: RouteContext): void {
           heatmap: state.monitoring.packetLossTracker.getHeatmapData(),
           summary: state.monitoring.packetLossTracker.getSummary()
         });
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -167,8 +171,8 @@ function register(router: Router, ctx: RouteContext): void {
         res.json({
           paths: state.monitoring.pathLatencyTracker.getAllStats(topN)
         });
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -197,8 +201,8 @@ function register(router: Router, ctx: RouteContext): void {
           chartData: state.monitoring.retransmissionTracker.getChartData(limit),
           summary: state.monitoring.retransmissionTracker.getSummary()
         });
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -218,8 +222,8 @@ function register(router: Router, ctx: RouteContext): void {
           return res.json({ thresholds: {}, activeAlerts: {} });
         }
         res.json(state.monitoring.alertManager.getState());
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -310,8 +314,8 @@ function register(router: Router, ctx: RouteContext): void {
           success: true,
           thresholds: state.monitoring.alertManager.getState().thresholds
         });
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -332,8 +336,8 @@ function register(router: Router, ctx: RouteContext): void {
           return res.json({ enabled: false, captured: 0, dropped: 0, buffered: 0 });
         }
         res.json(state.monitoring.packetCapture.getStats());
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -354,8 +358,8 @@ function register(router: Router, ctx: RouteContext): void {
         }
         state.monitoring.packetCapture.start();
         res.json({ success: true, enabled: true });
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -376,8 +380,8 @@ function register(router: Router, ctx: RouteContext): void {
         }
         state.monitoring.packetCapture.stop();
         res.json({ success: true, enabled: false });
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -403,8 +407,8 @@ function register(router: Router, ctx: RouteContext): void {
           `attachment; filename="edge-link-capture-${Date.now()}.pcap"`
         );
         res.send(pcapBuffer);
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -423,8 +427,8 @@ function register(router: Router, ctx: RouteContext): void {
           return res.json({ enabled: false, packetsInspected: 0, clientsConnected: 0 });
         }
         res.json(state.monitoring.packetInspector.getStats());
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -447,8 +451,8 @@ function register(router: Router, ctx: RouteContext): void {
           conditions: state.networkSimulator.getConditions(),
           stats: state.networkSimulator.getStats()
         });
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );

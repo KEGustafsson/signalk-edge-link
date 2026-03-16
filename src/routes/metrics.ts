@@ -24,8 +24,8 @@ function register(router: Router, ctx: RouteContext): void {
         return res.status(503).json({ error: "Plugin not started" });
       }
       res.json(buildFullMetricsResponse(bundle));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -65,8 +65,8 @@ function register(router: Router, ctx: RouteContext): void {
       }
 
       res.json(networkMetrics);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -134,8 +134,8 @@ function register(router: Router, ctx: RouteContext): void {
 
       res.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
       res.send(parts.join(""));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 }

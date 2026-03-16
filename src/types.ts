@@ -603,7 +603,11 @@ export interface ClientPipelineApi {
 
 /** Public API returned by createPipelineV2Server(). */
 export interface ServerPipelineApi {
-  receivePacket(packet: Buffer, secretKey: string, rinfo: import("dgram").RemoteInfo): void;
+  receivePacket(
+    packet: Buffer,
+    secretKey: string,
+    rinfo: import("dgram").RemoteInfo
+  ): Promise<void>;
   startACKTimer(): void;
   stopACKTimer(): void;
   startMetricsPublishing(): void;

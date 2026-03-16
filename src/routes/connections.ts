@@ -105,8 +105,8 @@ function register(router: Router, ctx: RouteContext): void {
           readyToSend: b.state.readyToSend
         }))
       );
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -177,8 +177,8 @@ function register(router: Router, ctx: RouteContext): void {
           totalPages: Math.ceil(filtered.length / limit)
         }
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -225,8 +225,8 @@ function register(router: Router, ctx: RouteContext): void {
         bonding: bondingManager ? bondingManager.getState() : { enabled: false },
         config: sanitizeOptions(state.options as Record<string, unknown> | null)
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -371,8 +371,8 @@ function register(router: Router, ctx: RouteContext): void {
       }
       const next = [...connections.slice(0, idx), ...connections.slice(idx + 1)];
       return restartWithConnections(res, next, 200);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 

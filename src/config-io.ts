@@ -38,26 +38,29 @@ export async function loadConfigFileSafe(
   let content: string;
   try {
     content = await fs.readFile(filePath, "utf-8");
-  } catch (err: any) {
-    if (err && err.code === "ENOENT") {
+  } catch (err: unknown) {
+    const nodeErr = err as NodeJS.ErrnoException;
+    if (nodeErr && nodeErr.code === "ENOENT") {
       if (logger?.debug) {
         logger.debug(`Config file not found ${filePath}`);
       }
       return { status: "not_found" };
     }
+    const message = err instanceof Error ? err.message : String(err);
     if (logger?.error) {
-      logger.error(`Error loading ${filePath}: ${err.message}`);
+      logger.error(`Error loading ${filePath}: ${message}`);
     }
-    return { status: "read_error", message: err.message };
+    return { status: "read_error", message };
   }
 
   try {
     return { status: "ok", data: JSON.parse(content) };
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     if (logger?.error) {
-      logger.error(`Error parsing JSON in ${filePath}: ${err.message}`);
+      logger.error(`Error parsing JSON in ${filePath}: ${message}`);
     }
-    return { status: "parse_error", message: err.message };
+    return { status: "parse_error", message };
   }
 }
 
@@ -102,7 +105,7 @@ export async function saveConfigFile(
       logger.debug(`Configuration saved to ${filePath}`);
     }
     return true;
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (fileHandle) {
       try {
         await fileHandle.close();
@@ -116,8 +119,9 @@ export async function saveConfigFile(
       // no-op, temp file might not exist
     }
 
+    const message = err instanceof Error ? err.message : String(err);
     if (logger && logger.error) {
-      logger.error(`Error saving ${filePath}: ${err.message}`);
+      logger.error(`Error saving ${filePath}: ${message}`);
     }
     return false;
   }

@@ -86,8 +86,8 @@ async function runCli(): Promise<void> {
 }
 
 if (require.main === module) {
-  runCli().catch((error: any) => {
-    console.error(`Migration failed: ${error.message}`);
+  runCli().catch((error: unknown) => {
+    console.error(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 }

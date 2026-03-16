@@ -12,7 +12,6 @@ function register(router: Router, ctx: RouteContext): void {
     requireJson,
     getFirstBundle,
     instanceRegistry,
-    authorizeManagement,
     managementAuthMiddleware
   } = ctx;
 
@@ -37,8 +36,8 @@ function register(router: Router, ctx: RouteContext): void {
 
         const cc = state.pipeline.getCongestionControl();
         res.json(cc.getState());
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -89,56 +88,56 @@ function register(router: Router, ctx: RouteContext): void {
         state.deltaTimerTime = value;
 
         res.json({ deltaTimer: value, mode: "manual" });
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
 
-  router.get("/bonding", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
-    try {
-      if (!authorizeManagement(req, res, "bonding.read")) {
-        return;
-      }
-      const all = instanceRegistry.getAll();
-      if (!all || all.length === 0) {
-        return res.status(503).json({ error: "Plugin not started" });
-      }
+  router.get(
+    "/bonding",
+    rateLimitMiddleware,
+    managementAuthMiddleware("bonding.read"),
+    (req: RouteRequest, res: RouteResponse) => {
+      try {
+        const all = instanceRegistry.getAll();
+        if (!all || all.length === 0) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
 
-      const instances = all.map((bundle: InstanceBundle) => {
-        const { state } = bundle;
-        const bondingManager =
-          state.pipeline && state.pipeline.getBondingManager
-            ? state.pipeline.getBondingManager()
-            : null;
-        return {
-          id: bundle.id,
-          name: bundle.name,
-          enabled: Boolean(bondingManager),
-          state: bondingManager ? bondingManager.getState() : null
-        };
-      });
+        const instances = all.map((bundle: InstanceBundle) => {
+          const { state } = bundle;
+          const bondingManager =
+            state.pipeline && state.pipeline.getBondingManager
+              ? state.pipeline.getBondingManager()
+              : null;
+          return {
+            id: bundle.id,
+            name: bundle.name,
+            enabled: Boolean(bondingManager),
+            state: bondingManager ? bondingManager.getState() : null
+          };
+        });
 
-      const enabledCount = instances.filter((item) => item.enabled).length;
-      res.json({
-        totalInstances: instances.length,
-        bondingEnabledInstances: enabledCount,
-        instances
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+        const enabledCount = instances.filter((item) => item.enabled).length;
+        res.json({
+          totalInstances: instances.length,
+          bondingEnabledInstances: enabledCount,
+          instances
+        });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      }
     }
-  });
+  );
 
   router.post(
     "/bonding",
     rateLimitMiddleware,
+    managementAuthMiddleware("bonding.update"),
     requireJson,
     (req: RouteRequest, res: RouteResponse) => {
       try {
-        if (!authorizeManagement(req, res, "bonding.update")) {
-          return;
-        }
         const allowedKeys = new Set([
           "rttThreshold",
           "lossThreshold",
@@ -190,8 +189,8 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         res.json({ success: true, updated: updates, instances: updatedInstances });
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -227,8 +226,8 @@ function register(router: Router, ctx: RouteContext): void {
           activeLink: bonding.getActiveLinkName(),
           links: bonding.getLinkHealth()
         });
-      } catch (err: any) {
-        res.status(500).json({ error: err.message });
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
