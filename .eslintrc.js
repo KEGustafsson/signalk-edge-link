@@ -11,6 +11,15 @@ module.exports = {
       files: ["__tests__/**/*.js", "**/*.test.js", "**/*.spec.js"],
       env: {
         jest: true
+      },
+      rules: {
+        "no-console": "off"
+      }
+    },
+    {
+      files: ["test/benchmarks/**/*.js"],
+      rules: {
+        "no-console": "off"
       }
     },
     {
