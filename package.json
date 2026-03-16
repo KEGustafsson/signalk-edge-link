@@ -111,7 +111,8 @@
       "src/webapp/.+\\.ts$": [
         "ts-jest",
         {
-          "tsconfig": "tsconfig.webapp.json"
+          "tsconfig": "tsconfig.webapp.json",
+          "diagnostics": false
         }
       ],
       "^.+\\.ts$": "ts-jest"
