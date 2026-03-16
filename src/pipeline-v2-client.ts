@@ -217,7 +217,13 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
     }
     recoveryDrainInFlight = true;
     try {
-      const pendingSeqs = retransmitQueue.getOldestSequences(recoveryBurstSize);
+      // Pass recoveryBurstIntervalMs as minRetransmitAge so that sequences
+      // already retransmitted by a concurrent NAK handler within the same
+      // burst interval are skipped — avoids double-sending the same packet.
+      const pendingSeqs = retransmitQueue.getOldestSequences(
+        recoveryBurstSize,
+        recoveryBurstIntervalMs
+      );
       if (pendingSeqs.length === 0) {
         if (recoveryDrainTimer) {
           clearInterval(recoveryDrainTimer);
@@ -455,10 +461,12 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       lastAckAt = now;
       lastAckRinfo = rinfo ? { address: rinfo.address, port: rinfo.port } : lastAckRinfo;
 
-      // Update congestion control with latest network metrics
+      // Update congestion control with latest network metrics.
+      // Clamp packetLoss to [0, 1] as a defensive measure against any future
+      // changes to _calculatePacketLoss that could produce out-of-range values.
       congestionControl.updateMetrics({
         rtt: metrics.rtt ?? 0,
-        packetLoss: _calculatePacketLoss()
+        packetLoss: Math.min(1, Math.max(0, _calculatePacketLoss()))
       });
 
       app.debug(

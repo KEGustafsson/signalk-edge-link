@@ -209,11 +209,21 @@ export class RetransmitQueue {
    * Map preserves insertion order, which reflects send order.
    *
    * @param limit - Max number of sequences to return
+   * @param minRetransmitAge - Only include sequences whose last retransmit
+   *   timestamp is at least this many ms ago (0 = no filter). Use this when
+   *   a recovery burst and a NAK handler could both select the same sequences
+   *   in rapid succession — passing the burst interval here prevents the burst
+   *   from re-sending packets that were already retransmitted recently via NAK.
    * @returns Sequence numbers
    */
-  getOldestSequences(limit = 100): number[] {
+  getOldestSequences(limit = 100, minRetransmitAge = 0): number[] {
     const result: number[] = [];
-    for (const seq of this.queue.keys()) {
+    const cutoff = minRetransmitAge > 0 ? Date.now() - minRetransmitAge : 0;
+    for (const [seq, entry] of this.queue.entries()) {
+      if (minRetransmitAge > 0 && entry.attempts > 0 && entry.timestamp > cutoff) {
+        // This sequence was retransmitted too recently — skip it.
+        continue;
+      }
       result.push(seq);
       if (result.length >= limit) {
         break;
