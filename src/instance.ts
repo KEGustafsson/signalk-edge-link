@@ -325,10 +325,11 @@ function createInstance(
       await sendDeltaBatch(batch);
       state.deltas.splice(0, actualBatchSize);
       state.timer = false;
-    } catch (err: any) {
+      state.lastPacketTime = Date.now(); // suppress hello sends right after real data
+    } catch (err: unknown) {
       const nextRetryCount = retryCount + 1;
       app.debug(
-        `[${instanceId}] Batch send failed (attempt ${nextRetryCount}/${DELTA_SEND_MAX_RETRIES + 1}): ${err.message}`
+        `[${instanceId}] Batch send failed (attempt ${nextRetryCount}/${DELTA_SEND_MAX_RETRIES + 1}): ${err instanceof Error ? err.message : String(err)}`
       );
 
       if (nextRetryCount <= DELTA_SEND_MAX_RETRIES) {
@@ -389,9 +390,10 @@ function createInstance(
       } else {
         metrics.smartBatching.timerSends++;
       }
-      flushDeltaBatch().catch((err: any) => {
-        app.error(`[${instanceId}] flushDeltaBatch error: ${err.message}`);
-        recordError("sendFailure", `flushDeltaBatch error: ${err.message}`);
+      flushDeltaBatch().catch((err: unknown) => {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        app.error(`[${instanceId}] flushDeltaBatch error: ${errMsg}`);
+        recordError("sendFailure", `flushDeltaBatch error: ${errMsg}`);
       });
     }
   }
@@ -436,6 +438,11 @@ function createInstance(
       `[${instanceId}] Scheduling subscription retry (attempt ${attempt}/${SUBSCRIPTION_RETRY_MAX_ATTEMPTS}) in ${delay}ms`
     );
 
+    // Clear any pending retry timer before scheduling a new one to prevent
+    // duplicate timers leaking when called multiple times before the first fires.
+    if (state.subscriptionRetryTimer) {
+      clearTimeout(state.subscriptionRetryTimer);
+    }
     state.subscriptionRetryTimer = setTimeout(() => {
       state.subscriptionRetryTimer = null;
       if (state.stopped) {
@@ -478,7 +485,7 @@ function createInstance(
         app.subscriptionmanager.subscribe(
           state.localSubscription,
           state.unsubscribes,
-          (subscriptionError: any) => {
+          (subscriptionError: unknown) => {
             app.error(`[${instanceId}] Subscription error: ${subscriptionError}`);
             state.readyToSend = false;
             _setStatus("Subscription error - data transmission paused", false);
@@ -550,8 +557,10 @@ function createInstance(
       // Trigger initial subscription load
       handleSubscriptionChange();
       app.debug(`[${instanceId}] Configuration file watchers initialized`);
-    } catch (err: any) {
-      app.error(`[${instanceId}] Error setting up config watchers: ${err.message}`);
+    } catch (err: unknown) {
+      app.error(
+        `[${instanceId}] Error setting up config watchers: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 
@@ -564,8 +573,8 @@ function createInstance(
     // Validate secret key — throw so Promise.all in index.js can detect startup failure
     try {
       validateSecretKey(options.secretKey);
-    } catch (error: any) {
-      const msg = `Secret key validation failed: ${error.message}`;
+    } catch (error: unknown) {
+      const msg = `Secret key validation failed: ${error instanceof Error ? error.message : String(error)}`;
       app.error(`[${instanceId}] ${msg}`);
       _setStatus(msg, false);
       throw new Error(`[${instanceId}] ${msg}`);
@@ -584,7 +593,7 @@ function createInstance(
       app.debug(`[${instanceId}] Starting server on port ${options.udpPort}`);
       state.socketUdp = dgram.createSocket({ type: "udp4", reuseAddr: true });
 
-      state.socketUdp.on("error", (err: any) => {
+      state.socketUdp.on("error", (err: NodeJS.ErrnoException) => {
         app.error(`[${instanceId}] UDP socket error: ${err.message}`);
         state.readyToSend = false;
         // Stop v2 periodic workers if the server socket is no longer usable.
@@ -661,7 +670,7 @@ function createInstance(
           resolve();
         };
 
-        const onStartupError = (err: any) => {
+        const onStartupError = (err: NodeJS.ErrnoException) => {
           if (settled) {
             return;
           }
@@ -706,6 +715,11 @@ function createInstance(
           : 1;
       const helloInterval = helloIntervalSeconds * 1000;
 
+      // Clear any existing interval before creating a new one — prevents
+      // duplicate hello intervals if start() is ever called more than once.
+      if (state.helloMessageSender) {
+        clearInterval(state.helloMessageSender);
+      }
       state.helloMessageSender = setInterval(async () => {
         try {
           const timeSinceLastPacket = Date.now() - state.lastPacketTime;
@@ -736,8 +750,10 @@ function createInstance(
           } else {
             app.debug(`[${instanceId}] Skipping hello (last packet ${timeSinceLastPacket}ms ago)`);
           }
-        } catch (err: any) {
-          app.error(`[${instanceId}] Hello message send error: ${err.message}`);
+        } catch (err: unknown) {
+          app.error(
+            `[${instanceId}] Hello message send error: ${err instanceof Error ? err.message : String(err)}`
+          );
         }
       }, helloInterval);
 
@@ -745,7 +761,7 @@ function createInstance(
       state.readyToSend = true;
       _setStatus("Connected", true);
 
-      state.socketUdp.on("error", (err: any) => {
+      state.socketUdp.on("error", (err: NodeJS.ErrnoException) => {
         // Ignore errors that arrive after recovery has already started.
         if (state.socketRecoveryInProgress) {
           return;
@@ -782,7 +798,7 @@ function createInstance(
             app.debug(`[${instanceId}] Attempting UDP socket recovery`);
             try {
               state.socketUdp = dgram.createSocket({ type: "udp4", reuseAddr: true });
-              state.socketUdp.on("error", (recoverErr: any) => {
+              state.socketUdp.on("error", (recoverErr: NodeJS.ErrnoException) => {
                 app.error(`[${instanceId}] Recovered socket error: ${recoverErr.message}`);
                 state.readyToSend = false;
                 _setStatus(`UDP socket error: ${recoverErr.code || recoverErr.message}`, false);
@@ -795,9 +811,10 @@ function createInstance(
               if (state.pipeline) {
                 state.socketUdp.removeAllListeners("message");
                 state.socketUdp.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
-                  state.pipeline!.handleControlPacket(msg, rinfo).catch((cpErr: any) => {
-                    app.error(`[${instanceId}] Control packet error: ${cpErr.message}`);
-                    recordError("general", `Control packet error: ${cpErr.message}`);
+                  state.pipeline!.handleControlPacket(msg, rinfo).catch((cpErr: unknown) => {
+                    const cpMsg = cpErr instanceof Error ? cpErr.message : String(cpErr);
+                    app.error(`[${instanceId}] Control packet error: ${cpMsg}`);
+                    recordError("general", `Control packet error: ${cpMsg}`);
                   });
                 });
               }
@@ -829,10 +846,12 @@ function createInstance(
               state.readyToSend = true;
               _setStatus("UDP socket recovered", true);
               app.debug(`[${instanceId}] UDP socket recovered`);
-            } catch (recoveryErr: any) {
+            } catch (recoveryErr: unknown) {
               state.socketRecoveryInProgress = false;
-              app.error(`[${instanceId}] UDP socket recovery failed: ${recoveryErr.message}`);
-              _setStatus(`UDP socket recovery failed: ${recoveryErr.message}`, false);
+              const recoveryMsg =
+                recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr);
+              app.error(`[${instanceId}] UDP socket recovery failed: ${recoveryMsg}`);
+              _setStatus(`UDP socket recovery failed: ${recoveryMsg}`, false);
             }
           }, 5000);
         }
@@ -861,12 +880,12 @@ function createInstance(
           });
         }
 
-        state.pingMonitor.on("error", (error: any) => {
+        state.pingMonitor.on("error", (error: NodeJS.ErrnoException | null) => {
           if (error) {
             const msg =
               error.code === "ENOTFOUND" || error.code === "EAI_AGAIN"
                 ? `Could not resolve address ${options.testAddress}.`
-                : `Connection monitor error: ${error.message || error}`;
+                : `Connection monitor error: ${error.message || String(error)}`;
             app.debug(`[${instanceId}] ${msg}`);
           } else {
             app.debug(`[${instanceId}] Connection monitor error`);
@@ -911,9 +930,10 @@ function createInstance(
         );
 
         state.socketUdp.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
-          v2Pipeline.handleControlPacket(msg, rinfo).catch((err: any) => {
-            app.error(`[${instanceId}] Control packet error: ${err.message}`);
-            recordError("general", `Control packet error: ${err.message}`);
+          v2Pipeline.handleControlPacket(msg, rinfo).catch((err: unknown) => {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            app.error(`[${instanceId}] Control packet error: ${errMsg}`);
+            recordError("general", `Control packet error: ${errMsg}`);
           });
         });
 
@@ -936,8 +956,10 @@ function createInstance(
           try {
             await v2Pipeline.initBonding(bondingConfig);
             app.debug(`[${instanceId}] [Bonding] Connection bonding initialized`);
-          } catch (err: any) {
-            app.error(`[${instanceId}] [Bonding] Failed to initialize: ${err.message}`);
+          } catch (err: unknown) {
+            app.error(
+              `[${instanceId}] [Bonding] Failed to initialize: ${err instanceof Error ? err.message : String(err)}`
+            );
           }
         }
 

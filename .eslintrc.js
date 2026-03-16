@@ -20,12 +20,7 @@ module.exports = {
       }
     }
   ],
-  ignorePatterns: [
-    "public/**",
-    "node_modules/**",
-    "coverage/**",
-    "lib/**"
-  ],
+  ignorePatterns: ["public/**", "node_modules/**", "coverage/**", "lib/**"],
   parserOptions: {
     ecmaVersion: "latest",
     sourceType: "module"
@@ -33,7 +28,8 @@ module.exports = {
   rules: {
     // Error prevention
     "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
-    "no-console": "off",
+    "no-console": ["warn", { allow: ["warn", "error"] }],
+    "no-prototype-builtins": "error",
     eqeqeq: ["error", "always"],
     "no-var": "error",
     "prefer-const": "error",

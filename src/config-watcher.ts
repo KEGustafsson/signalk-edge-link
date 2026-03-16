@@ -171,8 +171,10 @@ export function createWatcherWithRecovery(opts: WatcherRecoveryOpts): WatcherHan
       });
 
       return true;
-    } catch (err: any) {
-      app.error(`[${instanceId}] Failed to create ${name} watcher: ${err.message}`);
+    } catch (err: unknown) {
+      app.error(
+        `[${instanceId}] Failed to create ${name} watcher: ${err instanceof Error ? err.message : String(err)}`
+      );
       return false;
     }
   }
@@ -224,9 +226,10 @@ export async function migrateLegacyConfigFiles({
       const data = await readFile(legacy, "utf-8");
       await writeFile(target, data, { encoding: "utf-8", flag: "wx" });
       app.debug(`[${instanceId}] Migrated legacy ${file} → instances/default/${file}`);
-    } catch (err: any) {
-      if (err.code !== "ENOENT" && err.code !== "EEXIST") {
-        app.error(`[${instanceId}] Migration failed for ${file}: ${err.message}`);
+    } catch (err: unknown) {
+      const e = err as NodeJS.ErrnoException;
+      if (e.code !== "ENOENT" && e.code !== "EEXIST") {
+        app.error(`[${instanceId}] Migration failed for ${file}: ${e.message}`);
       }
     }
   }

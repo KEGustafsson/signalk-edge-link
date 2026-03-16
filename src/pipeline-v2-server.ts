@@ -407,8 +407,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       app.debug(
         `Sent NAK to ${destination.address}:${destination.port}: missing=${missingSeqs.join(", ")}`
       );
-    } catch (err: any) {
-      app.error(`Failed to send NAK: ${err.message}`);
+    } catch (err: unknown) {
+      app.error(`Failed to send NAK: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -442,8 +442,10 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         session.lastAckSentAt = Date.now();
         metrics.acksSent = (metrics.acksSent ?? 0) + 1;
         app.debug(`Sent ACK to ${session.key}: seq=${ackSeq}`);
-      } catch (err: any) {
-        app.error(`Failed to send ACK to ${session.key}: ${err.message}`);
+      } catch (err: unknown) {
+        app.error(
+          `Failed to send ACK to ${session.key}: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
   }
@@ -550,8 +552,10 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         try {
           const info = JSON.parse(parsed.payload.toString());
           app.debug(`v2 hello from client: ${JSON.stringify(info)}`);
-        } catch (parseErr: any) {
-          app.error(`v2 failed to parse HELLO payload: ${parseErr.message}`);
+        } catch (parseErr: unknown) {
+          app.error(
+            `v2 failed to parse HELLO payload: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+          );
         }
         return;
       }
@@ -641,8 +645,10 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       if (parsed.flags.messagepack) {
         try {
           jsonContent = msgpack.decode(decompressed);
-        } catch (msgpackErr: any) {
-          app.debug(`MessagePack decode failed (${msgpackErr.message}), falling back to JSON`);
+        } catch (msgpackErr: unknown) {
+          app.debug(
+            `MessagePack decode failed (${msgpackErr instanceof Error ? msgpackErr.message : String(msgpackErr)}), falling back to JSON`
+          );
           jsonContent = JSON.parse(decompressed.toString());
         }
       } else {
@@ -697,8 +703,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       app.debug(
         `v2 received: seq=${parsed.sequence}, ${deltaCount} deltas, ${packet.length} bytes`
       );
-    } catch (error: any) {
-      const msg = error.message || "";
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
       if (msg.includes("Unsupported state") || msg.includes("auth")) {
         app.error("v2 authentication failed: packet tampered or wrong key");
         recordError("encryption", "v2 authentication failed");

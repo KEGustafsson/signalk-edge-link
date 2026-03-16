@@ -125,9 +125,9 @@ function createPipeline(
 
       // Update last packet time for hello message suppression
       state.lastPacketTime = Date.now();
-    } catch (error: any) {
-      const msg = error.message || "";
-      const code = error.code || "";
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      const code = (error as NodeJS.ErrnoException)?.code ?? "";
       if (
         code.startsWith("ERR_ZLIB") ||
         code === "ERR_BUFFER_OUT_OF_RANGE" ||
@@ -252,9 +252,9 @@ function createPipeline(
         );
         metrics.deltasReceived++;
       }
-    } catch (error: any) {
-      const msg = error.message || "";
-      const code = error.code || "";
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      const code = (error as NodeJS.ErrnoException)?.code ?? "";
       if (
         msg.includes("Unsupported state") ||
         msg.includes("auth") ||

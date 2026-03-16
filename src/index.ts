@@ -203,18 +203,20 @@ module.exports = function createPlugin(app: SignalKApp) {
     // instances that never completed start() and the dangling timer / socket
     // leaks that would follow.
     const startedInstances: Array<{ stop: () => void }> = [];
-    let startError: Error | null = null;
+    let startError: unknown = null;
 
     await Promise.all(
       [...instances.values()].map(async (inst) => {
         try {
           await inst.start();
           startedInstances.push(inst);
-        } catch (err: any) {
+        } catch (err: unknown) {
           if (!startError) {
             startError = err;
           }
-          app.error(`Failed to start connection: ${err.message}`);
+          app.error(
+            `Failed to start connection: ${err instanceof Error ? err.message : String(err)}`
+          );
         }
       })
     );
@@ -225,7 +227,9 @@ module.exports = function createPlugin(app: SignalKApp) {
         inst.stop();
       }
       instances.clear();
-      setStatus(`Startup failed: ${(startError as Error).message}`);
+      setStatus(
+        `Startup failed: ${startError instanceof Error ? startError.message : String(startError)}`
+      );
       return;
     }
 

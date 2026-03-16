@@ -160,8 +160,8 @@ export function validateSecretKey(key: string): boolean {
     throw new Error("Secret key has insufficient entropy (all same character)");
   }
 
-  // Check for short repeating patterns (e.g., "abab...", "abcabc...")
-  for (let len = 1; len <= 4; len++) {
+  // Check for short repeating patterns (e.g., "abab...", "abcabc...", "abcdeabcde...")
+  for (let len = 1; len <= 8; len++) {
     const segment = key.slice(0, len);
     if (segment.repeat(Math.ceil(32 / len)).slice(0, 32) === key) {
       throw new Error("Secret key has insufficient entropy (repeating pattern)");

@@ -212,9 +212,9 @@ describe("Crypto Module", () => {
     });
 
     test("should accept key with 8 unique characters uniformly distributed", () => {
-      // "abcdefgh" repeated 4 times = 8 unique chars, each appearing 4 times
-      // Shannon entropy = log2(8) = 3.0 bits/char — exactly at the minimum threshold
-      const key8Uniform = "abcdefghabcdefghabcdefghabcdefgh"; // 32 chars, 8 unique
+      // Palindrome + repeat (not a simple period-1..8 pattern): 8 unique chars,
+      // each appearing 4 times → Shannon entropy = log2(8) = 3.0 bits/char
+      const key8Uniform = "abcdefghhgfedcbaabcdefghhgfedcba"; // 32 chars, 8 unique
       expect(validateSecretKey(key8Uniform)).toBe(true);
     });
 

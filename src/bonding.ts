@@ -327,7 +327,10 @@ export class BondingManager {
    * @private
    */
   private _computeHbHmac(header: Buffer): Buffer {
-    const keyBuffer = normalizeKey(this.secretKey!);
+    if (!this.secretKey) {
+      throw new Error("BondingManager: secretKey is required for HMAC authentication");
+    }
+    const keyBuffer = normalizeKey(this.secretKey);
     return crypto
       .createHmac("sha256", keyBuffer)
       .update(header)
@@ -374,8 +377,9 @@ export class BondingManager {
           this.app.debug(`[Bonding] ${name} heartbeat send error: ${err.message}`);
         }
       });
-    } catch (err: any) {
-      this.app.debug(`[Bonding] ${name} heartbeat send exception: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.app.debug(`[Bonding] ${name} heartbeat send exception: ${msg}`);
     }
 
     // Clean up old pending heartbeats (older than timeout)
@@ -419,7 +423,7 @@ export class BondingManager {
    * @param {Buffer} msg - Response message
    */
   private _handleHeartbeatResponse(name: string, msg: Buffer): void {
-    const link = (this.links as any)[name] as LinkState | undefined;
+    const link = this.links[name as keyof typeof this.links] as LinkState | undefined;
     if (!link) {
       return;
     }
@@ -577,8 +581,9 @@ export class BondingManager {
           link.health.status = LinkStatus.STANDBY;
           this.app.debug(`[Bonding] ${name} socket recovered`);
         }
-      } catch (err: any) {
-        this.app.debug(`[Bonding] ${name} socket recovery failed: ${err.message}`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.app.debug(`[Bonding] ${name} socket recovery failed: ${msg}`);
         link.health.status = LinkStatus.DOWN;
       }
     }, 5000);
@@ -720,8 +725,9 @@ export class BondingManager {
           }
         ]
       });
-    } catch (err: any) {
-      this.app.debug(`[Bonding] Failed to emit failover notification: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.app.debug(`[Bonding] Failed to emit failover notification: ${msg}`);
     }
   }
 
@@ -730,7 +736,7 @@ export class BondingManager {
    * @returns {Object|null} dgram socket or null
    */
   getActiveSocket(): dgram.Socket | null {
-    return (this.links as any)[this.activeLink].socket;
+    return this.links[this.activeLink as keyof typeof this.links].socket;
   }
 
   /**
@@ -738,7 +744,7 @@ export class BondingManager {
    * @returns {Object} { address, port }
    */
   getActiveAddress(): { address: string; port: number } {
-    const link = (this.links as any)[this.activeLink] as LinkState;
+    const link = this.links[this.activeLink as keyof typeof this.links] as LinkState;
     return { address: link.address, port: link.port };
   }
 
@@ -750,7 +756,7 @@ export class BondingManager {
    * @returns { socket, address, port } from the same active link snapshot
    */
   getActiveDestination(): { socket: dgram.Socket | null; address: string; port: number } {
-    const link = (this.links as any)[this.activeLink] as LinkState;
+    const link = this.links[this.activeLink as keyof typeof this.links] as LinkState;
     return { socket: link.socket, address: link.address, port: link.port };
   }
 
