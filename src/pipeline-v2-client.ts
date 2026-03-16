@@ -228,6 +228,12 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
 
       const toRetransmit = retransmitQueue.retransmit(pendingSeqs);
       for (const { packet: retransmitPacket } of toRetransmit) {
+        // Check socket liveness before each async send.  The socket may have
+        // been closed between the previous await and this iteration if
+        // stop() or a socket error handler ran during the yield point.
+        if (!state.socketUdp) {
+          break;
+        }
         await udpSendAsync(retransmitPacket, lastAckRinfo.address, lastAckRinfo.port);
         metrics.retransmissions = (metrics.retransmissions ?? 0) + 1;
         if (monitoringHooks && monitoringHooks.packetLossTracker) {
@@ -745,19 +751,30 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         ]
       };
 
-      telemetrySendInFlight = true;
-      sendDelta(
-        [telemetryDelta],
-        state.options.secretKey,
-        state.options.udpAddress,
-        state.options.udpPort
-      )
-        .catch((err: any) => {
-          app.debug(`Failed to send client telemetry: ${err.message}`);
-        })
-        .finally(() => {
-          telemetrySendInFlight = false;
-        });
+      // Guard the flag with try-catch so that any synchronous throw (however
+      // unlikely from an async function) cannot leave it permanently true.
+      try {
+        telemetrySendInFlight = true;
+        sendDelta(
+          [telemetryDelta],
+          state.options.secretKey,
+          state.options.udpAddress,
+          state.options.udpPort
+        )
+          .catch((err: unknown) => {
+            app.debug(
+              `Failed to send client telemetry: ${err instanceof Error ? err.message : String(err)}`
+            );
+          })
+          .finally(() => {
+            telemetrySendInFlight = false;
+          });
+      } catch (syncErr: unknown) {
+        telemetrySendInFlight = false;
+        app.debug(
+          `Telemetry send initialisation failed: ${syncErr instanceof Error ? syncErr.message : String(syncErr)}`
+        );
+      }
     }
 
     // Update last values

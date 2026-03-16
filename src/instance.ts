@@ -478,8 +478,13 @@ function createInstance(
       state.localSubscription = config;
       app.debug(`[${instanceId}] Subscription configuration updated`);
 
-      state.unsubscribes.forEach((f: () => void) => f());
-      state.unsubscribes = [];
+      // Capture the old cleanup handlers but do NOT call them yet.
+      // We establish the new subscription first so data keeps flowing during
+      // the handover; only after success do we release the old subscription.
+      // If the new subscribe() throws, we restore the old handlers so that
+      // stop() can still clean up and the old subscription remains active
+      // until the scheduled retry succeeds.
+      const previousUnsubscribes = state.unsubscribes.splice(0);
 
       try {
         app.subscriptionmanager.subscribe(
@@ -493,7 +498,12 @@ function createInstance(
           },
           processDelta
         );
+        // New subscription established — release old cleanup handlers.
+        previousUnsubscribes.forEach((f: () => void) => f());
       } catch (subscribeError: unknown) {
+        // Re-subscribe failed — restore old handlers so stop() can still
+        // clean up and the previous subscription remains active until retry.
+        state.unsubscribes = previousUnsubscribes;
         const subErrMsg =
           subscribeError instanceof Error ? subscribeError.message : String(subscribeError);
         app.error(`[${instanceId}] Failed to subscribe: ${subErrMsg}`);
@@ -717,9 +727,8 @@ function createInstance(
 
       // Clear any existing interval before creating a new one — prevents
       // duplicate hello intervals if start() is ever called more than once.
-      if (state.helloMessageSender) {
-        clearInterval(state.helloMessageSender);
-      }
+      // clearInterval(null | undefined) is a safe no-op, so no conditional needed.
+      clearInterval(state.helloMessageSender ?? undefined);
       state.helloMessageSender = setInterval(async () => {
         try {
           const timeSinceLastPacket = Date.now() - state.lastPacketTime;
@@ -761,7 +770,10 @@ function createInstance(
       state.readyToSend = true;
       _setStatus("Connected", true);
 
-      state.socketUdp.on("error", (err: NodeJS.ErrnoException) => {
+      // Named error handler reused for both the initial socket and any recovered
+      // socket.  Using a shared reference ensures that errors on a recovered
+      // socket also trigger the full recovery flow instead of only logging.
+      function handleClientSocketError(err: NodeJS.ErrnoException): void {
         // Ignore errors that arrive after recovery has already started.
         if (state.socketRecoveryInProgress) {
           return;
@@ -798,11 +810,9 @@ function createInstance(
             app.debug(`[${instanceId}] Attempting UDP socket recovery`);
             try {
               state.socketUdp = dgram.createSocket({ type: "udp4", reuseAddr: true });
-              state.socketUdp.on("error", (recoverErr: NodeJS.ErrnoException) => {
-                app.error(`[${instanceId}] Recovered socket error: ${recoverErr.message}`);
-                state.readyToSend = false;
-                _setStatus(`UDP socket error: ${recoverErr.code || recoverErr.message}`, false);
-              });
+              // Reuse the same handler so errors on the recovered socket also
+              // trigger recovery rather than only logging and staying broken.
+              state.socketUdp.on("error", handleClientSocketError);
 
               // Re-attach v2 control packet listener if pipeline exists.
               // removeAllListeners("message") is called defensively before
@@ -855,7 +865,9 @@ function createInstance(
             }
           }, 5000);
         }
-      });
+      }
+
+      state.socketUdp.on("error", handleClientSocketError);
 
       scheduleDeltaTimer();
       setupConfigWatchers();

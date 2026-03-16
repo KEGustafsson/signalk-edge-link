@@ -89,7 +89,14 @@ function createMetrics(): MetricsApi {
       rateOut: 0,
       rateIn: 0,
       compressionRatio: 0,
-      history: new CircularBuffer(BANDWIDTH_HISTORY_MAX)
+      // Explicit generic parameter so the type matches BandwidthMetrics.history
+      // and removes the need for the `as any` cast on the whole object.
+      history: new CircularBuffer<{
+        timestamp: number;
+        rateOut: number;
+        rateIn: number;
+        compressionRatio: number;
+      }>(BANDWIDTH_HISTORY_MAX)
     },
     pathStats: new Map<string, PathStat>(),
     _pathStatsStalest: null,
@@ -100,27 +107,33 @@ function createMetrics(): MetricsApi {
       avgBytesPerDelta: SMART_BATCH_INITIAL_ESTIMATE,
       maxDeltasPerBatch: calculateMaxDeltasPerBatch(SMART_BATCH_INITIAL_ESTIMATE)
     }
-  } as any;
+  };
+
+  // Keys in the Metrics interface that map to raw error counters.
+  type MetricCounterKey =
+    | "compressionErrors"
+    | "encryptionErrors"
+    | "subscriptionErrors"
+    | "udpSendErrors";
 
   function recordError(category: string, message: string): void {
-    const counterMap: Record<string, keyof Metrics> = {
+    const counterMap = {
       compression: "compressionErrors",
       encryption: "encryptionErrors",
       subscription: "subscriptionErrors",
       udpSend: "udpSendErrors"
-    };
-    const counter = counterMap[category];
-    if (counter) {
-      (metrics as any)[counter]++;
+    } as const satisfies Record<string, MetricCounterKey>;
+
+    const counter = (counterMap as Record<string, MetricCounterKey | undefined>)[category];
+    if (counter !== undefined) {
+      (metrics[counter] as number)++;
     }
 
     const normalizedCategory = normalizeErrorCategory(category);
-    if ((metrics.errorCounts as any)[normalizedCategory] === undefined) {
-      (metrics.errorCounts as any)[normalizedCategory] = 0;
-    }
-    (metrics.errorCounts as any)[normalizedCategory]++;
+    // Use ?? 0 to handle unknown categories that weren't seeded in DEFAULT_ERROR_COUNTS.
+    metrics.errorCounts[normalizedCategory] = (metrics.errorCounts[normalizedCategory] ?? 0) + 1;
 
-    (metrics.recentErrors as any[]).push({
+    metrics.recentErrors.push({
       category: normalizedCategory,
       message,
       timestamp: Date.now()
@@ -199,7 +212,7 @@ function createMetrics(): MetricsApi {
       compressionRatio: 0,
       history: new CircularBuffer(BANDWIDTH_HISTORY_MAX)
     });
-    (metrics.pathStats as Map<string, PathStat>).clear();
+    metrics.pathStats.clear();
     metrics._pathStatsStalest = null;
     Object.assign(metrics.smartBatching, {
       earlySends: 0,
@@ -246,7 +259,7 @@ function createMetrics(): MetricsApi {
     }
 
     const size = deltaSize !== null ? deltaSize : JSON.stringify(delta).length;
-    const pathStats = metrics.pathStats as Map<string, PathStat>;
+    const pathStats = metrics.pathStats;
 
     for (const update of delta.updates) {
       const values = update.values;
@@ -276,7 +289,7 @@ function createMetrics(): MetricsApi {
           let stalestPath: string | null = null;
           const cached = metrics._pathStatsStalest as { path: string; ts: number } | null;
 
-          if (cached) {
+          if (cached !== null) {
             const entry = pathStats.get(cached.path);
             if (entry && (entry.lastUpdate || 0) === cached.ts) {
               stalestPath = cached.path;
@@ -328,7 +341,7 @@ function createMetrics(): MetricsApi {
   }
 
   function getTopNPaths(n: number, uptimeSeconds: number): PathStatEntry[] {
-    const pathStats = metrics.pathStats as Map<string, PathStat>;
+    const pathStats = metrics.pathStats;
     const entries = Array.from(pathStats.entries());
     const result: PathStatEntry[] = [];
 

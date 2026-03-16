@@ -69,6 +69,13 @@ export function normalizeKey(secretKey: string): Buffer {
     if (buf.length === 32) {
       return buf;
     }
+    // Regex matched but decoded to the wrong number of bytes — this is a
+    // malformed base64 key.  Throwing here prevents silent fallthrough to the
+    // ASCII path, which would use a key the caller never intended.
+    throw new Error(
+      `Base64 key decoded to ${buf.length} bytes; expected 32. ` +
+        "Ensure the key is a standard base64 string encoding exactly 32 bytes."
+    );
   }
 
   // Fallback: raw ASCII — must be exactly 32 bytes
