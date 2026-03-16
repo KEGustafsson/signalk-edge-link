@@ -1131,11 +1131,16 @@ class DataConnectorConfig {
     const isClient = metrics.mode === "client";
     const { stats, status, uptime } = metrics;
 
+    const cryptoErrors = (stats.errorCounts && stats.errorCounts.crypto) || 0;
+    const malformedPackets = stats.malformedPackets || 0;
+
     const hasErrors =
       stats.udpSendErrors > 0 ||
       stats.compressionErrors > 0 ||
       stats.encryptionErrors > 0 ||
-      stats.subscriptionErrors > 0;
+      stats.subscriptionErrors > 0 ||
+      cryptoErrors > 0 ||
+      malformedPackets > 0;
 
     const protocolVersion = metrics.protocolVersion || 1;
     const protocolLabel = protocolVersion >= 2 ? `v${protocolVersion}` : "v1";
@@ -1143,9 +1148,9 @@ class DataConnectorConfig {
     const metricsGridItems = [
       renderMetricItem("Uptime", uptime.formatted),
       renderMetricItem("Mode", isClient ? "Client" : "Server"),
-      renderMetricItem(
+      renderMetricItemHtml(
         "Protocol",
-        `<span class="protocol-badge protocol-${protocolLabel}">${protocolLabel.toUpperCase()}</span>`
+        `<span class="protocol-badge protocol-${escapeHtml(protocolLabel)}">${escapeHtml(protocolLabel.toUpperCase())}</span>`
       ),
       renderMetricItem(
         "Status",
@@ -1173,7 +1178,11 @@ class DataConnectorConfig {
       subscriptionErrorStat,
       !isClient && stats.duplicatePackets > 0
         ? renderStatItem("Duplicate Packets", stats.duplicatePackets.toLocaleString())
-        : ""
+        : "",
+      protocolVersion >= 3
+        ? renderStatItem("Auth Failures (V3)", cryptoErrors, cryptoErrors > 0)
+        : "",
+      renderStatItem("Malformed Packets", malformedPackets, malformedPackets > 0)
     ].join("");
 
     let metricsHtml = `
@@ -1204,7 +1213,31 @@ class DataConnectorConfig {
       `;
     }
 
-    if (metrics.lastError) {
+    if (Array.isArray(metrics.recentErrors) && metrics.recentErrors.length > 0) {
+      const errorItems = [...metrics.recentErrors]
+        .reverse()
+        .map((err) => {
+          const timeAgo = Date.now() - err.timestamp;
+          const timeStr =
+            timeAgo < 60000
+              ? `${Math.floor(timeAgo / 1000)}s ago`
+              : `${Math.floor(timeAgo / 60000)}m ago`;
+          return `
+            <div class="recent-error-item">
+              <span class="error-category-badge">${this.escapeHtml(err.category)}</span>
+              <span class="recent-error-msg">${this.escapeHtml(err.message)}</span>
+              <span class="recent-error-time">${this.escapeHtml(timeStr)}</span>
+            </div>
+          `;
+        })
+        .join("");
+      metricsHtml += `
+        <div class="metrics-error">
+          <h5>Recent Errors (${metrics.recentErrors.length})</h5>
+          <div class="recent-errors-list">${errorItems}</div>
+        </div>
+      `;
+    } else if (metrics.lastError) {
       const timeAgo = metrics.lastError.timeAgo;
       const timeAgoStr =
         timeAgo < 60000
