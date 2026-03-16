@@ -239,8 +239,8 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       app.debug(
         `Recovery burst: retransmitted ${toRetransmit.length}, queueDepth=${metrics.queueDepth}`
       );
-    } catch (err: any) {
-      app.debug(`Recovery burst error: ${err.message}`);
+    } catch (err: unknown) {
+      app.debug(`Recovery burst error: ${err instanceof Error ? err.message : String(err)}`);
       // Stop the interval timer on error so it doesn't keep firing against a
       // broken socket.  A fresh burst will be re-scheduled by the next ACK.
       if (recoveryDrainTimer) {
@@ -387,8 +387,8 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       app.debug(`v2 sent: seq=${seq}, ${deltaCount} deltas, ${packet.length} bytes`);
 
       state.lastPacketTime = sentAt;
-    } catch (error: any) {
-      const msg = error.message || "";
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
       if (msg.includes("compress")) {
         app.error(`v2 compression error: ${msg}`);
         recordError("compression", `v2 compression error: ${msg}`);
@@ -463,9 +463,10 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       metrics.queueDepth = retransmitQueue.getSize();
       _pruneRetransmitQueue("ack");
       _startRecoveryBurstIfNeeded(ackGapMs, rinfo);
-    } catch (err: any) {
-      app.error(`Failed to process ACK: ${err.message}`);
-      recordError("general", `ACK processing error: ${err.message}`);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      app.error(`Failed to process ACK: ${errMsg}`);
+      recordError("general", `ACK processing error: ${errMsg}`);
     }
   }
 
@@ -505,9 +506,10 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
 
       app.debug(`Retransmitted ${toRetransmit.length} packets`);
       metrics.queueDepth = retransmitQueue.getSize();
-    } catch (err: any) {
-      app.error(`Failed to process NAK: ${err.message}`);
-      recordError("general", `NAK processing error: ${err.message}`);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      app.error(`Failed to process NAK: ${errMsg}`);
+      recordError("general", `NAK processing error: ${errMsg}`);
     }
   }
 
@@ -533,10 +535,12 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         await receiveNAK(parsed, rinfo.address, rinfo.port);
       }
       // Ignore other packet types on client side
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Ignore parse errors (might be corrupted packet)
       metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
-      app.debug(`Failed to parse control packet: ${err.message}`);
+      app.debug(
+        `Failed to parse control packet: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 
@@ -834,8 +838,8 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         await udpSendAsync(heartbeatPacket, udpAddress, udpPort);
         state.lastPacketTime = Date.now();
         app.debug("v2 heartbeat sent (NAT keepalive)");
-      } catch (err: any) {
-        app.debug(`v2 heartbeat send failed: ${err.message}`);
+      } catch (err: unknown) {
+        app.debug(`v2 heartbeat send failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }, HEARTBEAT_INTERVAL);
 

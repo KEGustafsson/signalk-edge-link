@@ -192,6 +192,9 @@ class PacketCapture {
  * Live packet inspector that streams packet summaries to connected clients.
  * Designed to work with WebSocket connections for real-time monitoring.
  */
+/** WebSocket readyState value for an open connection (matches WebSocket.OPEN = 1). */
+const WS_READY_STATE_OPEN = 1;
+
 interface WsClient {
   readyState: number;
   send(data: string): void;
@@ -273,8 +276,7 @@ class PacketInspector {
     const deadClients: WsClient[] = [];
     for (const ws of this.clients) {
       try {
-        if (ws.readyState === 1) {
-          // WebSocket.OPEN
+        if (ws.readyState === WS_READY_STATE_OPEN) {
           ws.send(message);
         } else {
           deadClients.push(ws);

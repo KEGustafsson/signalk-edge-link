@@ -407,8 +407,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       app.debug(
         `Sent NAK to ${destination.address}:${destination.port}: missing=${missingSeqs.join(", ")}`
       );
-    } catch (err: any) {
-      app.error(`Failed to send NAK: ${err.message}`);
+    } catch (err: unknown) {
+      app.error(`Failed to send NAK: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -442,8 +442,10 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         session.lastAckSentAt = Date.now();
         metrics.acksSent = (metrics.acksSent ?? 0) + 1;
         app.debug(`Sent ACK to ${session.key}: seq=${ackSeq}`);
-      } catch (err: any) {
-        app.error(`Failed to send ACK to ${session.key}: ${err.message}`);
+      } catch (err: unknown) {
+        app.error(
+          `Failed to send ACK to ${session.key}: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
   }
@@ -457,8 +459,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
     }
     ackTimer = setInterval(() => {
       _expireIdleSessions();
-      _sendPeriodicACKs().catch((err: any) => {
-        app.error(`Periodic ACK error: ${err.message}`);
+      _sendPeriodicACKs().catch((err: unknown) => {
+        app.error(`Periodic ACK error: ${err instanceof Error ? err.message : String(err)}`);
       });
     }, ackInterval);
   }
@@ -550,8 +552,10 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         try {
           const info = JSON.parse(parsed.payload.toString());
           app.debug(`v2 hello from client: ${JSON.stringify(info)}`);
-        } catch (parseErr: any) {
-          app.error(`v2 failed to parse HELLO payload: ${parseErr.message}`);
+        } catch (parseErr: unknown) {
+          app.error(
+            `v2 failed to parse HELLO payload: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+          );
         }
         return;
       }
@@ -586,6 +590,25 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       if (seqResult.duplicate) {
         app.debug(`v2 duplicate packet: seq=${parsed.sequence}`);
         metrics.duplicatePackets = (metrics.duplicatePackets ?? 0) + 1;
+        // The client is retransmitting because it never received our ACK.
+        // Send an immediate ACK so the client stops retransmitting instead of
+        // waiting up to ackResendInterval (1 s) for the next periodic ACK tick.
+        if (session && session.sequenceTracker.expectedSeq !== null && rinfo) {
+          const currentExpected = session.sequenceTracker.expectedSeq >>> 0;
+          const ackSeq = (currentExpected - 1) >>> 0;
+          try {
+            const ackPacket = packetBuilder.buildACKPacket(ackSeq);
+            await _sendUDP(ackPacket, { address: rinfo.address, port: rinfo.port });
+            session.lastAckSeq = ackSeq;
+            session.lastAckSentAt = Date.now();
+            metrics.acksSent = (metrics.acksSent ?? 0) + 1;
+            app.debug(`Sent immediate ACK on duplicate to ${session.key}: seq=${ackSeq}`);
+          } catch (ackErr: unknown) {
+            app.error(
+              `Failed to send immediate ACK to ${session.key}: ${ackErr instanceof Error ? ackErr.message : String(ackErr)}`
+            );
+          }
+        }
         return;
       }
 
@@ -641,8 +664,10 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       if (parsed.flags.messagepack) {
         try {
           jsonContent = msgpack.decode(decompressed);
-        } catch (msgpackErr: any) {
-          app.debug(`MessagePack decode failed (${msgpackErr.message}), falling back to JSON`);
+        } catch (msgpackErr: unknown) {
+          app.debug(
+            `MessagePack decode failed (${msgpackErr instanceof Error ? msgpackErr.message : String(msgpackErr)}), falling back to JSON`
+          );
           jsonContent = JSON.parse(decompressed.toString());
         }
       } else {
@@ -697,8 +722,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       app.debug(
         `v2 received: seq=${parsed.sequence}, ${deltaCount} deltas, ${packet.length} bytes`
       );
-    } catch (error: any) {
-      const msg = error.message || "";
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
       if (msg.includes("Unsupported state") || msg.includes("auth")) {
         app.error("v2 authentication failed: packet tampered or wrong key");
         recordError("encryption", "v2 authentication failed");

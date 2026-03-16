@@ -185,9 +185,18 @@ function createMetrics(): MetricsApi {
       dataPacketsReceived: 0
     });
     Object.assign(metrics.bandwidth, {
-      bytesOut: 0, bytesIn: 0, bytesOutRaw: 0, bytesInRaw: 0,
-      packetsOut: 0, packetsIn: 0, lastBytesOut: 0, lastBytesIn: 0,
-      lastRateCalcTime: Date.now(), rateOut: 0, rateIn: 0, compressionRatio: 0,
+      bytesOut: 0,
+      bytesIn: 0,
+      bytesOutRaw: 0,
+      bytesInRaw: 0,
+      packetsOut: 0,
+      packetsIn: 0,
+      lastBytesOut: 0,
+      lastBytesIn: 0,
+      lastRateCalcTime: Date.now(),
+      rateOut: 0,
+      rateIn: 0,
+      compressionRatio: 0,
       history: new CircularBuffer(BANDWIDTH_HISTORY_MAX)
     });
     (metrics.pathStats as Map<string, PathStat>).clear();
@@ -297,10 +306,10 @@ function createMetrics(): MetricsApi {
           lastUpdate: now
         });
 
-        const stalest = metrics._pathStatsStalest as { path: string; ts: number } | null;
-        if (!stalest || now < stalest.ts) {
-          metrics._pathStatsStalest = { path, ts: now };
-        }
+        // Do not cache the newly added path as "stalest" — it has lastUpdate = now
+        // (the most recent timestamp) and is never the actual stalest entry.
+        // The cache was cleared during eviction (L290); the next eviction will
+        // trigger a correct linear scan to find the true stalest path.
       }
     }
   }

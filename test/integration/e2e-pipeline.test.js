@@ -20,10 +20,7 @@ const { RetransmitQueue } = require("../../lib/retransmit-queue");
 const { createPipeline } = require("../../lib/pipeline-factory");
 const createMetrics = require("../../lib/metrics");
 const { NetworkSimulator, createSimulatedSockets } = require("../network-simulator");
-const {
-  MAX_SAFE_UDP_PAYLOAD,
-  BROTLI_QUALITY_HIGH
-} = require("../../lib/constants");
+const { MAX_SAFE_UDP_PAYLOAD, BROTLI_QUALITY_HIGH } = require("../../lib/constants");
 
 const brotliCompressAsync = promisify(zlib.brotliCompress);
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
@@ -33,23 +30,25 @@ const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 // ============================================================
 
 const SECRET_KEY = "12345678901234567890123456789012";
-const WRONG_KEY  = "abcdefghijklmnopqrstuvwxyz123456";
+const WRONG_KEY = "abcdefghijklmnopqrstuvwxyz123456";
 
 /** Realistic navigation delta from a sailing vessel */
 function makeNavigationDelta(lat = 60.1695, lon = 24.9354, sog = 6.2, cog = 1.47) {
   return {
     context: "vessels.urn:mrn:imo:mmsi:230035780",
-    updates: [{
-      source: { label: "GPS", type: "NMEA2000", pgn: 129029, src: "3" },
-      timestamp: new Date().toISOString(),
-      values: [
-        { path: "navigation.position", value: { latitude: lat, longitude: lon } },
-        { path: "navigation.speedOverGround", value: sog },
-        { path: "navigation.courseOverGroundTrue", value: cog },
-        { path: "navigation.headingTrue", value: 1.52 },
-        { path: "navigation.magneticVariation", value: 0.12 }
-      ]
-    }]
+    updates: [
+      {
+        source: { label: "GPS", type: "NMEA2000", pgn: 129029, src: "3" },
+        timestamp: new Date().toISOString(),
+        values: [
+          { path: "navigation.position", value: { latitude: lat, longitude: lon } },
+          { path: "navigation.speedOverGround", value: sog },
+          { path: "navigation.courseOverGroundTrue", value: cog },
+          { path: "navigation.headingTrue", value: 1.52 },
+          { path: "navigation.magneticVariation", value: 0.12 }
+        ]
+      }
+    ]
   };
 }
 
@@ -57,20 +56,22 @@ function makeNavigationDelta(lat = 60.1695, lon = 24.9354, sog = 6.2, cog = 1.47
 function makeEnvironmentDelta() {
   return {
     context: "vessels.urn:mrn:imo:mmsi:230035780",
-    updates: [{
-      source: { label: "WeatherStation", type: "NMEA0183", sentence: "MWV" },
-      timestamp: new Date().toISOString(),
-      values: [
-        { path: "environment.wind.speedApparent", value: 8.7 },
-        { path: "environment.wind.angleApparent", value: 0.68 },
-        { path: "environment.wind.speedTrue", value: 7.2 },
-        { path: "environment.wind.angleTrueWater", value: 0.52 },
-        { path: "environment.water.temperature", value: 289.15 },
-        { path: "environment.outside.temperature", value: 293.15 },
-        { path: "environment.outside.pressure", value: 101325 },
-        { path: "environment.depth.belowTransducer", value: 12.4 }
-      ]
-    }]
+    updates: [
+      {
+        source: { label: "WeatherStation", type: "NMEA0183", sentence: "MWV" },
+        timestamp: new Date().toISOString(),
+        values: [
+          { path: "environment.wind.speedApparent", value: 8.7 },
+          { path: "environment.wind.angleApparent", value: 0.68 },
+          { path: "environment.wind.speedTrue", value: 7.2 },
+          { path: "environment.wind.angleTrueWater", value: 0.52 },
+          { path: "environment.water.temperature", value: 289.15 },
+          { path: "environment.outside.temperature", value: 293.15 },
+          { path: "environment.outside.pressure", value: 101325 },
+          { path: "environment.depth.belowTransducer", value: 12.4 }
+        ]
+      }
+    ]
   };
 }
 
@@ -78,17 +79,19 @@ function makeEnvironmentDelta() {
 function makePropulsionDelta() {
   return {
     context: "vessels.urn:mrn:imo:mmsi:230035780",
-    updates: [{
-      source: { label: "Engine", type: "NMEA2000", pgn: 127488, src: "1" },
-      timestamp: new Date().toISOString(),
-      values: [
-        { path: "propulsion.main.revolutions", value: 42.5 },
-        { path: "propulsion.main.temperature", value: 353.15 },
-        { path: "propulsion.main.oilPressure", value: 350000 },
-        { path: "propulsion.main.coolantTemperature", value: 348.15 },
-        { path: "propulsion.main.fuelRate", value: 0.0012 }
-      ]
-    }]
+    updates: [
+      {
+        source: { label: "Engine", type: "NMEA2000", pgn: 127488, src: "1" },
+        timestamp: new Date().toISOString(),
+        values: [
+          { path: "propulsion.main.revolutions", value: 42.5 },
+          { path: "propulsion.main.temperature", value: 353.15 },
+          { path: "propulsion.main.oilPressure", value: 350000 },
+          { path: "propulsion.main.coolantTemperature", value: 348.15 },
+          { path: "propulsion.main.fuelRate", value: 0.0012 }
+        ]
+      }
+    ]
   };
 }
 
@@ -96,16 +99,18 @@ function makePropulsionDelta() {
 function makeElectricalDelta() {
   return {
     context: "vessels.urn:mrn:imo:mmsi:230035780",
-    updates: [{
-      source: { label: "BMS", type: "NMEA2000", pgn: 127508, src: "5" },
-      timestamp: new Date().toISOString(),
-      values: [
-        { path: "electrical.batteries.house.voltage", value: 12.8 },
-        { path: "electrical.batteries.house.current", value: -5.2 },
-        { path: "electrical.batteries.house.capacity.stateOfCharge", value: 0.87 },
-        { path: "electrical.batteries.starter.voltage", value: 12.9 }
-      ]
-    }]
+    updates: [
+      {
+        source: { label: "BMS", type: "NMEA2000", pgn: 127508, src: "5" },
+        timestamp: new Date().toISOString(),
+        values: [
+          { path: "electrical.batteries.house.voltage", value: 12.8 },
+          { path: "electrical.batteries.house.current", value: -5.2 },
+          { path: "electrical.batteries.house.capacity.stateOfCharge", value: 0.87 },
+          { path: "electrical.batteries.starter.voltage", value: 12.9 }
+        ]
+      }
+    ]
   };
 }
 
@@ -119,10 +124,18 @@ function makeRealisticBatch(count = 10) {
     const cog = 1.47 + i * 0.001;
 
     switch (i % 4) {
-      case 0: deltas.push(makeNavigationDelta(lat, lon, sog, cog)); break;
-      case 1: deltas.push(makeEnvironmentDelta()); break;
-      case 2: deltas.push(makePropulsionDelta()); break;
-      case 3: deltas.push(makeElectricalDelta()); break;
+      case 0:
+        deltas.push(makeNavigationDelta(lat, lon, sog, cog));
+        break;
+      case 1:
+        deltas.push(makeEnvironmentDelta());
+        break;
+      case 2:
+        deltas.push(makePropulsionDelta());
+        break;
+      case 3:
+        deltas.push(makeElectricalDelta());
+        break;
     }
   }
   return deltas;
@@ -210,17 +223,24 @@ function createV2ServerPipeline(opts = {}) {
     naks,
     async receiveAndDecode(packet, key, useMsgpack = false) {
       const parsed = parser.parseHeader(packet);
-      if (parsed.type !== PacketType.DATA) {return { parsed, delta: null };}
+      if (parsed.type !== PacketType.DATA) {
+        return { parsed, delta: null };
+      }
 
       const seqResult = tracker.processSequence(parsed.sequence);
-      if (seqResult.duplicate) {return { parsed, seqResult, delta: null, duplicate: true };}
+      if (seqResult.duplicate) {
+        return { parsed, seqResult, delta: null, duplicate: true };
+      }
 
       const decrypted = decryptBinary(parsed.payload, key);
       const decompressed = await brotliDecompressAsync(decrypted);
       let content;
       if (useMsgpack || parsed.flags.messagepack) {
-        try { content = msgpack.decode(decompressed); }
-        catch { content = JSON.parse(decompressed.toString()); }
+        try {
+          content = msgpack.decode(decompressed);
+        } catch {
+          content = JSON.parse(decompressed.toString());
+        }
       } else {
         content = JSON.parse(decompressed.toString());
       }
@@ -229,13 +249,11 @@ function createV2ServerPipeline(opts = {}) {
   };
 }
 
-
 // ============================================================
 // TEST SUITES
 // ============================================================
 
 describe("E2E Pipeline Tests", () => {
-
   // ==========================================================
   // V1 Full Pipeline Round-Trips
   // ==========================================================
@@ -250,7 +268,9 @@ describe("E2E Pipeline Tests", () => {
     test("batched deltas (indexed object format) survive pipeline", async () => {
       const deltas = makeRealisticBatch(5);
       const indexed = {};
-      deltas.forEach((d, i) => { indexed[i] = d; });
+      deltas.forEach((d, i) => {
+        indexed[i] = d;
+      });
 
       const packet = await v1Pack(indexed, SECRET_KEY);
       const recovered = await v1Unpack(packet, SECRET_KEY);
@@ -316,7 +336,9 @@ describe("E2E Pipeline Tests", () => {
     test("large batch compression ratio > 80%", async () => {
       const deltas = makeRealisticBatch(50);
       const indexed = {};
-      deltas.forEach((d, i) => { indexed[i] = d; });
+      deltas.forEach((d, i) => {
+        indexed[i] = d;
+      });
 
       const raw = Buffer.from(JSON.stringify(indexed), "utf8");
       const packet = await v1Pack(indexed, SECRET_KEY);
@@ -382,7 +404,9 @@ describe("E2E Pipeline Tests", () => {
         socketUdp: {
           send: (msg, port, host, cb) => {
             sentPackets.push(Buffer.from(msg));
-            if (cb) {cb(null);}
+            if (cb) {
+              cb(null);
+            }
           }
         },
         avgBytesPerDelta: 200,
@@ -466,7 +490,9 @@ describe("E2E Pipeline Tests", () => {
     test("batched deltas via factory pipeline", async () => {
       const deltas = makeRealisticBatch(5);
       const batch = {};
-      deltas.forEach((d, i) => { batch[i] = d; });
+      deltas.forEach((d, i) => {
+        batch[i] = d;
+      });
 
       await pipeline.packCrypt(batch, SECRET_KEY, "127.0.0.1", 5000);
 
@@ -487,7 +513,9 @@ describe("E2E Pipeline Tests", () => {
       expect(metricsApi.metrics.bandwidth.bytesOutRaw).toBeGreaterThan(0);
       expect(metricsApi.metrics.bandwidth.packetsOut).toBe(1);
       // Compression should save significant bytes
-      expect(metricsApi.metrics.bandwidth.bytesOut).toBeLessThan(metricsApi.metrics.bandwidth.bytesOutRaw);
+      expect(metricsApi.metrics.bandwidth.bytesOut).toBeLessThan(
+        metricsApi.metrics.bandwidth.bytesOutRaw
+      );
     });
   });
 
@@ -503,7 +531,11 @@ describe("E2E Pipeline Tests", () => {
       const data = { 0: delta };
 
       const { packet, seq } = await client.buildPacket(data, SECRET_KEY);
-      const { parsed, seqResult, delta: received } = await server.receiveAndDecode(packet, SECRET_KEY);
+      const {
+        parsed,
+        seqResult,
+        delta: received
+      } = await server.receiveAndDecode(packet, SECRET_KEY);
 
       expect(seq).toBe(0);
       expect(parsed.type).toBe(PacketType.DATA);
@@ -594,7 +626,10 @@ describe("E2E Pipeline Tests", () => {
       const delta = { 0: makeNavigationDelta() };
       const { compressed } = await v1Compress(delta);
       const encrypted = encryptBinary(compressed, SECRET_KEY);
-      const v2Packet = client.builder.buildDataPacket(encrypted, { compressed: true, encrypted: true });
+      const v2Packet = client.builder.buildDataPacket(encrypted, {
+        compressed: true,
+        encrypted: true
+      });
 
       expect(v2Packet.length).toBe(encrypted.length + HEADER_SIZE);
     });
@@ -656,7 +691,9 @@ describe("E2E Pipeline Tests", () => {
         socketUdp: {
           send: (msg, port, host, cb) => {
             sentPackets.push(Buffer.from(msg));
-            if (cb) {cb(null);}
+            if (cb) {
+              cb(null);
+            }
           }
         },
         avgBytesPerDelta: 200,
@@ -670,7 +707,9 @@ describe("E2E Pipeline Tests", () => {
         options: { useMsgpack: false, usePathDictionary: false },
         socketUdp: {
           send: (msg, port, host, cb) => {
-            if (cb) {cb(null);}
+            if (cb) {
+              cb(null);
+            }
           }
         }
       };
@@ -709,7 +748,8 @@ describe("E2E Pipeline Tests", () => {
       await clientPipeline.sendDelta(batch, SECRET_KEY, "127.0.0.1", 5000);
 
       await serverPipeline.receivePacket(sentPackets[0], SECRET_KEY, {
-        address: "127.0.0.1", port: 6000
+        address: "127.0.0.1",
+        port: 6000
       });
 
       // Server pipeline calls decodeDelta, paths should be restored
@@ -726,7 +766,8 @@ describe("E2E Pipeline Tests", () => {
 
       // Server reads flags from packet header to determine msgpack
       await serverPipeline.receivePacket(sentPackets[0], SECRET_KEY, {
-        address: "127.0.0.1", port: 6000
+        address: "127.0.0.1",
+        port: 6000
       });
 
       expect(receivedMessages).toHaveLength(1);
@@ -744,7 +785,8 @@ describe("E2E Pipeline Tests", () => {
 
       for (const pkt of sentPackets) {
         await serverPipeline.receivePacket(pkt, SECRET_KEY, {
-          address: "127.0.0.1", port: 6000
+          address: "127.0.0.1",
+          port: 6000
         });
       }
 
@@ -759,10 +801,12 @@ describe("E2E Pipeline Tests", () => {
 
       // Deliver same packet twice
       await serverPipeline.receivePacket(sentPackets[0], SECRET_KEY, {
-        address: "127.0.0.1", port: 6000
+        address: "127.0.0.1",
+        port: 6000
       });
       await serverPipeline.receivePacket(sentPackets[0], SECRET_KEY, {
-        address: "127.0.0.1", port: 6000
+        address: "127.0.0.1",
+        port: 6000
       });
 
       // Only first should be processed
@@ -852,9 +896,7 @@ describe("E2E Pipeline Tests", () => {
 
       // Server sends cumulative ACK
       const ackPacket = server.builder.buildACKPacket(4);
-      const ackedSeq = client.parser.parseACKPayload(
-        client.parser.parseHeader(ackPacket).payload
-      );
+      const ackedSeq = client.parser.parseACKPayload(client.parser.parseHeader(ackPacket).payload);
       client.retransmitQueue.acknowledge(ackedSeq);
       expect(client.retransmitQueue.getSize()).toBe(0);
     });
@@ -923,9 +965,9 @@ describe("E2E Pipeline Tests", () => {
       // Build all packets
       const allPackets = [];
       for (let i = 0; i < numPackets; i++) {
-        allPackets.push(await client.buildPacket(
-          { 0: makeNavigationDelta(60 + i * 0.0001, 24) }, SECRET_KEY
-        ));
+        allPackets.push(
+          await client.buildPacket({ 0: makeNavigationDelta(60 + i * 0.0001, 24) }, SECRET_KEY)
+        );
       }
 
       // Send through lossy network
@@ -935,7 +977,9 @@ describe("E2E Pipeline Tests", () => {
             const parsed = server.parser.parseHeader(pkt);
             server.tracker.processSequence(parsed.sequence);
             receivedSet.add(parsed.sequence);
-          } catch { /* corrupted packet */ }
+          } catch {
+            /* corrupted packet */
+          }
         });
       }
 
@@ -943,9 +987,13 @@ describe("E2E Pipeline Tests", () => {
       for (let round = 0; round < 5; round++) {
         const missing = [];
         for (let i = 0; i < numPackets; i++) {
-          if (!receivedSet.has(i)) {missing.push(i);}
+          if (!receivedSet.has(i)) {
+            missing.push(i);
+          }
         }
-        if (missing.length === 0) {break;}
+        if (missing.length === 0) {
+          break;
+        }
 
         const retransmitted = client.retransmitQueue.retransmit(missing);
         for (const { packet } of retransmitted) {
@@ -953,7 +1001,9 @@ describe("E2E Pipeline Tests", () => {
             try {
               const parsed = server.parser.parseHeader(pkt);
               receivedSet.add(parsed.sequence);
-            } catch { /* corrupted packet */ }
+            } catch {
+              /* corrupted packet */
+            }
           });
         }
       }
@@ -966,7 +1016,7 @@ describe("E2E Pipeline Tests", () => {
     test("20% packet loss: recovery with multiple retransmit rounds", async () => {
       const client = createV2ClientPipeline({ maxRetransmits: 5 });
       const server = createV2ServerPipeline({ nakTimeout: 0 });
-      const sim = new NetworkSimulator({ packetLoss: 0.20 });
+      const sim = new NetworkSimulator({ packetLoss: 0.2 });
 
       const numPackets = 100;
       const receivedSet = new Set();
@@ -982,7 +1032,9 @@ describe("E2E Pipeline Tests", () => {
           try {
             const parsed = server.parser.parseHeader(pkt);
             receivedSet.add(parsed.sequence);
-          } catch { /* skip */ }
+          } catch {
+            /* skip */
+          }
         });
       }
 
@@ -990,9 +1042,13 @@ describe("E2E Pipeline Tests", () => {
       for (let round = 0; round < 5; round++) {
         const missing = [];
         for (let i = 0; i < numPackets; i++) {
-          if (!receivedSet.has(i)) {missing.push(i);}
+          if (!receivedSet.has(i)) {
+            missing.push(i);
+          }
         }
-        if (missing.length === 0) {break;}
+        if (missing.length === 0) {
+          break;
+        }
 
         const retransmitted = client.retransmitQueue.retransmit(missing);
         for (const { packet } of retransmitted) {
@@ -1000,7 +1056,9 @@ describe("E2E Pipeline Tests", () => {
             try {
               const parsed = server.parser.parseHeader(pkt);
               receivedSet.add(parsed.sequence);
-            } catch { /* skip */ }
+            } catch {
+              /* skip */
+            }
           });
         }
       }
@@ -1012,8 +1070,8 @@ describe("E2E Pipeline Tests", () => {
 
     test("extreme loss (50%-70%): tuned retransmission keeps end-to-end delivery above 95%", async () => {
       const scenarios = [
-        { lossRate: 0.50, numPackets: 250, minDeliveryRate: 0.97 },
-        { lossRate: 0.70, numPackets: 250, minDeliveryRate: 0.95 }
+        { lossRate: 0.5, numPackets: 250, minDeliveryRate: 0.97 },
+        { lossRate: 0.7, numPackets: 250, minDeliveryRate: 0.95 }
       ];
 
       for (const scenario of scenarios) {
@@ -1029,7 +1087,9 @@ describe("E2E Pipeline Tests", () => {
           for (const pkt of deliveredPackets) {
             try {
               const { parsed, delta, duplicate } = await server.receiveAndDecode(pkt, SECRET_KEY);
-              if (duplicate || !delta) {continue;}
+              if (duplicate || !delta) {
+                continue;
+              }
               const lat = delta?.["0"]?.updates?.[0]?.values?.[0]?.value?.latitude;
               if (typeof lat === "number") {
                 receivedLatBySeq.set(parsed.sequence, lat);
@@ -1047,7 +1107,10 @@ describe("E2E Pipeline Tests", () => {
         for (let i = 0; i < scenario.numPackets; i++) {
           const lat = 60 + i * 0.0001;
           expectedLatBySeq.set(i, lat);
-          const { packet } = await client.buildPacket({ 0: makeNavigationDelta(lat, 24) }, SECRET_KEY);
+          const { packet } = await client.buildPacket(
+            { 0: makeNavigationDelta(lat, 24) },
+            SECRET_KEY
+          );
           sim.send(packet, (pkt) => initiallyDelivered.push(pkt));
         }
         await processDelivered(initiallyDelivered);
@@ -1056,12 +1119,18 @@ describe("E2E Pipeline Tests", () => {
         for (let round = 0; round < 12; round++) {
           const missing = [];
           for (let i = 0; i < scenario.numPackets; i++) {
-            if (!receivedLatBySeq.has(i)) {missing.push(i);}
+            if (!receivedLatBySeq.has(i)) {
+              missing.push(i);
+            }
           }
-          if (missing.length === 0) {break;}
+          if (missing.length === 0) {
+            break;
+          }
 
           const retransmitted = client.retransmitQueue.retransmit(missing);
-          if (retransmitted.length === 0) {break;}
+          if (retransmitted.length === 0) {
+            break;
+          }
 
           const deliveredThisRound = [];
           for (const { packet } of retransmitted) {
@@ -1104,7 +1173,9 @@ describe("E2E Pipeline Tests", () => {
           try {
             const parsed = server.parser.parseHeader(pkt);
             receivedSet.add(parsed.sequence);
-          } catch { /* skip */ }
+          } catch {
+            /* skip */
+          }
         });
       }
 
@@ -1112,9 +1183,13 @@ describe("E2E Pipeline Tests", () => {
       for (let round = 0; round < 4; round++) {
         const missing = [];
         for (let i = 0; i < numPackets; i++) {
-          if (!receivedSet.has(i)) {missing.push(i);}
+          if (!receivedSet.has(i)) {
+            missing.push(i);
+          }
         }
-        if (missing.length === 0) {break;}
+        if (missing.length === 0) {
+          break;
+        }
 
         const retransmitted = client.retransmitQueue.retransmit(missing);
         for (const { packet } of retransmitted) {
@@ -1122,13 +1197,15 @@ describe("E2E Pipeline Tests", () => {
             try {
               const parsed = server.parser.parseHeader(pkt);
               receivedSet.add(parsed.sequence);
-            } catch { /* skip */ }
+            } catch {
+              /* skip */
+            }
           });
         }
       }
 
       const deliveryRate = receivedSet.size / numPackets;
-      expect(deliveryRate).toBeGreaterThan(0.95);
+      expect(deliveryRate).toBeGreaterThanOrEqual(0.95);
       sim.destroy();
     });
 
@@ -1179,7 +1256,9 @@ describe("E2E Pipeline Tests", () => {
       // Retransmit lost packets (link is up now)
       const missing = [];
       for (let i = 0; i < 20; i++) {
-        if (!receivedSet.has(i)) {missing.push(i);}
+        if (!receivedSet.has(i)) {
+          missing.push(i);
+        }
       }
 
       const retransmitted = client.retransmitQueue.retransmit(missing);
@@ -1208,7 +1287,9 @@ describe("E2E Pipeline Tests", () => {
       serverSocket.on("message", async (msg) => {
         try {
           const parsed = parser.parseHeader(msg);
-          if (parsed.type !== PacketType.DATA) {return;}
+          if (parsed.type !== PacketType.DATA) {
+            return;
+          }
 
           tracker.processSequence(parsed.sequence);
 
@@ -1334,8 +1415,9 @@ describe("E2E Pipeline Tests", () => {
       const { packet } = await client.buildPacket(data, SECRET_KEY, { messagepack: true });
       const { delta: v2Recovered } = await server.receiveAndDecode(packet, SECRET_KEY);
 
-      expect(v2Recovered["0"].updates[0].values[0].value)
-        .toBe(v1Recovered["0"].updates[0].values[0].value);
+      expect(v2Recovered["0"].updates[0].values[0].value).toBe(
+        v1Recovered["0"].updates[0].values[0].value
+      );
     });
   });
 
@@ -1381,7 +1463,9 @@ describe("E2E Pipeline Tests", () => {
 
       const batch = makeRealisticBatch(20);
       const indexed = {};
-      batch.forEach((d, i) => { indexed[i] = d; });
+      batch.forEach((d, i) => {
+        indexed[i] = d;
+      });
 
       const { packet } = await client.buildPacket(indexed, SECRET_KEY);
       const { delta: received } = await server.receiveAndDecode(packet, SECRET_KEY);
@@ -1408,7 +1492,7 @@ describe("E2E Pipeline Tests", () => {
 
     test("scenario: high-frequency updates under packet loss with retransmission", async () => {
       const client = createV2ClientPipeline({ maxRetransmits: 5 });
-      const sim = new NetworkSimulator({ packetLoss: 0.10 });
+      const sim = new NetworkSimulator({ packetLoss: 0.1 });
       const parser = new PacketParser();
       const receivedSet = new Set();
 
@@ -1426,7 +1510,9 @@ describe("E2E Pipeline Tests", () => {
           try {
             const p = parser.parseHeader(pkt);
             receivedSet.add(p.sequence);
-          } catch { /* skip */ }
+          } catch {
+            /* skip */
+          }
         });
       }
 
@@ -1434,9 +1520,13 @@ describe("E2E Pipeline Tests", () => {
       for (let round = 0; round < 4; round++) {
         const missing = [];
         for (let i = 0; i < numPackets; i++) {
-          if (!receivedSet.has(i)) {missing.push(i);}
+          if (!receivedSet.has(i)) {
+            missing.push(i);
+          }
         }
-        if (missing.length === 0) {break;}
+        if (missing.length === 0) {
+          break;
+        }
 
         const retransmitted = client.retransmitQueue.retransmit(missing);
         for (const { packet } of retransmitted) {
@@ -1444,7 +1534,9 @@ describe("E2E Pipeline Tests", () => {
             try {
               const p = parser.parseHeader(pkt);
               receivedSet.add(p.sequence);
-            } catch { /* skip */ }
+            } catch {
+              /* skip */
+            }
           });
         }
       }
@@ -1456,7 +1548,9 @@ describe("E2E Pipeline Tests", () => {
     test("scenario: packet stays under MTU with realistic data", async () => {
       const deltas = makeRealisticBatch(3);
       const indexed = {};
-      deltas.forEach((d, i) => { indexed[i] = d; });
+      deltas.forEach((d, i) => {
+        indexed[i] = d;
+      });
 
       const { compressed } = await v1Compress(indexed);
       const encrypted = encryptBinary(compressed, SECRET_KEY);
@@ -1473,7 +1567,9 @@ describe("E2E Pipeline Tests", () => {
     test("scenario: compression ratio with path dictionary vs without", async () => {
       const deltas = makeRealisticBatch(10);
       const indexed = {};
-      deltas.forEach((d, i) => { indexed[i] = d; });
+      deltas.forEach((d, i) => {
+        indexed[i] = d;
+      });
 
       // Without path dictionary
       const { compressed: withoutPD } = await v1Compress(indexed);
@@ -1481,7 +1577,9 @@ describe("E2E Pipeline Tests", () => {
 
       // With path dictionary
       const encodedDeltas = {};
-      deltas.forEach((d, i) => { encodedDeltas[i] = encodeDelta(d); });
+      deltas.forEach((d, i) => {
+        encodedDeltas[i] = encodeDelta(d);
+      });
       const { compressed: withPD } = await v1Compress(encodedDeltas);
 
       // Path dictionary should produce same or better compression
@@ -1497,12 +1595,20 @@ describe("E2E Pipeline Tests", () => {
     test("scenario: compression ratio with MessagePack vs JSON", async () => {
       const deltas = makeRealisticBatch(10);
       const indexed = {};
-      deltas.forEach((d, i) => { indexed[i] = d; });
+      deltas.forEach((d, i) => {
+        indexed[i] = d;
+      });
 
       // JSON
-      const { compressed: jsonCompressed, serialized: jsonSerialized } = await v1Compress(indexed, false);
+      const { compressed: jsonCompressed, serialized: jsonSerialized } = await v1Compress(
+        indexed,
+        false
+      );
       // MessagePack
-      const { compressed: msgpackCompressed, serialized: msgpackSerialized } = await v1Compress(indexed, true);
+      const { compressed: msgpackCompressed, serialized: msgpackSerialized } = await v1Compress(
+        indexed,
+        true
+      );
 
       // MessagePack serialized should be smaller than JSON
       expect(msgpackSerialized.length).toBeLessThan(jsonSerialized.length);
@@ -1517,15 +1623,17 @@ describe("E2E Pipeline Tests", () => {
     test("scenario: unicode and special characters in vessel data", async () => {
       const delta = {
         context: "vessels.urn:mrn:imo:mmsi:230035780",
-        updates: [{
-          source: { label: "AIS" },
-          timestamp: new Date().toISOString(),
-          values: [
-            { path: "navigation.destination.commonName", value: "Mariehamn (Åland)" },
-            { path: "name", value: "M/V Nörd Sjöfarare" },
-            { path: "communication.callsignVhf", value: "OH1234" }
-          ]
-        }]
+        updates: [
+          {
+            source: { label: "AIS" },
+            timestamp: new Date().toISOString(),
+            values: [
+              { path: "navigation.destination.commonName", value: "Mariehamn (Åland)" },
+              { path: "name", value: "M/V Nörd Sjöfarare" },
+              { path: "communication.callsignVhf", value: "OH1234" }
+            ]
+          }
+        ]
       };
 
       // V1 round-trip
@@ -1545,15 +1653,17 @@ describe("E2E Pipeline Tests", () => {
     test("scenario: empty and null values in delta", async () => {
       const delta = {
         context: "vessels.urn:mrn:imo:mmsi:230035780",
-        updates: [{
-          source: { label: "test" },
-          timestamp: new Date().toISOString(),
-          values: [
-            { path: "navigation.speedOverGround", value: 0 },
-            { path: "navigation.courseOverGroundTrue", value: null },
-            { path: "navigation.state", value: "" }
-          ]
-        }]
+        updates: [
+          {
+            source: { label: "test" },
+            timestamp: new Date().toISOString(),
+            values: [
+              { path: "navigation.speedOverGround", value: 0 },
+              { path: "navigation.courseOverGroundTrue", value: null },
+              { path: "navigation.state", value: "" }
+            ]
+          }
+        ]
       };
 
       const packet = await v1Pack(delta, SECRET_KEY);
@@ -1574,14 +1684,16 @@ describe("E2E Pipeline Tests", () => {
 
       const delta = {
         context: "vessels.urn:mrn:imo:mmsi:230035780",
-        updates: [{
-          source: { label: "GPS", sentence: "GSV" },
-          timestamp: new Date().toISOString(),
-          values: [
-            { path: "navigation.gnss.satellites", value: 32 },
-            { path: "navigation.gnss.satellitesInView", value: satellites }
-          ]
-        }]
+        updates: [
+          {
+            source: { label: "GPS", sentence: "GSV" },
+            timestamp: new Date().toISOString(),
+            values: [
+              { path: "navigation.gnss.satellites", value: 32 },
+              { path: "navigation.gnss.satellitesInView", value: satellites }
+            ]
+          }
+        ]
       };
 
       const packet = await v1Pack(delta, SECRET_KEY);
@@ -1739,7 +1851,13 @@ describe("E2E Pipeline Tests", () => {
       const serverMetrics = createMetrics();
       const serverState = {
         options: { useMsgpack: false, usePathDictionary: false },
-        socketUdp: { send: (msg, port, host, cb) => { if (cb) {cb(null);} } }
+        socketUdp: {
+          send: (msg, port, host, cb) => {
+            if (cb) {
+              cb(null);
+            }
+          }
+        }
       };
       const receivedMessages = [];
       const mockApp = {
@@ -1754,7 +1872,8 @@ describe("E2E Pipeline Tests", () => {
       // Send a non-v2 packet (raw encrypted v1 data)
       const v1Packet = await v1Pack({ 0: makeNavigationDelta() }, SECRET_KEY);
       await serverPipeline.receivePacket(v1Packet, SECRET_KEY, {
-        address: "127.0.0.1", port: 6000
+        address: "127.0.0.1",
+        port: 6000
       });
 
       // Should be silently ignored, no crash

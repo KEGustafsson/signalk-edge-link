@@ -232,11 +232,34 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(400).json({ success: false, error: uniquePortError });
         }
 
-        const finalConfig = {
+        // Resolve managementApiToken: restore from persisted config when redacted
+        let resolvedManagementToken: string | undefined;
+        const incomingToken = req.body.managementApiToken;
+        if (typeof incomingToken === "string") {
+          if (incomingToken === REDACTED_SECRET) {
+            const persisted =
+              typeof persistedConfig.managementApiToken === "string"
+                ? persistedConfig.managementApiToken
+                : undefined;
+            resolvedManagementToken = persisted;
+          } else {
+            resolvedManagementToken = incomingToken || undefined;
+          }
+        }
+
+        const finalConfig: Record<string, unknown> = {
           connections: connectionList.map((connection: Record<string, unknown>) =>
             sanitizeConnectionConfig(connection as unknown as ConnectionConfig)
           )
         };
+
+        if (resolvedManagementToken !== undefined) {
+          finalConfig.managementApiToken = resolvedManagementToken;
+        }
+
+        if (typeof req.body.requireManagementApiToken === "boolean") {
+          finalConfig.requireManagementApiToken = req.body.requireManagementApiToken;
+        }
 
         if (typeof pluginRef._restartPlugin === "function") {
           pluginRef._restartPlugin(finalConfig);

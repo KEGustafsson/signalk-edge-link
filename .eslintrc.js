@@ -11,6 +11,15 @@ module.exports = {
       files: ["__tests__/**/*.js", "**/*.test.js", "**/*.spec.js"],
       env: {
         jest: true
+      },
+      rules: {
+        "no-console": "off"
+      }
+    },
+    {
+      files: ["test/benchmarks/**/*.js"],
+      rules: {
+        "no-console": "off"
       }
     },
     {
@@ -20,12 +29,7 @@ module.exports = {
       }
     }
   ],
-  ignorePatterns: [
-    "public/**",
-    "node_modules/**",
-    "coverage/**",
-    "lib/**"
-  ],
+  ignorePatterns: ["public/**", "node_modules/**", "coverage/**", "lib/**"],
   parserOptions: {
     ecmaVersion: "latest",
     sourceType: "module"
@@ -33,7 +37,8 @@ module.exports = {
   rules: {
     // Error prevention
     "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
-    "no-console": "off",
+    "no-console": ["warn", { allow: ["warn", "error"] }],
+    "no-prototype-builtins": "error",
     eqeqeq: ["error", "always"],
     "no-var": "error",
     "prefer-const": "error",

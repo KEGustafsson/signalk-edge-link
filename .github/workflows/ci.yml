@@ -32,3 +32,5 @@ jobs:
       - run: npm run build
       - run: npm run lint
       - run: npm test -- --coverage
+      - name: Audit dependencies for vulnerabilities
+        run: npm audit --audit-level=high
