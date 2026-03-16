@@ -30,7 +30,7 @@ Signal K Edge Link v2.0 is a major release that adds production-grade reliabilit
 | Packet types         | Data only                  | DATA, ACK, NAK, HEARTBEAT, HELLO              |
 | Version detection    | N/A                        | Magic bytes "SK" + version byte               |
 | Configuration schema | Basic                      | Extended with congestion, bonding, monitoring |
-| Minimum Node.js      | 12.0.0                     | 14.0.0                                        |
+| Minimum Node.js      | 16                         | 16                                            |
 
 ## What Stays the Same
 
