@@ -20,6 +20,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "protocolVersion",
   "udpAddress",
   "helloMessageSender",
+  "heartbeatInterval",
   "testAddress",
   "testPort",
   "pingIntervalTime",
@@ -97,8 +98,8 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
 
   try {
     validateSecretKey(conn.secretKey as string);
-  } catch (error: any) {
-    return `${p}${error.message}`;
+  } catch (error: unknown) {
+    return `${p}${error instanceof Error ? error.message : String(error)}`;
   }
 
   if (

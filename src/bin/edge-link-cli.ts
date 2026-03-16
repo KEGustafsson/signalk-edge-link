@@ -452,8 +452,8 @@ async function main(
 }
 
 if (require.main === module) {
-  main().catch((err: any) => {
-    console.error(err.message);
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;
   });
 }

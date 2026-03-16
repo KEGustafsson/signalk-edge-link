@@ -292,7 +292,9 @@ export class RetransmitQueue {
     }
 
     // Map preserves insertion order: first key is oldest queued packet.
-    const oldest = this.queue.keys().next().value as number;
-    this.queue.delete(oldest);
+    const firstEntry = this.queue.keys().next();
+    if (!firstEntry.done) {
+      this.queue.delete(firstEntry.value);
+    }
   }
 }

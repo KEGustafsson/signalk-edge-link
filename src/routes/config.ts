@@ -173,9 +173,10 @@ function register(router: Router, ctx: RouteContext): void {
           success: true,
           configuration: redactSecretKeys(pluginConfig.configuration || {})
         });
-      } catch (error: any) {
-        app.error(`Error reading plugin config: ${error.message}`);
-        res.status(500).json({ success: false, error: error.message });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        app.error(`Error reading plugin config: ${msg}`);
+        res.status(500).json({ success: false, error: msg });
       }
     }
   );
@@ -215,8 +216,13 @@ function register(router: Router, ctx: RouteContext): void {
 
         try {
           connectionList = restoreRedactedSecretKeys(connectionList, persistedConfig);
-        } catch (error: any) {
-          return res.status(400).json({ success: false, error: error.message });
+        } catch (error: unknown) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              error: error instanceof Error ? error.message : String(error)
+            });
         }
 
         for (let index = 0; index < connectionList.length; index++) {
@@ -282,9 +288,10 @@ function register(router: Router, ctx: RouteContext): void {
             restarting: false
           });
         });
-      } catch (error: any) {
-        app.error(`Error saving plugin config: ${error.message}`);
-        res.status(500).json({ success: false, error: error.message });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        app.error(`Error saving plugin config: ${msg}`);
+        res.status(500).json({ success: false, error: msg });
       }
     }
   );
@@ -328,8 +335,8 @@ function register(router: Router, ctx: RouteContext): void {
         res.contentType("application/json");
         const config = await loadConfigFile(filePath);
         res.send(JSON.stringify(config || {}));
-      } catch (error: any) {
-        res.status(500).json({ error: error.message });
+      } catch (error: unknown) {
+        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
       }
     }
   );
@@ -363,8 +370,8 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         return res.status(500).send("Failed to save configuration");
-      } catch (error: any) {
-        res.status(500).json({ error: error.message });
+      } catch (error: unknown) {
+        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
       }
     }
   );

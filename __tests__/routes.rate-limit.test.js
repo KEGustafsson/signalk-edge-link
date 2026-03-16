@@ -417,7 +417,7 @@ describe("instances management route", () => {
     const req = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
     const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
 
-    bondingRoute.handlers[1](req, res);
+    bondingRoute.handlers[2](req, res);
 
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -454,7 +454,7 @@ describe("instances management route", () => {
     const json = jest.fn();
     const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
 
-    bondingRoute.handlers[2](req, res);
+    bondingRoute.handlers[3](req, res);
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(json).toHaveBeenCalledWith({ error: "Unsupported bonding setting 'unsupported'" });

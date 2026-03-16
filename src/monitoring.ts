@@ -722,8 +722,10 @@ export class AlertManager {
           }
         ]
       });
-    } catch (err: any) {
-      this.app.debug?.(`[Alert] Failed to emit notification: ${err.message}`);
+    } catch (err: unknown) {
+      this.app.debug?.(
+        `[Alert] Failed to emit notification: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 

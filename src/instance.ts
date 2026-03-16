@@ -821,7 +821,7 @@ function createInstance(
               if (state.pipeline) {
                 state.socketUdp.removeAllListeners("message");
                 state.socketUdp.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
-                  state.pipeline!.handleControlPacket(msg, rinfo).catch((cpErr: unknown) => {
+                  state.pipeline?.handleControlPacket(msg, rinfo).catch((cpErr: unknown) => {
                     const cpMsg = cpErr instanceof Error ? cpErr.message : String(cpErr);
                     app.error(`[${instanceId}] Control packet error: ${cpMsg}`);
                     recordError("general", `Control packet error: ${cpMsg}`);

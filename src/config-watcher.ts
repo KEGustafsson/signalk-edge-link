@@ -287,12 +287,15 @@ export async function initializePersistentStorage({
   ];
 
   for (const { file, data, name } of defaults) {
-    const existing = (await loadConfigFile(file)) as any;
+    const existing = await loadConfigFile(file);
     if (!existing) {
       await saveConfigFile(file, data);
       app.debug(`[${instanceId}] Initialized ${name} with defaults`);
     } else if (name === "sentence_filter.json") {
-      state.excludedSentences = existing.excludedSentences || ["GSV"];
+      const sentenceConfig = existing as Record<string, unknown>;
+      state.excludedSentences = Array.isArray(sentenceConfig.excludedSentences)
+        ? (sentenceConfig.excludedSentences as string[])
+        : ["GSV"];
     }
   }
 }

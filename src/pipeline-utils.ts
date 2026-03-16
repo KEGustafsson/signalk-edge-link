@@ -109,12 +109,15 @@ export function udpSendAsync(
     });
   });
 
-  const timeoutPromise = new Promise<void>((_, reject) =>
-    setTimeout(
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<void>((_, reject) => {
+    timeoutHandle = setTimeout(
       () => reject(new Error(`UDP send timed out after ${UDP_SEND_TIMEOUT_MS}ms`)),
       UDP_SEND_TIMEOUT_MS
-    )
-  );
+    );
+  });
 
-  return Promise.race([sendPromise, timeoutPromise]);
+  return Promise.race([sendPromise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutHandle);
+  });
 }
