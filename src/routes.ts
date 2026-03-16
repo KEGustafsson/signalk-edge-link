@@ -516,18 +516,6 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       if (next) next();
     };
 
-    // Warn at startup when the management API is running without a token (open access).
-    // This is the default for backwards compatibility; operators should configure a
-    // token for production deployments.
-    if (!getManagementToken() && !isTokenRequired() && app && typeof app.error === "function") {
-      app.error(
-        "[edge-link] WARNING: Management API is open — no managementApiToken configured. " +
-          "Anyone with network access can read metrics and modify connection settings. " +
-          "Set managementApiToken in plugin settings or SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN env var " +
-          "to restrict access. Set requireManagementApiToken: true to deny access until a token is configured."
-      );
-    }
-
     // Shared context passed to all route sub-modules
     const ctx = {
       app,
