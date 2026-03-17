@@ -76,6 +76,11 @@ module.exports = (env, argv) => {
             singleton: true,
             requiredVersion: false,
             import: false
+          },
+          "react/jsx-runtime": {
+            singleton: true,
+            requiredVersion: false,
+            import: false
           }
         }
       }),
