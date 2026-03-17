@@ -48,12 +48,14 @@
     "ping-monitor": "^0.8.2"
   },
   "devDependencies": {
-    "@types/react": "^16.14.0",
-    "@types/react-dom": "^16.9.0",
     "@babel/core": "^7.22.0",
     "@babel/preset-env": "^7.22.0",
     "@babel/preset-react": "^7.22.0",
+    "@testing-library/jest-dom": "^5.17.0",
+    "@testing-library/react": "^12.1.5",
     "@types/node": "^25.3.5",
+    "@types/react": "^16.14.0",
+    "@types/react-dom": "^16.9.0",
     "babel-loader": "^9.1.2",
     "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^6.8.1",
@@ -68,6 +70,7 @@
     "prettier": "^3.6.2",
     "react": "^16.13.1",
     "react-dom": "^16.13.1",
+    "react-test-renderer": "^16.14.0",
     "style-loader": "^3.3.3",
     "ts-jest": "^29.4.6",
     "ts-loader": "^9.5.4",
@@ -111,17 +114,18 @@
           ]
         }
       ],
-      "src/webapp/.+\\.ts$": [
+      "src/webapp/.+\\.tsx?$": [
         "ts-jest",
         {
           "tsconfig": "tsconfig.webapp.json",
           "diagnostics": false
         }
       ],
-      "^.+\\.ts$": "ts-jest"
+      "^.+\\.tsx?$": "ts-jest"
     },
     "moduleFileExtensions": [
       "ts",
+      "tsx",
       "js",
       "json",
       "node"
