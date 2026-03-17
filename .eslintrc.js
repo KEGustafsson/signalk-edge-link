@@ -13,7 +13,8 @@ module.exports = {
         jest: true
       },
       rules: {
-        "no-console": "off"
+        "no-console": "off",
+        "require-await": "off"
       }
     },
     {
