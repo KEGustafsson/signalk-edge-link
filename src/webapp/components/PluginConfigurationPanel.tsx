@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import Form, { IChangeEvent } from "@rjsf/core";
+import React from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import { RJSFSchema, UiSchema } from "@rjsf/utils";
 import { apiFetch, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
@@ -632,9 +633,8 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
   const modeLabel = isClient ? "Client" : "Server";
   const displayName = (conn.name || `Connection ${index + 1}`).trim();
 
-  // When the user changes serverType inside the form, strip fields that don't
-  // belong to the new mode so stale data never carries over.
-  const handleFormChange = useCallback(({ formData: next }: IChangeEvent) => {
+  function handleFormChange(e: any) {
+    const next: ConnectionData = e.formData;
     if (next.serverType !== conn.serverType) {
       const base = next.serverType === "server"
         ? defaultServerConnection(next.name)
@@ -648,12 +648,10 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
     } else {
       onChange({ ...next, _id: conn._id });
     }
-  }, [conn.serverType, conn._id, onChange]);
+  }
 
-  // Strip the frontend-only _id before passing to RJSF – it is not in the
-  // schema and must not leak into the form data that RJSF manages.
+  // Strip the frontend-only _id before passing to RJSF
   const { _id, ...formData } = conn;
-  void _id;
 
   return (
     <div className="skel-card">
@@ -704,8 +702,6 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
   const [inlineValidationMessage, setInlineValidationMessage] = useState<string | null>(null);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(0);
   const [isDirty, setIsDirty] = useState(false);
-  // Synchronous save lock prevents double-submits even if React batching delays
-  // the button's disabled state update (M2 fix).
   const savingRef = useRef(false);
 
   // ── Load config ─────────────────────────────────────────────────────────────
@@ -725,7 +721,6 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
         if (Array.isArray(cfg.connections) && cfg.connections.length > 0) {
           list = cfg.connections.map(withId);
         } else if (cfg.serverType) {
-          // Legacy flat config – wrap as single-item array
           list = [withId(cfg)];
         } else {
           list = [defaultClientConnection()];
@@ -753,55 +748,50 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
   );
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
-  const markDirty = useCallback(() => {
+  function markDirty() {
     setIsDirty(true);
     setSaveStatus(null);
     setInlineValidationMessage(null);
-  }, []);
+  }
 
-  const updateConnection = useCallback((idx: number, data: ConnectionData) => {
+  function updateConnection(idx: number, data: ConnectionData) {
     setConnections((prev) => prev.map((c, i) => (i === idx ? data : c)));
     markDirty();
-  }, [markDirty]);
+  }
 
-  const addServer = useCallback(() => {
+  function addServer() {
     setConnections((prev) => {
       const next = [...prev, defaultServerConnection(`server-${prev.length + 1}`)];
       setExpandedIndex(next.length - 1);
       return next;
     });
     markDirty();
-  }, [markDirty]);
+  }
 
-  const addClient = useCallback(() => {
+  function addClient() {
     setConnections((prev) => {
       const next = [...prev, defaultClientConnection(`client-${prev.length + 1}`)];
       setExpandedIndex(next.length - 1);
       return next;
     });
     markDirty();
-  }, [markDirty]);
+  }
 
-  const removeConnection = useCallback((idx: number) => {
+  function removeConnection(idx: number) {
     setConnections((prev) => {
-      // Enforce at least one connection in UI state.
-      if (prev.length <= 1) {
-        return prev;
-      }
+      if (prev.length <= 1) return prev;
       const next = prev.filter((_, i) => i !== idx);
       setExpandedIndex((prevExpanded) => (prevExpanded !== null && prevExpanded >= idx && prevExpanded > 0 ? prevExpanded - 1 : prevExpanded));
       return next;
     });
     markDirty();
-  }, [markDirty]);
+  }
 
-  const toggleExpand = useCallback((idx: number) => {
+  function toggleExpand(idx: number) {
     setExpandedIndex((prev) => (prev === idx ? null : idx));
-  }, []);
+  }
 
   const handleSave = useCallback(async () => {
-    // Synchronous guard (M2 fix) – prevents concurrent saves even before React
-    // re-renders to set saveStatus to "saving".
     if (savingRef.current) { return; }
     if (connections.length === 0) {
       setInlineValidationMessage("At least one connection is required before saving.");
@@ -824,7 +814,6 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
     savingRef.current = true;
     setSaveStatus({ type: "saving", message: "Saving configuration..." });
     try {
-      // Strip the frontend-only _id before sending to the backend
       const payload = connections.map(({ _id, ...rest }) => rest);
       const res = await apiFetch(`${API_BASE}/plugin-config`, {
         method: "POST",
@@ -850,7 +839,7 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
     } finally {
       savingRef.current = false;
     }
-  }, [connections, duplicatePortSet]);
+  }, [connections, duplicatePortSet, managementApiToken, requireManagementApiToken]);
 
   // ── Render ────────────────────────────────────────────────────────────────────
   if (loading) {
@@ -871,7 +860,6 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
     <div className="skel-config">
       <style>{css}</style>
 
-      {/* M3: unsaved changes banner */}
       {isDirty && saveStatus?.type !== "saving" && (
         <div className="skel-dirty-banner">
           <span>&#9888;</span>
@@ -921,7 +909,6 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
         </div>
       </div>
 
-      {/* H3: use conn._id as stable React key instead of array index */}
       {connections.map((conn, idx) => (
         <div key={conn._id}>
           <ConnectionCard
@@ -969,7 +956,6 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
           {connections.filter((c) => c.serverType !== "server").length} client
           {connections.filter((c) => c.serverType !== "server").length !== 1 ? "s" : ""}
         </span>
-
       </div>
     </div>
   );

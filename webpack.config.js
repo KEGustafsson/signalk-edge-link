@@ -61,21 +61,19 @@ module.exports = (env, argv) => {
           "./PluginConfigurationPanel": "./src/webapp/components/PluginConfigurationPanel"
         },
 
-        // Use host's React - never bundle a fallback copy.
-        // The SignalK admin UI always provides React via Module Federation.
-        // Bundling a fallback React (e.g. React 19) causes error #31 when
-        // the host runs an older React whose reconciler does not recognise
-        // elements created with a different $$typeof symbol.
+        // Share React with the SignalK admin UI host.
+        // Using singleton: false + strictVersion: true (same approach as
+        // naugehyde/bt-sensors-plugin-sk) so the plugin can bundle React 19
+        // as a fallback while still using the host's React when available.
+        // React and react-dom must be present in devDependencies.
         shared: {
           react: {
-            singleton: true,
-            requiredVersion: false,
-            import: false
+            singleton: false,
+            strictVersion: true
           },
           "react-dom": {
-            singleton: true,
-            requiredVersion: false,
-            import: false
+            singleton: false,
+            strictVersion: true
           }
         }
       }),
