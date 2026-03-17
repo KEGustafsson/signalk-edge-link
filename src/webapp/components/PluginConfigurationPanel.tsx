@@ -633,8 +633,8 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
   const modeLabel = isClient ? "Client" : "Server";
   const displayName = (conn.name || `Connection ${index + 1}`).trim();
 
-  function handleFormChange(e: { formData: ConnectionData }) {
-    const next = e.formData;
+  function handleFormChange(e: any) {
+    const next: ConnectionData = e.formData;
     if (next.serverType !== conn.serverType) {
       const base = next.serverType === "server"
         ? defaultServerConnection(next.name)
