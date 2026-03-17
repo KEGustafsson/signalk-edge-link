@@ -114,14 +114,14 @@
           ]
         }
       ],
-      "src/webapp/.+\\.tsx?$": [
+      ".+\\.tsx$": [
         "ts-jest",
         {
           "tsconfig": "tsconfig.webapp.json",
           "diagnostics": false
         }
       ],
-      "^.+\\.tsx?$": "ts-jest"
+      "^.+\\.ts$": "ts-jest"
     },
     "moduleFileExtensions": [
       "ts",
