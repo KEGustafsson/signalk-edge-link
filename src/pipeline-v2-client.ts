@@ -467,10 +467,13 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       lastAckRinfo = rinfo ? { address: rinfo.address, port: rinfo.port } : lastAckRinfo;
 
       // Update congestion control with latest network metrics.
+      // Only feed RTT when we have a fresh sample; passing -1 causes the
+      // congestion controller's >= 0 guard to skip the RTT EMA update,
+      // preventing stale values from being repeatedly folded into the average.
       // Clamp packetLoss to [0, 1] as a defensive measure against any future
       // changes to _calculatePacketLoss that could produce out-of-range values.
       congestionControl.updateMetrics({
-        rtt: metrics.rtt ?? 0,
+        rtt: rttSample ?? -1,
         packetLoss: Math.min(1, Math.max(0, _calculatePacketLoss()))
       });
 
