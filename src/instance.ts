@@ -317,7 +317,7 @@ function createInstance(
       return;
     }
 
-    const actualBatchSize = Math.min(batchSize, state.deltas.length);
+    const actualBatchSize = Math.min(batchSize, state.deltas.length, state.maxDeltasPerBatch);
     const batch = state.deltas.slice(0, actualBatchSize);
     state.batchSendInFlight = true;
 

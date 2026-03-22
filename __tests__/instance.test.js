@@ -285,6 +285,154 @@ describe("createInstance", () => {
       inst.stop();
     }
   });
+  test("flushDeltaBatch caps each send at state.maxDeltasPerBatch (not full buffer)", async () => {
+    const app = makeMockApp();
+    const inst = createInstance(
+      app,
+      makeClientOptions({ protocolVersion: 2 }),
+      "mtu-cap-test",
+      "plugin",
+      jest.fn()
+    );
+
+    await inst.start();
+    try {
+      const state = inst.getState();
+      state.readyToSend = true;
+      state.maxDeltasPerBatch = 3;
+
+      const batchSizes = [];
+      state.pipeline.sendDelta = jest.fn().mockImplementation((batch) => {
+        batchSizes.push(batch.length);
+        return Promise.resolve();
+      });
+
+      // Pre-fill buffer with 8 raw deltas (bypassing processDelta)
+      const delta = {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.speedOverGround", value: 1.0 }] }]
+      };
+      for (let i = 0; i < 8; i++) {
+        state.deltas.push(delta);
+      }
+
+      // processDelta triggers flush: 8 + 1 = 9 buffered, batchReady since 9 >= 3
+      state.processDelta(delta);
+
+      // Drain microtasks + setImmediate for each of the 3 batches
+      for (let round = 0; round < 3; round++) {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await new Promise((r) => setImmediate(r));
+      }
+      // Final microtask drain for the last batch
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(batchSizes.length).toBe(3); // 3 sends of 3 each
+      expect(batchSizes.every((s) => s <= 3)).toBe(true); // each within maxDeltasPerBatch
+      expect(batchSizes.reduce((a, b) => a + b, 0)).toBe(9); // all 9 deltas flushed
+      expect(state.deltas.length).toBe(0);
+    } finally {
+      inst.stop();
+    }
+  });
+
+  test("recursive setImmediate drain empties full buffer in MTU-safe chunks", async () => {
+    const app = makeMockApp();
+    const inst = createInstance(
+      app,
+      makeClientOptions({ protocolVersion: 2 }),
+      "drain-loop-test",
+      "plugin",
+      jest.fn()
+    );
+
+    await inst.start();
+    try {
+      const state = inst.getState();
+      state.readyToSend = true;
+      state.maxDeltasPerBatch = 5;
+
+      state.pipeline.sendDelta = jest.fn().mockResolvedValue(undefined);
+
+      // Fill buffer with 20 deltas (4 full batches of 5)
+      const delta = {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.headingTrue", value: 1.57 }] }]
+      };
+      for (let i = 0; i < 20; i++) {
+        state.deltas.push(delta);
+      }
+
+      // Trigger first flush manually via processDelta
+      state.processDelta(delta);
+
+      // Drain all 5 batches (20 pre-filled + 1 from processDelta = 21 → ceil(21/5) = 5 batches)
+      for (let round = 0; round < 5; round++) {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await new Promise((r) => setImmediate(r));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(state.pipeline.sendDelta).toHaveBeenCalledTimes(5);
+      const sentCounts = state.pipeline.sendDelta.mock.calls.map((c) => c[0].length);
+      expect(sentCounts.every((n) => n <= 5)).toBe(true);
+      expect(sentCounts.reduce((a, b) => a + b, 0)).toBe(21);
+      expect(state.deltas.length).toBe(0);
+    } finally {
+      inst.stop();
+    }
+  });
+
+  test("buffer overflow drops DELTA_BUFFER_DROP_RATIO oldest deltas and records metrics", async () => {
+    const app = makeMockApp();
+    const inst = createInstance(
+      app,
+      makeClientOptions({ protocolVersion: 2 }),
+      "overflow-test",
+      "plugin",
+      jest.fn()
+    );
+
+    await inst.start();
+    try {
+      const state = inst.getState();
+      const metrics = inst.getMetricsApi().metrics;
+      state.readyToSend = true;
+      // Block sending so the buffer doesn't drain during this test
+      state.batchSendInFlight = true;
+
+      // Fill buffer to the limit (MAX_DELTAS_BUFFER_SIZE = 1000)
+      const stub = { context: "vessels.self", updates: [] };
+      for (let i = 0; i < 1000; i++) {
+        state.deltas.push(stub);
+      }
+
+      const delta = {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.speedOverGround", value: 2.0 }] }]
+      };
+
+      // processDelta sees 1000 >= 1000, drops 500 oldest, then pushes new delta → 501 remaining
+      state.processDelta(delta);
+
+      // Overflow metrics are recorded synchronously before any flush
+      expect(metrics.droppedDeltaCount).toBe(500);
+      expect(metrics.droppedDeltaBatches).toBe(1);
+      expect(state.deltas.length).toBe(501); // 1000 - 500 + 1
+      expect(app.debug).toHaveBeenCalledWith(expect.stringContaining("Delta buffer overflow"));
+    } finally {
+      inst.stop();
+    }
+  });
+
   test("retries one failed batch then drops it with explicit metrics", async () => {
     jest.useFakeTimers();
     const app = makeMockApp();

@@ -242,7 +242,7 @@ function createPipeline(
         }
 
         // Track path stats for server-side analytics
-        trackPathStats(deltaMessage, decompressed.length / deltaCount);
+        trackPathStats(deltaMessage, decompressed.length / deltas.length);
 
         app.handleMessage("", deltaMessage);
         // Log a compact summary only — never log full delta values which may
