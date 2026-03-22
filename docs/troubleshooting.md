@@ -1,10 +1,10 @@
-# Signal K Edge Link v2.0 - Troubleshooting Guide
+# Signal K Edge Link - Troubleshooting Guide
 
 ## Quick Diagnostic Checklist
 
 Before diving into specific issues, check these common items:
 
-1. **Both sides running same version?** Client and server must both be on v2.0
+1. **Both sides running same version?** Client and server should run the same plugin version
 2. **Encryption keys match?** Must be identical 32-byte secrets (32-character ASCII, 64-character hex, or 44-character base64)
 3. **UDP port open?** Firewall must allow UDP traffic on configured port
 4. **Plugin enabled?** Check Admin UI > Plugin Config
@@ -132,11 +132,11 @@ openssl rand -base64 32 | cut -c1-32
 
 ### Network Errors
 
-| Error                          | Cause                              | Solution                                          |
-| ------------------------------ | ---------------------------------- | ------------------------------------------------- |
-| `UDP send error: ECONNREFUSED` | Server not listening or port wrong | Verify server is running, check port              |
-| `UDP send error: ENETUNREACH`  | No route to host                   | Check network connectivity                        |
-| `UDP send error: EMSGSIZE`     | Packet too large                   | Should not happen with smart batching; report bug |
+| Error                          | Cause                              | Solution                                                                     |
+| ------------------------------ | ---------------------------------- | ---------------------------------------------------------------------------- |
+| `UDP send error: ECONNREFUSED` | Server not listening or port wrong | Verify server is running, check port                                         |
+| `UDP send error: ENETUNREACH`  | No route to host                   | Check network connectivity                                                   |
+| `UDP send error: EMSGSIZE`     | Packet too large                   | Fixed in v2.1.0: sender caps batch at `maxDeltasPerBatch`; upgrade both ends |
 
 ## Performance Issues
 

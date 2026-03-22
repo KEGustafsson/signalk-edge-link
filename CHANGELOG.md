@@ -2,6 +2,42 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [2.1.0]
+
+### Highlights
+
+Reliability and UI modernisation release. Fixes an oversized-packet bug in the
+sender pipeline, rewrites the plugin configuration panel for broader React
+compatibility, and adds comprehensive failover/recovery test coverage.
+
+### Changed
+
+- **PluginConfigurationPanel rewrite**: Rewrote the RJSF-based configuration
+  panel for React 19 compatibility; also compatible with React 16. Replaced
+  `@signalk/server-admin-ui-dependencies` with standalone `@rjsf/core`,
+  `@rjsf/utils`, and `@rjsf/validator-ajv8` (PR #101).
+- **React 16 dev dependency**: Development and testing now use React 16 to
+  match the Signal K reference plugin environment (PR #101).
+
+### Fixed
+
+- **Oversized UDP packets** (`instance.ts`, `pipeline-v2-server.ts`,
+  `pipeline.ts`): The sender now caps each flush batch at
+  `state.maxDeltasPerBatch`, and the receiver enforces `MAX_DELTAS_PER_PACKET`
+  (500) on inbound packets, truncating and logging excess deltas. This prevents
+  MTU-exceeding packets that could be silently dropped by the network (PR #103).
+
+### Tests
+
+- Added 31 component tests for `PluginConfigurationPanel` covering CRUD, mode
+  switching, validation, save/load, and error states (PR #101).
+- Added comprehensive failover-recovery lifecycle tests for `BondingManager`,
+  including 15 additional gap-coverage tests for edge cases (PR #104).
+- Added flush batch cap, drain loop, and buffer overflow tests for the sender
+  pipeline (PR #103).
+
+---
+
 ## [2.0.0]
 
 ### Highlights
