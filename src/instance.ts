@@ -34,7 +34,6 @@ import {
   MILLISECONDS_PER_MINUTE,
   MAX_DELTAS_BUFFER_SIZE,
   DELTA_BUFFER_DROP_RATIO,
-  MAX_DELTAS_PER_PACKET,
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch
 } from "./constants";
@@ -318,7 +317,7 @@ function createInstance(
       return;
     }
 
-    const actualBatchSize = Math.min(batchSize, state.deltas.length, MAX_DELTAS_PER_PACKET);
+    const actualBatchSize = Math.min(batchSize, state.deltas.length, state.maxDeltasPerBatch);
     const batch = state.deltas.slice(0, actualBatchSize);
     state.batchSendInFlight = true;
 
