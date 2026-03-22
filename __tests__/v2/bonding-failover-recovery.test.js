@@ -829,4 +829,431 @@ describe("Bonding Failover & Recovery Lifecycle", () => {
       expect(lastPrimaryStatus).toBe(LinkStatus.ACTIVE);
     });
   });
+
+  // ═══════════════════════════════════════════════
+  // 12. Failback Delay Resets on Each New Failover
+  // ═══════════════════════════════════════════════
+
+  describe("Failback Delay Resets on Each New Failover", () => {
+    test("second failover resets the failback delay timer", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      // Failover #1
+      bm.links.primary.health.status = LinkStatus.DOWN;
+      bm._checkHealth();
+      expect(bm.activeLink).toBe("backup");
+
+      // Wait 20s (not enough for failback delay of 30s)
+      jest.advanceTimersByTime(20000);
+
+      // Primary recovers, failback
+      bm.links.primary.health.status = LinkStatus.STANDBY;
+      bm.links.primary.health.rtt = 50;
+      bm.links.primary.health.loss = 0;
+      jest.advanceTimersByTime(11000); // Total 31s from failover #1
+      expect(bm._shouldFailback()).toBe(true);
+      bm.failback();
+      expect(bm.activeLink).toBe("primary");
+
+      // Failover #2
+      bm.links.primary.health.status = LinkStatus.DOWN;
+      bm._checkHealth();
+      expect(bm.activeLink).toBe("backup");
+
+      // Primary recovers again
+      bm.links.primary.health.status = LinkStatus.STANDBY;
+      bm.links.primary.health.rtt = 50;
+      bm.links.primary.health.loss = 0;
+
+      // Only 25s since failover #2 — should not failback
+      jest.advanceTimersByTime(25000);
+      expect(bm._shouldFailback()).toBe(false);
+
+      // 5 more seconds (total 30s since failover #2) — should failback
+      jest.advanceTimersByTime(6000);
+      expect(bm._shouldFailback()).toBe(true);
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // 13. Recovered Socket Handlers Process Heartbeats
+  // ═══════════════════════════════════════════════
+
+  describe("Recovered Socket Handlers Process Heartbeats", () => {
+    test("new socket created by recovery can receive heartbeat responses", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      const responsesBefore = bm.links.primary.heartbeatResponses;
+
+      // Trigger socket error → schedules recovery
+      bm.links.primary.socket.emit("error", new Error("test error"));
+      expect(bm.links.primary.health.status).toBe(LinkStatus.DOWN);
+
+      // Advance past recovery delay (5s) to create new socket
+      jest.advanceTimersByTime(5000);
+      expect(bm.links.primary.health.status).toBe(LinkStatus.STANDBY);
+
+      // The new socket should have message handler wired up
+      // Add a pending heartbeat and simulate response on the NEW socket
+      const seq = 999;
+      bm.links.primary.pendingHeartbeats.set(seq, Date.now());
+      simulateHeartbeatResponse(bm.links.primary, seq);
+
+      expect(bm.links.primary.heartbeatResponses).toBe(responsesBefore + 1);
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // 14. Socket Recovery Not Scheduled When Stopped
+  // ═══════════════════════════════════════════════
+
+  describe("Socket Recovery Not Scheduled When Stopped", () => {
+    test("does not schedule recovery timer after stop()", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+
+      const primarySocket = bm.links.primary.socket;
+
+      // Stop the manager
+      bm.stop();
+
+      // Trigger socket error on the old socket reference
+      primarySocket.emit("error", new Error("post-stop error"));
+
+      // Recovery timer should not be set
+      expect(bm.links.primary._recoveryTimer).toBeFalsy();
+
+      // Advance past recovery delay — no socket should be created
+      const createCountBefore = dgram.createSocket.mock.calls.length;
+      jest.advanceTimersByTime(6000);
+      expect(dgram.createSocket.mock.calls.length).toBe(createCountBefore);
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // 15. Interface Binding During Socket Recovery
+  // ═══════════════════════════════════════════════
+
+  describe("Interface Binding During Socket Recovery", () => {
+    test("recovered socket binds to configured interface", async () => {
+      const config = createDefaultConfig();
+      config.primary.interface = "192.168.1.1";
+      bm = new BondingManager(config, app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      // Trigger socket error
+      bm.links.primary.socket.emit("error", new Error("test error"));
+
+      // Advance past recovery delay
+      jest.advanceTimersByTime(5000);
+
+      // New socket should have been bound with the interface address
+      const newSocket = bm.links.primary.socket;
+      expect(newSocket.bind).toHaveBeenCalledWith(
+        { address: "192.168.1.1", port: 0 },
+        expect.any(Function)
+      );
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // 16. Backup Fails While Active After Failover
+  // ═══════════════════════════════════════════════
+
+  describe("Backup Fails While Active After Failover", () => {
+    test("stays on backup when it goes DOWN and primary is also DOWN (stuck)", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      // Failover to backup
+      bm.links.primary.health.status = LinkStatus.DOWN;
+      bm._checkHealth();
+      expect(bm.activeLink).toBe("backup");
+
+      // Backup also goes DOWN
+      bm.links.backup.health.status = LinkStatus.DOWN;
+      bm._checkHealth();
+
+      // Stuck — both links down, stays on backup
+      expect(bm.activeLink).toBe("backup");
+      expect(bm._shouldFailover()).toBe(false); // already on backup
+      expect(bm._shouldFailback()).toBe(false); // primary still DOWN
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // 17. HMAC-Authenticated Heartbeat Probes
+  // ═══════════════════════════════════════════════
+
+  describe("HMAC-Authenticated Heartbeat Probes", () => {
+    // 32-char ASCII key for normalizeKey
+    const testSecretKey = "abcdefghijklmnopqrstuvwxyz123456";
+
+    test("heartbeat probes include HMAC tag when secretKey is configured", async () => {
+      const config = createDefaultConfig();
+      config.secretKey = testSecretKey;
+      bm = new BondingManager(config, app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      // Run a health check which sends heartbeat probes
+      bm._checkHealth();
+
+      // Check the buffer sent via socket.send on primary
+      const sendCalls = bm.links.primary.socket.send.mock.calls;
+      expect(sendCalls.length).toBeGreaterThan(0);
+
+      const sentBuffer = sendCalls[sendCalls.length - 1][0];
+      // With HMAC: 12-byte header + 8-byte HMAC tag = 20 bytes
+      expect(sentBuffer.length).toBe(20);
+      // Should still start with HBPROBE
+      expect(sentBuffer.toString("ascii", 0, 7)).toBe("HBPROBE");
+    });
+
+    test("heartbeat probes are 12 bytes without secretKey", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      bm._checkHealth();
+
+      const sendCalls = bm.links.primary.socket.send.mock.calls;
+      const sentBuffer = sendCalls[sendCalls.length - 1][0];
+      expect(sentBuffer.length).toBe(12);
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // 18. HMAC Verification Rejects Invalid Responses
+  // ═══════════════════════════════════════════════
+
+  describe("HMAC Verification Rejects Invalid Responses", () => {
+    const testSecretKey = "abcdefghijklmnopqrstuvwxyz123456";
+
+    test("rejects heartbeat response with missing HMAC tag", async () => {
+      const config = createDefaultConfig();
+      config.secretKey = testSecretKey;
+      bm = new BondingManager(config, app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      // Send a probe first
+      bm._checkHealth();
+      const seq = bm.links.primary.heartbeatSeq - 1;
+      const responsesBefore = bm.links.primary.heartbeatResponses;
+
+      // Send response without HMAC (only 12 bytes) — should be rejected
+      const shortResponse = Buffer.alloc(12);
+      shortResponse.write("HBPROBE", 0, 7, "ascii");
+      shortResponse.writeUInt32BE(seq, 7);
+      bm.links.primary.socket.emit("message", shortResponse, {});
+
+      expect(bm.links.primary.heartbeatResponses).toBe(responsesBefore);
+    });
+
+    test("rejects heartbeat response with wrong HMAC tag", async () => {
+      const config = createDefaultConfig();
+      config.secretKey = testSecretKey;
+      bm = new BondingManager(config, app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      bm._checkHealth();
+      const seq = bm.links.primary.heartbeatSeq - 1;
+      const responsesBefore = bm.links.primary.heartbeatResponses;
+
+      // Send response with wrong HMAC (random bytes)
+      const header = Buffer.alloc(12);
+      header.write("HBPROBE", 0, 7, "ascii");
+      header.writeUInt32BE(seq, 7);
+      const fakeTag = Buffer.from("deadbeef", "hex").subarray(0, 8);
+      // Pad to 8 bytes
+      const paddedTag = Buffer.alloc(8);
+      fakeTag.copy(paddedTag);
+      const badResponse = Buffer.concat([header, paddedTag]);
+
+      bm.links.primary.socket.emit("message", badResponse, {});
+
+      expect(bm.links.primary.heartbeatResponses).toBe(responsesBefore);
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // 19. getState() During Transitions
+  // ═══════════════════════════════════════════════
+
+  describe("getState() During Transitions", () => {
+    test("reflects state changes through failover and recovery", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      // Initial state
+      const initial = bm.getState();
+      expect(initial.activeLink).toBe("primary");
+      expect(initial.lastFailoverTime).toBe(0);
+      expect(initial.enabled).toBe(true);
+      expect(initial.mode).toBe("main-backup");
+
+      // After failover
+      bm.links.primary.health.status = LinkStatus.DOWN;
+      bm._checkHealth();
+
+      const afterFailover = bm.getState();
+      expect(afterFailover.activeLink).toBe("backup");
+      expect(afterFailover.lastFailoverTime).toBeGreaterThan(0);
+
+      // After failback
+      bm.links.primary.health.status = LinkStatus.STANDBY;
+      bm.links.primary.health.rtt = 50;
+      bm.links.primary.health.loss = 0;
+      jest.advanceTimersByTime(31000);
+      bm.failback();
+
+      const afterFailback = bm.getState();
+      expect(afterFailback.activeLink).toBe("primary");
+    });
+
+    test("getLinkHealth reflects correct statuses during failover", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      bm.links.primary.health.status = LinkStatus.DOWN;
+      bm._checkHealth();
+
+      const health = bm.getLinkHealth();
+      expect(health.primary.status).toBe(LinkStatus.DOWN);
+      expect(health.backup.status).toBe(LinkStatus.ACTIVE);
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // 20. Notifications Disabled During Failover/Recovery
+  // ═══════════════════════════════════════════════
+
+  describe("Notifications Disabled During Failover/Recovery", () => {
+    test("no notifications emitted when notificationsEnabled is false", async () => {
+      const config = createDefaultConfig();
+      config.notificationsEnabled = false;
+      bm = new BondingManager(config, app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      // Failover
+      bm.links.primary.health.status = LinkStatus.DOWN;
+      bm._checkHealth();
+      expect(bm.activeLink).toBe("backup");
+
+      // Failback
+      bm.links.primary.health.status = LinkStatus.STANDBY;
+      bm.links.primary.health.rtt = 50;
+      bm.links.primary.health.loss = 0;
+      jest.advanceTimersByTime(31000);
+      bm.failback();
+
+      // handleMessage should never have been called for notifications
+      expect(app.handleMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // 21. Manual Failover Does Not Interfere With Health Check Loop
+  // ═══════════════════════════════════════════════
+
+  describe("Manual Failover Does Not Interfere With Health Check Loop", () => {
+    test("manually calling failover() while monitoring is active continues health checks", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      // Health monitoring is running
+
+      const heartbeatsBefore = bm.links.primary.heartbeatsSent;
+
+      // Manual failover
+      bm.failover();
+      expect(bm.activeLink).toBe("backup");
+      expect(bm._shouldFailover()).toBe(false); // already on backup
+
+      // Health checks should continue running
+      jest.advanceTimersByTime(3000);
+      expect(bm.links.primary.heartbeatsSent).toBeGreaterThan(heartbeatsBefore);
+      expect(bm.links.backup.heartbeatsSent).toBeGreaterThan(0);
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // 22. EMA RTT Smoothing Accuracy
+  // ═══════════════════════════════════════════════
+
+  describe("EMA RTT Smoothing Accuracy", () => {
+    test("RTT follows EMA formula: 0.2 * new + 0.8 * old", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      // First heartbeat response: RTT = 100ms (first sample sets directly)
+      bm.links.primary.pendingHeartbeats.set(0, Date.now() - 100);
+      simulateHeartbeatResponse(bm.links.primary, 0);
+      expect(bm.links.primary.health.rtt).toBe(100);
+
+      // Second: new=200, EMA = 0.2*200 + 0.8*100 = 120
+      bm.links.primary.pendingHeartbeats.set(1, Date.now() - 200);
+      simulateHeartbeatResponse(bm.links.primary, 1);
+      expect(bm.links.primary.health.rtt).toBeCloseTo(120, 0);
+
+      // Third: new=300, EMA = 0.2*300 + 0.8*120 = 156
+      bm.links.primary.pendingHeartbeats.set(2, Date.now() - 300);
+      simulateHeartbeatResponse(bm.links.primary, 2);
+      expect(bm.links.primary.health.rtt).toBeCloseTo(156, 0);
+
+      // Fourth: new=400, EMA = 0.2*400 + 0.8*156 = 204.8
+      bm.links.primary.pendingHeartbeats.set(3, Date.now() - 400);
+      simulateHeartbeatResponse(bm.links.primary, 3);
+      expect(bm.links.primary.health.rtt).toBeCloseTo(204.8, 0);
+
+      // Fifth: new=500, EMA = 0.2*500 + 0.8*204.8 = 263.84
+      bm.links.primary.pendingHeartbeats.set(4, Date.now() - 500);
+      simulateHeartbeatResponse(bm.links.primary, 4);
+      expect(bm.links.primary.health.rtt).toBeCloseTo(263.84, 0);
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // 23. CircularBuffer Loss Window Boundary
+  // ═══════════════════════════════════════════════
+
+  describe("CircularBuffer Loss Window Boundary", () => {
+    test("loss ratio changes as samples slide through the window", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      // Send 10 heartbeats and respond to all — loss should be 0
+      for (let i = 0; i < 10; i++) {
+        bm._checkHealth(); // Sends probes, records pending
+        const seq = bm.links.primary.heartbeatSeq - 1;
+        simulateHeartbeatResponse(bm.links.primary, seq);
+      }
+
+      // Run one more health check to update metrics
+      bm._checkHealth();
+      // Loss should be very low (all responded)
+      expect(bm.links.primary.health.loss).toBeLessThanOrEqual(0.1);
+
+      // Now send heartbeats WITHOUT responses — loss should increase
+      for (let i = 0; i < 5; i++) {
+        jest.advanceTimersByTime(6000); // Ensure pending heartbeats time out
+        bm._checkHealth(); // Old pending heartbeats get cleaned up as losses
+      }
+
+      // Loss should have increased significantly
+      expect(bm.links.primary.health.loss).toBeGreaterThan(0);
+    });
+  });
 });
