@@ -713,7 +713,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
           continue;
         }
 
-        trackPathStats(deltaMessage, decompressed.length / deltaCount);
+        trackPathStats(deltaMessage, decompressed.length / deltas.length);
 
         app.handleMessage("", deltaMessage);
         metrics.deltasReceived++;
