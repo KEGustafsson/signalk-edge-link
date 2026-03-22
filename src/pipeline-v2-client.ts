@@ -176,8 +176,11 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   function _effectiveRetransmitAge(): number {
     let maxAge = retransmitMaxAge;
 
-    if ((metrics.rtt ?? 0) > 0) {
-      const rttBasedAge = Math.round((metrics.rtt ?? 0) * retransmitRttMultiplier);
+    // Use the congestion controller's smoothed RTT (EMA) instead of the raw
+    // latest sample to avoid volatile timeout swings from single RTT spikes.
+    const smoothedRtt = congestionControl.getAvgRTT();
+    if (smoothedRtt > 0) {
+      const rttBasedAge = Math.round(smoothedRtt * retransmitRttMultiplier);
       maxAge = Math.min(maxAge, Math.max(retransmitMinAge, rttBasedAge));
     }
 
@@ -429,10 +432,12 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       const now = Date.now();
       let rttSample: number | null = null;
 
-      // Estimate RTT from original send timestamp (not retransmit timestamp).
+      // Only sample RTT from packets that were NOT retransmitted (Karn's algorithm).
+      // When a retransmitted packet is ACKed, the measurement is ambiguous — the ACK
+      // could be for the original or the retransmit — so we skip it entirely.
       const entry = retransmitQueue.get(ackedSeq);
-      if (entry && (entry.originalTimestamp || entry.timestamp)) {
-        rttSample = Math.max(0, now - (entry.originalTimestamp || entry.timestamp));
+      if (entry && entry.attempts === 0) {
+        rttSample = Math.max(0, now - entry.originalTimestamp);
       }
 
       if (rttSample !== null) {
