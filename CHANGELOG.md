@@ -2,6 +2,39 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [2.1.1]
+
+### Fixed
+
+- **RTT measurement accuracy** (`pipeline-v2-client.ts`): Improved RTT
+  measurement with Karn's algorithm — retransmitted packets are now excluded
+  from RTT samples to prevent inflated estimates. Added smoothed RTO
+  calculation for more stable timeout behaviour on lossy links (PR #106).
+- **Stale RTT in congestion control** (`pipeline-v2-client.ts`): Prevented
+  stale RTT values from being fed to the congestion control EMA, which could
+  cause unnecessary delta timer increases after idle periods (PR #106).
+- **Bonding link validation** (`connection-config.ts`): Added validation that
+  bonding primary and backup links use different address:port combinations,
+  preventing misconfiguration where the same link is used for both.
+- **Stop-race in delta flush** (`instance.ts`): Added `state.stopped` guard
+  in the `flushDeltaBatch` finally block to prevent scheduling an extra flush
+  via `setImmediate` after `stop()` is called.
+
+### Removed
+
+- **Dead `networkSimulator` code** (`types.ts`, `instance.ts`,
+  `routes/monitoring.ts`): Removed the `networkSimulator` field from
+  `InstanceState` and all references — it was declared but never instantiated.
+  The `/monitoring/simulation` endpoint is preserved for API compatibility and
+  returns `{ enabled: false }`.
+
+### Tests
+
+- Added `connection-config.test.js` with unit tests for bonding primary/backup
+  validation and basic connection config validation.
+
+---
+
 ## [2.1.0]
 
 ### Highlights
