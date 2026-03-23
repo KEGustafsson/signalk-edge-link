@@ -1,4 +1,4 @@
-# Signal K Edge Link API Reference (current: 2.1.0)
+# Signal K Edge Link API Reference (current: 2.1.1)
 
 This reference tracks the **current release line**. For endpoint additions/removals between minor or beta releases, see `docs/pr-records/` for change history.
 

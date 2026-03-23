@@ -136,7 +136,7 @@ openssl rand -base64 32 | cut -c1-32
 | ------------------------------ | ---------------------------------- | ---------------------------------------------------------------------------- |
 | `UDP send error: ECONNREFUSED` | Server not listening or port wrong | Verify server is running, check port                                         |
 | `UDP send error: ENETUNREACH`  | No route to host                   | Check network connectivity                                                   |
-| `UDP send error: EMSGSIZE`     | Packet too large                   | Fixed in v2.1.0: sender caps batch at `maxDeltasPerBatch`; upgrade both ends |
+| `UDP send error: EMSGSIZE`     | Packet too large                   | Fixed in v2.1.1: sender caps batch at `maxDeltasPerBatch`; upgrade both ends |
 
 ## Performance Issues
 

@@ -35,7 +35,7 @@ All notable changes to signalk-edge-link are documented here.
 
 ---
 
-## [2.1.0]
+## [2.1.1]
 
 ### Highlights
 

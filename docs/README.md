@@ -8,7 +8,7 @@ If you are configuring or operating the plugin, start with the user docs below.
 
 - `../README.md` - Quick start, installation, protocol choice, and links to detailed references
 - `configuration-reference.md` - Complete configuration keys, defaults, ranges, and examples
-- `api-reference.md` - REST endpoints, response examples, and monitoring/control routes (current: 2.1.0)
+- `api-reference.md` - REST endpoints, response examples, and monitoring/control routes (current: 2.1.1)
 - `troubleshooting.md` - Diagnostic workflows and symptom-based fixes
 - `migration/v1-to-v2.md` - Practical migration path from protocol v1 to v2
 - `protocol-v2-spec.md` - Protocol behavior and packet-level specification
@@ -61,7 +61,7 @@ These are architecture/design notes retained for contributors and maintainers.
 ### Operators tuning unstable links
 
 1. `../README.md` (Protocol v2/v3 guidance)
-2. `api-reference.md` (metrics and monitoring endpoints, current: 2.1.0)
+2. `api-reference.md` (metrics and monitoring endpoints, current: 2.1.1)
 3. `protocol-v3-spec.md` (control-plane hardening details)
 
 ### Contributors
