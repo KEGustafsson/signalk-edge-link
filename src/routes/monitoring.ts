@@ -442,15 +442,9 @@ function register(router: Router, ctx: RouteContext): void {
         if (!bundle) {
           return res.status(503).json({ error: "Plugin not started" });
         }
-        const { state } = bundle;
-        if (!state.networkSimulator) {
-          return res.json({ enabled: false });
-        }
-        res.json({
-          enabled: true,
-          conditions: state.networkSimulator.getConditions(),
-          stats: state.networkSimulator.getStats()
-        });
+        // Network simulator is not currently implemented; endpoint kept for
+        // API compatibility and future use.
+        res.json({ enabled: false });
       } catch (err: unknown) {
         res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }

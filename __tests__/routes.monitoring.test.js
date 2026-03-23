@@ -106,7 +106,6 @@ function makeMonitoringBundle(monitoringOverrides = {}) {
         },
         ...monitoringOverrides
       },
-      networkSimulator: null,
       options: { alertThresholds: {} }
     }
   };
@@ -615,35 +614,13 @@ describe("GET /monitoring/simulation", () => {
     expect(res.statusCode).toBe(503);
   });
 
-  test("returns disabled when no networkSimulator", () => {
+  test("returns disabled (simulator not implemented)", () => {
     const router = makeRouterCollector();
-    const bundle = { id: "x", name: "x", state: { monitoring: {}, networkSimulator: null } };
+    const bundle = { id: "x", name: "x", state: { monitoring: {} } };
     monitoringRoutes.register(router, makeCtx({ getFirstBundle: () => bundle }));
     const h = findHandler(router, "get", "/monitoring/simulation");
     const res = makeResponse();
     h({}, res);
     expect(res.body).toEqual({ enabled: false });
-  });
-
-  test("returns simulator state when present", () => {
-    const router = makeRouterCollector();
-    const bundle = {
-      id: "x",
-      name: "x",
-      state: {
-        monitoring: {},
-        networkSimulator: {
-          getConditions: () => ({ latency: 50 }),
-          getStats: () => ({ packets: 10 })
-        }
-      }
-    };
-    monitoringRoutes.register(router, makeCtx({ getFirstBundle: () => bundle }));
-    const h = findHandler(router, "get", "/monitoring/simulation");
-    const res = makeResponse();
-    h({}, res);
-    expect(res.statusCode).toBe(200);
-    expect(res.body.enabled).toBe(true);
-    expect(res.body.conditions).toEqual({ latency: 50 });
   });
 });

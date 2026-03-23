@@ -378,11 +378,6 @@ export interface InstanceState {
   heartbeatHandle: { stop(): void } | null;
   /** Enhanced monitoring subsystem instance; null when not initialised. */
   monitoring: MonitoringState | null;
-  /** Network condition simulator instance (dev/test only); null in production. */
-  networkSimulator: {
-    getConditions(): Record<string, unknown>;
-    getStats(): Record<string, unknown>;
-  } | null;
   /** Ping/TCP monitor instance; null when not running. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   pingMonitor: { on(event: string, handler: (...args: any[]) => void): void; stop(): void } | null;

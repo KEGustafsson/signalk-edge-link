@@ -277,6 +277,22 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
         }
       }
     }
+    // Validate that primary and backup links are different
+    const primaryLink = bonding.primary as Record<string, unknown> | undefined;
+    const backupLink = bonding.backup as Record<string, unknown> | undefined;
+    if (primaryLink && backupLink) {
+      const sameAddress =
+        primaryLink.address !== undefined &&
+        backupLink.address !== undefined &&
+        primaryLink.address === backupLink.address;
+      const samePort =
+        primaryLink.port !== undefined &&
+        backupLink.port !== undefined &&
+        primaryLink.port === backupLink.port;
+      if (sameAddress && samePort) {
+        return `${p}bonding primary and backup links must use different address:port combinations`;
+      }
+    }
     if (bonding.failover !== undefined) {
       if (
         !bonding.failover ||

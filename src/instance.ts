@@ -128,7 +128,6 @@ function createInstance(
     pipelineServer: null,
     heartbeatHandle: null,
     monitoring: null,
-    networkSimulator: null,
     configDebounceTimers: {},
     configContentHashes: {},
     configWatcherObjects: [],
@@ -347,7 +346,7 @@ function createInstance(
       }
     } finally {
       state.batchSendInFlight = false;
-      if (state.deltas.length > 0 && !state.pendingRetry) {
+      if (state.deltas.length > 0 && !state.pendingRetry && !state.stopped) {
         setImmediate(() => {
           flushDeltaBatch();
         });
@@ -1084,8 +1083,6 @@ function createInstance(
       }
       state.monitoring = null;
     }
-    state.networkSimulator = null;
-
     // Stop ping monitor
     if (state.pingMonitor) {
       state.pingMonitor.stop();

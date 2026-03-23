@@ -83,6 +83,10 @@
   },
   "author": "Karl-Erik Gustafsson",
   "repository": "https://github.com/KEGustafsson/signalk-edge-link",
+  "homepage": "https://github.com/KEGustafsson/signalk-edge-link#readme",
+  "bugs": {
+    "url": "https://github.com/KEGustafsson/signalk-edge-link/issues"
+  },
   "license": "MIT",
   "jest": {
     "testEnvironment": "node",
