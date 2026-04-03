@@ -8,10 +8,54 @@ on:
     branches:
       - '**'
   workflow_dispatch:
+    inputs:
+      test-command:
+        description: Command to run tests
+        required: false
+        default: npm test
+        type: string
+
+      build-command:
+        description: Command to build the plugin
+        required: false
+        default: npm run build --if-present
+        type: string
+
+      node-versions:
+        description: 'JSON array of Node versions, example: ["22","24"]'
+        required: false
+        default: '["22", "24"]'
+        type: string
+
+      enable-armv7:
+        description: Run armv7 (Cerbo GX) tests via QEMU
+        required: false
+        default: true
+        type: boolean
+
+      enable-signalk-integration:
+        description: Start SignalK server and install plugin for integration testing
+        required: false
+        default: false
+        type: boolean
+
+      signalk-server-version:
+        description: SignalK server version for integration testing
+        required: false
+        default: latest
+        type: string
 
 jobs:
   test-plugin:
     uses: dirkwa/signalk-server/.github/workflows/plugin-ci.yml@feat-ci-for-plugins
+    secrets: inherit
+    with:
+      test-command: ${{ inputs.test-command || 'npm test' }}
+      build-command: ${{ inputs.build-command || 'npm run build --if-present' }}
+      node-versions: ${{ inputs.node-versions || '["22", "24"]' }}
+      enable-armv7: ${{ inputs.enable-armv7 != null && inputs.enable-armv7 || true }}
+      enable-signalk-integration: ${{ inputs.enable-signalk-integration || false }}
+      signalk-server-version: ${{ inputs.signalk-server-version || 'latest' }}
 
   test:
     runs-on: ubuntu-latest
