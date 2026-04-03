@@ -12,7 +12,6 @@ on:
 jobs:
   test-plugin:
     uses: dirkwa/signalk-server/.github/workflows/plugin-ci.yml@feat-ci-for-plugins
-    secrets: inherit
 
   test:
     runs-on: ubuntu-latest
