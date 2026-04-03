@@ -2,37 +2,60 @@ name: CI
 
 on:
   push:
-    branches: [*]
+    branches:
+      - '**'
   pull_request:
-    branches: [*]
+    branches:
+      - '**'
   workflow_dispatch:
 
 jobs:
   test-plugin:
     uses: dirkwa/signalk-server/.github/workflows/plugin-ci.yml@feat-ci-for-plugins
+    secrets: inherit
+
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         node-version: [22, 24]
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Check for package-lock.json
         id: lockfile
-        run: echo "exists=$(test -f package-lock.json && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: ${{ steps.lockfile.outputs.exists == 'true' && 'npm' || '' }}
+
       - name: Install dependencies
+        shell: bash
         run: |
-          if [ "${{ steps.lockfile.outputs.exists }}" == "true" ]; then
+          if [ "${{ steps.lockfile.outputs.exists }}" = "true" ]; then
             npm ci
           else
             npm install
           fi
-      - run: npm run build
-      - run: npm run lint
-      - run: npm test -- --coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --coverage
+
       - name: Audit dependencies for vulnerabilities
         run: npm audit --audit-level=high
