@@ -46,16 +46,29 @@ on:
         type: string
 
 jobs:
-  test-plugin:
+  test-plugin-auto:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     uses: dirkwa/signalk-server/.github/workflows/plugin-ci.yml@feat-ci-for-plugins
     secrets: inherit
     with:
-      test-command: ${{ inputs.test-command || 'npm test' }}
-      build-command: ${{ inputs.build-command || 'npm run build --if-present' }}
-      node-versions: ${{ inputs.node-versions || '["22", "24"]' }}
-      enable-armv7: ${{ inputs.enable-armv7 != null && inputs.enable-armv7 || true }}
-      enable-signalk-integration: ${{ inputs.enable-signalk-integration || false }}
-      signalk-server-version: ${{ inputs.signalk-server-version || 'latest' }}
+      test-command: npm test
+      build-command: npm run build --if-present
+      node-versions: '["22", "24"]'
+      enable-armv7: true
+      enable-signalk-integration: false
+      signalk-server-version: latest
+
+  test-plugin-manual:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    uses: dirkwa/signalk-server/.github/workflows/plugin-ci.yml@feat-ci-for-plugins
+    secrets: inherit
+    with:
+      test-command: ${{ inputs.test-command }}
+      build-command: ${{ inputs.build-command }}
+      node-versions: ${{ inputs.node-versions }}
+      enable-armv7: ${{ inputs.enable-armv7 }}
+      enable-signalk-integration: ${{ inputs.enable-signalk-integration }}
+      signalk-server-version: ${{ inputs.signalk-server-version }}
 
   test:
     runs-on: ubuntu-latest
