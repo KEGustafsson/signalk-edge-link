@@ -1,35 +1,47 @@
 # Code Quality Report — Signal K Edge Link
 
-**Generated:** 2026-03-15
-**Branch:** `claude/comprehensive-code-review-m4y67`
+**Generated:** 2026-04-16
+**Branch:** `claude/comprehensive-code-review-BBkGv`
 **Scope:** All TypeScript source files under `src/` and the webapp bundle
-**Review basis:** Two completed deep-review rounds (Rounds 1 & 2)
+**Review basis:** Round 3 (deep multi-aspect review) — supersedes 2026-03-15 report
 
 ---
 
 ## Data Foundations
 
-Raw metrics collected before scoring:
+Raw metrics collected before scoring (all run on the working branch):
 
-| Metric                                   | Value         |
-| ---------------------------------------- | ------------- |
-| Total source lines (`src/`)              | ~14,894       |
-| Global statement coverage                | 73.43 %       |
-| Global branch coverage                   | 63.49 %       |
-| Global function coverage                 | 78.52 %       |
-| Coverage threshold (configured)          | 55 % (global) |
-| TypeScript compile errors                | 0             |
-| Unsafe `any` usages in `src/`            | 344           |
-| `TODO` / `FIXME` / `HACK` markers        | 0             |
-| `throw` / `catch` / `reject` constructs  | 184           |
-| JSDoc `@param`/`@returns`/`@throws` tags | ~293          |
+| Metric                                            | Value     |
+| ------------------------------------------------- | --------- |
+| Total source lines (`src/`)                       | 17,579    |
+| Global statement coverage                         | 79.58 %   |
+| Global branch coverage                            | 67.99 %   |
+| Global function coverage                          | 82.89 %   |
+| Global line coverage                              | 79.85 %   |
+| Coverage threshold (configured)                   | 60 % (br) |
+| TypeScript compile errors                         | 0         |
+| ESLint errors                                     | 0         |
+| `: any` annotations in `src/`                     | 17        |
+| `as any` casts in `src/`                          | 1         |
+| `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck` | 0         |
+| `req: any` / `res: any` in route handlers         | 0         |
+| `TODO` / `FIXME` / `HACK` / `XXX` markers         | 0         |
+| Test files                                        | 56 suites |
+| Tests passing                                     | 1507/1507 |
+
+The previous (Round 2) report tabulated 344 `any` usages and "all route handlers
+use `req: any, res: any`". Both numbers are now stale: routes were migrated to
+`RouteRequest` / `RouteResponse` structural types in `src/routes/types.ts`, and
+the residual 17 `any` usages live almost entirely in CLI argv parsing
+(`src/bin/edge-link-cli.ts`, 11) and the legacy migration script
+(`src/scripts/migrate-config.ts`, 3).
 
 ---
 
 ## Scoring Rubric
 
-Five dimensions, each scored **1–10**. `N/A` is used when a dimension does not apply to a given
-module (e.g. Security for a pure data structure; Coverage for a type-only file).
+Five dimensions, each scored **1–10**. `N/A` is used when a dimension does not
+apply to a given module (e.g. Security for a pure data structure).
 
 | Score | Label                                                         |
 | ----- | ------------------------------------------------------------- |
@@ -41,20 +53,16 @@ module (e.g. Security for a pure data structure; Coverage for a type-only file).
 
 ### Dimension definitions
 
-**Security** — auth coverage on all endpoints, input validation, output encoding, crypto
-correctness, token handling.
-
-**Reliability** — error handling coverage, null/undefined safety, edge-case handling, timer and
-subscription lifecycle.
-
-**Type Safety** — TypeScript strictness, proportion of `any`/`unknown` usage, use of branded
-types, inference quality.
-
-**Test Coverage** — branch-coverage percentage as the primary metric (statement coverage as a
-tiebreaker). Scale: ≥ 95 % → 10, ≥ 80 % → 8, ≥ 65 % → 6, ≥ 45 % → 4.5, < 30 % → 3.
-
-**Documentation** — JSDoc density on exported symbols, inline comments on non-obvious logic,
-README/docs completeness.
+- **Security** — auth coverage, input validation, output encoding, crypto
+  correctness, token handling.
+- **Reliability** — error handling, null/undefined safety, resource lifecycle
+  (timers, sockets, listeners), race-condition safety.
+- **Type Safety** — strictness, proportion of `any`/`unknown`, branded types,
+  inference quality.
+- **Test Coverage** — branch coverage as the primary metric. ≥ 95 % → 10,
+  ≥ 80 % → 8, ≥ 65 % → 6, ≥ 45 % → 4.5, < 30 % → 3.
+- **Documentation** — JSDoc density on exported symbols, inline comments on
+  non-obvious logic, README/docs completeness.
 
 ### Weighting
 
@@ -84,268 +92,281 @@ When a dimension is N/A it is excluded from the weighted average.
 
 | Module                | Security | Reliability | Type Safety | Coverage | Docs | **Overall** | Grade  |
 | --------------------- | :------: | :---------: | :---------: | :------: | :--: | :---------: | :----: |
-| `sequence.ts`         |   N/A    |   **9.5**   |      7      | **9.5**  |  6   |   **8.6**   | **A**  |
-| `retransmit-queue.ts` |   N/A    |   **8.5**   |      7      | **8.5**  |  7   |   **7.9**   | **B**  |
-| `congestion.ts`       |   N/A    |   **9.0**   |      7      | **9.5**  |  7   |   **8.4**   | **B+** |
-| `packet.ts`           |   N/A    |   **8.5**   |      7      | **9.0**  |  8   |   **8.2**   | **B+** |
+| `sequence.ts`         |   N/A    |   **9.5**   |      8      | **8.0**  |  7   |   **8.4**   | **B+** |
+| `retransmit-queue.ts` |   N/A    |   **8.5**   |      8      | **6.5**  |  7   |   **7.7**   | **B**  |
+| `congestion.ts`       |   N/A    |   **9.0**   |      8      | **9.0**  |  7   |   **8.5**   | **A**  |
+| `packet.ts`           |   7.0    |   **9.0**   |      8      | **8.5**  |  8   |   **8.1**   | **B+** |
 | `CircularBuffer.ts`   |   N/A    |   **10**    |      9      |  **10**  |  4   |   **8.5**   | **A**  |
 
 **Observations:**
 
-- `sequence.ts` correctly implements RFC-1982 uint32 serial arithmetic with full edge-case
-  coverage: duplicate detection, out-of-order window, gap-triggered resync, NAK-timer cleanup.
-  Branch coverage is 92 %.
-- `CircularBuffer.ts` achieves 100 % across all coverage metrics. The bounds-check fix in
-  Round 1 was the only issue found.
-- Type safety is held back in all three reliability-focused modules by use of plain `number`
-  primitives where branded types (`SequenceNumber`, `AckNumber`) would prevent class-level
-  mistakes at compile time.
-
----
+- All five modules retain or improve on Round-2 scores. Branch coverage in
+  `congestion.ts` (92.6 %), `packet.ts` (85.5 %), and `sequence.ts` (82.5 %)
+  exceeds 80 %.
+- `packet.ts` carries the only module-level Security finding in this group —
+  the `allowUnauthenticatedControl` option on `parseHeader()` is exposed but
+  unused in production. Low risk today, but a regression hazard if a future
+  caller toggles it on.
 
 ### 2. Transport / Pipeline
 
 | Module                  | Security | Reliability | Type Safety | Coverage | Docs | **Overall** | Grade  |
 | ----------------------- | :------: | :---------: | :---------: | :------: | :--: | :---------: | :----: |
-| `pipeline-v2-client.ts` |    8     |     6.5     |      5      |   4.5    |  7   |   **6.3**   | **C+** |
-| `pipeline-v2-server.ts` |   7.5    |     6.5     |      5      |   4.5    |  5   |   **5.9**   | **C**  |
-| `pipeline.ts`           |    7     |     6.5     |      5      |   6.0    |  4   |   **5.9**   | **C**  |
-| `bonding.ts`            |   7.5    |     7.5     |      5      |   8.0    |  8   |   **7.2**   | **B**  |
-| `pipeline-factory.ts`   |   N/A    |     9.0     |      7      |   9.0    |  6   |   **7.9**   | **B**  |
+| `pipeline-v2-client.ts` |   8.0    |     7.0     |      7      |   5.0    |  7   |   **6.8**   | **C+** |
+| `pipeline-v2-server.ts` |   7.5    |     6.5     |      7      |   5.0    |  6   |   **6.4**   | **C+** |
+| `pipeline.ts`           |   7.5    |     7.0     |      7      |   5.5    |  5   |   **6.6**   | **C+** |
+| `bonding.ts`            |   8.0    |     8.5     |      7      |   8.0    |  8   |   **7.9**   | **B**  |
+| `pipeline-factory.ts`   |   N/A    |     9.0     |      8      |   9.0    |  6   |   **8.2**   | **B+** |
 
 **Observations:**
 
-- `pipeline-v2-client.ts` (~900 lines, 44 % branch) and `pipeline-v2-server.ts` (~806 lines,
-  43 % branch) contain the most complex retry/congestion/session logic and are the least tested
-  files in the project. This is the single largest reliability risk.
-- `bonding.ts` scored well after the Round 1 fix making `getActiveDestination()` an atomic read
-  (no mid-update race). JSDoc coverage is the highest of any transport module (40 tags).
-- `pipeline-factory.ts` is small, focused, and nearly fully covered.
-
----
+- Pipeline coverage rose since Round 2 (`-v2-client` 44 % → 51 %, `-v2-server`
+  43 % → 54 %), but both still fall below the project's 60 % branch threshold
+  at the file level. They remain the largest reliability risk.
+- `pipeline-v2-server.ts:190` invokes `_sendNAK()` (an `async` function) inside
+  a `SequenceTracker.onLossDetected` callback **without `.catch`**. A NAK
+  send failure produces an unhandled promise rejection. This is the only
+  remaining P0-class correctness defect in the pipeline modules.
+- `bonding.ts` continues to score well; recent stop-race and validation fixes
+  are reflected in the +0.5 reliability uptick.
 
 ### 3. Route Handlers
 
 | Module                        | Security | Reliability | Type Safety | Coverage | Docs | **Overall** | Grade  |
 | ----------------------------- | :------: | :---------: | :---------: | :------: | :--: | :---------: | :----: |
-| `routes.ts` (auth core)       |   8.5    |     7.5     |      4      |   7.5    |  7   |   **7.1**   | **B**  |
-| `routes/connections.ts`       |   8.0    |     7.0     |      4      |   6.5    |  6   |   **6.5**   | **C+** |
-| `routes/control.ts`           |   8.5    |     8.5     |      4      |   9.0    |  5   |   **7.5**   | **B**  |
-| `routes/metrics.ts`           |   7.5    |     8.0     |      5      |   8.0    |  5   |   **7.1**   | **B**  |
-| `routes/monitoring.ts`        |   7.5    |     7.5     |      4      |   3.5    |  5   |   **5.9**   | **C**  |
-| `routes/config.ts`            |   8.5    |     7.0     |      4      |   7.0    |  6   |   **6.7**   | **C+** |
-| `routes/config-validation.ts` |   8.5    |     9.0     |      7      |   9.5    |  5   |   **8.0**   | **B+** |
+| `routes.ts` (auth core)       |   9.0    |     8.0     |      8      |   7.0    |  7   |   **7.9**   | **B**  |
+| `routes/connections.ts`       |   8.5    |     7.0     |      8      |   5.0    |  6   |   **7.0**   | **B**  |
+| `routes/control.ts`           |   9.0    |     8.5     |      8      |   8.5    |  6   |   **8.3**   | **B+** |
+| `routes/metrics.ts`           |   8.5    |     8.0     |      8      |   6.5    |  5   |   **7.4**   | **B**  |
+| `routes/monitoring.ts`        |   8.0    |     7.5     |      8      |   7.5    |  6   |   **7.6**   | **B**  |
+| `routes/config.ts`            |   8.5    |     7.5     |      8      |   6.0    |  6   |   **7.3**   | **B**  |
+| `routes/config-validation.ts` |   9.0    |     9.5     |      9      |   9.5    |  5   |   **8.7**   | **A**  |
 
 **Observations:**
 
-- After Round 2, all destructive and read endpoints that carry sensitive data are
-  auth-guarded via `managementAuthMiddleware`. The management token uses timing-safe
-  SHA-256 comparison and logs all attempts with IP and action.
-- All route handlers declare `req: any, res: any`, which eliminates Express type checking
-  on parameter types, status codes, and response shapes. This is the main driver of the low
-  type-safety scores across the entire routes layer.
-- `routes/control.ts` jumped from 18 % to 90 % branch coverage after the new test suite
-  added in Round 2. `routes/metrics.ts` similarly improved from 3 % to 80 %.
-- `routes/monitoring.ts` remains at 34.6 % branch coverage — the worst-covered route file.
-
----
+- The Round-2 driver of the low type-safety scores (`req: any, res: any` in
+  every handler) has been fully fixed. All files now consume `RouteRequest`
+  and `RouteResponse` from `src/routes/types.ts`. Type-safety on every route
+  module rises to 8/10.
+- `routes/monitoring.ts` improved from 35 % → 77 % branch coverage; it is no
+  longer the worst-covered route file. That title now belongs to
+  `routes/connections.ts` (49.5 % branch).
+- `POST /monitoring/alerts` calls `app.savePluginOptions()` synchronously on
+  every request with no debounce; an authenticated client can thrash disk.
+  Recommend coalescing saves.
 
 ### 4. Security & Crypto
 
 | Module                     | Security | Reliability | Type Safety | Coverage | Docs | **Overall** | Grade  |
 | -------------------------- | :------: | :---------: | :---------: | :------: | :--: | :---------: | :----: |
-| `crypto.ts`                |   7.5    |     8.5     |      6      |   8.5    |  7   |   **7.6**   | **B**  |
-| `webapp/utils/apiFetch.ts` |   8.5    |     8.5     |      7      |   8.0    |  7   |   **8.1**   | **B+** |
+| `crypto.ts`                |   8.0    |     9.0     |      8      |   7.0    |  9   |   **8.1**   | **B+** |
+| `webapp/utils/apiFetch.ts` |   8.5    |     8.5     |      8      |   8.0    |  7   |   **8.2**   | **B+** |
 
 **Observations:**
 
-- AES-256-GCM is implemented correctly: 12-byte random IV per encryption, 16-byte auth tag,
-  authenticated decryption verified with `crypto.timingSafeEqual()`. No nonce reuse risk.
-- The 0.5-point security deduction on `crypto.ts` is for the ASCII key path: a 32-character
-  ASCII key is used directly without a KDF, yielding ~208 bits of effective entropy vs. 256
-  bits for hex/base64 keys. Adding PBKDF2 (600K iterations, SHA-256) would close this gap.
-- `apiFetch.ts` defaults to `includeTokenInQuery: false`, preventing token leakage into
-  browser history and server logs (fixed in Round 1).
-
----
+- AES-256-GCM is implemented correctly: 12-byte random IV per encryption,
+  16-byte auth tag, authenticated decryption via `decipher.setAuthTag`.
+  `crypto.timingSafeEqual()` guards both the v3 control-packet HMAC and the
+  management token comparison.
+- **PBKDF2 already exists** as `deriveKeyFromPassphrase()` (600,000 iterations,
+  SHA-256, NIST SP 800-132). The Round-2 report's claim that "no KDF exists"
+  was incorrect — the gap is that `normalizeKey()` still accepts a 32-char
+  ASCII key directly without invoking the KDF. Operators following docs
+  literally will get the weaker code path.
+- `apiFetch.ts` keeps `includeTokenInQuery: false` by default (Round-1 fix
+  retained); tokens never leak into URLs.
 
 ### 5. Infrastructure
 
 | Module                 | Security | Reliability | Type Safety | Coverage | Docs | **Overall** | Grade  |
 | ---------------------- | :------: | :---------: | :---------: | :------: | :--: | :---------: | :----: |
-| `instance.ts`          |   6.5    |     7.5     |      4      |   6.5    |  4   |   **6.1**   | **C+** |
-| `monitoring.ts` (lib)  |   N/A    |     9.5     |      6      |   9.5    |  7   |   **8.1**   | **B+** |
-| `metrics.ts` (lib)     |   N/A    |     8.5     |      5      |   7.0    |  3   |   **6.5**   | **C+** |
-| `metrics-publisher.ts` |   N/A    |     10      |      7      |   9.5    |  6   |   **8.3**   | **B+** |
-| `packet-capture.ts`    |   N/A    |     9.5     |      6      |   9.5    |  6   |   **8.0**   | **B+** |
-| `config-watcher.ts`    |   N/A    |     7.0     |      5      |   5.0    |  3   |   **5.4**   | **C**  |
-| `connection-config.ts` |   N/A    |     7.0     |      6      |   4.5    |  4   |   **5.7**   | **C**  |
+| `instance.ts`          |   7.0    |     7.5     |      7      |   4.5    |  5   |   **6.4**   | **C+** |
+| `monitoring.ts` (lib)  |   N/A    |     9.0     |      7      |   8.5    |  7   |   **8.0**   | **B+** |
+| `metrics.ts` (lib)     |   N/A    |     8.5     |      7      |   7.0    |  4   |   **7.0**   | **B**  |
+| `metrics-publisher.ts` |   N/A    |     10      |      8      |   9.5    |  7   |   **8.7**   | **A**  |
+| `packet-capture.ts`    |   N/A    |     9.5     |      8      |   9.5    |  7   |   **8.8**   | **A**  |
+| `config-watcher.ts`    |   N/A    |     7.0     |      7      |   4.5    |  5   |   **6.3**   | **C+** |
+| `connection-config.ts` |   N/A    |     8.0     |      8      |   8.0    |  6   |   **7.7**   | **B**  |
 
 **Observations:**
 
-- `instance.ts` is a 989-line "connection lifecycle god object". Timer and subscription cleanup
-  is now correct after the Round 1 orphan-timer fix, but 47 % branch coverage leaves many
-  state-transition paths unverified.
-- `metrics-publisher.ts` is the exemplary infrastructure module: 100 % statement coverage,
-  well-typed, no `any`, and a narrow single responsibility.
-- `config-watcher.ts` (50 % branch) and `connection-config.ts` (42 % branch) both fall below
-  the 55 % project threshold on branch coverage.
-
----
+- `instance.ts` remains a 1,114-line lifecycle "god object" with branch
+  coverage at 48.4 %. Several state-transition paths (stop during reload,
+  socket recovery, congestion-control re-init) are unverified.
+- `metrics-publisher.ts` and `packet-capture.ts` are the exemplary
+  infrastructure modules — both at 99–100 % statement coverage.
+- `config-watcher.ts` (49 % branch) has asymmetric error handling between
+  the fallback and no-fallback code paths and silently swallows JSON parse
+  errors when the watcher is stopped mid-debounce.
 
 ### 6. Webapp
 
-| Module                    | Security | Reliability | Type Safety | Coverage | Docs | **Overall** | Grade  |
-| ------------------------- | :------: | :---------: | :---------: | :------: | :--: | :---------: | :----: |
-| `webapp/index.ts`         |   7.5    |     7.5     |      5      |   N/A    |  6   |   **7.0**   | **B**  |
-| `webapp/components/*.tsx` |   7.0    |     7.0     |      6      |   N/A    |  5   |   **6.5**   | **C+** |
+| Module                                       | Security | Reliability | Type Safety | Coverage | Docs | **Overall** | Grade |
+| -------------------------------------------- | :------: | :---------: | :---------: | :------: | :--: | :---------: | :---: |
+| `webapp/index.ts`                            |   8.0    |     7.5     |      7      |   N/A    |  6   |   **7.4**   | **B** |
+| `webapp/components/PluginConfigurationPanel` |   8.0    |     8.0     |      7      |   8.5    |  6   |   **7.7**   | **B** |
 
 **Observations:**
 
-- After Round 2 XSS fixes, all module-level template helpers now call `escapeHtml()` before
-  inserting user-controlled data into `innerHTML`. The class-method helpers already did this.
-- The webapp bundle is not included in Jest coverage (N/A).
-- `webapp/index.ts` at 2,058 lines is the largest single file in the project and the primary
-  maintainability risk in the webapp layer.
-
----
+- Round-2 XSS findings remain closed: every dynamic `innerHTML` template
+  helper escapes user-controlled data via `escapeHtml()`.
+- `webapp/index.ts` grew to 2,091 LOC (from 2,058) and is now the largest
+  single file in the project. Maintainability is the dominant risk in this
+  layer.
+- `PluginConfigurationPanel.tsx` was rewritten for React 19 / RJSF 5.18 and
+  ships with 31 dedicated component tests.
 
 ### 7. Type System
 
 | Module         | Security | Reliability | Type Safety | Coverage | Docs | **Overall** | Grade  |
 | -------------- | :------: | :---------: | :---------: | :------: | :--: | :---------: | :----: |
-| `types.ts`     |   N/A    |     N/A     |      8      |   N/A    |  2   |   **5.0**   | **C**  |
-| `constants.ts` |   N/A    |     N/A     |      9      |   N/A    |  3   |   **6.0**   | **C+** |
+| `types.ts`     |   N/A    |     N/A     |      9      |   N/A    |  2   |   **6.7**   | **C+** |
+| `constants.ts` |   N/A    |     N/A     |      9      |   N/A    |  3   |   **7.0**   | **B**  |
 
 **Observations:**
 
-- `types.ts` contains 30+ exported interfaces and type aliases across 334 lines with zero
-  JSDoc blocks. All fields are self-named but many carry non-obvious semantics
-  (e.g. `halfWindowSize`, `nakWindow`). Adding short `/** ... */` descriptions would improve
-  IDE autocomplete significantly at near-zero effort.
-- Type definitions themselves are well-structured — interfaces are granular and composable.
+- `types.ts` is now 616 LOC defining ~40 exported interfaces and type
+  aliases — still with effectively zero JSDoc on the type members. Adding
+  `/** ... */` blocks to non-obvious fields (`halfWindowSize`, `nakWindow`,
+  `lossBaseSeq`, `failoverThreshold`) is the single highest-leverage docs
+  improvement available.
 
 ---
 
 ## Project-Level Summary
 
-| Dimension         |    Score     | Grade  | Key finding                                                       |
-| ----------------- | :----------: | :----: | ----------------------------------------------------------------- |
-| **Security**      | **7.5 / 10** |   B    | Timing-safe auth, AES-GCM correct; no KDF for ASCII keys          |
-| **Reliability**   | **7.5 / 10** |   B    | Core protocol excellent; pipeline coverage too sparse             |
-| **Type Safety**   | **4.5 / 10** |   D+   | 344 `any` usages; route handlers fully untyped                    |
-| **Test Coverage** | **6.5 / 10** |   C+   | Global 63 % branch; 34–47 % on three high-risk modules            |
-| **Documentation** | **5.5 / 10** |   C    | Excellent README; JSDoc missing on `types.ts` and several modules |
-| **Overall**       | **6.4 / 10** | **C+** | Solid foundation with clear, addressable improvement areas        |
+| Dimension         |    Score     | Grade | Key finding                                                       |
+| ----------------- | :----------: | :---: | ----------------------------------------------------------------- |
+| **Security**      | **8.0 / 10** |  B+   | Auth + crypto solid; KDF skipped on ASCII keys, control-auth flag |
+| **Reliability**   | **8.0 / 10** |  B+   | One unhandled NAK rejection; pipeline coverage gaps remain        |
+| **Type Safety**   | **7.5 / 10** |   B   | Routes typed; only 17 `any` left, mostly in CLI                   |
+| **Test Coverage** | **7.0 / 10** |   B   | 68 % global branch; 48–54 % on `instance`/`pipeline-v2`/`watcher` |
+| **Documentation** | **6.0 / 10** |  C+   | README + protocol docs strong; types.ts undocumented              |
+| **Overall**       | **7.5 / 10** | **B** | Materially improved since Round 2 (was 6.4 / C+); few sharp edges |
 
 ---
 
-## Top Improvement Opportunities
+## Top Improvement Opportunities (Round 3)
 
 Ordered by expected impact-per-effort:
 
-### Priority 1 — Pipeline test coverage (High impact, High effort)
+### Priority 1 — Fix unhandled NAK rejection (High impact, Low effort)
 
-`pipeline-v2-client.ts` (44 % branch) and `pipeline-v2-server.ts` (43 % branch) contain the
-most complex and security-adjacent logic — congestion control, session authentication, brotli
-decompression, retransmit replay — yet have the lowest test coverage of any core module.
+**File:** `src/pipeline-v2-server.ts:190`
 
-**Target:** Add `test/pipeline-v2-client.test.js` and `test/pipeline-v2-server.test.js` covering:
-
-- Successful handshake and data round-trip
-- Auth failure / wrong key
-- Congestion-window throttling
-- Retransmit timeout and replay
-- Decompression size guard (`MAX_DECOMPRESSED_SIZE`)
-- Session limit enforcement (`MAX_CLIENT_SESSIONS`)
-
-**Expected coverage gain:** +15–20 percentage points on global branch coverage.
-
----
-
-### Priority 2 — Replace `any` in route handlers (High impact, Medium effort)
-
-All route handlers use `req: any, res: any`. Replacing these with Express's `Request` and
-`Response` types (and typed `req.params`/`req.body` via generics) would:
-
-- Enable the TypeScript compiler to catch status-code mismatches and missing response fields
-- Reduce the overall `any` count by ~60–80 occurrences
-- Enable stricter null checks on request parameters
-
-**Suggested approach:** Add `@types/express` if not already declared; replace `any` in routes
-one file at a time starting with the smallest (`routes/control.ts`).
-
----
-
-### Priority 3 — `routes/monitoring.ts` coverage (Medium impact, Medium effort)
-
-This is the only route file without a corresponding test file. At 34.6 % branch coverage it
-falls well below both the 55 % project threshold and the 80 %+ of neighbouring route modules.
-
-**Target:** Create `test/routes.monitoring.test.js` mirroring the structure of the new
-`test/routes.control.test.js`.
-
----
-
-### Priority 4 — KDF for ASCII secret keys (Medium impact, Low effort)
-
-ASCII keys use raw bytes, yielding ~208 bits of effective entropy. Adding PBKDF2 with
-600,000 iterations (NIST SP 800-132 recommendation) or Argon2id would raise ASCII keys to
-the same security level as hex/base64 keys. The change is isolated to `crypto.ts` and the key
-normalisation helper.
-
-```typescript
-// Suggested addition in crypto.ts — ASCII path only
-const derived = crypto.pbkdf2Sync(asciiKey, "signalk-edge-link-v1", 600_000, 32, "sha256");
+```ts
+onLossDetected: (missing: number[]) => {
+  app.debug(`[v2-server] packet loss from ${key}: seqs ${missing.join(", ")}`);
+  _sendNAK(missing, { address: rinfo.address, port: rinfo.port }); // <-- async, not awaited
+};
 ```
 
-Existing hex and base64 paths are unaffected.
+`_sendNAK` is an `async` function (line 391). When socket send rejects, the
+promise has no `.catch`, producing an unhandledRejection. Fix: attach
+`.catch(err => app.error(...))` and add a regression test.
 
----
+### Priority 2 — Make KDF mandatory for ASCII keys (High impact, Low effort)
 
-### Priority 5 — JSDoc on `types.ts` (Low impact, Low effort)
+**File:** `src/crypto.ts` (`normalizeKey`, ASCII branch, lines 81–86).
 
-30+ exported interfaces with zero documentation blocks. A single focused session adding
-`/** ... */` descriptions to the most-used types (`ConnectionConfig`, `ReliabilityConfig`,
-`CongestionControlConfig`, `BondingConfig`, `Metrics`, `InstanceState`) would make the entire
-codebase more navigable without any runtime risk.
+`deriveKeyFromPassphrase()` already exists. The fix is to route ASCII input
+through it automatically (with a logged notice) rather than using raw bytes.
+Update `docs/security.md` and add a CHANGELOG note — this is a behavioural
+change for operators using ASCII keys, even though the over-the-wire format
+is unaffected (the KDF runs only at startup on each side).
+
+### Priority 3 — Gate or remove `allowUnauthenticatedControl` (Medium impact, Low effort)
+
+**File:** `src/packet.ts:384, 458`
+
+The flag is not invoked from production code today. It is a regression
+hazard: any future caller that sets it to `true` silently disables HMAC
+verification on v3 control packets. Either delete the option or guard it
+behind a `TESTING_UNSAFE_CONTROL=1` env check that logs a startup warning.
+
+### Priority 4 — Lift pipeline-v2 / instance coverage (High impact, Medium effort)
+
+**Files:** `src/pipeline-v2-client.ts` (51 % branch),
+`src/pipeline-v2-server.ts` (54 %), `src/instance.ts` (48 %),
+`src/config-watcher.ts` (49 %), `src/routes/connections.ts` (50 %).
+
+Target: ≥ 65 % branch on each. New test suites should cover congestion
+throttling, retransmit replay on NAK, session limits, version-pin
+enforcement (after Priority 5), reload-during-stop, and parse-error paths.
+
+### Priority 5 — Pin protocol version per session (Medium impact, Low effort)
+
+**File:** `src/pipeline-v2-server.ts` session creation, `src/packet.ts` parse
+path.
+
+After the first HELLO is processed, store the negotiated version on the
+session object and reject subsequent packets whose version differs. Prevents
+a v3→v2 downgrade via replayed HELLO from a man-in-the-middle.
+
+### Priority 6 — JSDoc on `types.ts` (Low impact, Low effort)
+
+40+ exported interfaces with no per-member documentation. A focused pass
+adding `/** ... */` to non-obvious fields makes the entire codebase more
+navigable in IDEs without any runtime risk.
+
+### Priority 7 — Debounce `POST /monitoring/alerts` saves (Low impact, Low effort)
+
+Coalesce `app.savePluginOptions()` calls to at most one per second per
+connection. Prevents disk thrashing from a malicious authenticated client.
 
 ---
 
 ## Module Rankings (Overall Score)
 
-| Rank | Module                        | Score | Grade |
-| ---- | ----------------------------- | :---: | :---: |
-| 1    | `sequence.ts`                 |  8.6  |   A   |
-| 2    | `CircularBuffer.ts`           |  8.5  |   A   |
-| 3    | `congestion.ts`               |  8.4  |  B+   |
-| 4    | `metrics-publisher.ts`        |  8.3  |  B+   |
-| 5    | `packet.ts`                   |  8.2  |  B+   |
-| 6    | `webapp/utils/apiFetch.ts`    |  8.1  |  B+   |
-| 7    | `monitoring.ts` (lib)         |  8.1  |  B+   |
-| 8    | `routes/config-validation.ts` |  8.0  |  B+   |
-| 9    | `packet-capture.ts`           |  8.0  |  B+   |
-| 10   | `retransmit-queue.ts`         |  7.9  |   B   |
-| 11   | `pipeline-factory.ts`         |  7.9  |   B   |
-| 12   | `crypto.ts`                   |  7.6  |   B   |
-| 13   | `routes/control.ts`           |  7.5  |   B   |
-| 14   | `bonding.ts`                  |  7.2  |   B   |
-| 15   | `routes.ts` (auth)            |  7.1  |   B   |
-| 16   | `routes/metrics.ts`           |  7.1  |   B   |
-| 17   | `webapp/index.ts`             |  7.0  |   B   |
-| 18   | `routes/connections.ts`       |  6.5  |  C+   |
-| 19   | `metrics.ts` (lib)            |  6.5  |  C+   |
-| 20   | `routes/config.ts`            |  6.7  |  C+   |
-| 21   | `webapp/components/*.tsx`     |  6.5  |  C+   |
-| 22   | `instance.ts`                 |  6.1  |  C+   |
-| 23   | `pipeline-v2-client.ts`       |  6.3  |  C+   |
-| 24   | `routes/monitoring.ts`        |  5.9  |   C   |
-| 25   | `pipeline.ts`                 |  5.9  |   C   |
-| 26   | `pipeline-v2-server.ts`       |  5.9  |   C   |
-| 27   | `connection-config.ts`        |  5.7  |   C   |
-| 28   | `config-watcher.ts`           |  5.4  |   C   |
-| 29   | `types.ts`                    |  5.0  |   C   |
+| Rank | Module                               | Score | Grade |
+| ---- | ------------------------------------ | :---: | :---: |
+| 1    | `routes/config-validation.ts`        |  8.7  |   A   |
+| 1    | `metrics-publisher.ts`               |  8.7  |   A   |
+| 3    | `packet-capture.ts`                  |  8.8  |   A   |
+| 4    | `congestion.ts`                      |  8.5  |   A   |
+| 4    | `CircularBuffer.ts`                  |  8.5  |   A   |
+| 6    | `sequence.ts`                        |  8.4  |  B+   |
+| 7    | `routes/control.ts`                  |  8.3  |  B+   |
+| 8    | `webapp/utils/apiFetch.ts`           |  8.2  |  B+   |
+| 8    | `pipeline-factory.ts`                |  8.2  |  B+   |
+| 10   | `crypto.ts`                          |  8.1  |  B+   |
+| 10   | `packet.ts`                          |  8.1  |  B+   |
+| 12   | `monitoring.ts` (lib)                |  8.0  |  B+   |
+| 13   | `bonding.ts`                         |  7.9  |   B   |
+| 13   | `routes.ts` (auth)                   |  7.9  |   B   |
+| 15   | `connection-config.ts`               |  7.7  |   B   |
+| 15   | `retransmit-queue.ts`                |  7.7  |   B   |
+| 15   | `webapp/components/Plugin…Panel.tsx` |  7.7  |   B   |
+| 18   | `routes/monitoring.ts`               |  7.6  |   B   |
+| 19   | `routes/metrics.ts`                  |  7.4  |   B   |
+| 19   | `webapp/index.ts`                    |  7.4  |   B   |
+| 21   | `routes/config.ts`                   |  7.3  |   B   |
+| 22   | `routes/connections.ts`              |  7.0  |   B   |
+| 22   | `metrics.ts` (lib)                   |  7.0  |   B   |
+| 24   | `pipeline-v2-client.ts`              |  6.8  |  C+   |
+| 25   | `types.ts`                           |  6.7  |  C+   |
+| 26   | `pipeline.ts`                        |  6.6  |  C+   |
+| 27   | `pipeline-v2-server.ts`              |  6.4  |  C+   |
+| 27   | `instance.ts`                        |  6.4  |  C+   |
+| 29   | `config-watcher.ts`                  |  6.3  |  C+   |
 
 ---
 
-_Report produced by Claude Code (claude-sonnet-4-6) following two rounds of deep code review._
+## Delta vs. Round 2 (2026-03-15)
+
+| Metric                                  | Round 2 | Round 3 | Δ     |
+| --------------------------------------- | :-----: | :-----: | :---- |
+| Global statement coverage               | 73.4 %  | 79.6 %  | +6.2  |
+| Global branch coverage                  | 63.5 %  | 68.0 %  | +4.5  |
+| Global function coverage                | 78.5 %  | 82.9 %  | +4.4  |
+| `any` annotations in `src/`             |   344   |   17    | −327  |
+| Route handlers with `any` parameters    |   ~30   |    0    | −30   |
+| `pipeline-v2-client.ts` branch coverage | 44.0 %  | 51.0 %  | +7.0  |
+| `pipeline-v2-server.ts` branch coverage | 43.0 %  | 54.3 %  | +11.3 |
+| `routes/monitoring.ts` branch coverage  | 34.6 %  | 77.5 %  | +42.9 |
+| Overall project grade                   |   C+    |    B    | +1    |
+
+---
+
+_Report produced by Claude Code (claude-opus-4-7) following the Round-3
+deep code review on branch `claude/comprehensive-code-review-BBkGv`._
