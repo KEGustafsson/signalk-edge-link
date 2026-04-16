@@ -381,14 +381,10 @@ export class PacketParser {
    * @param {Buffer} packet - Raw packet data
    * @param {Object} [options]
    * @param {string} [options.secretKey] - Required for v3 control packets
-   * @param {boolean} [options.allowUnauthenticatedControl=false] - Skip v3 control auth verification
    * @returns {Object} Parsed packet information
    * @throws {Error} If packet is invalid
    */
-  parseHeader(
-    packet: Buffer,
-    options: { secretKey?: string; allowUnauthenticatedControl?: boolean } = {}
-  ): ParsedPacket {
+  parseHeader(packet: Buffer, options: { secretKey?: string } = {}): ParsedPacket {
     if (!Buffer.isBuffer(packet)) {
       throw new Error("Packet must be a Buffer");
     }
@@ -455,13 +451,11 @@ export class PacketParser {
         }
         const payloadData = payload.subarray(0, payload.length - CONTROL_AUTH_TAG_LENGTH);
         const authTag = payload.subarray(payload.length - CONTROL_AUTH_TAG_LENGTH);
-        if (!options.allowUnauthenticatedControl) {
-          const secretKey = options.secretKey || this._secretKey;
-          if (!secretKey) {
-            throw new Error("Control packet authentication requires secretKey");
-          }
-          verifyControlPacketAuthTag(packet.subarray(0, 13), payloadData, authTag, secretKey);
+        const secretKey = options.secretKey || this._secretKey;
+        if (!secretKey) {
+          throw new Error("Control packet authentication requires secretKey");
         }
+        verifyControlPacketAuthTag(packet.subarray(0, 13), payloadData, authTag, secretKey);
         payload = payloadData;
       } else {
         // HEARTBEAT packets carry a 0-byte payload with no CRC — accept as-is.
