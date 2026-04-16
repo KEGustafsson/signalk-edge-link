@@ -1,7 +1,10 @@
+const crypto = require("crypto");
 const {
   encryptBinary,
   decryptBinary,
   validateSecretKey,
+  normalizeKey,
+  deriveKeyFromPassphrase,
   IV_LENGTH,
   AUTH_TAG_LENGTH
 } = require("../lib/crypto");
@@ -232,6 +235,47 @@ describe("Crypto Module", () => {
 
     test("AUTH_TAG_LENGTH should be 16 bytes (GCM standard)", () => {
       expect(AUTH_TAG_LENGTH).toBe(16);
+    });
+  });
+
+  describe("normalizeKey ASCII path uses PBKDF2", () => {
+    test("32-char ASCII key is stretched via PBKDF2-SHA256 with the documented salt", () => {
+      const ascii = validSecretKey;
+      const expected = deriveKeyFromPassphrase(ascii);
+      const normalized = normalizeKey(ascii);
+
+      expect(Buffer.isBuffer(normalized)).toBe(true);
+      expect(normalized.length).toBe(32);
+      expect(normalized.equals(expected)).toBe(true);
+      // Sanity: the derived key must NOT equal the raw ASCII bytes — that
+      // would indicate the legacy raw-bytes fallback is still active.
+      expect(normalized.equals(Buffer.from(ascii))).toBe(false);
+    });
+
+    test("64-char hex key is decoded raw (KDF skipped)", () => {
+      const hex = "a".repeat(64);
+      const normalized = normalizeKey(hex);
+      expect(normalized.equals(Buffer.from(hex, "hex"))).toBe(true);
+    });
+
+    test("44-char base64 key is decoded raw (KDF skipped)", () => {
+      const raw = crypto.randomBytes(32);
+      const b64 = raw.toString("base64");
+      expect(b64.length).toBe(44);
+      const normalized = normalizeKey(b64);
+      expect(normalized.equals(raw)).toBe(true);
+    });
+
+    test("identical ASCII keys produce the same derived key (peers stay in sync)", () => {
+      const a = normalizeKey(validSecretKey);
+      const b = normalizeKey(validSecretKey);
+      expect(a.equals(b)).toBe(true);
+    });
+
+    test("different ASCII keys produce different derived keys", () => {
+      const a = normalizeKey(validSecretKey);
+      const b = normalizeKey("Abc123!@#XYZ456$%^uvw789&*()pqr0");
+      expect(a.equals(b)).toBe(false);
     });
   });
 });

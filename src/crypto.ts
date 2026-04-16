@@ -41,13 +41,12 @@ export function deriveKeyFromPassphrase(
  * Accepts three formats:
  * - 64-character hex string  → decoded to 32 bytes (full 256-bit entropy)
  * - 44-character base64 string → decoded to 32 bytes (full 256-bit entropy)
- * - 32-character ASCII string → used as-is (~208 bits effective entropy)
+ * - 32-character ASCII string → stretched to 32 bytes via PBKDF2-SHA256
+ *   (600,000 iterations, salt "signalk-edge-link-v1") to lift the
+ *   ~208-bit effective entropy of human-typeable input to a full 256-bit key
  *
- * **Note on ASCII keys:** A 32-character ASCII string provides approximately
- * 208 bits of effective entropy (~6.5 bits/char). For human-chosen passwords
- * use `deriveKeyFromPassphrase()` instead, which runs PBKDF2 to achieve full
- * 256-bit security. For new deployments prefer randomly generated 64-char hex
- * or 44-char base64 keys which carry full entropy without key derivation.
+ * Both ends of a connection must use the same key string in the same format
+ * for the derived 32-byte buffers to match.
  *
  * @param secretKey - Secret key in any supported format
  * @returns 32-byte key buffer
@@ -78,17 +77,35 @@ export function normalizeKey(secretKey: string): Buffer {
     );
   }
 
-  // Fallback: raw ASCII — must be exactly 32 bytes
-  // NOTE: ASCII keys provide ~6.5 bits/char ≈ 208 bits effective entropy.
-  // Prefer hex or base64 keys for full 256-bit strength.
+  // Fallback: raw ASCII — must be exactly 32 bytes.  Stretch via PBKDF2 so
+  // human-typed keys (~6.5 bits/char ≈ 208 bits) get the full 256-bit
+  // strength of AES-256-GCM.  Cached so the 600k-iteration KDF only runs
+  // once per distinct key string per process.
   if (Buffer.byteLength(secretKey) === 32) {
-    return Buffer.from(secretKey);
+    return getOrDeriveAsciiKey(secretKey);
   }
 
   throw new Error(
     "Secret key must be exactly 32 bytes: use a 32-character ASCII string, " +
       "64-character hex string, or 44-character base64 string"
   );
+}
+
+// Per-process PBKDF2 cache.  Without this cache every encryption /
+// decryption call would re-run 600,000 SHA-256 rounds, which would dominate
+// the per-packet cost.  The cache key is the raw ASCII string so it is
+// effectively bounded by the number of distinct configured keys (typically
+// one or two per Signal K instance).
+const asciiKeyCache = new Map<string, Buffer>();
+
+function getOrDeriveAsciiKey(asciiKey: string): Buffer {
+  const cached = asciiKeyCache.get(asciiKey);
+  if (cached) {
+    return cached;
+  }
+  const derived = deriveKeyFromPassphrase(asciiKey);
+  asciiKeyCache.set(asciiKey, derived);
+  return derived;
 }
 
 /**
