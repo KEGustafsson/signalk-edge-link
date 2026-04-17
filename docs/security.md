@@ -62,7 +62,8 @@ This document captures operational security practices and implementation notes f
 
 ## Input validation checklist
 
-- Validate configuration against `schemas/config.schema.json`.
+- Validate configuration against the runtime `plugin.schema` in `src/index.ts`
+  (served by the Signal K plugin loader and the admin UI).
 - Validate management API payloads for mutable keys and value ranges.
 - Drop malformed packets and track drop/error metrics for observability.
 

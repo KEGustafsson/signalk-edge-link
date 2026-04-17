@@ -3,8 +3,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const schema = require("../schemas/config.schema.json");
-
 function validateConnection(conn) {
   expect(["server", "client"]).toContain(conn.serverType);
   expect(typeof conn.udpPort).toBe("number");
@@ -30,25 +28,5 @@ describe("sample configurations", () => {
       expect(payload.connections.length).toBeGreaterThan(0);
       payload.connections.forEach(validateConnection);
     }
-  });
-
-  test("documentation schema remains aligned with runtime schema core constraints", () => {
-    const docSchema = JSON.parse(
-      fs.readFileSync(path.join(__dirname, "..", "docs", "configuration-schema.json"), "utf8")
-    );
-
-    expect(docSchema.required).toContain("connections");
-    expect(docSchema.properties.connections.type).toBe("array");
-
-    const runtimeConnection = schema.definitions.connection.properties;
-    const docConnection = docSchema.definitions.connection.properties;
-
-    expect(docConnection.serverType.enum).toEqual(runtimeConnection.serverType.enum);
-    expect(docConnection.udpPort.minimum).toBe(runtimeConnection.udpPort.minimum);
-    expect(docConnection.udpPort.maximum).toBe(runtimeConnection.udpPort.maximum);
-    expect(docConnection.protocolVersion.enum).toEqual(runtimeConnection.protocolVersion.enum);
-    expect(docConnection.secretKey.minLength).toBe(runtimeConnection.secretKey.minLength);
-    expect(docConnection.secretKey.maxLength).toBe(runtimeConnection.secretKey.maxLength);
-    expect(docConnection.secretKey.pattern).toBe(runtimeConnection.secretKey.pattern);
   });
 });

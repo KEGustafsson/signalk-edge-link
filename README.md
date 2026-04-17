@@ -173,7 +173,9 @@ For complete setting definitions and ranges, use `docs/configuration-reference.m
 
 Schema and migration helpers:
 
-- `schemas/config.schema.json` (machine-readable config schema)
+- The runtime schema is defined inline as `plugin.schema` in `src/index.ts`
+  and served to the Signal K admin UI. `docs/configuration-reference.md` is
+  the authoritative human-readable reference.
 - `src/scripts/migrate-config.ts` (convert legacy flat config to `connections[]`)
 - `npm run migrate:config -- <input.json> [output.json]`
 
@@ -273,7 +275,6 @@ window.__EDGE_LINK_AUTH__ = {
 - `docs/performance-tuning.md` (deployment tuning recommendations by hardware profile)
 - `samples/` (example JSON configurations for minimal/dev/v2-bonding setups)
 - `grafana/dashboards/edge-link.json` (starter Grafana dashboard)
-- `schemas/config.schema.json` (unified plugin config schema)
 - `src/scripts/migrate-config.ts` (legacy config migration utility)
 - `src/bin/edge-link-cli.ts` (CLI wrapper for migration and instance/bonding management)
 

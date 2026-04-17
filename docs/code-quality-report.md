@@ -275,9 +275,11 @@ continuity.
 behavioural change: `normalizeKey()` now accepts a `stretchAsciiKey` option
 that routes 32-char ASCII keys through `deriveKeyFromPassphrase()` when
 enabled. Default remains `false` so existing deployments are unchanged. The
-flag is exposed via `schemas/config.schema.json` (top-level and per-connection)
-and documented in `docs/security.md` and `CHANGELOG.md`. See the Remediation
-Outcomes table below.
+flag is documented in `docs/security.md` and `CHANGELOG.md`. (The runtime
+RJSF schema served to the admin UI is `plugin.schema` in `src/index.ts`;
+the standalone `schemas/config.schema.json` file has been removed since it
+was not wired into runtime validation.) See the Remediation Outcomes table
+below.
 
 ### Priority 3 — ~~Gate or remove `allowUnauthenticatedControl`~~ (Completed)
 
