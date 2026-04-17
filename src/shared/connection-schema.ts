@@ -14,6 +14,8 @@
  * results to `RJSFSchema` at call sites.
  */
 
+import { PBKDF2_ITERATIONS } from "./crypto-constants";
+
 export type SchemaFragment = Record<string, unknown>;
 
 // ── Common (client + server) ──────────────────────────────────────────────────
@@ -57,8 +59,7 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
   stretchAsciiKey: {
     type: "boolean",
     title: "Stretch 32-char ASCII Key (PBKDF2)",
-    description:
-      "When the secretKey is 32-character ASCII, route it through PBKDF2-SHA256 (600,000 iterations) to raise it to full 256-bit AES strength. Hex and base64 keys are unaffected. BOTH ENDS OF THE CONNECTION MUST USE THE SAME SETTING — otherwise authentication will fail and every packet will be dropped.",
+    description: `When the secretKey is 32-character ASCII, route it through PBKDF2-SHA256 (${PBKDF2_ITERATIONS.toLocaleString("en-US")} iterations) to raise it to full 256-bit AES strength. Hex and base64 keys are unaffected. BOTH ENDS OF THE CONNECTION MUST USE THE SAME SETTING — otherwise authentication will fail and every packet will be dropped.`,
     default: false
   },
   useMsgpack: {

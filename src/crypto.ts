@@ -1,6 +1,7 @@
 "use strict";
 
 import * as crypto from "crypto";
+import { PBKDF2_ITERATIONS } from "./shared/crypto-constants";
 
 // Use AES-256-GCM for authenticated encryption (encryption + authentication in one)
 const ALGORITHM = "aes-256-gcm";
@@ -21,13 +22,13 @@ export const CONTROL_AUTH_TAG_LENGTH = 16; // Truncated HMAC-SHA256 tag for v3 c
  *
  * @param passphrase - Human-chosen password of any length
  * @param salt - Application-specific salt (defaults to "signalk-edge-link-v1")
- * @param iterations - PBKDF2 iteration count (defaults to 600_000, NIST SP 800-132)
+ * @param iterations - PBKDF2 iteration count (defaults to `PBKDF2_ITERATIONS`, NIST SP 800-132)
  * @returns 32-byte derived key buffer
  */
 export function deriveKeyFromPassphrase(
   passphrase: string,
   salt: string = "signalk-edge-link-v1",
-  iterations: number = 600_000
+  iterations: number = PBKDF2_ITERATIONS
 ): Buffer {
   if (!passphrase || typeof passphrase !== "string") {
     throw new Error("Passphrase must be a non-empty string");

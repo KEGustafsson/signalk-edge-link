@@ -86,10 +86,6 @@ function withId(conn: Omit<ConnectionData, "_id"> & { _id?: string }): Connectio
 // Single source of truth for field definitions: src/shared/connection-schema.ts
 // (also consumed by plugin.schema in src/index.ts).
 
-function buildSchema(isClient: boolean, protocolVersion: number | undefined): RJSFSchema {
-  return buildWebappConnectionSchema(isClient, protocolVersion) as RJSFSchema;
-}
-
 const uiSchemaClient: UiSchema = {
   "ui:order": [
     "name", "serverType", "udpAddress", "udpPort", "secretKey", "stretchAsciiKey", "protocolVersion",
@@ -298,7 +294,7 @@ interface ConnectionCardProps {
 
 function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange, onRemove }: ConnectionCardProps) {
   const isClient = conn.serverType !== "server";
-  const schema = buildSchema(isClient, conn.protocolVersion);
+  const schema = buildWebappConnectionSchema(isClient, conn.protocolVersion) as RJSFSchema;
   const uiSchema = isClient ? uiSchemaClient : uiSchemaServer;
   const modeLabel = isClient ? "Client" : "Server";
   const displayName = (conn.name || `Connection ${index + 1}`).trim();
