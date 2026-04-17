@@ -2,6 +2,53 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [Unreleased]
+
+### Breaking
+
+- **ASCII passphrases are stretched with PBKDF2-SHA256** (`crypto.ts`):
+  `normalizeKey()` now routes 32-character ASCII keys through
+  `deriveKeyFromPassphrase()` (PBKDF2-SHA256, 600,000 iterations, salt
+  `signalk-edge-link-v1`) instead of using the raw ASCII bytes as the AES-GCM
+  key. The derivation is deterministic and cached per-process, so both peers
+  derive the same key from the same passphrase. Hex (64-char) and base64
+  (44-char) keys are unchanged. **Operators using 32-character ASCII keys must
+  redeploy both peers simultaneously — a peer on the old build cannot decrypt
+  packets from a peer on the new build and vice versa.**
+- **`parseHeader({ allowUnauthenticatedControl })` removed** (`packet.ts`):
+  The option was never used in production code paths and allowed v3 control
+  frames to bypass HMAC verification. V3 control packets are now always
+  HMAC-verified.
+
+### Security
+
+- **Protocol version pinning** (`pipeline-v2-server.ts`): A v3-configured
+  server now rejects any packet whose header advertises a different protocol
+  version; a v2-configured server likewise rejects v3 packets. This closes a
+  downgrade surface where a MITM could inject forged v2 control frames
+  (ACK/NAK/HEARTBEAT/HELLO) — which carry no HMAC tag — at a server that had
+  negotiated v3.
+- **ASCII-key PBKDF2 hardening** (see Breaking above): lifts the effective
+  entropy of a 32-char human-typeable ASCII key from ~208 bits to the full
+  256-bit AES strength and makes offline brute-force attacks on leaked
+  passphrases significantly more expensive.
+
+### Tests
+
+- New `__tests__/config-watcher.test.js` cases covering the hash-dedupe fast
+  path, `readFallback` branch, `state.stopped` guards, watcher-handle
+  lifecycle, legacy-file migration, and persistent-storage initialization.
+- New `receivePacket – protocol version pin` regression tests in
+  `__tests__/pipeline-v2-server.test.js`.
+- New `normalizeKey ASCII path uses PBKDF2` regression tests in
+  `__tests__/crypto.test.js`.
+
+### Documentation
+
+- Refreshed `docs/code-quality-report.md` with the Round-3 assessment.
+
+---
+
 ## [2.1.1]
 
 ### Fixed

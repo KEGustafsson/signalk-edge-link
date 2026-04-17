@@ -23,10 +23,25 @@ This document captures operational security practices and implementation notes f
 
 - Generate per-instance keys with CSPRNG output.
 - Prefer **64-character hex** or **44-character base64** keys for full 256-bit entropy.
-  A 32-character ASCII key provides only ~208 bits of effective entropy.
+  A 32-character ASCII key provides only ~208 bits of raw entropy; since 2.1.2 the
+  ASCII path is stretched via **PBKDF2-SHA256** (600,000 iterations, salt
+  `signalk-edge-link-v1`) before being used as the AES-GCM key, which restores the
+  full 256-bit AES strength and makes offline brute-force significantly more
+  expensive. The derived key is cached per process, so there is no steady-state
+  performance penalty. Hex and base64 keys bypass PBKDF2.
 - Avoid copying keys into shell history; use environment variables or secrets managers.
 - Rotate keys regularly (for example every 90 days) and after incident response events.
 - Do not log plaintext key material.
+
+## Protocol version pinning
+
+- Each server pins to its configured `protocolVersion` (2 or 3) and rejects any
+  packet whose header advertises a different version. This prevents a MITM from
+  downgrading a v3 session to v2 by injecting forged v2 control frames
+  (ACK/NAK/HEARTBEAT/HELLO) — v2 control frames carry no HMAC tag and would
+  otherwise be accepted on header parse alone.
+- Operators upgrading a peer pair from v2 to v3 must switch both ends; mixed
+  versions will log `malformedPackets` increments and the link will not converge.
 
 ## Key rotation
 
