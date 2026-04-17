@@ -40,7 +40,7 @@ export function deriveKeyFromPassphrase(
  * Options shared by every key-consuming primitive.
  *
  * `stretchAsciiKey` is an opt-in flag: when `true`, a 32-character ASCII key
- * is stretched via PBKDF2-SHA256 (600,000 iterations, salt
+ * is stretched via PBKDF2-SHA256 (see {@link PBKDF2_ITERATIONS}, salt
  * `signalk-edge-link-v1`) before it is used as the AES-256-GCM key.  Hex
  * (64-char) and base64 (44-char) keys are decoded raw regardless of this
  * flag.
@@ -60,9 +60,10 @@ export interface KeyNormalizationOptions {
  * - 64-character hex string  → decoded to 32 bytes (full 256-bit entropy)
  * - 44-character base64 string → decoded to 32 bytes (full 256-bit entropy)
  * - 32-character ASCII string → used raw by default, OR stretched via
- *   PBKDF2-SHA256 (600,000 iterations, salt "signalk-edge-link-v1") when
- *   `options.stretchAsciiKey` is `true`.  PBKDF2 lifts the ~208-bit effective
- *   entropy of a human-typeable 32-char key to a full 256-bit AES key.
+ *   PBKDF2-SHA256 (see {@link PBKDF2_ITERATIONS}, salt "signalk-edge-link-v1")
+ *   when `options.stretchAsciiKey` is `true`.  PBKDF2 lifts the ~208-bit
+ *   effective entropy of a human-typeable 32-char key to a full 256-bit AES
+ *   key.
  *
  * Both ends of a connection must use the same key string and the same
  * `stretchAsciiKey` setting for the derived 32-byte buffers to match.
@@ -116,10 +117,10 @@ export function normalizeKey(secretKey: string, options: KeyNormalizationOptions
 }
 
 // Per-process PBKDF2 cache.  Without this cache every encryption /
-// decryption call would re-run 600,000 SHA-256 rounds, which would dominate
-// the per-packet cost.  The cache key is the raw ASCII string so it is
-// effectively bounded by the number of distinct configured keys (typically
-// one or two per Signal K instance).
+// decryption call would re-run the full iteration count, which would
+// dominate the per-packet cost.  The cache key is the raw ASCII string so
+// it is effectively bounded by the number of distinct configured keys
+// (typically one or two per Signal K instance).
 const asciiKeyCache = new Map<string, Buffer>();
 
 function getOrDeriveAsciiKey(asciiKey: string): Buffer {

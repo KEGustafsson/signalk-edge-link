@@ -115,10 +115,13 @@ When a dimension is N/A it is excluded from the weighted average.
 - Pipeline coverage rose since Round 2 (`-v2-client` 44 % → 51 %, `-v2-server`
   43 % → 54 %), but both still fall below the project's 60 % branch threshold
   at the file level. They remain the largest reliability risk.
-- `pipeline-v2-server.ts:190` invokes `_sendNAK()` (an `async` function) inside
-  a `SequenceTracker.onLossDetected` callback **without `.catch`**. A NAK
-  send failure produces an unhandled promise rejection. This is the only
-  remaining P0-class correctness defect in the pipeline modules.
+- `_sendNAK()` is invoked without `await` inside the
+  `SequenceTracker.onLossDetected` callback. This was initially flagged as an
+  unhandled-rejection risk, but on inspection `_sendNAK` wraps its
+  `socketUdp.send` call in an outer `try { … } catch (err) { app.error(…) }`,
+  so the returned promise resolves even when the underlying send fails. No
+  unhandled rejection can escape. See "Priority 1" below for the detailed
+  disposition.
 - `bonding.ts` continues to score well; recent stop-race and validation fixes
   are reflected in the +0.5 reliability uptick.
 
@@ -232,7 +235,7 @@ When a dimension is N/A it is excluded from the weighted average.
 | Dimension         |    Score     | Grade | Key finding                                                       |
 | ----------------- | :----------: | :---: | ----------------------------------------------------------------- |
 | **Security**      | **8.0 / 10** |  B+   | Auth + crypto solid; KDF skipped on ASCII keys, control-auth flag |
-| **Reliability**   | **8.0 / 10** |  B+   | One unhandled NAK rejection; pipeline coverage gaps remain        |
+| **Reliability**   | **8.0 / 10** |  B+   | Pipeline coverage gaps remain; no open unhandled-rejection risks  |
 | **Type Safety**   | **7.5 / 10** |   B   | Routes typed; only 17 `any` left, mostly in CLI                   |
 | **Test Coverage** | **7.0 / 10** |   B   | 68 % global branch; 48–54 % on `instance`/`pipeline-v2`/`watcher` |
 | **Documentation** | **6.0 / 10** |  C+   | README + protocol docs strong; types.ts undocumented              |

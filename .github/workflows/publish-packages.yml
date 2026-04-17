@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Derive scope (repository owner, lowercased)
         id: scope
@@ -33,7 +33,7 @@ jobs:
           echo "package=@${GITHUB_REPOSITORY_OWNER,,}/signalk-edge-link" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           registry-url: https://npm.pkg.github.com
@@ -63,7 +63,13 @@ jobs:
           BASE_VERSION="$(node -p "require('./package.json').version")"
           SHORT_SHA="$(git rev-parse --short HEAD)"
           # Normalise branch name to a semver-safe prerelease identifier.
-          BRANCH_SLUG="$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9.' '-')"
+          # printf (not echo) avoids the trailing newline that tr -c would
+          # convert to a stray '-'; sed strips leading/trailing hyphens while
+          # preserving dots so the slug always starts and ends with [a-z0-9.].
+          BRANCH_SLUG="$(printf '%s' "${GITHUB_REF_NAME}" \
+            | tr '[:upper:]' '[:lower:]' \
+            | tr -c 'a-z0-9.' '-' \
+            | sed -E 's/^-+//; s/-+$//')"
           SNAPSHOT="${BASE_VERSION}-${BRANCH_SLUG}.${SHORT_SHA}"
           echo "snapshot=${SNAPSHOT}" >> "$GITHUB_OUTPUT"
 
@@ -73,17 +79,20 @@ jobs:
           npm version '${{ steps.ver.outputs.snapshot }}' --no-git-tag-version --allow-same-version
 
       - name: Pack tarball
-        run: npm pack
+        id: pack
+        run: |
+          PACKED_TGZ="$(npm pack | tail -n 1)"
+          echo "packed_tgz=${PACKED_TGZ}" >> "$GITHUB_OUTPUT"
 
       - name: Upload tarball as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: signalk-edge-link-${{ steps.ver.outputs.snapshot }}
-          path: "*.tgz"
+          path: ${{ steps.pack.outputs.packed_tgz }}
           if-no-files-found: error
           retention-days: 30
 
       - name: Publish to GitHub Packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm publish --access public
+        run: npm publish "${{ steps.pack.outputs.packed_tgz }}" --access public
