@@ -1,0 +1,89 @@
+name: Publish to GitHub Packages
+
+# Test, build, pack and publish the plugin as a tarball to the repository's
+# GitHub Packages npm registry on every push to main or dev.  The published
+# package is namespaced under the repository owner's scope (for example
+# @kegustafsson/signalk-edge-link) and tagged with a branch-qualified
+# prerelease version derived from the commit SHA, so every commit produces a
+# unique, installable snapshot without clashing with the canonical
+# unscoped package name used for public releases.
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive scope (repository owner, lowercased)
+        id: scope
+        run: |
+          echo "scope=@${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          echo "package=@${GITHUB_REPOSITORY_OWNER,,}/signalk-edge-link" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+          scope: ${{ steps.scope.outputs.scope }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check (backend and webapp)
+        run: |
+          npm run check:ts
+          npx tsc -p tsconfig.webapp.json --noEmit
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Compute snapshot version
+        id: ver
+        run: |
+          BASE_VERSION="$(node -p "require('./package.json').version")"
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          # Normalise branch name to a semver-safe prerelease identifier.
+          BRANCH_SLUG="$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9.' '-')"
+          SNAPSHOT="${BASE_VERSION}-${BRANCH_SLUG}.${SHORT_SHA}"
+          echo "snapshot=${SNAPSHOT}" >> "$GITHUB_OUTPUT"
+
+      - name: Rewrite package name and version for GitHub Packages
+        run: |
+          npm pkg set name='${{ steps.scope.outputs.package }}'
+          npm version '${{ steps.ver.outputs.snapshot }}' --no-git-tag-version --allow-same-version
+
+      - name: Pack tarball
+        run: npm pack
+
+      - name: Upload tarball as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signalk-edge-link-${{ steps.ver.outputs.snapshot }}
+          path: "*.tgz"
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish to GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish --access public
