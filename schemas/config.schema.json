@@ -85,10 +85,15 @@
         },
         "secretKey": {
           "type": "string",
-          "description": "Encryption key. Use a 64-char hex or 44-char base64 key for full 256-bit strength. A 32-char ASCII key works but provides only ~208 bits of entropy.",
+          "description": "Encryption key. Use a 64-char hex or 44-char base64 key for full 256-bit strength. A 32-char ASCII key works but provides only ~208 bits of entropy unless the per-connection stretchAsciiKey option is enabled.",
           "minLength": 32,
           "maxLength": 64,
           "pattern": "^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
+        },
+        "stretchAsciiKey": {
+          "type": "boolean",
+          "description": "When true, 32-char ASCII secretKey values are stretched via PBKDF2-SHA256 (600,000 iterations) to a full 256-bit AES key. Hex and base64 keys are unaffected. BOTH ENDS OF THE CONNECTION MUST USE THE SAME SETTING — otherwise authentication will fail and every packet will be dropped.",
+          "default": false
         },
         "useMsgpack": {
           "type": "boolean",

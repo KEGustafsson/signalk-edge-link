@@ -88,7 +88,7 @@ stretchAsciiKey round-trip` regression tests in `__tests__/crypto.test.js`
 
 ---
 
-## [2.1.1]
+## [2.1.0]
 
 ### Highlights
 

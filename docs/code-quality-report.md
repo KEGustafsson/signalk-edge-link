@@ -103,10 +103,11 @@ When a dimension is N/A it is excluded from the weighted average.
 - All five modules retain or improve on Round-2 scores. Branch coverage in
   `congestion.ts` (92.6 %), `packet.ts` (85.5 %), and `sequence.ts` (82.5 %)
   exceeds 80 %.
-- `packet.ts` carries the only module-level Security finding in this group —
-  the `allowUnauthenticatedControl` option on `parseHeader()` is exposed but
-  unused in production. Low risk today, but a regression hazard if a future
-  caller toggles it on.
+- `packet.ts` previously exposed an `allowUnauthenticatedControl` option on
+  `parseHeader()` that was unused in production but could silently bypass HMAC
+  verification if toggled on. **Resolved in Round-3 remediation:** the option
+  was removed and v3 control-packet HMAC verification is now unconditional
+  (see Remediation Outcomes below).
 
 ### 2. Transport / Pipeline
 
@@ -170,9 +171,11 @@ When a dimension is N/A it is excluded from the weighted average.
   management token comparison.
 - **PBKDF2 already exists** as `deriveKeyFromPassphrase()` (600,000 iterations,
   SHA-256, NIST SP 800-132). The Round-2 report's claim that "no KDF exists"
-  was incorrect — the gap is that `normalizeKey()` still accepts a 32-char
-  ASCII key directly without invoking the KDF. Operators following docs
-  literally will get the weaker code path.
+  was incorrect. As of Round-3 remediation `normalizeKey()` accepts an opt-in
+  `stretchAsciiKey` flag: when `true`, 32-char ASCII keys are routed through
+  PBKDF2 (cached per process); when `false` (default) the raw ASCII bytes are
+  used directly for backwards compatibility. Both peers must use the same
+  setting — treat the flag as part of the key.
 - `apiFetch.ts` keeps `includeTokenInQuery: false` by default (Round-1 fix
   retained); tokens never leak into URLs.
 
@@ -264,24 +267,26 @@ original Round-3 writeup conflated "not awaited" with "no catch handler".
 No code change needed; the narrative above is retained for historical
 continuity.
 
-### Priority 2 — Make KDF mandatory for ASCII keys (High impact, Low effort)
+### Priority 2 — ~~Make KDF mandatory for ASCII keys~~ (Completed / superseded)
 
-**File:** `src/crypto.ts` (`normalizeKey`, ASCII branch, lines 81–86).
+**File:** `src/crypto.ts` (`normalizeKey`, ASCII branch).
 
-`deriveKeyFromPassphrase()` already exists. The fix is to route ASCII input
-through it automatically (with a logged notice) rather than using raw bytes.
-Update `docs/security.md` and add a CHANGELOG note — this is a behavioural
-change for operators using ASCII keys, even though the over-the-wire format
-is unaffected (the KDF runs only at startup on each side).
+**Completed** in Round-3 remediation as an **opt-in** flag rather than a
+behavioural change: `normalizeKey()` now accepts a `stretchAsciiKey` option
+that routes 32-char ASCII keys through `deriveKeyFromPassphrase()` when
+enabled. Default remains `false` so existing deployments are unchanged. The
+flag is exposed via `schemas/config.schema.json` (top-level and per-connection)
+and documented in `docs/security.md` and `CHANGELOG.md`. See the Remediation
+Outcomes table below.
 
-### Priority 3 — Gate or remove `allowUnauthenticatedControl` (Medium impact, Low effort)
+### Priority 3 — ~~Gate or remove `allowUnauthenticatedControl`~~ (Completed)
 
-**File:** `src/packet.ts:384, 458`
+**File:** `src/packet.ts` (previously `parseHeader`).
 
-The flag is not invoked from production code today. It is a regression
-hazard: any future caller that sets it to `true` silently disables HMAC
-verification on v3 control packets. Either delete the option or guard it
-behind a `TESTING_UNSAFE_CONTROL=1` env check that logs a startup warning.
+**Completed** in Round-3 remediation: the `allowUnauthenticatedControl`
+option was removed from `parseHeader()` entirely and v3 control-packet HMAC
+verification is now unconditional. The CHANGELOG's "Breaking" section records
+the API removal. See the Remediation Outcomes table below.
 
 ### Priority 4 — Lift pipeline-v2 / instance coverage (High impact, Medium effort)
 
@@ -293,14 +298,16 @@ Target: ≥ 65 % branch on each. New test suites should cover congestion
 throttling, retransmit replay on NAK, session limits, version-pin
 enforcement (after Priority 5), reload-during-stop, and parse-error paths.
 
-### Priority 5 — Pin protocol version per session (Medium impact, Low effort)
+### Priority 5 — ~~Pin protocol version per session~~ (Completed)
 
-**File:** `src/pipeline-v2-server.ts` session creation, `src/packet.ts` parse
-path.
+**File:** `src/pipeline-v2-server.ts` `receivePacket`.
 
-After the first HELLO is processed, store the negotiated version on the
-session object and reject subsequent packets whose version differs. Prevents
-a v3→v2 downgrade via replayed HELLO from a man-in-the-middle.
+**Completed** in Round-3 remediation: the v2/v3 server now pins to its
+configured `protocolVersion` and rejects any packet whose header advertises
+a different version (counted as `malformedPackets`). This closes the v3→v2
+downgrade surface where a MITM could inject forged v2 control frames
+(ACK/NAK/HEARTBEAT/HELLO) — which carry no HMAC tag — at a server that had
+negotiated v3. See the Remediation Outcomes table below.
 
 ### Priority 6 — JSDoc on `types.ts` (Low impact, Low effort)
 

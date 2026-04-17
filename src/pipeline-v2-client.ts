@@ -338,7 +338,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
 
       // Encrypt
       const encrypted = encryptBinary(compressed, secretKey, {
-        stretchAsciiKey: !!state.options.stretchAsciiKey
+        stretchAsciiKey
       });
 
       // Capture sequence before building (buildDataPacket advances it)

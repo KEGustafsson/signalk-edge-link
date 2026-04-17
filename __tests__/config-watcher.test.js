@@ -326,9 +326,15 @@ describe("initializePersistentStorage", () => {
 
     await initializePersistentStorage({ instanceId: "default", app, state });
 
-    expect(state.deltaTimerFile).toMatch(/instances\/default\/delta_timer\.json$/);
-    expect(state.subscriptionFile).toMatch(/instances\/default\/subscription\.json$/);
-    expect(state.sentenceFilterFile).toMatch(/instances\/default\/sentence_filter\.json$/);
+    expect(
+      state.deltaTimerFile.endsWith(path.join("instances", "default", "delta_timer.json"))
+    ).toBe(true);
+    expect(
+      state.subscriptionFile.endsWith(path.join("instances", "default", "subscription.json"))
+    ).toBe(true);
+    expect(
+      state.sentenceFilterFile.endsWith(path.join("instances", "default", "sentence_filter.json"))
+    ).toBe(true);
 
     const dt = JSON.parse(await fs.promises.readFile(state.deltaTimerFile, "utf-8"));
     expect(dt).toHaveProperty("deltaTimer");

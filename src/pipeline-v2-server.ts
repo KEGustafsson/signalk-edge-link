@@ -652,7 +652,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
 
       // Decrypt
       const decrypted = decryptBinary(parsed.payload, secretKey, {
-        stretchAsciiKey: !!state.options?.stretchAsciiKey
+        stretchAsciiKey
       });
 
       // Decompress (capped to prevent decompression bombs)
