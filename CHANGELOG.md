@@ -6,19 +6,23 @@ All notable changes to signalk-edge-link are documented here.
 
 ### Breaking
 
-- **ASCII passphrases are stretched with PBKDF2-SHA256** (`crypto.ts`):
-  `normalizeKey()` now routes 32-character ASCII keys through
-  `deriveKeyFromPassphrase()` (PBKDF2-SHA256, 600,000 iterations, salt
-  `signalk-edge-link-v1`) instead of using the raw ASCII bytes as the AES-GCM
-  key. The derivation is deterministic and cached per-process, so both peers
-  derive the same key from the same passphrase. Hex (64-char) and base64
-  (44-char) keys are unchanged. **Operators using 32-character ASCII keys must
-  redeploy both peers simultaneously — a peer on the old build cannot decrypt
-  packets from a peer on the new build and vice versa.**
 - **`parseHeader({ allowUnauthenticatedControl })` removed** (`packet.ts`):
   The option was never used in production code paths and allowed v3 control
   frames to bypass HMAC verification. V3 control packets are now always
   HMAC-verified.
+
+### Added
+
+- **Opt-in ASCII-key stretching with `stretchAsciiKey`** (`crypto.ts`,
+  `packet.ts`, `bonding.ts`, `pipeline-v2-*.ts`, schema): A new per-connection
+  boolean option `stretchAsciiKey` (default `false`) routes 32-character
+  ASCII keys through PBKDF2-SHA256 (600,000 iterations, salt
+  `signalk-edge-link-v1`) before they are used as the AES-256-GCM / HMAC key.
+  Hex (64-char) and base64 (44-char) keys are unaffected. The derivation is
+  deterministic and cached per-process. **Both peers must use the same
+  setting** — enabling it on one end and not the other will fail AES-GCM
+  authentication on every packet. Treat the flag as part of the key. Default
+  is `false` for backwards compatibility; existing deployments are unchanged.
 
 ### Security
 
@@ -28,10 +32,10 @@ All notable changes to signalk-edge-link are documented here.
   downgrade surface where a MITM could inject forged v2 control frames
   (ACK/NAK/HEARTBEAT/HELLO) — which carry no HMAC tag — at a server that had
   negotiated v3.
-- **ASCII-key PBKDF2 hardening** (see Breaking above): lifts the effective
-  entropy of a 32-char human-typeable ASCII key from ~208 bits to the full
-  256-bit AES strength and makes offline brute-force attacks on leaked
-  passphrases significantly more expensive.
+- **PBKDF2 stretching available for ASCII keys** (see Added above): when
+  enabled, lifts the effective entropy of a 32-char human-typeable ASCII key
+  from ~208 bits to the full 256-bit AES strength and makes offline brute-
+  force attacks on leaked passphrases significantly more expensive.
 
 ### Tests
 
@@ -40,8 +44,10 @@ All notable changes to signalk-edge-link are documented here.
   lifecycle, legacy-file migration, and persistent-storage initialization.
 - New `receivePacket – protocol version pin` regression tests in
   `__tests__/pipeline-v2-server.test.js`.
-- New `normalizeKey ASCII path uses PBKDF2` regression tests in
-  `__tests__/crypto.test.js`.
+- New `normalizeKey ASCII path` and `encryptBinary / decryptBinary
+stretchAsciiKey round-trip` regression tests in `__tests__/crypto.test.js`
+  covering the default raw-bytes path, the opt-in PBKDF2 path, and the
+  mismatched-flag failure mode.
 
 ### Documentation
 

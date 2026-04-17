@@ -36,23 +36,42 @@ export function deriveKeyFromPassphrase(
 }
 
 /**
+ * Options shared by every key-consuming primitive.
+ *
+ * `stretchAsciiKey` is an opt-in flag: when `true`, a 32-character ASCII key
+ * is stretched via PBKDF2-SHA256 (600,000 iterations, salt
+ * `signalk-edge-link-v1`) before it is used as the AES-256-GCM key.  Hex
+ * (64-char) and base64 (44-char) keys are decoded raw regardless of this
+ * flag.
+ *
+ * **Peers must agree on this setting.**  Enabling it on one end and not the
+ * other will cause AES-GCM authentication to fail and every packet to be
+ * dropped.  Treat it as part of the key itself.
+ */
+export interface KeyNormalizationOptions {
+  stretchAsciiKey?: boolean;
+}
+
+/**
  * Normalize a secret key string into a 32-byte Buffer.
  *
  * Accepts three formats:
  * - 64-character hex string  → decoded to 32 bytes (full 256-bit entropy)
  * - 44-character base64 string → decoded to 32 bytes (full 256-bit entropy)
- * - 32-character ASCII string → stretched to 32 bytes via PBKDF2-SHA256
- *   (600,000 iterations, salt "signalk-edge-link-v1") to lift the
- *   ~208-bit effective entropy of human-typeable input to a full 256-bit key
+ * - 32-character ASCII string → used raw by default, OR stretched via
+ *   PBKDF2-SHA256 (600,000 iterations, salt "signalk-edge-link-v1") when
+ *   `options.stretchAsciiKey` is `true`.  PBKDF2 lifts the ~208-bit effective
+ *   entropy of a human-typeable 32-char key to a full 256-bit AES key.
  *
- * Both ends of a connection must use the same key string in the same format
- * for the derived 32-byte buffers to match.
+ * Both ends of a connection must use the same key string and the same
+ * `stretchAsciiKey` setting for the derived 32-byte buffers to match.
  *
  * @param secretKey - Secret key in any supported format
+ * @param options - Key normalization options (optional)
  * @returns 32-byte key buffer
  * @throws Error if key cannot be normalized to exactly 32 bytes
  */
-export function normalizeKey(secretKey: string): Buffer {
+export function normalizeKey(secretKey: string, options: KeyNormalizationOptions = {}): Buffer {
   if (!secretKey || typeof secretKey !== "string") {
     throw new Error("Secret key must be a non-empty string");
   }
@@ -77,12 +96,16 @@ export function normalizeKey(secretKey: string): Buffer {
     );
   }
 
-  // Fallback: raw ASCII — must be exactly 32 bytes.  Stretch via PBKDF2 so
-  // human-typed keys (~6.5 bits/char ≈ 208 bits) get the full 256-bit
-  // strength of AES-256-GCM.  Cached so the 600k-iteration KDF only runs
-  // once per distinct key string per process.
+  // Fallback: raw ASCII — must be exactly 32 bytes.  Default is to use the
+  // bytes as-is for backwards compatibility; callers that set
+  // `stretchAsciiKey: true` get PBKDF2-SHA256 stretching so a human-typed
+  // 32-char key (~6.5 bits/char ≈ 208 bits) reaches the full 256-bit AES
+  // strength.  Both ends must use the same setting.
   if (Buffer.byteLength(secretKey) === 32) {
-    return getOrDeriveAsciiKey(secretKey);
+    if (options.stretchAsciiKey) {
+      return getOrDeriveAsciiKey(secretKey);
+    }
+    return Buffer.from(secretKey);
   }
 
   throw new Error(
@@ -113,11 +136,16 @@ function getOrDeriveAsciiKey(asciiKey: string): Buffer {
  * Binary format: [IV (12 bytes)][Encrypted Data][Auth Tag (16 bytes)]
  * @param data - Data to encrypt
  * @param secretKey - Secret key (32-char ASCII, 64-char hex, or 44-char base64)
+ * @param options - Key normalization options (e.g. stretchAsciiKey)
  * @returns Binary packet with IV, encrypted data, and auth tag
  * @throws Error if secretKey is invalid or data is empty
  */
-export const encryptBinary = (data: Buffer | string, secretKey: string): Buffer => {
-  const keyBuffer = normalizeKey(secretKey);
+export const encryptBinary = (
+  data: Buffer | string,
+  secretKey: string,
+  options: KeyNormalizationOptions = {}
+): Buffer => {
+  const keyBuffer = normalizeKey(secretKey, options);
 
   if (!data || (Buffer.isBuffer(data) && data.length === 0)) {
     throw new Error("Data to encrypt cannot be empty");
@@ -141,11 +169,17 @@ export const encryptBinary = (data: Buffer | string, secretKey: string): Buffer 
  * Decrypts data encrypted with AES-256-GCM
  * @param packet - Binary packet with IV, encrypted data, and auth tag
  * @param secretKey - Secret key (32-char ASCII, 64-char hex, or 44-char base64)
+ * @param options - Key normalization options (e.g. stretchAsciiKey); must
+ *   match what the sender used or authentication will fail
  * @returns Decrypted data as Buffer
  * @throws Error if secretKey or packet is invalid, or authentication fails
  */
-export const decryptBinary = (packet: Buffer, secretKey: string): Buffer => {
-  const keyBuffer = normalizeKey(secretKey);
+export const decryptBinary = (
+  packet: Buffer,
+  secretKey: string,
+  options: KeyNormalizationOptions = {}
+): Buffer => {
+  const keyBuffer = normalizeKey(secretKey, options);
 
   if (!Buffer.isBuffer(packet) || packet.length <= IV_LENGTH + AUTH_TAG_LENGTH) {
     throw new Error("Invalid packet size");
@@ -247,18 +281,20 @@ export function validateSecretKey(key: string): boolean {
  * @param headerData - Header bytes 0..12
  * @param payload - Control payload without trailing auth tag
  * @param secretKey - Secret key in any supported format
+ * @param options - Key normalization options (e.g. stretchAsciiKey)
  * @returns Truncated HMAC tag
  */
 export function createControlPacketAuthTag(
   headerData: Buffer,
   payload: Buffer | string | null,
-  secretKey: string
+  secretKey: string,
+  options: KeyNormalizationOptions = {}
 ): Buffer {
   if (!Buffer.isBuffer(headerData)) {
     throw new Error("Control packet header must be a Buffer");
   }
 
-  const keyBuffer = normalizeKey(secretKey);
+  const keyBuffer = normalizeKey(secretKey, options);
   const payloadBuffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload || "");
   const hmac = crypto.createHmac("sha256", keyBuffer);
   hmac.update(headerData);
@@ -275,19 +311,22 @@ export function createControlPacketAuthTag(
  * @param payload - Control payload without trailing auth tag
  * @param authTag - Trailing auth tag from the packet
  * @param secretKey - Secret key in any supported format
+ * @param options - Key normalization options (e.g. stretchAsciiKey); must
+ *   match what the sender used or verification will fail
  * @returns True when authentication succeeds
  */
 export function verifyControlPacketAuthTag(
   headerData: Buffer,
   payload: Buffer | string | null,
   authTag: Buffer,
-  secretKey: string
+  secretKey: string,
+  options: KeyNormalizationOptions = {}
 ): boolean {
   if (!Buffer.isBuffer(authTag) || authTag.length !== CONTROL_AUTH_TAG_LENGTH) {
     throw new Error("Control packet authentication tag missing");
   }
 
-  const expected = createControlPacketAuthTag(headerData, payload, secretKey);
+  const expected = createControlPacketAuthTag(headerData, payload, secretKey, options);
   if (!crypto.timingSafeEqual(expected, authTag)) {
     throw new Error("Control packet authentication failed");
   }

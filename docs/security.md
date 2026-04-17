@@ -22,13 +22,21 @@ This document captures operational security practices and implementation notes f
 ## Secret-key handling recommendations
 
 - Generate per-instance keys with CSPRNG output.
-- Prefer **64-character hex** or **44-character base64** keys for full 256-bit entropy.
-  A 32-character ASCII key provides only ~208 bits of raw entropy; since 2.1.2 the
-  ASCII path is stretched via **PBKDF2-SHA256** (600,000 iterations, salt
-  `signalk-edge-link-v1`) before being used as the AES-GCM key, which restores the
-  full 256-bit AES strength and makes offline brute-force significantly more
-  expensive. The derived key is cached per process, so there is no steady-state
-  performance penalty. Hex and base64 keys bypass PBKDF2.
+- Prefer **64-character hex** or **44-character base64** keys for full 256-bit
+  entropy. A 32-character ASCII key provides only ~208 bits of raw entropy
+  unless `stretchAsciiKey` is enabled (see below).
+- For 32-character ASCII keys, set the per-connection option
+  **`stretchAsciiKey: true`** to route the key through PBKDF2-SHA256
+  (600,000 iterations, salt `signalk-edge-link-v1`) before it is used as the
+  AES-GCM key. PBKDF2 restores full 256-bit AES strength and makes offline
+  brute-force significantly more expensive. The derived key is cached per
+  process, so there is no steady-state performance penalty. Hex and base64
+  keys bypass PBKDF2.
+  - **Both ends of the connection must use the same `stretchAsciiKey`
+    setting** — mismatched values will fail AES-GCM authentication and drop
+    every packet. Treat the flag as part of the key.
+  - Default is `false` (raw ASCII bytes used directly) so existing
+    deployments are unchanged.
 - Avoid copying keys into shell history; use environment variables or secrets managers.
 - Rotate keys regularly (for example every 90 days) and after incident response events.
 - Do not log plaintext key material.

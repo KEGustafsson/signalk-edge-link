@@ -379,12 +379,12 @@ to a landed commit.
 
 ### Shipped
 
-| #   | Finding                                        | Action                                                                  | Commit                                                                 |
-| --- | ---------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| 1   | P2 — Unused `allowUnauthenticatedControl` flag | Removed from `parseHeader()`; HMAC is always verified on v3 control     | `security: remove unused allowUnauthenticatedControl from parseHeader` |
-| 2   | P2 — ASCII keys skip KDF                       | `normalizeKey()` now stretches 32-char ASCII via PBKDF2 (with cache)    | `security: stretch 32-char ASCII keys via PBKDF2-SHA256`               |
-| 3   | P2 — v2/v3 downgrade surface                   | v2 server pins `protocolVersion`; mismatched headers count as malformed | `security: pin negotiated protocol version per server`                 |
-| 4   | Coverage gap — `config-watcher.ts` 49 % branch | +11 new tests; branch coverage 49 % → 56 %, statements 65 % → 70 %      | `test: expand config-watcher coverage`                                 |
+| #   | Finding                                        | Action                                                                                                                                | Commit                                                                      |
+| --- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1   | P2 — Unused `allowUnauthenticatedControl` flag | Removed from `parseHeader()`; HMAC is always verified on v3 control                                                                   | `security: remove unused allowUnauthenticatedControl from parseHeader`      |
+| 2   | P2 — ASCII keys skip KDF                       | New per-connection opt-in `stretchAsciiKey` flag routes 32-char ASCII keys through PBKDF2 (cached, both ends must agree, default off) | `security: stretch 32-char ASCII keys via PBKDF2-SHA256` + opt-in follow-up |
+| 3   | P2 — v2/v3 downgrade surface                   | v2 server pins `protocolVersion`; mismatched headers count as malformed                                                               | `security: pin negotiated protocol version per server`                      |
+| 4   | Coverage gap — `config-watcher.ts` 49 % branch | +11 new tests; branch coverage 49 % → 56 %, statements 65 % → 70 %                                                                    | `test: expand config-watcher coverage`                                      |
 
 ### Corrected from the Round-3 findings table
 
@@ -412,13 +412,13 @@ to a landed commit.
 
 ### Post-remediation metrics
 
-| Metric                                  | Pre-Round-3 | Post-Round-3 | Δ    |
-| --------------------------------------- | :---------: | :----------: | :--- |
-| Global branch coverage                  |   67.99 %   |    68.2 %    | +0.2 |
-| `lib/config-watcher.js` branch coverage |    49 %     |     56 %     | +7   |
-| v3 control packets that can bypass HMAC |    yes\*    |      no      | —    |
-| ASCII key effective strength            |  ~208 bits  |   256 bits   | +48  |
-| v3→v2 downgrade via forged header       |   allowed   |   rejected   | —    |
+| Metric                                       | Pre-Round-3 | Post-Round-3 | Δ    |
+| -------------------------------------------- | :---------: | :----------: | :--- |
+| Global branch coverage                       |   67.99 %   |    68.2 %    | +0.2 |
+| `lib/config-watcher.js` branch coverage      |    49 %     |     56 %     | +7   |
+| v3 control packets that can bypass HMAC      |    yes\*    |      no      | —    |
+| ASCII key strength (with stretchAsciiKey on) |  ~208 bits  |   256 bits   | +48  |
+| v3→v2 downgrade via forged header            |   allowed   |   rejected   | —    |
 
 \*only via the removed `allowUnauthenticatedControl` option, which was never
 invoked from production code.

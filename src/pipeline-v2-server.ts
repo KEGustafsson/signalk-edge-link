@@ -65,12 +65,15 @@ interface ClientSession {
 function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
   const { metrics, recordError, trackPathStats, updateBandwidthRates } = metricsApi;
   const protocolVersion = state.options && state.options.protocolVersion === 3 ? 3 : 2;
+  const stretchAsciiKey = !!state.options?.stretchAsciiKey;
   const packetParser = new PacketParser({
-    secretKey: state.options?.secretKey ?? undefined
+    secretKey: state.options?.secretKey ?? undefined,
+    stretchAsciiKey
   });
   const packetBuilder = new PacketBuilder({
     protocolVersion,
-    secretKey: state.options?.secretKey ?? undefined
+    secretKey: state.options?.secretKey ?? undefined,
+    stretchAsciiKey
   });
   const CLIENT_TELEMETRY_SOURCE = "signalk-edge-link-client-telemetry";
   const CLIENT_TELEMETRY_PATHS = new Set([
@@ -648,7 +651,9 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       // Decrypt
-      const decrypted = decryptBinary(parsed.payload, secretKey);
+      const decrypted = decryptBinary(parsed.payload, secretKey, {
+        stretchAsciiKey: !!state.options?.stretchAsciiKey
+      });
 
       // Decompress (capped to prevent decompression bombs)
       const decompressed = await brotliDecompressAsync(decrypted, {

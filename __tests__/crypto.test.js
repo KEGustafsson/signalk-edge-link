@@ -238,44 +238,82 @@ describe("Crypto Module", () => {
     });
   });
 
-  describe("normalizeKey ASCII path uses PBKDF2", () => {
-    test("32-char ASCII key is stretched via PBKDF2-SHA256 with the documented salt", () => {
+  describe("normalizeKey ASCII path", () => {
+    test("default behaviour uses raw ASCII bytes (no KDF)", () => {
+      const normalized = normalizeKey(validSecretKey);
+      expect(Buffer.isBuffer(normalized)).toBe(true);
+      expect(normalized.length).toBe(32);
+      expect(normalized.equals(Buffer.from(validSecretKey))).toBe(true);
+    });
+
+    test("stretchAsciiKey:true routes the key through PBKDF2-SHA256 with the documented salt", () => {
       const ascii = validSecretKey;
       const expected = deriveKeyFromPassphrase(ascii);
-      const normalized = normalizeKey(ascii);
+      const normalized = normalizeKey(ascii, { stretchAsciiKey: true });
 
       expect(Buffer.isBuffer(normalized)).toBe(true);
       expect(normalized.length).toBe(32);
       expect(normalized.equals(expected)).toBe(true);
-      // Sanity: the derived key must NOT equal the raw ASCII bytes — that
-      // would indicate the legacy raw-bytes fallback is still active.
+      // Sanity: the derived key must NOT equal the raw ASCII bytes when
+      // stretching is enabled — otherwise the opt-in is a no-op.
       expect(normalized.equals(Buffer.from(ascii))).toBe(false);
     });
 
-    test("64-char hex key is decoded raw (KDF skipped)", () => {
-      const hex = "a".repeat(64);
-      const normalized = normalizeKey(hex);
-      expect(normalized.equals(Buffer.from(hex, "hex"))).toBe(true);
+    test("the same ASCII key with vs without stretching yields different bytes", () => {
+      const raw = normalizeKey(validSecretKey);
+      const stretched = normalizeKey(validSecretKey, { stretchAsciiKey: true });
+      expect(raw.equals(stretched)).toBe(false);
     });
 
-    test("44-char base64 key is decoded raw (KDF skipped)", () => {
+    test("64-char hex key is decoded raw regardless of stretchAsciiKey", () => {
+      const hex = "a".repeat(64);
+      const expected = Buffer.from(hex, "hex");
+      expect(normalizeKey(hex).equals(expected)).toBe(true);
+      expect(normalizeKey(hex, { stretchAsciiKey: true }).equals(expected)).toBe(true);
+    });
+
+    test("44-char base64 key is decoded raw regardless of stretchAsciiKey", () => {
       const raw = crypto.randomBytes(32);
       const b64 = raw.toString("base64");
       expect(b64.length).toBe(44);
-      const normalized = normalizeKey(b64);
-      expect(normalized.equals(raw)).toBe(true);
+      expect(normalizeKey(b64).equals(raw)).toBe(true);
+      expect(normalizeKey(b64, { stretchAsciiKey: true }).equals(raw)).toBe(true);
     });
 
-    test("identical ASCII keys produce the same derived key (peers stay in sync)", () => {
-      const a = normalizeKey(validSecretKey);
-      const b = normalizeKey(validSecretKey);
+    test("identical ASCII keys with stretchAsciiKey produce the same derived key", () => {
+      const a = normalizeKey(validSecretKey, { stretchAsciiKey: true });
+      const b = normalizeKey(validSecretKey, { stretchAsciiKey: true });
       expect(a.equals(b)).toBe(true);
     });
 
-    test("different ASCII keys produce different derived keys", () => {
-      const a = normalizeKey(validSecretKey);
-      const b = normalizeKey("Abc123!@#XYZ456$%^uvw789&*()pqr0");
+    test("different ASCII keys with stretchAsciiKey produce different derived keys", () => {
+      const a = normalizeKey(validSecretKey, { stretchAsciiKey: true });
+      const b = normalizeKey("Abc123!@#XYZ456$%^uvw789&*()pqr0", {
+        stretchAsciiKey: true
+      });
       expect(a.equals(b)).toBe(false);
+    });
+  });
+
+  describe("encryptBinary / decryptBinary stretchAsciiKey round-trip", () => {
+    test("encrypt+decrypt with stretchAsciiKey on both ends recovers data", () => {
+      const data = Buffer.from("hello stretch");
+      const packet = encryptBinary(data, validSecretKey, { stretchAsciiKey: true });
+      const decrypted = decryptBinary(packet, validSecretKey, { stretchAsciiKey: true });
+      expect(decrypted.equals(data)).toBe(true);
+    });
+
+    test("mismatched stretchAsciiKey settings cause AES-GCM auth failure", () => {
+      const data = Buffer.from("hello mismatch");
+      const packet = encryptBinary(data, validSecretKey, { stretchAsciiKey: true });
+      expect(() => decryptBinary(packet, validSecretKey, { stretchAsciiKey: false })).toThrow();
+    });
+
+    test("default (no options) round-trip still works with raw ASCII bytes", () => {
+      const data = Buffer.from("hello legacy");
+      const packet = encryptBinary(data, validSecretKey);
+      const decrypted = decryptBinary(packet, validSecretKey);
+      expect(decrypted.equals(data)).toBe(true);
     });
   });
 });
