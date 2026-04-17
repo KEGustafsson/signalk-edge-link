@@ -1,40 +1,31 @@
 # Code Quality Report — Signal K Edge Link
 
-**Generated:** 2026-04-16
-**Branch:** `claude/comprehensive-code-review-BBkGv`
-**Scope:** All TypeScript source files under `src/` and the webapp bundle
-**Review basis:** Round 3 (deep multi-aspect review) — supersedes 2026-03-15 report
+**Scope:** All TypeScript source files under `src/` and the webapp bundle.
+
+This document captures the repository's quality model and the durable
+observations that inform module-level scores. Exact, time-varying metrics
+(coverage percentages, `any` counts, failing-test totals) are published as
+CI artifacts and are not duplicated here.
 
 ---
 
-## Data Foundations
+## Headline Signals
 
-Raw metrics collected before scoring (all run on the working branch):
+- **Build / lint / types:** `tsc` (backend and webapp) and `eslint` gate on
+  zero errors in CI.
+- **Coverage:** Global branch coverage sits in the high 60s with a 60 %
+  configured threshold. Core protocol modules (`sequence.ts`, `packet.ts`,
+  `congestion.ts`) exceed 80 % branch coverage; the pipeline-v2 and instance
+  modules remain the primary coverage gaps.
+- **Type safety:** Route handlers use structural `RouteRequest` /
+  `RouteResponse` types rather than `any`. The residual `any` usages are
+  concentrated in CLI argv parsing and the legacy migration script; no route
+  handler carries `any` parameters.
+- **Process hygiene:** No `TODO` / `FIXME` / `HACK` / `XXX` markers in the
+  tracked source tree.
 
-| Metric                                            | Value     |
-| ------------------------------------------------- | --------- |
-| Total source lines (`src/`)                       | 17,579    |
-| Global statement coverage                         | 79.58 %   |
-| Global branch coverage                            | 67.99 %   |
-| Global function coverage                          | 82.89 %   |
-| Global line coverage                              | 79.85 %   |
-| Coverage threshold (configured)                   | 60 % (br) |
-| TypeScript compile errors                         | 0         |
-| ESLint errors                                     | 0         |
-| `: any` annotations in `src/`                     | 17        |
-| `as any` casts in `src/`                          | 1         |
-| `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck` | 0         |
-| `req: any` / `res: any` in route handlers         | 0         |
-| `TODO` / `FIXME` / `HACK` / `XXX` markers         | 0         |
-| Test files                                        | 56 suites |
-| Tests passing                                     | 1507/1507 |
-
-The previous (Round 2) report tabulated 344 `any` usages and "all route handlers
-use `req: any, res: any`". Both numbers are now stale: routes were migrated to
-`RouteRequest` / `RouteResponse` structural types in `src/routes/types.ts`, and
-the residual 17 `any` usages live almost entirely in CLI argv parsing
-(`src/bin/edge-link-cli.ts`, 11) and the legacy migration script
-(`src/scripts/migrate-config.ts`, 3).
+For drill-down metrics (per-file coverage, exact `any` counts, test-suite
+output) consult the CI pipeline artifacts.
 
 ---
 
@@ -376,67 +367,17 @@ connection. Prevents disk thrashing from a malicious authenticated client.
 
 ---
 
-_Report produced by Claude Code (claude-opus-4-7) following the Round-3
-deep code review on branch `claude/comprehensive-code-review-BBkGv`._
+## Completed Hardenings
 
----
+The following permanent behaviour changes landed in recent work and are
+reflected in the module scores above:
 
-## Round-3 Remediation Outcomes (2026-04-17)
+- **Unconditional v3 control-packet HMAC verification** (`packet.ts`). The
+  previous opt-in bypass has been removed.
+- **Opt-in PBKDF2 stretching for 32-char ASCII keys** (`crypto.ts`,
+  `stretchAsciiKey` flag). Off by default; when enabled, both peers must
+  agree.
+- **Protocol version pinning on v2/v3 servers** (`pipeline-v2-server.ts`).
+  Mismatched headers are rejected and counted as malformed.
 
-Executed on branch `claude/comprehensive-code-review-BBkGv`. Each item links
-to a landed commit.
-
-### Shipped
-
-| #   | Finding                                        | Action                                                                                                                                | Commit                                                                      |
-| --- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| 1   | P2 — Unused `allowUnauthenticatedControl` flag | Removed from `parseHeader()`; HMAC is always verified on v3 control                                                                   | `security: remove unused allowUnauthenticatedControl from parseHeader`      |
-| 2   | P2 — ASCII keys skip KDF                       | New per-connection opt-in `stretchAsciiKey` flag routes 32-char ASCII keys through PBKDF2 (cached, both ends must agree, default off) | `security: stretch 32-char ASCII keys via PBKDF2-SHA256` + opt-in follow-up |
-| 3   | P2 — v2/v3 downgrade surface                   | v2 server pins `protocolVersion`; mismatched headers count as malformed                                                               | `security: pin negotiated protocol version per server`                      |
-| 4   | Coverage gap — `config-watcher.ts` 49 % branch | +11 new tests; branch coverage 49 % → 56 %, statements 65 % → 70 %                                                                    | `test: expand config-watcher coverage`                                      |
-
-### Corrected from the Round-3 findings table
-
-- **Priority 1 ("Fix unhandled NAK rejection")** was re-verified and dropped.
-  `_sendNAK` catches socket errors internally, so the un-awaited call site at
-  `pipeline-v2-server.ts:190` cannot generate an unhandled promise rejection.
-  The item is retained in the report with a strikethrough for traceability.
-- **Priority 7 ("Debounce `POST /monitoring/alerts` saves")** was left as-is.
-  The existing token-bucket rate limit on the management router (120 req/min
-  per IP in `routes.ts`) already caps the save rate a malicious token holder
-  can achieve at 2 saves/sec — not a thrash-grade threat on modern disks.
-  Documented as deferred rather than coded.
-
-### Deferred (tracked in follow-up work)
-
-- **Pipeline-v2 / instance coverage uplift beyond config-watcher.** Individual
-  files (`pipeline-v2-client.ts`, `pipeline-v2-server.ts`, `instance.ts`)
-  remain below the 65 % branch target. These are large, stateful modules; a
-  meaningful coverage pass needs bespoke scaffolding (fake UDP socket,
-  synthetic session state) that is better delivered as its own sprint.
-- **`types.ts` JSDoc pass.** Still ~616 LOC with minimal per-field doc. No
-  runtime risk; purely a discoverability improvement, deferred.
-- **Split of `instance.ts` / `webapp/index.ts`.** Noted as an architecture-
-  grade refactor; unchanged in this round.
-
-### Post-remediation metrics
-
-| Metric                                       | Pre-Round-3 | Post-Round-3 | Δ    |
-| -------------------------------------------- | :---------: | :----------: | :--- |
-| Global branch coverage                       |   67.99 %   |    68.2 %    | +0.2 |
-| `lib/config-watcher.js` branch coverage      |    49 %     |     56 %     | +7   |
-| v3 control packets that can bypass HMAC      |    yes\*    |      no      | —    |
-| ASCII key strength (with stretchAsciiKey on) |  ~208 bits  |   256 bits   | +48  |
-| v3→v2 downgrade via forged header            |   allowed   |   rejected   | —    |
-
-\*only via the removed `allowUnauthenticatedControl` option, which was never
-invoked from production code.
-
-### Project grade
-
-The three security hardenings and the config-watcher coverage uplift move the
-project grade from **B (7.5)** to **B+ (7.9)**. Documentation and coverage on
-the pipeline/instance god-object modules remain the binding constraints on
-reaching A-grade; those are flagged for a dedicated follow-up.
-
-_Remediation executed by Claude Code (claude-opus-4-7) on 2026-04-17._
+See `CHANGELOG.md` for release-scoped summaries of these and other changes.

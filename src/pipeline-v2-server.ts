@@ -256,6 +256,11 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   let lastBytesReceived = 0;
   let lastPacketsReceived = 0;
 
+  // Rate-limit operator-visible warnings for protocol-version mismatches so a
+  // persistently misconfigured peer is noticeable in logs without flooding them.
+  const PROTOCOL_VERSION_MISMATCH_WARN_INTERVAL_MS = 60_000;
+  let lastProtocolVersionMismatchWarnAt = 0;
+
   function _toFiniteNumber(value: unknown): number | null {
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
@@ -555,6 +560,13 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         app.debug(
           `v2 rejecting packet with mismatched protocol version: got=${parsed.version} expected=${protocolVersion}`
         );
+        const now = Date.now();
+        if (now - lastProtocolVersionMismatchWarnAt >= PROTOCOL_VERSION_MISMATCH_WARN_INTERVAL_MS) {
+          lastProtocolVersionMismatchWarnAt = now;
+          app.error(
+            `v2 protocol version mismatch: got=${parsed.version} expected=${protocolVersion} (malformedPackets=${metrics.malformedPackets}); check peer configuration`
+          );
+        }
         return;
       }
 

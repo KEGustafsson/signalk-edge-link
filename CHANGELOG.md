@@ -51,7 +51,9 @@ stretchAsciiKey round-trip` regression tests in `__tests__/crypto.test.js`
 
 ### Documentation
 
-- Refreshed `docs/code-quality-report.md` with the Round-3 assessment.
+- `docs/code-quality-report.md` summarises the repository's quality model,
+  headline signals (coverage, typing, lint), and open improvement
+  opportunities.
 
 ---
 
