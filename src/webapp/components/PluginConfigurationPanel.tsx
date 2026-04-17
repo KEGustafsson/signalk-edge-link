@@ -4,6 +4,7 @@ import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import { RJSFSchema, UiSchema } from "@rjsf/utils";
 import { apiFetch, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
+import { buildWebappConnectionSchema } from "../../shared/connection-schema";
 
 const API_BASE = "/plugins/signalk-edge-link";
 
@@ -22,6 +23,7 @@ interface ConnectionData {
   serverType?: string;
   udpPort?: number;
   secretKey?: string;
+  stretchAsciiKey?: boolean;
   useMsgpack?: boolean;
   usePathDictionary?: boolean;
   enableNotifications?: boolean;
@@ -48,6 +50,7 @@ function defaultClientConnection(name?: string): ConnectionData {
     serverType: "client",
     udpPort: 4446,
     secretKey: "",
+    stretchAsciiKey: false,
     useMsgpack: false,
     usePathDictionary: false,
     enableNotifications: false,
@@ -67,6 +70,7 @@ function defaultServerConnection(name?: string): ConnectionData {
     serverType: "server",
     udpPort: 4446,
     secretKey: "",
+    stretchAsciiKey: false,
     useMsgpack: false,
     usePathDictionary: false,
     enableNotifications: false,
@@ -79,356 +83,22 @@ function withId(conn: Omit<ConnectionData, "_id"> & { _id?: string }): Connectio
   return conn._id ? (conn as ConnectionData) : { ...conn, _id: makeId() };
 }
 
-// ── Schema builders ───────────────────────────────────────────────────────────
-
-const commonProperties: Record<string, RJSFSchema> = {
-  name: {
-    type: "string",
-    title: "Connection Name",
-    description: "Human-readable label for this connection (e.g. 'Shore Server', 'Sat Client')",
-    default: "connection",
-    maxLength: 40
-  },
-  serverType: {
-    type: "string",
-    title: "Operation Mode",
-    description: "Server: receive incoming data.  Client: send data to a server.",
-    default: "client",
-    oneOf: [
-      { const: "server", title: "Server – Receive Data" },
-      { const: "client", title: "Client – Send Data" }
-    ]
-  },
-  udpPort: {
-    type: "number",
-    title: "UDP Port",
-    description: "UDP port for data transmission (must match on both ends)",
-    default: 4446,
-    minimum: 1024,
-    maximum: 65535
-  },
-  secretKey: {
-    type: "string",
-    title: "Encryption Key",
-    description: "32-byte secret key: 32-character ASCII, 64-character hex, or 44-character base64",
-    minLength: 32,
-    maxLength: 64,
-    pattern: "^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
-  },
-  useMsgpack: {
-    type: "boolean",
-    title: "Use MessagePack",
-    description: "Binary serialization for smaller payloads (must match on both ends)",
-    default: false
-  },
-  usePathDictionary: {
-    type: "boolean",
-    title: "Use Path Dictionary",
-    description: "Encode paths as numeric IDs for bandwidth savings (must match on both ends)",
-    default: false
-  },
-  enableNotifications: {
-    type: "boolean",
-    title: "Enable Signal K Notifications",
-    description: "Emit Signal K notifications for alerts/failover events.",
-    default: false
-  },
-  protocolVersion: {
-    type: "number",
-    title: "Protocol Version",
-    description: "v1: encrypted UDP. v2 adds reliable delivery and metrics. v3 keeps the v2 data path and authenticates control packets (ACK/NAK/HEARTBEAT/HELLO). Must match on both ends.",
-    default: 1,
-    oneOf: [
-      { const: 1, title: "v1 – Standard encrypted UDP" },
-      { const: 2, title: "v2 – Reliability, congestion control, bonding, metrics" },
-      { const: 3, title: "v3 - v2 features with authenticated control packets" }
-    ]
-  }
-};
-
-const clientProperties: Record<string, RJSFSchema> = {
-  udpAddress: {
-    type: "string",
-    title: "Server Address",
-    description: "Required. IP address or hostname of the remote SignalK endpoint.",
-    default: "127.0.0.1"
-  },
-  helloMessageSender: {
-    type: "integer",
-    title: "Heartbeat Interval (seconds)",
-    description: "Optional tuning. Send periodic heartbeat messages to keep NAT/firewall mappings alive.",
-    default: 60,
-    minimum: 10,
-    maximum: 3600
-  },
-  testAddress: {
-    type: "string",
-    title: "Connectivity Test Address",
-    description: "Required. Host used for reachability checks (for example 8.8.8.8).",
-    default: "127.0.0.1"
-  },
-  testPort: {
-    type: "number",
-    title: "Connectivity Test Port",
-    description: "Required. Port used for reachability checks (for example 53, 80, or 443).",
-    default: 80,
-    minimum: 1,
-    maximum: 65535
-  },
-  pingIntervalTime: {
-    type: "number",
-    title: "Check Interval (minutes)",
-    description: "Optional tuning. Frequency of network reachability checks.",
-    default: 1,
-    minimum: 0.1,
-    maximum: 60
-  },
-  reliability: {
-    type: "object",
-    title: "Reliability Settings",
-    description: "Advanced. Requires Protocol v2 or v3. Controls retransmit queue behavior and retry limits.",
-    properties: {
-      retransmitQueueSize: {
-        type: "number", title: "Retransmit Queue Size",
-        description: "Maximum sent packets stored for potential retransmission",
-        default: 5000, minimum: 100, maximum: 50000
-      },
-      maxRetransmits: {
-        type: "number", title: "Max Retransmit Attempts",
-        description: "Maximum resend attempts before a packet is dropped",
-        default: 3, minimum: 1, maximum: 20
-      },
-      retransmitMaxAge: {
-        type: "number", title: "Retransmit Max Age (ms)",
-        description: "Expire unacknowledged packets older than this",
-        default: 120000, minimum: 1000, maximum: 300000
-      },
-      retransmitMinAge: {
-        type: "number", title: "Retransmit Min Age (ms)",
-        description: "Minimum packet age before expiration is allowed",
-        default: 10000, minimum: 200, maximum: 30000
-      },
-      retransmitRttMultiplier: {
-        type: "number", title: "RTT Expiry Multiplier",
-        description: "Dynamic expiry age = RTT × this multiplier",
-        default: 12, minimum: 2, maximum: 20
-      },
-      ackIdleDrainAge: {
-        type: "number", title: "ACK Idle Drain Age (ms)",
-        description: "When ACKs are idle beyond this, expiry becomes aggressive",
-        default: 20000, minimum: 500, maximum: 30000
-      },
-      forceDrainAfterAckIdle: {
-        type: "boolean", title: "Force Drain After ACK Idle",
-        description: "Clear retransmit queue if no ACKs arrive for too long",
-        default: false
-      },
-      forceDrainAfterMs: {
-        type: "number", title: "Force Drain Timeout (ms)",
-        description: "ACK idle duration before force-draining retransmit queue",
-        default: 45000, minimum: 2000, maximum: 120000
-      },
-      recoveryBurstEnabled: {
-        type: "boolean", title: "Recovery Burst Enabled",
-        description: "Rapidly retransmit queued packets when ACKs return after outage",
-        default: true
-      },
-      recoveryBurstSize: {
-        type: "number", title: "Recovery Burst Size",
-        description: "Max queued packets to retransmit per recovery burst cycle",
-        default: 100, minimum: 10, maximum: 1000
-      },
-      recoveryBurstIntervalMs: {
-        type: "number", title: "Recovery Burst Interval (ms)",
-        description: "Interval between recovery burst cycles",
-        default: 200, minimum: 50, maximum: 5000
-      },
-      recoveryAckGapMs: {
-        type: "number", title: "Recovery ACK Gap (ms)",
-        description: "Minimum ACK silence before triggering fast recovery",
-        default: 4000, minimum: 500, maximum: 120000
-      }
-    }
-  },
-  congestionControl: {
-    type: "object",
-    title: "Dynamic Congestion Control",
-    description: "Advanced. Requires Protocol v2 or v3. AIMD logic can adapt send rate based on RTT and packet loss.",
-    properties: {
-      enabled: {
-        type: "boolean", title: "Enable Congestion Control",
-        description: "Automatically adjust delta timer based on network conditions",
-        default: false
-      },
-      targetRTT: {
-        type: "number", title: "Target RTT (ms)",
-        description: "Send rate is reduced when RTT exceeds this threshold",
-        default: 200, minimum: 50, maximum: 2000
-      },
-      nominalDeltaTimer: {
-        type: "number", title: "Nominal Delta Timer (ms)",
-        description: "Preferred steady-state send interval",
-        default: 1000, minimum: 100, maximum: 10000
-      },
-      minDeltaTimer: {
-        type: "number", title: "Minimum Delta Timer (ms)",
-        description: "Fastest allowed send interval",
-        default: 100, minimum: 50, maximum: 1000
-      },
-      maxDeltaTimer: {
-        type: "number", title: "Maximum Delta Timer (ms)",
-        description: "Slowest allowed send interval",
-        default: 5000, minimum: 1000, maximum: 30000
-      }
-    }
-  },
-  bonding: {
-    type: "object",
-    title: "Connection Bonding",
-    description: "Advanced. Requires Protocol v2 or v3. Configure dual-link operation with automatic failover.",
-    properties: {
-      enabled: {
-        type: "boolean", title: "Enable Connection Bonding",
-        description: "Enable dual-link bonding with automatic failover",
-        default: false
-      },
-      mode: {
-        type: "string", title: "Bonding Mode", default: "main-backup",
-        oneOf: [{ const: "main-backup", title: "Main/Backup – Failover to backup when primary degrades" }]
-      },
-      primary: {
-        type: "object", title: "Primary Link",
-        description: "Primary connection (e.g. LTE modem)",
-        properties: {
-          address: { type: "string", title: "Server Address", default: "127.0.0.1" },
-          port: { type: "number", title: "UDP Port", default: 4446, minimum: 1024, maximum: 65535 },
-          interface: { type: "string", title: "Bind Interface (optional)", description: "Network interface IP to bind to" }
-        }
-      },
-      backup: {
-        type: "object", title: "Backup Link",
-        description: "Backup connection (e.g. Starlink, satellite)",
-        properties: {
-          address: { type: "string", title: "Server Address", default: "127.0.0.1" },
-          port: { type: "number", title: "UDP Port", default: 4447, minimum: 1024, maximum: 65535 },
-          interface: { type: "string", title: "Bind Interface (optional)", description: "Network interface IP to bind to" }
-        }
-      },
-      failover: {
-        type: "object", title: "Failover Thresholds",
-        properties: {
-          rttThreshold: { type: "number", title: "RTT Threshold (ms)", default: 500, minimum: 100, maximum: 5000 },
-          lossThreshold: { type: "number", title: "Loss Threshold (0-1)", default: 0.1, minimum: 0.01, maximum: 0.5 },
-          healthCheckInterval: { type: "number", title: "Health Check Interval (ms)", default: 1000, minimum: 500, maximum: 10000 },
-          failbackDelay: { type: "number", title: "Failback Delay (ms)", default: 30000, minimum: 5000, maximum: 300000 },
-          heartbeatTimeout: { type: "number", title: "Heartbeat Timeout (ms)", default: 5000, minimum: 1000, maximum: 30000 }
-        }
-      }
-    }
-  },
-  alertThresholds: {
-    type: "object",
-    title: "Monitoring Alert Thresholds",
-    description: "Advanced. Customize warning/critical thresholds used by v2 monitoring.",
-    properties: {
-      rtt: {
-        type: "object", title: "RTT Thresholds",
-        properties: {
-          warning: { type: "number", title: "Warning RTT (ms)", default: 300 },
-          critical: { type: "number", title: "Critical RTT (ms)", default: 800 }
-        }
-      },
-      packetLoss: {
-        type: "object", title: "Packet Loss Thresholds",
-        properties: {
-          warning: { type: "number", title: "Warning Loss Ratio", default: 0.03 },
-          critical: { type: "number", title: "Critical Loss Ratio", default: 0.10 }
-        }
-      },
-      retransmitRate: {
-        type: "object", title: "Retransmit Rate Thresholds",
-        properties: {
-          warning: { type: "number", title: "Warning Retransmit Ratio", default: 0.05 },
-          critical: { type: "number", title: "Critical Retransmit Ratio", default: 0.15 }
-        }
-      },
-      jitter: {
-        type: "object", title: "Jitter Thresholds",
-        properties: {
-          warning: { type: "number", title: "Warning Jitter (ms)", default: 100 },
-          critical: { type: "number", title: "Critical Jitter (ms)", default: 300 }
-        }
-      },
-      queueDepth: {
-        type: "object", title: "Queue Depth Thresholds",
-        properties: {
-          warning: { type: "number", title: "Warning Queue Depth", default: 100 },
-          critical: { type: "number", title: "Critical Queue Depth", default: 500 }
-        }
-      }
-    }
-  }
-};
-
-const serverProperties: Record<string, RJSFSchema> = {
-  reliability: {
-    type: "object",
-    title: "Reliability Settings",
-    description: "Requires Protocol v2 or v3. Controls ACK/NAK timing for reliable delivery.",
-    properties: {
-      ackInterval: {
-        type: "number", title: "ACK Interval (ms)",
-        description: "How often server sends cumulative ACK updates",
-        default: 100, minimum: 20, maximum: 5000
-      },
-      ackResendInterval: {
-        type: "number", title: "ACK Resend Interval (ms)",
-        description: "Re-send duplicate ACK periodically to recover from lost ACK packets",
-        default: 1000, minimum: 100, maximum: 10000
-      },
-      nakTimeout: {
-        type: "number", title: "NAK Timeout (ms)",
-        description: "Delay before requesting retransmission for missing sequence numbers",
-        default: 100, minimum: 20, maximum: 5000
-      }
-    }
-  }
-};
-
-const CLIENT_V2_SETTING_KEYS = ["reliability", "congestionControl", "bonding", "alertThresholds", "enableNotifications"];
-const SERVER_V2_SETTING_KEYS = ["reliability"];
+// ── Schema ────────────────────────────────────────────────────────────────────
+// Single source of truth for field definitions: src/shared/connection-schema.ts
+// (also consumed by plugin.schema in src/index.ts).
 
 function buildSchema(isClient: boolean, protocolVersion: number | undefined): RJSFSchema {
-  const isReliableProtocol = Number(protocolVersion) >= 2;
-  const props: Record<string, RJSFSchema> = { ...commonProperties };
-  const required = ["serverType", "udpPort", "secretKey"];
-  if (isClient) {
-    Object.assign(props, clientProperties);
-    required.push("udpAddress", "testAddress", "testPort");
-    if (!isReliableProtocol) {
-      for (const key of CLIENT_V2_SETTING_KEYS) {
-        delete props[key];
-      }
-    }
-  } else {
-    Object.assign(props, serverProperties);
-    delete props.enableNotifications;
-    if (!isReliableProtocol) {
-      for (const key of SERVER_V2_SETTING_KEYS) {
-        delete props[key];
-      }
-    }
-  }
-  return { type: "object", required, properties: props };
+  return buildWebappConnectionSchema(isClient, protocolVersion) as RJSFSchema;
 }
 
 const uiSchemaClient: UiSchema = {
   "ui:order": [
-    "name", "serverType", "udpAddress", "udpPort", "secretKey", "protocolVersion",
+    "name", "serverType", "udpAddress", "udpPort", "secretKey", "stretchAsciiKey", "protocolVersion",
     "useMsgpack", "usePathDictionary", "testAddress", "testPort", "pingIntervalTime",
     "helloMessageSender", "reliability", "congestionControl", "bonding", "enableNotifications", "alertThresholds"
   ],
   secretKey: { "ui:widget": "password", "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64" },
+  stretchAsciiKey: { "ui:help": "Only applies to 32-char ASCII keys. Must match on both peers." },
   serverType: { "ui:widget": "select" },
   reliability: {
     "ui:classNames": "skel-optional-group"
@@ -446,15 +116,16 @@ const uiSchemaClient: UiSchema = {
 
 const uiSchemaServer: UiSchema = {
   "ui:order": [
-    "name", "serverType", "udpPort", "secretKey", "useMsgpack", "usePathDictionary",
+    "name", "serverType", "udpPort", "secretKey", "stretchAsciiKey", "useMsgpack", "usePathDictionary",
     "protocolVersion", "reliability"
   ],
   secretKey: { "ui:widget": "password", "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64" },
+  stretchAsciiKey: { "ui:help": "Only applies to 32-char ASCII keys. Must match on both peers." },
   serverType: { "ui:widget": "select" }
 };
 
 // Shared fields preserved when the user toggles server <-> client mode
-const SHARED_FIELDS = ["name", "udpPort", "secretKey", "useMsgpack", "usePathDictionary", "enableNotifications", "protocolVersion"];
+const SHARED_FIELDS = ["name", "udpPort", "secretKey", "stretchAsciiKey", "useMsgpack", "usePathDictionary", "enableNotifications", "protocolVersion"];
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 // Using `skel-` prefix (Signal K Edge Link) to avoid collisions with other
