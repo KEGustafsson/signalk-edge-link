@@ -203,6 +203,59 @@ describe("receivePacket – non-v2 packet", () => {
   });
 });
 
+// ── receivePacket – version mismatch ──────────────────────────────────────────
+
+describe("receivePacket – protocol version pin", () => {
+  test("v3 server rejects v2 DATA packet (prevents downgrade to unauthenticated control)", async () => {
+    const app = makeApp();
+    const state = makeState();
+    state.options.protocolVersion = 3;
+    const metricsApi = createMetrics();
+    const pipeline = createPipeline(3, "server", app, state, metricsApi);
+
+    // Build a v2 DATA packet that would otherwise parse cleanly
+    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const payload = JSON.stringify([{ context: "vessels.self", updates: [{ values: [] }] }]);
+    const compressed = await brotliCompressAsync(Buffer.from(payload));
+    const { encryptBinary } = require("../lib/crypto");
+    const encrypted = encryptBinary(compressed, SECRET_KEY);
+    const packet = builder.buildDataPacket(encrypted, {
+      compressed: true,
+      encrypted: true,
+      messagepack: false,
+      pathDictionary: false
+    });
+
+    await pipeline.receivePacket(packet, SECRET_KEY, { address: "127.0.0.1", port: 6100 });
+
+    // The packet must be counted as malformed and not delivered
+    expect(metricsApi.metrics.malformedPackets).toBeGreaterThanOrEqual(1);
+    expect(metricsApi.metrics.dataPacketsReceived || 0).toBe(0);
+    expect(app.handleMessage).not.toHaveBeenCalled();
+  });
+
+  test("v2 server rejects v3 DATA packet (configuration mismatch guard)", async () => {
+    const { pipeline, app, metricsApi } = makeServer();
+
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
+    const payload = JSON.stringify([{ context: "vessels.self", updates: [{ values: [] }] }]);
+    const compressed = await brotliCompressAsync(Buffer.from(payload));
+    const { encryptBinary } = require("../lib/crypto");
+    const encrypted = encryptBinary(compressed, SECRET_KEY);
+    const packet = builder.buildDataPacket(encrypted, {
+      compressed: true,
+      encrypted: true,
+      messagepack: false,
+      pathDictionary: false
+    });
+
+    await pipeline.receivePacket(packet, SECRET_KEY, { address: "127.0.0.1", port: 6200 });
+
+    expect(metricsApi.metrics.malformedPackets).toBeGreaterThanOrEqual(1);
+    expect(app.handleMessage).not.toHaveBeenCalled();
+  });
+});
+
 // ── receivePacket – wrong key ─────────────────────────────────────────────────
 
 describe("receivePacket – wrong decryption key", () => {

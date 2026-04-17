@@ -542,6 +542,19 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       // Parse packet header
       const parsed = packetParser.parseHeader(packet, { secretKey });
 
+      // Pin protocol version per server: a v3-configured server must reject
+      // v2 packets so a man-in-the-middle cannot inject forged v2 control
+      // frames (ACK/NAK/HEARTBEAT/HELLO) that lack HMAC authentication.
+      // A v2-configured server still accepts only v2 packets — receiving a
+      // v3 packet would mean a misconfigured peer.
+      if (parsed.version !== protocolVersion) {
+        metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+        app.debug(
+          `v2 rejecting packet with mismatched protocol version: got=${parsed.version} expected=${protocolVersion}`
+        );
+        return;
+      }
+
       // Handle by packet type
       if (parsed.type === PacketType.HEARTBEAT) {
         app.debug("v2 heartbeat received");
