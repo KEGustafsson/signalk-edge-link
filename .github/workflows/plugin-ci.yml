@@ -22,9 +22,9 @@ on:
         type: string
 
       node-versions:
-        description: 'JSON array of Node versions, example: ["22","24"]'
+        description: 'JSON array of Node versions, example: ["24"]'
         required: false
-        default: '["22", "24"]'
+        default: '["24"]'
         type: string
 
       enable-armv7:
@@ -52,7 +52,7 @@ jobs:
     with:
       test-command: npm test
       build-command: npm run build --if-present
-      node-versions: '["22", "24"]'
+      node-versions: '["24"]'
       enable-armv7: false
       enable-signalk-integration: false
       signalk-server-version: latest
