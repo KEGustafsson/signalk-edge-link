@@ -73,12 +73,6 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     description: "Encode paths as numeric IDs for bandwidth savings (must match on both ends).",
     default: false
   },
-  enableNotifications: {
-    type: "boolean",
-    title: "Enable Signal K Notifications",
-    description: "Emit Signal K notifications for alerts and failover events.",
-    default: false
-  },
   protocolVersion: {
     type: "number",
     title: "Protocol Version",
@@ -440,6 +434,15 @@ export const bondingProperty: SchemaFragment = {
   }
 };
 
+// ── Client-only notifications toggle ──────────────────────────────────────────
+
+export const enableNotificationsProperty: SchemaFragment = {
+  type: "boolean",
+  title: "Enable Signal K Notifications",
+  description: "Emit Signal K notifications for alerts and failover events.",
+  default: false
+};
+
 // ── v2/v3 monitoring alert thresholds (client) ────────────────────────────────
 
 export const alertThresholdsProperty: SchemaFragment = {
@@ -519,6 +522,7 @@ export function buildConnectionItemSchema(): SchemaFragment {
               reliability: clientReliabilityProperty,
               congestionControl: congestionControlProperty,
               bonding: bondingProperty,
+              enableNotifications: enableNotificationsProperty,
               alertThresholds: alertThresholdsProperty
             },
             required: ["udpAddress", "testAddress", "testPort"]
@@ -547,6 +551,7 @@ export function buildWebappConnectionSchema(
 
   if (isClient) {
     Object.assign(props, clientTransportProperties);
+    props.enableNotifications = enableNotificationsProperty;
     required.push("udpAddress", "testAddress", "testPort");
     if (isReliableProtocol) {
       props.reliability = clientReliabilityProperty;
@@ -554,11 +559,8 @@ export function buildWebappConnectionSchema(
       props.bonding = bondingProperty;
       props.alertThresholds = alertThresholdsProperty;
     }
-  } else {
-    delete props.enableNotifications;
-    if (isReliableProtocol) {
-      props.reliability = serverReliabilityProperty;
-    }
+  } else if (isReliableProtocol) {
+    props.reliability = serverReliabilityProperty;
   }
 
   return { type: "object", required, properties: props };

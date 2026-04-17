@@ -73,7 +73,6 @@ function defaultServerConnection(name?: string): ConnectionData {
     stretchAsciiKey: false,
     useMsgpack: false,
     usePathDictionary: false,
-    enableNotifications: false,
     protocolVersion: 1
   };
 }
@@ -125,7 +124,7 @@ const uiSchemaServer: UiSchema = {
 };
 
 // Shared fields preserved when the user toggles server <-> client mode
-const SHARED_FIELDS = ["name", "udpPort", "secretKey", "stretchAsciiKey", "useMsgpack", "usePathDictionary", "enableNotifications", "protocolVersion"];
+const SHARED_FIELDS = ["name", "udpPort", "secretKey", "stretchAsciiKey", "useMsgpack", "usePathDictionary", "protocolVersion"];
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 // Using `skel-` prefix (Signal K Edge Link) to avoid collisions with other
