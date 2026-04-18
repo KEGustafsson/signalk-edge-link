@@ -3,10 +3,11 @@ name: Publish to GitHub Packages
 # Test, build, pack and publish the plugin as a tarball to the repository's
 # GitHub Packages npm registry on every push to main or dev.  The published
 # package is namespaced under the repository owner's scope (for example
-# @kegustafsson/signalk-edge-link) and tagged with a branch-qualified
-# prerelease version derived from the commit SHA, so every commit produces a
-# unique, installable snapshot without clashing with the canonical
-# unscoped package name used for public releases.
+# @kegustafsson/signalk-edge-link) and published using the version declared
+# in package.json verbatim, so the registry only ever shows plain semver
+# versions without branch slugs or commit SHAs.  Because GitHub Packages
+# rejects re-publishing an existing version, bump the version in
+# package.json before pushing to main or dev.
 
 on:
   push:
@@ -73,26 +74,8 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Compute snapshot version
-        id: ver
-        run: |
-          BASE_VERSION="$(node -p "require('./package.json').version")"
-          SHORT_SHA="$(git rev-parse --short HEAD)"
-          # Normalise branch name to a semver-safe prerelease identifier.
-          # printf (not echo) avoids the trailing newline that tr -c would
-          # convert to a stray '-'; sed strips leading/trailing hyphens while
-          # preserving dots so the slug always starts and ends with [a-z0-9.].
-          BRANCH_SLUG="$(printf '%s' "${GITHUB_REF_NAME}" \
-            | tr '[:upper:]' '[:lower:]' \
-            | tr -c 'a-z0-9.' '-' \
-            | sed -E 's/^-+//; s/-+$//')"
-          SNAPSHOT="${BASE_VERSION}-${BRANCH_SLUG}.${SHORT_SHA}"
-          echo "snapshot=${SNAPSHOT}" >> "$GITHUB_OUTPUT"
-
-      - name: Rewrite package name and version for GitHub Packages
-        run: |
-          npm pkg set name='${{ steps.scope.outputs.package }}'
-          npm version '${{ steps.ver.outputs.snapshot }}' --no-git-tag-version --allow-same-version
+      - name: Rewrite package name for GitHub Packages
+        run: npm pkg set name='${{ steps.scope.outputs.package }}'
 
       - name: Pack tarball
         id: pack
@@ -103,7 +86,7 @@ jobs:
       - name: Upload tarball as workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: signalk-edge-link-${{ steps.ver.outputs.snapshot }}
+          name: signalk-edge-link
           path: ${{ steps.pack.outputs.packed_tgz }}
           if-no-files-found: error
           retention-days: 30
