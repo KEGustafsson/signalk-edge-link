@@ -134,7 +134,7 @@ const uiSchemaClient: UiSchema = {
   "ui:order": [
     "name", "serverType", "udpAddress", "udpPort", "secretKey", "stretchAsciiKey", "protocolVersion",
     "useMsgpack", "usePathDictionary", "testAddress", "testPort", "pingIntervalTime",
-    "helloMessageSender", "reliability", "congestionControl", "bonding", "enableNotifications", "alertThresholds"
+    "helloMessageSender", "heartbeatInterval", "reliability", "congestionControl", "bonding", "enableNotifications", "alertThresholds"
   ],
   secretKey: { "ui:widget": "password", "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64" },
   stretchAsciiKey: { "ui:help": "Only applies to 32-char ASCII keys. Must match on both peers." },
