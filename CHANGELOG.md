@@ -2,6 +2,61 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [2.2.0] - 2026-04-17
+
+### Breaking
+
+- **`parseHeader({ allowUnauthenticatedControl })` removed** (`packet.ts`):
+  The option was never used in production code paths and allowed v3 control
+  frames to bypass HMAC verification. V3 control packets are now always
+  HMAC-verified.
+
+### Added
+
+- **Opt-in ASCII-key stretching with `stretchAsciiKey`** (`crypto.ts`,
+  `packet.ts`, `bonding.ts`, `pipeline-v2-*.ts`, schema): A new per-connection
+  boolean option `stretchAsciiKey` (default `false`) routes 32-character
+  ASCII keys through PBKDF2-SHA256 (600,000 iterations, salt
+  `signalk-edge-link-v1`) before they are used as the AES-256-GCM / HMAC key.
+  Hex (64-char) and base64 (44-char) keys are unaffected. The derivation is
+  deterministic and cached per-process. **Both peers must use the same
+  setting** — enabling it on one end and not the other will fail AES-GCM
+  authentication on every packet. Treat the flag as part of the key. Default
+  is `false` for backwards compatibility; existing deployments are unchanged.
+
+### Security
+
+- **Protocol version pinning** (`pipeline-v2-server.ts`): A v3-configured
+  server now rejects any packet whose header advertises a different protocol
+  version; a v2-configured server likewise rejects v3 packets. This closes a
+  downgrade surface where a MITM could inject forged v2 control frames
+  (ACK/NAK/HEARTBEAT/HELLO) — which carry no HMAC tag — at a server that had
+  negotiated v3.
+- **PBKDF2 stretching available for ASCII keys** (see Added above): when
+  enabled, lifts the effective entropy of a 32-char human-typeable ASCII key
+  from ~208 bits to the full 256-bit AES strength and makes offline brute-
+  force attacks on leaked passphrases significantly more expensive.
+
+### Tests
+
+- New `__tests__/config-watcher.test.js` cases covering the hash-dedupe fast
+  path, `readFallback` branch, `state.stopped` guards, watcher-handle
+  lifecycle, legacy-file migration, and persistent-storage initialization.
+- New `receivePacket – protocol version pin` regression tests in
+  `__tests__/pipeline-v2-server.test.js`.
+- New `normalizeKey ASCII path` and `encryptBinary / decryptBinary
+stretchAsciiKey round-trip` regression tests in `__tests__/crypto.test.js`
+  covering the default raw-bytes path, the opt-in PBKDF2 path, and the
+  mismatched-flag failure mode.
+
+### Documentation
+
+- `docs/code-quality-report.md` summarises the repository's quality model,
+  headline signals (coverage, typing, lint), and open improvement
+  opportunities.
+
+---
+
 ## [2.1.1]
 
 ### Fixed
@@ -35,7 +90,7 @@ All notable changes to signalk-edge-link are documented here.
 
 ---
 
-## [2.1.1]
+## [2.1.0]
 
 ### Highlights
 

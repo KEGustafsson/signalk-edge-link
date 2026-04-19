@@ -17,6 +17,6 @@
     "moduleResolution": "node",
     "noEmit": false
   },
-  "include": ["src/webapp/**/*.ts", "src/webapp/**/*.tsx"],
+  "include": ["src/webapp/**/*.ts", "src/webapp/**/*.tsx", "src/shared/**/*.ts"],
   "exclude": ["node_modules", "public", "lib"]
 }

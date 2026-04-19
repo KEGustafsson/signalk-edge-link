@@ -139,17 +139,26 @@ export class PacketBuilder {
   _sequence: number;
   _protocolVersion: number;
   _secretKey: string | null;
+  _stretchAsciiKey: boolean;
 
   /**
    * @param {Object} [config]
    * @param {number} [config.initialSequence=0] - Starting sequence number
+   * @param {boolean} [config.stretchAsciiKey=false] - When true, 32-char
+   *   ASCII keys are stretched via PBKDF2 before use. Both ends must agree.
    */
   constructor(
-    config: { initialSequence?: number; protocolVersion?: number; secretKey?: string } = {}
+    config: {
+      initialSequence?: number;
+      protocolVersion?: number;
+      secretKey?: string;
+      stretchAsciiKey?: boolean;
+    } = {}
   ) {
     this._sequence = config.initialSequence ?? 0;
     this._protocolVersion = normalizeProtocolVersion(config.protocolVersion);
     this._secretKey = config.secretKey || null;
+    this._stretchAsciiKey = !!config.stretchAsciiKey;
   }
 
   /**
@@ -335,7 +344,8 @@ export class PacketBuilder {
         const authTag = createControlPacketAuthTag(
           header.subarray(0, 13),
           payloadBuffer,
-          secretKey
+          secretKey,
+          { stretchAsciiKey: this._stretchAsciiKey }
         );
         finalPayload = Buffer.concat([payloadBuffer, authTag]);
       } else if (payloadBuffer.length > 0) {
@@ -371,9 +381,11 @@ export class PacketBuilder {
  */
 export class PacketParser {
   _secretKey: string | null;
+  _stretchAsciiKey: boolean;
 
-  constructor(config: { secretKey?: string } = {}) {
+  constructor(config: { secretKey?: string; stretchAsciiKey?: boolean } = {}) {
     this._secretKey = config.secretKey || null;
+    this._stretchAsciiKey = !!config.stretchAsciiKey;
   }
 
   /**
@@ -381,13 +393,14 @@ export class PacketParser {
    * @param {Buffer} packet - Raw packet data
    * @param {Object} [options]
    * @param {string} [options.secretKey] - Required for v3 control packets
-   * @param {boolean} [options.allowUnauthenticatedControl=false] - Skip v3 control auth verification
+   * @param {boolean} [options.stretchAsciiKey] - Override the parser's
+   *   constructor-time setting; both ends must agree
    * @returns {Object} Parsed packet information
    * @throws {Error} If packet is invalid
    */
   parseHeader(
     packet: Buffer,
-    options: { secretKey?: string; allowUnauthenticatedControl?: boolean } = {}
+    options: { secretKey?: string; stretchAsciiKey?: boolean } = {}
   ): ParsedPacket {
     if (!Buffer.isBuffer(packet)) {
       throw new Error("Packet must be a Buffer");
@@ -455,13 +468,14 @@ export class PacketParser {
         }
         const payloadData = payload.subarray(0, payload.length - CONTROL_AUTH_TAG_LENGTH);
         const authTag = payload.subarray(payload.length - CONTROL_AUTH_TAG_LENGTH);
-        if (!options.allowUnauthenticatedControl) {
-          const secretKey = options.secretKey || this._secretKey;
-          if (!secretKey) {
-            throw new Error("Control packet authentication requires secretKey");
-          }
-          verifyControlPacketAuthTag(packet.subarray(0, 13), payloadData, authTag, secretKey);
+        const secretKey = options.secretKey || this._secretKey;
+        if (!secretKey) {
+          throw new Error("Control packet authentication requires secretKey");
         }
+        const stretchAsciiKey = options.stretchAsciiKey ?? this._stretchAsciiKey;
+        verifyControlPacketAuthTag(packet.subarray(0, 13), payloadData, authTag, secretKey, {
+          stretchAsciiKey
+        });
         payload = payloadData;
       } else {
         // HEARTBEAT packets carry a 0-byte payload with no CRC — accept as-is.

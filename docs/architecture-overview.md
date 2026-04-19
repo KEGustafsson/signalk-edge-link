@@ -73,38 +73,38 @@ If any stage fails, the packet is dropped and the relevant error counter increme
 
 ## Protocol v1 vs v2/v3
 
-| Aspect                | v1                       | v2/v3                                             |
-| --------------------- | ------------------------ | ------------------------------------------------- |
-| Packet format         | `[IV][Ciphertext][Tag]`  | `[15-byte header][IV][Ciphertext][Tag]`           |
-| Sequence tracking     | None                     | 32-bit sequence numbers, gap detection            |
-| Reliability           | Best-effort UDP          | ACK/NAK retransmission, retransmit queue          |
-| Congestion control    | Manual timer only        | AIMD algorithm, auto adjustment                   |
-| Bonding               | None                     | Primary/backup failover with hysteresis           |
-| Control authentication| None                     | v3: HMAC-signed ACK/NAK/HEARTBEAT/HELLO           |
-| Monitoring telemetry  | Basic bandwidth          | 30+ metrics, Prometheus, packet capture, alerts   |
+| Aspect                 | v1                      | v2/v3                                           |
+| ---------------------- | ----------------------- | ----------------------------------------------- |
+| Packet format          | `[IV][Ciphertext][Tag]` | `[15-byte header][IV][Ciphertext][Tag]`         |
+| Sequence tracking      | None                    | 32-bit sequence numbers, gap detection          |
+| Reliability            | Best-effort UDP         | ACK/NAK retransmission, retransmit queue        |
+| Congestion control     | Manual timer only       | AIMD algorithm, auto adjustment                 |
+| Bonding                | None                    | Primary/backup failover with hysteresis         |
+| Control authentication | None                    | v3: HMAC-signed ACK/NAK/HEARTBEAT/HELLO         |
+| Monitoring telemetry   | Basic bandwidth         | 30+ metrics, Prometheus, packet capture, alerts |
 
 v3 is the same as v2 with the addition of authenticated control packets — it does not change the data packet format.
 
 ## Key source files
 
-| File / directory              | Purpose                                                             |
-| ----------------------------- | ------------------------------------------------------------------- |
-| `src/index.ts`                | Plugin entry point; normalizes config, creates instances, registers routes |
-| `src/pipeline.ts`             | v1 client and server pipelines                                      |
-| `src/pipeline-v2-client.ts`   | v2/v3 client pipeline: send, ACK tracking, retransmit              |
-| `src/pipeline-v2-server.ts`   | v2/v3 server pipeline: receive, ACK/NAK dispatch, session tracking  |
-| `src/crypto.ts`               | AES-256-GCM encrypt/decrypt wrappers                                |
-| `src/packet.ts`               | v2 packet header encode/decode, CRC                                 |
-| `src/retransmit-queue.ts`     | Bounded retransmit queue with timeout-based eviction                |
-| `src/bonding-manager.ts`      | Primary/backup health checks and failover logic                     |
-| `src/congestion-control.ts`   | AIMD controller; adjusts delta timer based on RTT/loss              |
-| `src/monitoring.ts`           | Packet loss heatmap, retransmit chart, path latency                 |
-| `src/alert-manager.ts`        | Threshold evaluation and Signal K notification emission             |
-| `src/routes/`                 | Express route handlers for all REST API endpoints                   |
-| `src/webapp/`                 | React-based management UI (compiled to `public/`)                   |
-| `src/scripts/migrate-config.ts`| CLI script to convert legacy flat config to `connections[]`        |
-| `src/bin/edge-link-cli.ts`    | CLI wrapper for instance and bonding management operations           |
-| `schemas/config.schema.json`  | JSON Schema for plugin configuration validation                      |
+| File / directory                 | Purpose                                                                    |
+| -------------------------------- | -------------------------------------------------------------------------- |
+| `src/index.ts`                   | Plugin entry point; normalizes config, creates instances, registers routes |
+| `src/pipeline.ts`                | v1 client and server pipelines                                             |
+| `src/pipeline-v2-client.ts`      | v2/v3 client pipeline: send, ACK tracking, retransmit                      |
+| `src/pipeline-v2-server.ts`      | v2/v3 server pipeline: receive, ACK/NAK dispatch, session tracking         |
+| `src/crypto.ts`                  | AES-256-GCM encrypt/decrypt wrappers                                       |
+| `src/packet.ts`                  | v2 packet header encode/decode, CRC                                        |
+| `src/retransmit-queue.ts`        | Bounded retransmit queue with timeout-based eviction                       |
+| `src/bonding-manager.ts`         | Primary/backup health checks and failover logic                            |
+| `src/congestion-control.ts`      | AIMD controller; adjusts delta timer based on RTT/loss                     |
+| `src/monitoring.ts`              | Packet loss heatmap, retransmit chart, path latency                        |
+| `src/alert-manager.ts`           | Threshold evaluation and Signal K notification emission                    |
+| `src/routes/`                    | Express route handlers for all REST API endpoints                          |
+| `src/webapp/`                    | React-based management UI (compiled to `public/`)                          |
+| `src/scripts/migrate-config.ts`  | CLI script to convert legacy flat config to `connections[]`                |
+| `src/bin/edge-link-cli.ts`       | CLI wrapper for instance and bonding management operations                 |
+| `src/index.ts` (`plugin.schema`) | Runtime RJSF schema served to the Signal K admin UI                        |
 
 ## Configuration areas
 

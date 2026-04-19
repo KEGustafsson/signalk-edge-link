@@ -100,6 +100,9 @@ interface BondingConfig {
   notificationsEnabled?: boolean;
   /** Shared secret used to authenticate heartbeat probes (HMAC-SHA256). */
   secretKey?: string;
+  /** When true, 32-char ASCII keys are stretched via PBKDF2 before use.
+   *  Both ends must agree. Defaults to false. */
+  stretchAsciiKey?: boolean;
 }
 
 // Length in bytes of the truncated HMAC appended to authenticated heartbeat probes.
@@ -142,6 +145,7 @@ export class BondingManager {
   private sourceLabel: string;
   private notificationsEnabled: boolean;
   private secretKey: string | null;
+  private stretchAsciiKey: boolean;
   private links: { primary: LinkState; backup: LinkState };
   private activeLink: string;
   failoverThresholds: {
@@ -199,6 +203,7 @@ export class BondingManager {
       : "signalk-edge-link";
     this.notificationsEnabled = config.notificationsEnabled === true;
     this.secretKey = config.secretKey || null;
+    this.stretchAsciiKey = !!config.stretchAsciiKey;
 
     // Link definitions
     this.links = {
@@ -330,7 +335,9 @@ export class BondingManager {
     if (!this.secretKey) {
       throw new Error("BondingManager: secretKey is required for HMAC authentication");
     }
-    const keyBuffer = normalizeKey(this.secretKey);
+    const keyBuffer = normalizeKey(this.secretKey, {
+      stretchAsciiKey: this.stretchAsciiKey
+    });
     return crypto
       .createHmac("sha256", keyBuffer)
       .update(header)

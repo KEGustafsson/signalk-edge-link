@@ -164,6 +164,14 @@ export interface ConnectionConfig {
   udpPort: number;
   /** AES-256 encryption key: 64-char hex, 44-char base64, or 32-char ASCII string. */
   secretKey: string;
+  /**
+   * When true, 32-char ASCII keys are stretched via PBKDF2-SHA256
+   * (600,000 iterations, salt "signalk-edge-link-v1") before being used as
+   * the AES-256-GCM key. Hex/base64 keys are unaffected. **Both peers must
+   * use the same setting** — mismatched values will fail authentication and
+   * drop every packet. Default false (raw bytes used as-is).
+   */
+  stretchAsciiKey?: boolean;
   /** Wire protocol version (1, 2, or 3). Default 2. */
   protocolVersion?: number;
   /** Serialize deltas with MessagePack instead of JSON (smaller, faster). Default false. */

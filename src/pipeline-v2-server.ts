@@ -65,12 +65,15 @@ interface ClientSession {
 function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
   const { metrics, recordError, trackPathStats, updateBandwidthRates } = metricsApi;
   const protocolVersion = state.options && state.options.protocolVersion === 3 ? 3 : 2;
+  const stretchAsciiKey = !!state.options?.stretchAsciiKey;
   const packetParser = new PacketParser({
-    secretKey: state.options?.secretKey ?? undefined
+    secretKey: state.options?.secretKey ?? undefined,
+    stretchAsciiKey
   });
   const packetBuilder = new PacketBuilder({
     protocolVersion,
-    secretKey: state.options?.secretKey ?? undefined
+    secretKey: state.options?.secretKey ?? undefined,
+    stretchAsciiKey
   });
   const CLIENT_TELEMETRY_SOURCE = "signalk-edge-link-client-telemetry";
   const CLIENT_TELEMETRY_PATHS = new Set([
@@ -252,6 +255,11 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   let lastMetricsTime = Date.now();
   let lastBytesReceived = 0;
   let lastPacketsReceived = 0;
+
+  // Rate-limit operator-visible warnings for protocol-version mismatches so a
+  // persistently misconfigured peer is noticeable in logs without flooding them.
+  const PROTOCOL_VERSION_MISMATCH_WARN_INTERVAL_MS = 60_000;
+  let lastProtocolVersionMismatchWarnAt = 0;
 
   function _toFiniteNumber(value: unknown): number | null {
     const n = Number(value);
@@ -542,6 +550,26 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       // Parse packet header
       const parsed = packetParser.parseHeader(packet, { secretKey });
 
+      // Pin protocol version per server: a v3-configured server must reject
+      // v2 packets so a man-in-the-middle cannot inject forged v2 control
+      // frames (ACK/NAK/HEARTBEAT/HELLO) that lack HMAC authentication.
+      // A v2-configured server still accepts only v2 packets — receiving a
+      // v3 packet would mean a misconfigured peer.
+      if (parsed.version !== protocolVersion) {
+        metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+        app.debug(
+          `v2 rejecting packet with mismatched protocol version: got=${parsed.version} expected=${protocolVersion}`
+        );
+        const now = Date.now();
+        if (now - lastProtocolVersionMismatchWarnAt >= PROTOCOL_VERSION_MISMATCH_WARN_INTERVAL_MS) {
+          lastProtocolVersionMismatchWarnAt = now;
+          app.error(
+            `v2 protocol version mismatch: got=${parsed.version} expected=${protocolVersion} (malformedPackets=${metrics.malformedPackets}); check peer configuration`
+          );
+        }
+        return;
+      }
+
       // Handle by packet type
       if (parsed.type === PacketType.HEARTBEAT) {
         app.debug("v2 heartbeat received");
@@ -635,7 +663,9 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       // Decrypt
-      const decrypted = decryptBinary(parsed.payload, secretKey);
+      const decrypted = decryptBinary(parsed.payload, secretKey, {
+        stretchAsciiKey
+      });
 
       // Decompress (capped to prevent decompression bombs)
       const decompressed = await brotliDecompressAsync(decrypted, {

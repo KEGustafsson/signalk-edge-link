@@ -53,12 +53,15 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   const { metrics, recordError, trackPathStats, updateBandwidthRates } = metricsApi;
   const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
   const protocolVersion = state.options && state.options.protocolVersion === 3 ? 3 : 2;
+  const stretchAsciiKey = !!state.options?.stretchAsciiKey;
   const packetBuilder = new PacketBuilder({
     protocolVersion,
-    secretKey: state.options?.secretKey ?? undefined
+    secretKey: state.options?.secretKey ?? undefined,
+    stretchAsciiKey
   });
   const packetParser = new PacketParser({
-    secretKey: state.options?.secretKey ?? undefined
+    secretKey: state.options?.secretKey ?? undefined,
+    stretchAsciiKey
   });
   const clientTelemetrySource = "signalk-edge-link-client-telemetry";
 
@@ -334,7 +337,9 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       const compressed = await compressPayload(serialized, state.options?.useMsgpack ?? false);
 
       // Encrypt
-      const encrypted = encryptBinary(compressed, secretKey);
+      const encrypted = encryptBinary(compressed, secretKey, {
+        stretchAsciiKey
+      });
 
       // Capture sequence before building (buildDataPacket advances it)
       const seq = packetBuilder.getCurrentSequence();

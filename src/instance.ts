@@ -962,7 +962,8 @@ function createInstance(
             failover: options.bonding.failover || {},
             instanceId: state.instanceId,
             notificationsEnabled: options.enableNotifications === true,
-            secretKey: options.secretKey
+            secretKey: options.secretKey,
+            stretchAsciiKey: !!options.stretchAsciiKey
           };
           try {
             await v2Pipeline.initBonding(bondingConfig);

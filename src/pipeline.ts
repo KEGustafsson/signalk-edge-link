@@ -83,7 +83,9 @@ function createPipeline(
       const compressed = await compressPayload(serialized, state.options.useMsgpack || false);
 
       // Encrypt with AES-256-GCM (binary format with built-in authentication)
-      const packet = encryptBinary(compressed, secretKey);
+      const packet = encryptBinary(compressed, secretKey, {
+        stretchAsciiKey: !!state.options.stretchAsciiKey
+      });
 
       // Check for MTU issues
       if (packet.length > MAX_SAFE_UDP_PAYLOAD) {
@@ -166,7 +168,9 @@ function createPipeline(
       metrics.bandwidth.packetsIn++;
 
       // Decrypt with AES-256-GCM (authentication is verified automatically)
-      const decrypted = decryptBinary(packet, secretKey);
+      const decrypted = decryptBinary(packet, secretKey, {
+        stretchAsciiKey: !!state.options.stretchAsciiKey
+      });
 
       // Decompress (single decompression stage, capped to prevent decompression bombs)
       const decompressed = (await brotliDecompressAsync(decrypted, {
