@@ -3,17 +3,12 @@ name: Publish to GitHub Packages
 # Test, build, pack and publish the plugin as a tarball to the repository's
 # GitHub Packages npm registry on every push to main or dev.  The published
 # package is namespaced under the repository owner's scope (for example
-# @kegustafsson/signalk-edge-link) and published using the version declared
-# in package.json verbatim, so the registry only ever shows plain semver
-# versions without branch slugs or commit SHAs.  Because GitHub Packages
-# rejects re-publishing an existing version, bump the version in
-# package.json before pushing to main or dev.
+# @kegustafsson/signalk-edge-link) and tagged with a branch-qualified
+# prerelease version derived from the commit SHA, so every commit produces a
+# unique, installable snapshot without clashing with the canonical
+# unscoped package name used for public releases.
 
 on:
-  push:
-    branches:
-      - main
-      - dev
   workflow_dispatch:
 
 jobs:
