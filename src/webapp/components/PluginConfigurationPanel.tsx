@@ -2,7 +2,7 @@ import React from 'react';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
-import { RJSFSchema, UiSchema } from "@rjsf/utils";
+import { RJSFSchema, UiSchema, getDefaultFormState } from "@rjsf/utils";
 import { apiFetch, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
 import { buildWebappConnectionSchema } from "../../shared/connection-schema";
 
@@ -80,6 +80,19 @@ function defaultServerConnection(name?: string): ConnectionData {
 /** Attach a stable _id to loaded connections that don't already have one. */
 function withId(conn: Omit<ConnectionData, "_id"> & { _id?: string }): ConnectionData {
   return conn._id ? (conn as ConnectionData) : { ...conn, _id: makeId() };
+}
+
+// Fill schema defaults into loaded form data so RJSF has nothing to augment on
+// mount — otherwise RJSF fires a synthetic onChange for every field that is
+// defined in the schema but absent from the persisted config (e.g.
+// stretchAsciiKey on pre-existing connections), which would trip the dirty flag
+// and surface "Unsaved changes" immediately after a fresh load.
+function withSchemaDefaults(conn: ConnectionData): ConnectionData {
+  const isClient = conn.serverType !== "server";
+  const schema = buildWebappConnectionSchema(isClient, conn.protocolVersion) as RJSFSchema;
+  const { _id, ...formData } = conn;
+  const enriched = getDefaultFormState(validator, schema, formData) as Record<string, unknown>;
+  return { ...(enriched as Omit<ConnectionData, "_id">), _id };
 }
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -311,9 +324,16 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
       }
       merged.serverType = next.serverType;
       onChange(merged);
-    } else {
-      onChange({ ...next, _id: conn._id });
+      return;
     }
+    // Skip propagation when the incoming form data is identical to the current
+    // connection — RJSF can fire onChange with no effective diff (e.g. after
+    // internal re-renders), and we do not want that to trip the dirty flag.
+    const proposed: ConnectionData = { ...next, _id: conn._id };
+    const { _id: _aId, ...a } = proposed;
+    const { _id: _bId, ...b } = conn;
+    if (JSON.stringify(a) === JSON.stringify(b)) { return; }
+    onChange(proposed);
   }
 
   // Strip the frontend-only _id before passing to RJSF
@@ -385,9 +405,9 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
         const cfg = body.configuration || {};
         let list: ConnectionData[];
         if (Array.isArray(cfg.connections) && cfg.connections.length > 0) {
-          list = cfg.connections.map(withId);
+          list = cfg.connections.map((c: Omit<ConnectionData, "_id">) => withSchemaDefaults(withId(c)));
         } else if (cfg.serverType) {
-          list = [withId(cfg)];
+          list = [withSchemaDefaults(withId(cfg))];
         } else {
           list = [defaultClientConnection()];
         }

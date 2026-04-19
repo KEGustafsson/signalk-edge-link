@@ -34,7 +34,11 @@ jest.mock("@rjsf/validator-ajv8", () => ({
   default: { validate: jest.fn(), isValid: jest.fn(() => true) }
 }));
 
-jest.mock("@rjsf/utils", () => ({}));
+jest.mock("@rjsf/utils", () => ({
+  // Passthrough: return the caller's formData unchanged so tests don't depend
+  // on RJSF's default-expansion logic.
+  getDefaultFormState: (_validator, _schema, formData) => formData
+}));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

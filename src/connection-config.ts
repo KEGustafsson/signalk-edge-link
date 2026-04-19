@@ -14,6 +14,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "serverType",
   "udpPort",
   "secretKey",
+  "stretchAsciiKey",
   "useMsgpack",
   "usePathDictionary",
   "enableNotifications",
