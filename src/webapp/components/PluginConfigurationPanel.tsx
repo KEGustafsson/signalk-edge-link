@@ -95,6 +95,37 @@ function withSchemaDefaults(conn: ConnectionData): ConnectionData {
   return { ...(enriched as Omit<ConnectionData, "_id">), _id };
 }
 
+// Deep equality that is insensitive to key insertion order (unlike
+// JSON.stringify). Used to decide whether an RJSF onChange carries a real
+// field-level difference.
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") { return JSON.stringify(value); }
+  if (Array.isArray(value)) {
+    return "[" + value.map(stableStringify).join(",") + "]";
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return "{" + keys.map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k])).join(",") + "}";
+}
+
+function connectionsEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) { return false; }
+  for (const k of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) { return false; }
+    const av = a[k];
+    const bv = b[k];
+    if (av === bv) { continue; }
+    if (av !== null && bv !== null && typeof av === "object" && typeof bv === "object") {
+      if (stableStringify(av) !== stableStringify(bv)) { return false; }
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 // ── Schema ────────────────────────────────────────────────────────────────────
 // Single source of truth for field definitions: src/shared/connection-schema.ts
 // (also consumed by plugin.schema in src/index.ts).
@@ -329,10 +360,12 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
     // Skip propagation when the incoming form data is identical to the current
     // connection — RJSF can fire onChange with no effective diff (e.g. after
     // internal re-renders), and we do not want that to trip the dirty flag.
+    // Order-insensitive compare so a reshuffled-but-equivalent formData does
+    // not look like a real edit.
     const proposed: ConnectionData = { ...next, _id: conn._id };
     const { _id: _aId, ...a } = proposed;
     const { _id: _bId, ...b } = conn;
-    if (JSON.stringify(a) === JSON.stringify(b)) { return; }
+    if (connectionsEqual(a, b)) { return; }
     onChange(proposed);
   }
 

@@ -91,14 +91,10 @@ When a dimension is N/A it is excluded from the weighted average.
 
 **Observations:**
 
-- All five modules retain or improve on Round-2 scores. Branch coverage in
-  `congestion.ts` (92.6 %), `packet.ts` (85.5 %), and `sequence.ts` (82.5 %)
-  exceeds 80 %.
-- `packet.ts` previously exposed an `allowUnauthenticatedControl` option on
-  `parseHeader()` that was unused in production but could silently bypass HMAC
-  verification if toggled on. **Resolved in Round-3 remediation:** the option
-  was removed and v3 control-packet HMAC verification is now unconditional
-  (see Remediation Outcomes below).
+- Branch coverage for `congestion.ts`, `packet.ts`, and `sequence.ts` is
+  comfortably above 80 %. See CI artifacts for exact per-file numbers.
+- `packet.ts` enforces v3 control-packet HMAC verification unconditionally;
+  there is no runtime knob to bypass it.
 
 ### 2. Transport / Pipeline
 
@@ -112,18 +108,16 @@ When a dimension is N/A it is excluded from the weighted average.
 
 **Observations:**
 
-- Pipeline coverage rose since Round 2 (`-v2-client` 44 % → 51 %, `-v2-server`
-  43 % → 54 %), but both still fall below the project's 60 % branch threshold
-  at the file level. They remain the largest reliability risk.
+- `pipeline-v2-client.ts` and `pipeline-v2-server.ts` remain the primary
+  coverage gap in this layer — both sit below the project's 60 % branch
+  threshold at the file level and represent the largest reliability risk.
 - `_sendNAK()` is invoked without `await` inside the
-  `SequenceTracker.onLossDetected` callback. This was initially flagged as an
-  unhandled-rejection risk, but on inspection `_sendNAK` wraps its
-  `socketUdp.send` call in an outer `try { … } catch (err) { app.error(…) }`,
-  so the returned promise resolves even when the underlying send fails. No
-  unhandled rejection can escape. See "Priority 1" below for the detailed
-  disposition.
-- `bonding.ts` continues to score well; recent stop-race and validation fixes
-  are reflected in the +0.5 reliability uptick.
+  `SequenceTracker.onLossDetected` callback. The returned promise still
+  resolves on socket failure because `_sendNAK` wraps its `socketUdp.send`
+  in an outer `try { … } catch (err) { app.error(…) }`, so no unhandled
+  rejection escapes.
+- `bonding.ts` is well-covered; its reliability rating reflects the
+  stop-race and validation hardening in recent releases.
 
 ### 3. Route Handlers
 
@@ -139,13 +133,11 @@ When a dimension is N/A it is excluded from the weighted average.
 
 **Observations:**
 
-- The Round-2 driver of the low type-safety scores (`req: any, res: any` in
-  every handler) has been fully fixed. All files now consume `RouteRequest`
-  and `RouteResponse` from `src/routes/types.ts`. Type-safety on every route
-  module rises to 8/10.
-- `routes/monitoring.ts` improved from 35 % → 77 % branch coverage; it is no
-  longer the worst-covered route file. That title now belongs to
-  `routes/connections.ts` (49.5 % branch).
+- Route handlers consume `RouteRequest` / `RouteResponse` from
+  `src/routes/types.ts`; no handler carries `req: any, res: any`
+  parameters.
+- `routes/connections.ts` is now the worst-covered route module; focused
+  test work is tracked under Priority 4.
 - `POST /monitoring/alerts` calls `app.savePluginOptions()` synchronously on
   every request with no debounce; an authenticated client can thrash disk.
   Recommend coalescing saves.
@@ -163,13 +155,12 @@ When a dimension is N/A it is excluded from the weighted average.
   16-byte auth tag, authenticated decryption via `decipher.setAuthTag`.
   `crypto.timingSafeEqual()` guards both the v3 control-packet HMAC and the
   management token comparison.
-- **PBKDF2 already exists** as `deriveKeyFromPassphrase()` (600,000 iterations,
-  SHA-256, NIST SP 800-132). The Round-2 report's claim that "no KDF exists"
-  was incorrect. As of Round-3 remediation `normalizeKey()` accepts an opt-in
-  `stretchAsciiKey` flag: when `true`, 32-char ASCII keys are routed through
-  PBKDF2 (cached per process); when `false` (default) the raw ASCII bytes are
-  used directly for backwards compatibility. Both peers must use the same
-  setting — treat the flag as part of the key.
+- `deriveKeyFromPassphrase()` implements PBKDF2-SHA256 with the
+  `PBKDF2_ITERATIONS` constant (NIST SP 800-132). `normalizeKey()` accepts an
+  opt-in `stretchAsciiKey` flag: when `true`, 32-char ASCII keys are routed
+  through PBKDF2 (cached per process); when `false` (default) the raw ASCII
+  bytes are used directly. Both peers must use the same setting — treat the
+  flag as part of the key.
 - `apiFetch.ts` keeps `includeTokenInQuery: false` by default (Round-1 fix
   retained); tokens never leak into URLs.
 
@@ -187,14 +178,14 @@ When a dimension is N/A it is excluded from the weighted average.
 
 **Observations:**
 
-- `instance.ts` remains a 1,114-line lifecycle "god object" with branch
-  coverage at 48.4 %. Several state-transition paths (stop during reload,
-  socket recovery, congestion-control re-init) are unverified.
+- `instance.ts` is the largest lifecycle module and one of the primary
+  coverage gaps. Several state-transition paths (stop during reload, socket
+  recovery, congestion-control re-init) remain unverified.
 - `metrics-publisher.ts` and `packet-capture.ts` are the exemplary
-  infrastructure modules — both at 99–100 % statement coverage.
-- `config-watcher.ts` (49 % branch) has asymmetric error handling between
-  the fallback and no-fallback code paths and silently swallows JSON parse
-  errors when the watcher is stopped mid-debounce.
+  infrastructure modules — both fully exercised by their test suites.
+- `config-watcher.ts` has asymmetric error handling between the fallback and
+  no-fallback code paths and silently swallows JSON parse errors when the
+  watcher is stopped mid-debounce.
 
 ### 6. Webapp
 
@@ -205,13 +196,12 @@ When a dimension is N/A it is excluded from the weighted average.
 
 **Observations:**
 
-- Round-2 XSS findings remain closed: every dynamic `innerHTML` template
-  helper escapes user-controlled data via `escapeHtml()`.
-- `webapp/index.ts` grew to 2,091 LOC (from 2,058) and is now the largest
-  single file in the project. Maintainability is the dominant risk in this
-  layer.
-- `PluginConfigurationPanel.tsx` was rewritten for React 19 / RJSF 5.18 and
-  ships with 31 dedicated component tests.
+- Every dynamic `innerHTML` template helper escapes user-controlled data via
+  `escapeHtml()`; no open XSS surface.
+- `webapp/index.ts` is the largest single source file in the project.
+  Maintainability is the dominant risk in this layer.
+- `PluginConfigurationPanel.tsx` is the React/RJSF config panel and carries
+  a dedicated component-test suite.
 
 ### 7. Type System
 
@@ -222,96 +212,49 @@ When a dimension is N/A it is excluded from the weighted average.
 
 **Observations:**
 
-- `types.ts` is now 616 LOC defining ~40 exported interfaces and type
-  aliases — still with effectively zero JSDoc on the type members. Adding
-  `/** ... */` blocks to non-obvious fields (`halfWindowSize`, `nakWindow`,
-  `lossBaseSeq`, `failoverThreshold`) is the single highest-leverage docs
-  improvement available.
+- `types.ts` defines the project's exported interface and type-alias surface
+  with effectively no JSDoc on the type members. Adding `/** ... */` blocks
+  to non-obvious fields (`halfWindowSize`, `nakWindow`, `lossBaseSeq`,
+  `failoverThreshold`) is the single highest-leverage docs improvement
+  available.
 
 ---
 
 ## Project-Level Summary
 
-| Dimension         |    Score     | Grade | Key finding                                                       |
-| ----------------- | :----------: | :---: | ----------------------------------------------------------------- |
-| **Security**      | **8.0 / 10** |  B+   | Auth + crypto solid; KDF skipped on ASCII keys, control-auth flag |
-| **Reliability**   | **8.0 / 10** |  B+   | Pipeline coverage gaps remain; no open unhandled-rejection risks  |
-| **Type Safety**   | **7.5 / 10** |   B   | Routes typed; only 17 `any` left, mostly in CLI                   |
-| **Test Coverage** | **7.0 / 10** |   B   | 68 % global branch; 48–54 % on `instance`/`pipeline-v2`/`watcher` |
-| **Documentation** | **6.0 / 10** |  C+   | README + protocol docs strong; types.ts undocumented              |
-| **Overall**       | **7.5 / 10** | **B** | Materially improved since Round 2 (was 6.4 / C+); few sharp edges |
+| Dimension         |    Score     | Grade | Key finding                                                    |
+| ----------------- | :----------: | :---: | -------------------------------------------------------------- |
+| **Security**      | **8.0 / 10** |  B+   | Auth + crypto solid; ASCII-key PBKDF2 stretching is opt-in     |
+| **Reliability**   | **8.0 / 10** |  B+   | Pipeline coverage gaps remain; no open unhandled-rejection     |
+| **Type Safety**   | **7.5 / 10** |   B   | Routes fully typed; residual `any` concentrated in the CLI     |
+| **Test Coverage** | **7.0 / 10** |   B   | Global branch comfortably above threshold; pipeline-v2 lags    |
+| **Documentation** | **6.0 / 10** |  C+   | README + protocol docs strong; `types.ts` undocumented         |
+| **Overall**       | **7.5 / 10** | **B** | Few sharp edges; coverage gaps on pipeline-v2 are the priority |
 
 ---
 
-## Top Improvement Opportunities (Round 3)
+## Top Improvement Opportunities
 
-Ordered by expected impact-per-effort:
+Ordered by expected impact-per-effort. Historical remediation status is in
+`CHANGELOG.md`; this section tracks only currently open opportunities.
 
-### Priority 1 — ~~Fix unhandled NAK rejection~~ (false positive)
+### Priority 1 — Lift pipeline-v2 / instance coverage (High impact, Medium effort)
 
-**File:** `src/pipeline-v2-server.ts:190`
-
-During Round-3 remediation this finding was **verified as a false positive**.
-`_sendNAK` wraps its `socketUdp.send` call in a Promise whose `send` callback
-resolves/rejects the returned promise, but the awaited body is itself inside
-an outer `try { … } catch (err) { app.error(...) }`. The promise returned
-by `_sendNAK` therefore resolves even on socket failure, so the un-awaited
-call from `onLossDetected` cannot generate an unhandled rejection. The
-original Round-3 writeup conflated "not awaited" with "no catch handler".
-No code change needed; the narrative above is retained for historical
-continuity.
-
-### Priority 2 — ~~Make KDF mandatory for ASCII keys~~ (Completed / superseded)
-
-**File:** `src/crypto.ts` (`normalizeKey`, ASCII branch).
-
-**Completed** in Round-3 remediation as an **opt-in** flag rather than a
-behavioural change: `normalizeKey()` now accepts a `stretchAsciiKey` option
-that routes 32-char ASCII keys through `deriveKeyFromPassphrase()` when
-enabled. Default remains `false` so existing deployments are unchanged. The
-flag is documented in `docs/security.md` and `CHANGELOG.md`. (The runtime
-RJSF schema served to the admin UI is `plugin.schema` in `src/index.ts`;
-the standalone `schemas/config.schema.json` file has been removed since it
-was not wired into runtime validation.) See the Remediation Outcomes table
-below.
-
-### Priority 3 — ~~Gate or remove `allowUnauthenticatedControl`~~ (Completed)
-
-**File:** `src/packet.ts` (previously `parseHeader`).
-
-**Completed** in Round-3 remediation: the `allowUnauthenticatedControl`
-option was removed from `parseHeader()` entirely and v3 control-packet HMAC
-verification is now unconditional. The CHANGELOG's "Breaking" section records
-the API removal. See the Remediation Outcomes table below.
-
-### Priority 4 — Lift pipeline-v2 / instance coverage (High impact, Medium effort)
-
-**Files:** `src/pipeline-v2-client.ts` (51 % branch),
-`src/pipeline-v2-server.ts` (54 %), `src/instance.ts` (48 %),
-`src/config-watcher.ts` (49 %), `src/routes/connections.ts` (50 %).
+**Files:** `src/pipeline-v2-client.ts`, `src/pipeline-v2-server.ts`,
+`src/instance.ts`, `src/config-watcher.ts`, `src/routes/connections.ts`.
 
 Target: ≥ 65 % branch on each. New test suites should cover congestion
 throttling, retransmit replay on NAK, session limits, version-pin
-enforcement (after Priority 5), reload-during-stop, and parse-error paths.
+enforcement, reload-during-stop, and parse-error paths.
 
-### Priority 5 — ~~Pin protocol version per session~~ (Completed)
+### Priority 2 — JSDoc on `types.ts` (Low impact, Low effort)
 
-**File:** `src/pipeline-v2-server.ts` `receivePacket`.
+All exported interfaces and type aliases with no per-member documentation.
+A focused pass adding `/** ... */` to non-obvious fields (`halfWindowSize`,
+`nakWindow`, `lossBaseSeq`, `failoverThreshold`) makes the entire codebase
+more navigable in IDEs without any runtime risk.
 
-**Completed** in Round-3 remediation: the v2/v3 server now pins to its
-configured `protocolVersion` and rejects any packet whose header advertises
-a different version (counted as `malformedPackets`). This closes the v3→v2
-downgrade surface where a MITM could inject forged v2 control frames
-(ACK/NAK/HEARTBEAT/HELLO) — which carry no HMAC tag — at a server that had
-negotiated v3. See the Remediation Outcomes table below.
-
-### Priority 6 — JSDoc on `types.ts` (Low impact, Low effort)
-
-40+ exported interfaces with no per-member documentation. A focused pass
-adding `/** ... */` to non-obvious fields makes the entire codebase more
-navigable in IDEs without any runtime risk.
-
-### Priority 7 — Debounce `POST /monitoring/alerts` saves (Low impact, Low effort)
+### Priority 3 — Debounce `POST /monitoring/alerts` saves (Low impact, Low effort)
 
 Coalesce `app.savePluginOptions()` calls to at most one per second per
 connection. Prevents disk thrashing from a malicious authenticated client.
@@ -354,33 +297,32 @@ connection. Prevents disk thrashing from a malicious authenticated client.
 
 ---
 
-## Delta vs. Round 2 (2026-03-15)
+## Coverage Metrics
 
-| Metric                                  | Round 2 | Round 3 | Δ     |
-| --------------------------------------- | :-----: | :-----: | :---- |
-| Global statement coverage               | 73.4 %  | 79.6 %  | +6.2  |
-| Global branch coverage                  | 63.5 %  | 68.0 %  | +4.5  |
-| Global function coverage                | 78.5 %  | 82.9 %  | +4.4  |
-| `any` annotations in `src/`             |   344   |   17    | −327  |
-| Route handlers with `any` parameters    |   ~30   |    0    | −30   |
-| `pipeline-v2-client.ts` branch coverage | 44.0 %  | 51.0 %  | +7.0  |
-| `pipeline-v2-server.ts` branch coverage | 43.0 %  | 54.3 %  | +11.3 |
-| `routes/monitoring.ts` branch coverage  | 34.6 %  | 77.5 %  | +42.9 |
-| Overall project grade                   |   C+    |    B    | +1    |
+Live coverage figures (statement, branch, function, line) are published by
+CI as artefacts of the test job; this document intentionally avoids
+duplicating those numbers because they drift with every change. See the
+latest CI run's `coverage/` artefact or run `npm run test:coverage`
+locally for an authoritative snapshot.
+
+Release-scoped comparisons against prior review rounds are recorded in
+`CHANGELOG.md` rather than inline here.
 
 ---
 
-## Completed Hardenings
+## Current Security & Protocol Behaviour
 
-The following permanent behaviour changes landed in recent work and are
-reflected in the module scores above:
+The notable hardenings reflected in the scores above describe the
+present-day architecture:
 
-- **Unconditional v3 control-packet HMAC verification** (`packet.ts`). The
-  previous opt-in bypass has been removed.
-- **Opt-in PBKDF2 stretching for 32-char ASCII keys** (`crypto.ts`,
-  `stretchAsciiKey` flag). Off by default; when enabled, both peers must
-  agree.
-- **Protocol version pinning on v2/v3 servers** (`pipeline-v2-server.ts`).
-  Mismatched headers are rejected and counted as malformed.
+- **v3 control packets are HMAC-verified** in `packet.ts`; there is no
+  runtime opt-out.
+- **ASCII keys may be PBKDF2-stretched** via the `stretchAsciiKey`
+  connection flag handled in `crypto.ts`; both peers must agree on the
+  stretching mode.
+- **v2/v3 servers pin `protocolVersion`** per session in
+  `pipeline-v2-server.ts`; packets whose header version drifts after the
+  first HELLO are rejected and counted as malformed.
 
-See `CHANGELOG.md` for release-scoped summaries of these and other changes.
+See `CHANGELOG.md` for the release-scoped history of how these
+behaviours evolved.

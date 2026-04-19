@@ -117,6 +117,9 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   if (conn.usePathDictionary !== undefined && typeof conn.usePathDictionary !== "boolean") {
     return `${p}usePathDictionary must be a boolean`;
   }
+  if (conn.stretchAsciiKey !== undefined && typeof conn.stretchAsciiKey !== "boolean") {
+    return `${p}stretchAsciiKey must be a boolean`;
+  }
   if (conn.enableNotifications !== undefined && typeof conn.enableNotifications !== "boolean") {
     return `${p}enableNotifications must be a boolean`;
   }
