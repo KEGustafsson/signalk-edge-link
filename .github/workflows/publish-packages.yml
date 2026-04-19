@@ -84,9 +84,4 @@ jobs:
           name: signalk-edge-link
           path: ${{ steps.pack.outputs.packed_tgz }}
           if-no-files-found: error
-          retention-days: 30
-
-      - name: Publish to GitHub Packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm publish "${{ steps.pack.outputs.packed_tgz }}" --access public
+          retention-days: 1
