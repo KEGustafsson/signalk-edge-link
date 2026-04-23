@@ -15,7 +15,7 @@
 
 import CircularBuffer from "./CircularBuffer";
 import { encryptBinary } from "./crypto";
-import { encodeDelta } from "./pathDictionary";
+import { encodeDelta, encodeMetaEntry } from "./pathDictionary";
 import {
   deltaBuffer,
   compressPayload,
@@ -26,13 +26,15 @@ import { RetransmitQueue } from "./retransmit-queue";
 import { MetricsPublisher } from "./metrics-publisher";
 import { CongestionControl } from "./congestion";
 import { BondingManager } from "./bonding";
+import { splitIntoPackets, buildMetaEnvelope } from "./metadata";
 import type {
   SignalKApp,
   MetricsApi,
   InstanceState,
   Delta,
   MonitoringState,
-  BondingConfig
+  BondingConfig,
+  MetaEntry
 } from "./types";
 import * as dgram from "dgram";
 import {
@@ -126,6 +128,17 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
 
   // Enhanced monitoring hooks (set externally via setMonitoring)
   let monitoringHooks: MonitoringState | null = null;
+
+  // Callback fired when the receiver asks for a fresh metadata snapshot
+  // (META_REQUEST control packet). Wired up by instance.ts, which is the only
+  // layer that knows how to build a snapshot from `app.signalk.retrieve()`.
+  let metaRequestHandler: (() => void) | null = null;
+  let metaEnvelopeSeq = 0;
+  // Meta-specific bandwidth counter; declared here so it's not wiped by the
+  // shared `metrics.bandwidth` object being reset in test harnesses.
+  if (metrics.bandwidth && metrics.bandwidth.metaBytesOut === undefined) {
+    metrics.bandwidth.metaBytesOut = 0;
+  }
 
   // RTT tracking for jitter calculation (CircularBuffer gives O(1) push with auto-eviction)
   const rttSamples = new CircularBuffer<number>(10);
@@ -424,6 +437,78 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   }
 
   /**
+   * Send a batch of Signal K metadata entries to the receiver as one or more
+   * METADATA (0x06) packets. Mirrors the compress → encrypt → packet-build
+   * pipeline of `sendDelta` but uses a meta envelope so the receiver can
+   * reconstruct multi-chunk snapshots.
+   *
+   * Snapshots are NOT inserted into the retransmit queue — eventual
+   * consistency is provided by the periodic resend timer in instance.ts, and
+   * the receiver can always request a fresh snapshot via META_REQUEST.
+   */
+  async function sendMetadata(
+    entries: MetaEntry[],
+    kind: "snapshot" | "diff",
+    secretKey: string,
+    udpAddress: string,
+    udpPort: number
+  ): Promise<void> {
+    try {
+      if (!state.options) {
+        app.debug("sendMetadata called but plugin is stopped, ignoring");
+        return;
+      }
+      if (entries.length === 0) {
+        return;
+      }
+
+      const maxPerPacket = state.metaConfig?.maxPathsPerPacket ?? 500;
+      const chunks = splitIntoPackets(entries, maxPerPacket);
+      const usePathDict = !!state.options.usePathDictionary;
+      const useMsgpack = !!state.options.useMsgpack;
+
+      // Assign one envelope seq per chunk group so the receiver can correlate
+      // `idx/total` inside a single snapshot/diff operation.
+      const envelopeSeq = metaEnvelopeSeq++ >>> 0;
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const processedEntries = usePathDict ? chunk.map(encodeMetaEntry) : chunk;
+        const envelope = buildMetaEnvelope(processedEntries, kind, envelopeSeq, i, chunks.length);
+
+        const serialized = deltaBuffer(envelope, useMsgpack);
+        const compressed = await compressPayload(serialized, useMsgpack);
+        const encrypted = encryptBinary(compressed, secretKey, { stretchAsciiKey });
+        const packet = packetBuilder.buildMetadataPacket(encrypted, {
+          compressed: true,
+          encrypted: true,
+          messagepack: useMsgpack,
+          pathDictionary: usePathDict
+        });
+
+        await udpSendAsync(packet, udpAddress, udpPort);
+
+        metrics.bandwidth.metaBytesOut = (metrics.bandwidth.metaBytesOut || 0) + packet.length;
+        metrics.bandwidth.metaPacketsOut = (metrics.bandwidth.metaPacketsOut || 0) + 1;
+        metrics.bandwidth.bytesOut += packet.length;
+        metrics.bandwidth.packetsOut++;
+      }
+
+      app.debug(
+        `v2 meta sent: kind=${kind}, entries=${entries.length}, chunks=${chunks.length}, envSeq=${envelopeSeq}`
+      );
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      app.error(`v2 sendMetadata error: ${msg}`);
+      recordError("general", `v2 sendMetadata error: ${msg}`);
+    }
+  }
+
+  function setMetaRequestHandler(handler: (() => void) | null): void {
+    metaRequestHandler = handler;
+  }
+
+  /**
    * Handle incoming ACK packet from server.
    * Removes acknowledged packets from the retransmit queue.
    *
@@ -560,6 +645,18 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         receiveACK(parsed, rinfo);
       } else if (parsed.type === PacketType.NAK) {
         await receiveNAK(parsed, rinfo.address, rinfo.port);
+      } else if (parsed.type === PacketType.META_REQUEST) {
+        // Receiver asks us to re-send the full meta snapshot. Rate-limited in
+        // the handler (instance.ts) to prevent a malformed receiver from
+        // pinning our CPU/bandwidth on snapshot generation.
+        if (metaRequestHandler) {
+          try {
+            metaRequestHandler();
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            app.debug(`META_REQUEST handler error: ${errMsg}`);
+          }
+        }
       }
       // Ignore other packet types on client side
     } catch (err: unknown) {
@@ -956,6 +1053,8 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
 
   return {
     sendDelta,
+    sendMetadata,
+    setMetaRequestHandler,
     getPacketBuilder,
     getRetransmitQueue,
     getMetricsPublisher,

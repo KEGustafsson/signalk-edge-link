@@ -484,6 +484,37 @@ class DataConnectorConfig {
               <div id="pathsList" class="paths-list"></div>
               <button id="addPath" class="btn btn-secondary">Add Path</button>
             </div>
+            <fieldset class="meta-config">
+              <legend>Metadata streaming</legend>
+              <p class="help-text">
+                Also forward Signal K path metadata (units, descriptions, zones,
+                display names, ...) to the remote receiver. Disabled by default.
+                Meta is sent as a full snapshot at startup and re-broadcast on
+                an interval so a restarted receiver can recover without a
+                round-trip.
+              </p>
+              <div class="form-group">
+                <label>
+                  <input type="checkbox" id="metaEnabled" />
+                  Include metadata
+                </label>
+              </div>
+              <div class="form-group">
+                <label for="metaIntervalSec">Snapshot interval (seconds):</label>
+                <input type="number" id="metaIntervalSec" min="30" max="86400" step="1" placeholder="300" />
+                <small class="help-text">Between 30 and 86400. Default 300 (5 minutes).</small>
+              </div>
+              <div class="form-group">
+                <label for="metaPathsRegex">Include paths matching (regex, optional):</label>
+                <input type="text" id="metaPathsRegex" placeholder="" />
+                <small class="help-text">Leave empty to include every subscribed path.</small>
+              </div>
+              <div class="form-group">
+                <label for="metaMaxPerPacket">Max paths per packet:</label>
+                <input type="number" id="metaMaxPerPacket" min="10" max="5000" step="1" placeholder="500" />
+                <small class="help-text">Between 10 and 5000. Default 500.</small>
+              </div>
+            </fieldset>
             <div class="json-editor">
               <h3>JSON Editor</h3>
               <textarea id="subscriptionJson" rows="10" placeholder='{"context": "*", "subscribe": [{"path": "*"}]}'></textarea>
@@ -825,6 +856,30 @@ class DataConnectorConfig {
       if (jsonEl) {
         jsonEl.value = JSON.stringify(this.subscriptionConfig, null, 2);
       }
+
+      // Populate the structured metadata controls from the loaded config.
+      const meta = (cfg.meta as Record<string, unknown> | undefined) || null;
+      const metaEnabled = document.getElementById("metaEnabled") as HTMLInputElement | null;
+      if (metaEnabled) {
+        metaEnabled.checked = !!(meta && meta.enabled === true);
+      }
+      const metaIntervalSec = document.getElementById("metaIntervalSec") as HTMLInputElement | null;
+      if (metaIntervalSec) {
+        metaIntervalSec.value =
+          meta && typeof meta.intervalSec === "number" ? String(meta.intervalSec) : "";
+      }
+      const metaPathsRegex = document.getElementById("metaPathsRegex") as HTMLInputElement | null;
+      if (metaPathsRegex) {
+        metaPathsRegex.value =
+          meta && typeof meta.includePathsMatching === "string" ? meta.includePathsMatching : "";
+      }
+      const metaMaxPerPacket = document.getElementById(
+        "metaMaxPerPacket"
+      ) as HTMLInputElement | null;
+      if (metaMaxPerPacket) {
+        metaMaxPerPacket.value =
+          meta && typeof meta.maxPathsPerPacket === "number" ? String(meta.maxPathsPerPacket) : "";
+      }
     }
 
     if (
@@ -1028,6 +1083,27 @@ class DataConnectorConfig {
       }
       if (!config.subscribe || !Array.isArray(config.subscribe)) {
         throw new Error("Subscribe array is required");
+      }
+
+      // Merge in the structured meta controls. Textarea wins on conflict,
+      // so only add `meta` when it isn't already present in the raw JSON —
+      // this keeps the "advanced" editor authoritative.
+      if (config.meta === undefined) {
+        const metaEnabledEl = document.getElementById("metaEnabled") as HTMLInputElement | null;
+        if (metaEnabledEl && metaEnabledEl.checked) {
+          const intervalEl = document.getElementById("metaIntervalSec") as HTMLInputElement | null;
+          const pathsEl = document.getElementById("metaPathsRegex") as HTMLInputElement | null;
+          const maxEl = document.getElementById("metaMaxPerPacket") as HTMLInputElement | null;
+          const intervalSec = intervalEl && intervalEl.value ? Number(intervalEl.value) : 300;
+          const maxPathsPerPacket = maxEl && maxEl.value ? Number(maxEl.value) : 500;
+          const includePathsMatching = pathsEl && pathsEl.value ? pathsEl.value : null;
+          config.meta = {
+            enabled: true,
+            intervalSec,
+            includePathsMatching,
+            maxPathsPerPacket
+          };
+        }
       }
 
       await this.saveConfig(

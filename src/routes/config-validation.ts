@@ -22,6 +22,40 @@ function validateRuntimeConfigBody(filename: string, body: Record<string, unknow
         }
       }
     }
+    if (body.meta !== undefined) {
+      if (body.meta === null || typeof body.meta !== "object" || Array.isArray(body.meta)) {
+        return "meta must be an object";
+      }
+      const m = body.meta as Record<string, unknown>;
+      if (m.enabled !== undefined && typeof m.enabled !== "boolean") {
+        return "meta.enabled must be a boolean";
+      }
+      if (
+        m.intervalSec !== undefined &&
+        (typeof m.intervalSec !== "number" ||
+          !Number.isFinite(m.intervalSec) ||
+          m.intervalSec < 30 ||
+          m.intervalSec > 86400)
+      ) {
+        return "meta.intervalSec must be a number between 30 and 86400";
+      }
+      if (
+        m.includePathsMatching !== undefined &&
+        m.includePathsMatching !== null &&
+        typeof m.includePathsMatching !== "string"
+      ) {
+        return "meta.includePathsMatching must be a string or null";
+      }
+      if (
+        m.maxPathsPerPacket !== undefined &&
+        (typeof m.maxPathsPerPacket !== "number" ||
+          !Number.isFinite(m.maxPathsPerPacket) ||
+          m.maxPathsPerPacket < 10 ||
+          m.maxPathsPerPacket > 5000)
+      ) {
+        return "meta.maxPathsPerPacket must be a number between 10 and 5000";
+      }
+    }
   } else if (filename === "sentence_filter.json") {
     if (body.excludedSentences !== undefined && !Array.isArray(body.excludedSentences)) {
       return "excludedSentences must be an array";

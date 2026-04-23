@@ -54,7 +54,9 @@ const PacketType = Object.freeze({
   ACK: 0x02,
   NAK: 0x03,
   HEARTBEAT: 0x04,
-  HELLO: 0x05
+  HELLO: 0x05,
+  METADATA: 0x06,
+  META_REQUEST: 0x07
 });
 
 /**
@@ -183,6 +185,37 @@ export class PacketBuilder {
     const packet = this._buildPacket(PacketType.DATA, payload, flags);
     this._advanceSequence();
     return packet;
+  }
+
+  /**
+   * Build a METADATA packet. Shares the flag set and the data-packet
+   * build/encrypt pipeline with buildDataPacket but uses packet type 0x06 so
+   * the receiver can dispatch meta into a separate cache.
+   *
+   * Uses the same sequence counter as DATA so NAK/retransmit semantics apply
+   * uniformly if the caller chooses to enqueue the packet for retransmission.
+   */
+  buildMetadataPacket(
+    payload: Buffer,
+    flags: {
+      compressed?: boolean;
+      encrypted?: boolean;
+      messagepack?: boolean;
+      pathDictionary?: boolean;
+    } = {}
+  ): Buffer {
+    const packet = this._buildPacket(PacketType.METADATA, payload, flags);
+    this._advanceSequence();
+    return packet;
+  }
+
+  /**
+   * Build a META_REQUEST control packet (receiver → client).
+   * Payload is empty; control-packet authentication/CRC is applied by
+   * _buildPacket the same way as ACK/NAK.
+   */
+  buildMetaRequestPacket(options: { secretKey?: string; protocolVersion?: number } = {}): Buffer {
+    return this._buildPacket(PacketType.META_REQUEST, Buffer.alloc(0), {}, options);
   }
 
   /**
@@ -331,10 +364,11 @@ export class PacketBuilder {
 
     let finalPayload = payloadBuffer;
 
-    // DATA packets are authenticated by AES-256-GCM. v2 control packets use a
-    // trailing CRC for corruption detection; v3 control packets use an HMAC tag
-    // so ACK/NAK/HEARTBEAT/HELLO cannot be forged off-path.
-    if (type !== PacketType.DATA) {
+    // DATA and METADATA packets are authenticated by AES-256-GCM (their payload
+    // is already an AEAD ciphertext). v2 control packets use a trailing CRC for
+    // corruption detection; v3 control packets use an HMAC tag so
+    // ACK/NAK/HEARTBEAT/HELLO/META_REQUEST cannot be forged off-path.
+    if (type !== PacketType.DATA && type !== PacketType.METADATA) {
       if (usesAuthenticatedControl(protocolVersion)) {
         const secretKey = options.secretKey || this._secretKey;
         if (!secretKey) {
@@ -461,7 +495,7 @@ export class PacketParser {
     // Extract payload
     let payload = packet.subarray(HEADER_SIZE);
 
-    if (type !== PacketType.DATA) {
+    if (type !== PacketType.DATA && type !== PacketType.METADATA) {
       if (usesAuthenticatedControl(version)) {
         if (payload.length < CONTROL_AUTH_TAG_LENGTH) {
           throw new Error("Control packet authentication tag missing");
@@ -478,11 +512,11 @@ export class PacketParser {
         });
         payload = payloadData;
       } else {
-        // HEARTBEAT packets carry a 0-byte payload with no CRC — accept as-is.
-        // ACK / NAK / HELLO must include a 2-byte CRC16 trailer; reject
-        // undersized payloads so forged control frames cannot slip through
-        // unverified.
-        if (type !== PacketType.HEARTBEAT) {
+        // HEARTBEAT and META_REQUEST packets carry a 0-byte payload with no CRC
+        // — accept as-is. ACK / NAK / HELLO must include a 2-byte CRC16 trailer;
+        // reject undersized payloads so forged control frames cannot slip
+        // through unverified.
+        if (type !== PacketType.HEARTBEAT && type !== PacketType.META_REQUEST) {
           if (payload.length < 2) {
             throw new Error(`Control packet payload too short for CRC: ${payload.length} byte(s)`);
           }
@@ -586,7 +620,9 @@ function getTypeName(type: number): string {
     [PacketType.ACK]: "ACK",
     [PacketType.NAK]: "NAK",
     [PacketType.HEARTBEAT]: "HEARTBEAT",
-    [PacketType.HELLO]: "HELLO"
+    [PacketType.HELLO]: "HELLO",
+    [PacketType.METADATA]: "METADATA",
+    [PacketType.META_REQUEST]: "META_REQUEST"
   };
   return names[type] || "UNKNOWN";
 }

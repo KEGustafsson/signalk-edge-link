@@ -473,6 +473,22 @@ export function decodeDelta(delta: Delta): Delta {
 }
 
 /**
+ * Encode the `path` field of a metadata entry using the path dictionary.
+ * The `meta` payload itself is intentionally not touched — dictionary
+ * compression applies to the path strings only.
+ */
+export function encodeMetaEntry<T extends { path: string }>(entry: T): T {
+  return { ...entry, path: encodePath(entry.path) as unknown as string };
+}
+
+/**
+ * Decode the `path` field of a metadata entry. Inverse of encodeMetaEntry.
+ */
+export function decodeMetaEntry<T extends { path: string | number }>(entry: T): T {
+  return { ...entry, path: decodePath(entry.path as number | string) };
+}
+
+/**
  * Get all known paths as an array
  * @returns Array of all known SignalK paths
  */

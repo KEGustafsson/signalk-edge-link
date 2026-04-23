@@ -2,7 +2,7 @@
 
 import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary, decryptBinary } from "./crypto";
-import { encodeDelta, decodeDelta } from "./pathDictionary";
+import { encodeDelta, decodeDelta, encodeMetaEntry } from "./pathDictionary";
 import {
   deltaBuffer,
   compressPayload,
@@ -17,7 +17,13 @@ import {
   SMART_BATCH_SMOOTHING,
   calculateMaxDeltasPerBatch
 } from "./constants";
-import type { SignalKApp, MetricsApi, InstanceState, Delta } from "./types";
+import { splitIntoPackets, buildMetaEnvelope } from "./metadata";
+import type { SignalKApp, MetricsApi, InstanceState, Delta, MetaEntry } from "./types";
+
+/** Leading magic that distinguishes v1 meta payloads from v1 deltas, placed
+ *  inside the encrypted plaintext so existing v1 receivers (which do not
+ *  recognise it) simply reject the packet rather than misinterpreting it. */
+const V1_META_MAGIC = Buffer.from("SKM1", "ascii");
 
 /**
  * Creates the data processing pipeline (compress, encrypt, send / receive, decrypt, decompress).
@@ -37,10 +43,18 @@ function createPipeline(
     udpAddress: string,
     udpPort: number
   ): Promise<void>;
+  packCryptMeta(
+    entries: MetaEntry[],
+    kind: "snapshot" | "diff",
+    secretKey: string,
+    udpAddress: string,
+    udpMetaPort: number
+  ): Promise<void>;
   unpackDecrypt(msg: Buffer, secretKey: string): Promise<void>;
 } {
   const { metrics, recordError, trackPathStats } = metricsApi;
   const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
+  let metaEnvelopeSeqV1 = 0;
 
   /**
    * Compresses, encrypts, and sends delta data via UDP.
@@ -148,6 +162,78 @@ function createPipeline(
         app.error(`packCrypt error: ${msg}`);
         recordError("general", `packCrypt error: ${msg}`);
       }
+    }
+  }
+
+  /**
+   * Sends Signal K path metadata to the receiver using the v1 wire format on a
+   * separate UDP port.
+   *
+   * v1 has no packet-type byte so we cannot multiplex meta with deltas on the
+   * existing port without breaking every deployed v1 receiver. To keep the
+   * change backward-compatible, meta is sent on `udpMetaPort` with a 4-byte
+   * `SKM1` magic prefix inside the encrypted plaintext — a v1 receiver that
+   * has not been upgraded will fail to JSON-parse the payload and simply drop
+   * it without side effects.
+   */
+  async function packCryptMeta(
+    entries: MetaEntry[],
+    kind: "snapshot" | "diff",
+    secretKey: string,
+    udpAddress: string,
+    udpMetaPort: number
+  ): Promise<void> {
+    try {
+      if (!state.options) {
+        app.debug("packCryptMeta called but plugin is stopped, ignoring");
+        return;
+      }
+      if (!udpMetaPort || udpMetaPort <= 0) {
+        app.debug("packCryptMeta: no udpMetaPort configured, meta disabled on v1");
+        return;
+      }
+      if (entries.length === 0) {
+        return;
+      }
+
+      const usePathDict = !!state.options.usePathDictionary;
+      const useMsgpack = !!state.options.useMsgpack;
+      const maxPerPacket = state.metaConfig?.maxPathsPerPacket ?? 500;
+      const chunks = splitIntoPackets(entries, maxPerPacket);
+      const envelopeSeq = metaEnvelopeSeqV1++ >>> 0;
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const processed = usePathDict ? chunk.map(encodeMetaEntry) : chunk;
+        const envelope = buildMetaEnvelope(processed, kind, envelopeSeq, i, chunks.length);
+        const serialized = deltaBuffer(envelope, useMsgpack);
+        const withMagic = Buffer.concat([V1_META_MAGIC, serialized]);
+        const compressed = await compressPayload(withMagic, useMsgpack);
+        const packet = encryptBinary(compressed, secretKey, {
+          stretchAsciiKey: !!state.options.stretchAsciiKey
+        });
+
+        if (packet.length > MAX_SAFE_UDP_PAYLOAD) {
+          app.debug(
+            `Warning: v1 meta packet size ${packet.length} bytes exceeds safe MTU (${MAX_SAFE_UDP_PAYLOAD})`
+          );
+        }
+
+        await udpSendAsync(packet, udpAddress, udpMetaPort);
+
+        metrics.bandwidth.metaBytesOut = (metrics.bandwidth.metaBytesOut || 0) + packet.length;
+        metrics.bandwidth.metaPacketsOut = (metrics.bandwidth.metaPacketsOut || 0) + 1;
+        metrics.bandwidth.bytesOut += packet.length;
+        metrics.bandwidth.packetsOut++;
+      }
+
+      app.debug(
+        `v1 meta sent: kind=${kind}, entries=${entries.length}, chunks=${chunks.length}, envSeq=${envelopeSeq}`
+      );
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      app.error(`packCryptMeta error: ${msg}`);
+      recordError("general", `packCryptMeta error: ${msg}`);
     }
   }
 
@@ -314,7 +400,7 @@ function createPipeline(
     });
   }
 
-  return { packCrypt, unpackDecrypt };
+  return { packCrypt, packCryptMeta, unpackDecrypt };
 }
 
 export = createPipeline;

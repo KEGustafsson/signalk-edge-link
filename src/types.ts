@@ -16,6 +16,12 @@ export interface DeltaValue {
   value: unknown;
 }
 
+/** A Signal K metadata entry attached to a delta update. */
+export interface DeltaMeta {
+  path: string;
+  value: Record<string, unknown>;
+}
+
 /** A Signal K delta update block. */
 export interface DeltaUpdate {
   source?: {
@@ -25,6 +31,32 @@ export interface DeltaUpdate {
   $source?: string;
   timestamp?: string;
   values: DeltaValue[];
+  meta?: DeltaMeta[];
+}
+
+/** Metadata streaming configuration (optional block in subscription.json). */
+export interface MetaConfig {
+  enabled: boolean;
+  intervalSec: number;
+  includePathsMatching?: string | null;
+  maxPathsPerPacket?: number;
+}
+
+/** A single metadata entry emitted on the wire. */
+export interface MetaEntry {
+  context: string;
+  path: string;
+  meta: Record<string, unknown>;
+}
+
+/** Envelope for a metadata packet payload (JSON or msgpack, pre-compression). */
+export interface MetaEnvelope {
+  v: 1;
+  kind: "snapshot" | "diff";
+  seq: number;
+  idx: number;
+  total: number;
+  entries: MetaEntry[];
 }
 
 /** A Signal K delta message. */
@@ -182,6 +214,14 @@ export interface ConnectionConfig {
   enableNotifications?: boolean;
   /** Destination IP address for client mode. Not used in server mode. */
   udpAddress?: string;
+  /**
+   * Separate UDP port used by the v1 pipeline for metadata packets. Required
+   * when `protocolVersion === 1` and metadata streaming is enabled, because v1
+   * has no packet-type byte so meta cannot be multiplexed on the main data
+   * port without corrupting existing receivers. Ignored on v2/v3. Default:
+   * undefined (meta disabled on v1 unless operator sets this).
+   */
+  udpMetaPort?: number;
   /** Number of HELLO retransmits sent on connection start. Default 3. */
   helloMessageSender?: number;
   /** Override destination address used in automated tests. */
@@ -227,6 +267,10 @@ export interface BandwidthMetrics {
   rateOut: number;
   rateIn: number;
   compressionRatio: number;
+  /** Cumulative bytes sent as METADATA packets (0x06 or v1 "SKM1"). */
+  metaBytesOut?: number;
+  /** Count of METADATA packets emitted. */
+  metaPacketsOut?: number;
   history: import("./CircularBuffer")<{
     timestamp: number;
     rateOut: number;
@@ -397,6 +441,18 @@ export interface InstanceState {
   configContentHashes: Record<string, string>;
   /** Callback invoked for each incoming delta (set by the pipeline); null before ready. */
   processDelta: ((delta: Delta) => void) | null;
+  /** Active metadata-streaming configuration from subscription.json; null when disabled. */
+  metaConfig: MetaConfig | null;
+  /** Periodic metadata snapshot resend timer handle; null when not active. */
+  metaTimer: ReturnType<typeof setInterval> | null;
+  /** Monotonic sequence for meta envelopes (independent of UDP sequence). */
+  metaSeq: number;
+  /** Coalescing buffer for live meta diff entries collected from delta stream. */
+  metaDiffBuffer: MetaEntry[];
+  /** Debounce timer for the live meta diff flush; null when not armed. */
+  metaDiffFlushTimer: ReturnType<typeof setTimeout> | null;
+  /** Timestamp (ms) of the last receiver-requested snapshot; used for rate limiting. */
+  lastMetaRequestAt: number;
 }
 
 /** Instance bundle returned by instanceRegistry. */
@@ -433,6 +489,15 @@ export interface SignalKApp {
       onError: (err: unknown) => void,
       onDelta: (delta: Delta) => void
     ) => void;
+  };
+  /** Full Signal K state tree including `meta` entries. Only present on real
+   *  signalk-server runtimes; undefined in tests and minimal mocks. */
+  signalk?: {
+    retrieve: () => Record<string, unknown>;
+  };
+  /** Per-path stream bundle API. Only present on real signalk-server runtimes. */
+  streambundle?: {
+    getSelfBus: (path: string) => unknown;
   };
 }
 
@@ -584,6 +649,20 @@ export interface ClientPipelineApi {
     address: string,
     port: number
   ): Promise<void>;
+  /**
+   * Send a batch of metadata entries to the receiver. Handles chunking, the
+   * shared compress/encrypt pipeline, and the appropriate transport envelope
+   * (packet type 0x06 on v2/v3; "SKM1" magic on a separate UDP port for v1).
+   */
+  sendMetadata?(
+    entries: MetaEntry[],
+    kind: "snapshot" | "diff",
+    secretKey: string,
+    address: string,
+    port: number
+  ): Promise<void>;
+  /** Register a callback fired when the receiver sends a META_REQUEST packet. */
+  setMetaRequestHandler?(handler: (() => void) | null): void;
   handleControlPacket(msg: Buffer, rinfo: import("dgram").RemoteInfo): Promise<void>;
   startMetricsPublishing(): void;
   stopMetricsPublishing(): void;
