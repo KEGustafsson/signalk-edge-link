@@ -376,6 +376,10 @@ export interface InstanceState {
   options: ConnectionConfig | null;
   /** Bound UDP socket; null before `start()` or after `stop()`. */
   socketUdp: import("dgram").Socket | null;
+  /** Second UDP socket bound to `udpMetaPort`, used only by the v1 server
+   *  pipeline for receiving metadata packets. v2/v3 multiplex meta onto the
+   *  main socket via packet type 0x06 and leave this null. */
+  metaSocketUdp: import("dgram").Socket | null;
   /** True once the UDP socket is ready and a destination is known. */
   readyToSend: boolean;
   /** True after `stop()` has been called; prevents stale timer callbacks from acting. */

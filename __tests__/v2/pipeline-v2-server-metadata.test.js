@@ -134,3 +134,69 @@ describe("pipeline-v2-server METADATA handling", () => {
     expect(app.handleMessage).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("pipeline-v2-server META_REQUEST emission", () => {
+  const { PacketParser, PacketType } = require("../../lib/packet");
+  const secretKey = "12345678901234567890123456789012";
+
+  function makeHarness() {
+    const sent = [];
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      handleMessage: jest.fn()
+    };
+    const state = {
+      options: { reliability: { nakTimeout: 10 } },
+      socketUdp: {
+        send: jest.fn((pkt, port, addr, cb) => {
+          sent.push({ pkt, port, addr });
+          if (cb) {
+            cb(null);
+          }
+        })
+      },
+      instanceId: "test"
+    };
+    const metricsApi = makeMetricsApi();
+    const pipeline = createPipelineV2Server(app, state, metricsApi);
+    return { app, state, metricsApi, pipeline, sent };
+  }
+
+  function buildHelloPacket() {
+    const builder = new PacketBuilder({ protocolVersion: 2 });
+    return builder.buildHelloPacket({ protocolVersion: 2, clientId: "c1" });
+  }
+
+  test("emits exactly one META_REQUEST per session when a HELLO arrives", async () => {
+    const { pipeline, sent } = makeHarness();
+    const rinfo = { address: "127.0.0.1", port: 14100 };
+    await pipeline.receivePacket(buildHelloPacket(), secretKey, rinfo);
+    await pipeline.receivePacket(buildHelloPacket(), secretKey, rinfo);
+
+    // One of the sends is the META_REQUEST back to the client (there may be
+    // others such as ACKs for later DATA packets — for HELLO only, only the
+    // META_REQUEST is expected).
+    const parser = new PacketParser();
+    const metaRequests = sent
+      .map((s) => parser.parseHeader(s.pkt))
+      .filter((p) => p.type === PacketType.META_REQUEST);
+    expect(metaRequests).toHaveLength(1);
+    const reqSend = sent.find((s) => parser.parseHeader(s.pkt).type === PacketType.META_REQUEST);
+    expect(reqSend.addr).toBe(rinfo.address);
+    expect(reqSend.port).toBe(rinfo.port);
+  });
+
+  test("does not re-emit META_REQUEST on repeated HELLOs from the same session", async () => {
+    const { pipeline, sent } = makeHarness();
+    const rinfo = { address: "127.0.0.1", port: 14101 };
+    for (let i = 0; i < 5; i++) {
+      await pipeline.receivePacket(buildHelloPacket(), secretKey, rinfo);
+    }
+    const parser = new PacketParser();
+    const metaRequests = sent
+      .map((s) => parser.parseHeader(s.pkt))
+      .filter((p) => p.type === PacketType.META_REQUEST);
+    expect(metaRequests).toHaveLength(1);
+  });
+});

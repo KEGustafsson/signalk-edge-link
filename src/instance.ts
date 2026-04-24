@@ -107,6 +107,7 @@ function createInstance(
     isHealthy: false,
     options,
     socketUdp: null,
+    metaSocketUdp: null,
     readyToSend: false,
     stopped: false,
     isServerMode: false,
@@ -168,6 +169,7 @@ function createInstance(
       udpMetaPort: number
     ): Promise<void>;
     unpackDecrypt(msg: Buffer, secretKey: string): Promise<void>;
+    unpackDecryptMeta(msg: Buffer, secretKey: string): Promise<void>;
   };
   let v1Pipeline: V1Pipeline | null = null;
   function getV1Pipeline(): V1Pipeline {
@@ -862,6 +864,36 @@ function createInstance(
           getV1Pipeline().unpackDecrypt(delta, options.secretKey);
         });
         app.debug(`[${instanceId}] [v1] Server pipeline initialized`);
+
+        // v1 has no packet-type byte, so meta is streamed on a separate UDP
+        // port by the client. Bind that port here when the operator has opted
+        // in. If `udpMetaPort` is unset we simply don't listen — keeping the
+        // receive side idle is the correct default for existing v1 peers that
+        // don't know about meta.
+        if (typeof options.udpMetaPort === "number" && options.udpMetaPort > 0) {
+          if (options.udpMetaPort === options.udpPort) {
+            app.error(
+              `[${instanceId}] [v1] udpMetaPort (${options.udpMetaPort}) must differ from udpPort; meta disabled`
+            );
+          } else {
+            const metaSocket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+            state.metaSocketUdp = metaSocket;
+            metaSocket.on("message", (msg: Buffer) => {
+              getV1Pipeline()
+                .unpackDecryptMeta(msg, options.secretKey)
+                .catch((err: unknown) => {
+                  const m = err instanceof Error ? err.message : String(err);
+                  app.debug(`[${instanceId}] [v1] meta decrypt failed: ${m}`);
+                });
+            });
+            metaSocket.on("error", (err: NodeJS.ErrnoException) => {
+              app.error(`[${instanceId}] [v1] meta socket error: ${err.message} (${err.code})`);
+              recordError("udpSend", `v1 meta socket error: ${err.message} (${err.code})`);
+            });
+            metaSocket.bind(options.udpMetaPort);
+            app.debug(`[${instanceId}] [v1] Meta listener bound to UDP :${options.udpMetaPort}`);
+          }
+        }
       }
 
       const startupSocket = state.socketUdp;
@@ -1317,11 +1349,20 @@ function createInstance(
       state.pingMonitor = null;
     }
 
-    // Close UDP socket
+    // Close UDP socket(s)
     if (state.socketUdp) {
       state.socketUdp.close();
       state.socketUdp = null;
       app.debug(`[${instanceId}] Stopped`);
+    }
+    if (state.metaSocketUdp) {
+      try {
+        state.metaSocketUdp.close();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        app.debug(`[${instanceId}] Meta socket close failed: ${msg}`);
+      }
+      state.metaSocketUdp = null;
     }
 
     _setStatus("Stopped", false);

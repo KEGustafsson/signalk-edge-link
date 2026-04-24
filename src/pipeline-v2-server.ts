@@ -60,6 +60,9 @@ interface ClientSession {
   lastLossReceived: number;
   rateLimitCount: number;
   rateLimitWindowStart: number;
+  /** True once we have emitted a META_REQUEST to this client. Used to cap
+   *  outbound META_REQUEST traffic at exactly one per session lifetime. */
+  metaRequested: boolean;
 }
 
 function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
@@ -178,7 +181,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         lastLossExpected: 0,
         lastLossReceived: 0,
         rateLimitCount: 0,
-        rateLimitWindowStart: Date.now()
+        rateLimitWindowStart: Date.now(),
+        metaRequested: false
       };
     }
 
@@ -205,7 +209,9 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       lastLossReceived: 0,
       // per-session UDP rate limiting
       rateLimitCount: 0,
-      rateLimitWindowStart: Date.now()
+      rateLimitWindowStart: Date.now(),
+      // META_REQUEST bookkeeping
+      metaRequested: false
     };
     clientSessions.set(key, session);
     app.debug(`[v2-server] new client session: ${key}`);
@@ -574,6 +580,24 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   }
 
   /**
+   * Build and send a META_REQUEST (0x07) control packet to a client.
+   * Instructs the client to emit a fresh metadata snapshot — used on first
+   * contact from a new session so the receiver doesn't have to wait for the
+   * client's periodic resend cycle.
+   */
+  async function _sendMetaRequest(session: ClientSession, secretKey: string): Promise<void> {
+    try {
+      const packet = packetBuilder.buildMetaRequestPacket({ secretKey });
+      await _sendUDP(packet, { address: session.address, port: session.port });
+      app.debug(`[v2-server] META_REQUEST sent to ${session.key}`);
+    } catch (err: unknown) {
+      // Re-throw so the caller's .catch() records it once, rather than
+      // double-logging here.
+      throw err;
+    }
+  }
+
+  /**
    * Send UDP packet to a destination
    * @private
    */
@@ -674,6 +698,18 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
           app.error(
             `v2 failed to parse HELLO payload: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
           );
+        }
+        // HELLO is the earliest reliable indication of a live peer, so use it
+        // as the trigger to demand a fresh metadata snapshot. The client
+        // self-rate-limits META_REQUEST responses (5 s window), and we only
+        // emit one per session, so this is safe even across rapid reconnects.
+        if (session && !session.metaRequested) {
+          session.metaRequested = true;
+          _sendMetaRequest(session, secretKey).catch((err: unknown) => {
+            app.debug(
+              `[v2-server] META_REQUEST send failed: ${err instanceof Error ? err.message : String(err)}`
+            );
+          });
         }
         return;
       }

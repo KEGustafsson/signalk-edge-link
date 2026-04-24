@@ -2,7 +2,7 @@
 
 import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary, decryptBinary } from "./crypto";
-import { encodeDelta, decodeDelta, encodeMetaEntry } from "./pathDictionary";
+import { encodeDelta, decodeDelta, encodeMetaEntry, decodeMetaEntry } from "./pathDictionary";
 import {
   deltaBuffer,
   compressPayload,
@@ -51,6 +51,7 @@ function createPipeline(
     udpMetaPort: number
   ): Promise<void>;
   unpackDecrypt(msg: Buffer, secretKey: string): Promise<void>;
+  unpackDecryptMeta(msg: Buffer, secretKey: string): Promise<void>;
 } {
   const { metrics, recordError, trackPathStats } = metricsApi;
   const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
@@ -400,7 +401,116 @@ function createPipeline(
     });
   }
 
-  return { packCrypt, packCryptMeta, unpackDecrypt };
+  /**
+   * Receive-side counterpart to `packCryptMeta` for v1. Decrypts a packet
+   * arrived on `udpMetaPort`, verifies the 4-byte `SKM1` magic inside the
+   * plaintext (packets without the magic are dropped — v1 has no packet-type
+   * byte, so the magic is the only signal that this is a meta payload and not
+   * a corrupted delta), and dispatches each entry as a minimal Signal K delta
+   * with `updates[].meta[]` via `app.handleMessage`.
+   */
+  async function unpackDecryptMeta(packet: Buffer, secretKey: string): Promise<void> {
+    try {
+      if (!state.options) {
+        app.debug("unpackDecryptMeta called but plugin is stopped, ignoring");
+        return;
+      }
+
+      metrics.bandwidth.bytesIn += packet.length;
+      metrics.bandwidth.packetsIn++;
+
+      const decrypted = decryptBinary(packet, secretKey, {
+        stretchAsciiKey: !!state.options.stretchAsciiKey
+      });
+      const decompressed = (await brotliDecompressAsync(decrypted, {
+        maxOutputLength: MAX_DECOMPRESSED_SIZE
+      })) as Buffer;
+
+      if (decompressed.length < V1_META_MAGIC.length) {
+        app.debug("v1 meta: decompressed payload too short, ignoring");
+        return;
+      }
+
+      // Reject anything that isn't prefixed with the SKM1 magic so a stray
+      // non-meta packet on the meta port (misconfiguration, replay, attacker)
+      // cannot be misinterpreted. The magic lives INSIDE the encrypted
+      // plaintext, so this check is authenticated.
+      if (decompressed.subarray(0, V1_META_MAGIC.length).compare(V1_META_MAGIC) !== 0) {
+        app.debug("v1 meta: missing SKM1 magic, dropping");
+        return;
+      }
+
+      const body = decompressed.subarray(V1_META_MAGIC.length);
+      if (body.length > MAX_PARSE_PAYLOAD_SIZE) {
+        app.error(`v1 meta: payload too large to parse: ${body.length} bytes`);
+        return;
+      }
+
+      let content: unknown;
+      if (state.options.useMsgpack) {
+        try {
+          content = msgpack.decode(body);
+        } catch {
+          content = JSON.parse(body.toString());
+        }
+      } else {
+        content = JSON.parse(body.toString());
+      }
+
+      if (!content || typeof content !== "object" || Array.isArray(content)) {
+        app.debug("v1 meta: envelope was not an object, dropping");
+        return;
+      }
+      const env = content as {
+        entries?: Array<{
+          context?: string;
+          path?: string | number;
+          meta?: Record<string, unknown>;
+        }>;
+        kind?: string;
+      };
+      if (!Array.isArray(env.entries) || env.entries.length === 0) {
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const usePathDict = !!state.options.usePathDictionary;
+      for (const rawEntry of env.entries) {
+        if (!rawEntry || typeof rawEntry.meta !== "object" || !rawEntry.meta) {
+          continue;
+        }
+        const entry = usePathDict
+          ? decodeMetaEntry(rawEntry as { path: string | number; meta: Record<string, unknown> })
+          : rawEntry;
+        const path = typeof entry.path === "string" ? entry.path : String(entry.path ?? "");
+        if (!path) {
+          continue;
+        }
+        const context = typeof rawEntry.context === "string" ? rawEntry.context : "vessels.self";
+        const delta: Delta = {
+          context,
+          updates: [
+            {
+              timestamp: nowIso,
+              values: [],
+              meta: [{ path, value: entry.meta as Record<string, unknown> }]
+            } as Delta["updates"][number]
+          ]
+        };
+        app.handleMessage("", delta);
+      }
+
+      metrics.bandwidth.metaBytesIn = (metrics.bandwidth.metaBytesIn || 0) + packet.length;
+      metrics.bandwidth.metaPacketsIn = (metrics.bandwidth.metaPacketsIn || 0) + 1;
+      app.debug(`v1 meta received: kind=${env.kind ?? "?"}, entries=${env.entries.length}`);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      app.error(`unpackDecryptMeta error: ${msg}`);
+      recordError("general", `unpackDecryptMeta error: ${msg}`);
+    }
+  }
+
+  return { packCrypt, packCryptMeta, unpackDecrypt, unpackDecryptMeta };
 }
 
 export = createPipeline;
