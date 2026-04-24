@@ -765,6 +765,21 @@ function createInstance(
           },
           processDelta
         );
+        // Retry succeeded — perform the staged commit that the original
+        // processConfig catch block skipped. Without this, the operator's
+        // new meta block (stashed on state.pendingMetaConfig) would remain
+        // inactive even though subscribe() is now working.
+        if (state.pendingMetaConfig !== undefined) {
+          state.metaConfig = state.pendingMetaConfig;
+          state.pendingMetaConfig = undefined;
+          restartMetadataTimer();
+          metaCache.clear();
+          if (state.metaConfig?.enabled) {
+            scheduleMetadataSnapshot(2000);
+          }
+        }
+        state.readyToSend = true;
+        _setStatus("Subscription restored", true);
       } catch (retryError: unknown) {
         const msg = retryError instanceof Error ? retryError.message : String(retryError);
         app.error(`[${instanceId}] Subscription retry ${attempt} failed: ${msg}`);
@@ -831,6 +846,11 @@ function createInstance(
         // previous subscription's metadata stream keeps running unchanged.
         state.unsubscribes = previousUnsubscribes;
         void previousMetaConfig; // explicit: intentionally unchanged
+        // Stash the new meta config on state so the scheduled retry can
+        // promote it when subscribe() finally succeeds. Otherwise the
+        // operator's new meta settings would silently sit unused until the
+        // user re-saved subscription.json.
+        state.pendingMetaConfig = pendingMetaConfig;
         const subErrMsg =
           subscribeError instanceof Error ? subscribeError.message : String(subscribeError);
         app.error(`[${instanceId}] Failed to subscribe: ${subErrMsg}`);
@@ -1407,6 +1427,7 @@ function createInstance(
     state.metaSnapshotTimers = [];
     state.metaDiffBuffer = [];
     state.metaConfig = null;
+    state.pendingMetaConfig = undefined;
     metaCache.clear();
     clearTimeout(state.deltaTimer ?? undefined);
     state.deltaTimer = null;

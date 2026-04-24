@@ -462,6 +462,12 @@ export interface InstanceState {
   metaSnapshotTimers: Array<ReturnType<typeof setTimeout>>;
   /** Timestamp (ms) of the last receiver-requested snapshot; used for rate limiting. */
   lastMetaRequestAt: number;
+  /** MetaConfig that was parsed from a new subscription.json but whose
+   *  subscribe() call threw. Stashed here so the scheduled
+   *  `subscriptionRetryTimer` callback can promote it into
+   *  `state.metaConfig` once the retry actually succeeds; otherwise the
+   *  new meta settings would be lost until the user re-saved the config. */
+  pendingMetaConfig?: MetaConfig | null;
 }
 
 /** Instance bundle returned by instanceRegistry. */

@@ -499,7 +499,28 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
           pathDictionary: usePathDict
         });
 
+        // Mirror sendDelta's MTU guard + monitoring hooks so META traffic is
+        // visible to the same observability surfaces as DATA. Oversized META
+        // packets would otherwise fragment silently, and a user running a
+        // packet capture would see DATA but not META — confusing.
+        if (packet.length > MAX_SAFE_UDP_PAYLOAD) {
+          app.debug(
+            `Warning: v2 meta packet size ${packet.length} bytes exceeds safe MTU (${MAX_SAFE_UDP_PAYLOAD}), may fragment.`
+          );
+          metrics.smartBatching.oversizedPackets++;
+        }
+
         await udpSendAsync(packet, udpAddress, udpPort);
+
+        if (monitoringHooks) {
+          const rinfo = { address: udpAddress, port: udpPort };
+          if (monitoringHooks.packetCapture) {
+            monitoringHooks.packetCapture.capture(packet, "send", rinfo);
+          }
+          if (monitoringHooks.packetInspector) {
+            monitoringHooks.packetInspector.inspect(packet, "send", rinfo);
+          }
+        }
 
         metrics.bandwidth.metaBytesOut = (metrics.bandwidth.metaBytesOut || 0) + packet.length;
         metrics.bandwidth.metaPacketsOut = (metrics.bandwidth.metaPacketsOut || 0) + 1;
@@ -673,16 +694,15 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         // metrics.malformedPackets and would mis-classify the failure).
         if (metaRequestHandler) {
           try {
-            const maybePromise = metaRequestHandler() as unknown as {
-              catch?: (h: (e: unknown) => void) => unknown;
-            } | void;
-            if (maybePromise && typeof maybePromise.catch === "function") {
-              maybePromise.catch((err: unknown) => {
-                app.debug(
-                  `META_REQUEST handler rejected: ${err instanceof Error ? err.message : String(err)}`
-                );
-              });
-            }
+            // Wrap in Promise.resolve so any thenable (PromiseLike) returned
+            // by the handler — not just real Promises with .catch — gets a
+            // .catch attached. This handles unusual user-supplied thenables
+            // and is simpler than feature-detecting .catch / .then directly.
+            Promise.resolve(metaRequestHandler() as unknown).catch((err: unknown) => {
+              app.debug(
+                `META_REQUEST handler rejected: ${err instanceof Error ? err.message : String(err)}`
+              );
+            });
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err);
             app.debug(`META_REQUEST handler error: ${errMsg}`);

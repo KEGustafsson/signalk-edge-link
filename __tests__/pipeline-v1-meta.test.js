@@ -158,6 +158,73 @@ describe("v1 pipeline.unpackDecryptMeta", () => {
     await pipeline.unpackDecryptMeta(packet, secretKey);
     expect(app.handleMessage).not.toHaveBeenCalled();
   });
+
+  test("drops envelopes whose seq is older than the last accepted (UDP replay)", async () => {
+    const { app, pipeline } = makeHarness();
+
+    const newer = makeEncryptedMeta(
+      {
+        v: 1,
+        kind: "snapshot",
+        seq: 5,
+        idx: 0,
+        total: 1,
+        entries: [{ context: "vessels.self", path: "a", meta: { units: "m" } }]
+      },
+      secretKey
+    );
+    const stale = makeEncryptedMeta(
+      {
+        v: 1,
+        kind: "snapshot",
+        seq: 3, // older — must be rejected
+        idx: 0,
+        total: 1,
+        entries: [{ context: "vessels.self", path: "b", meta: { units: "m" } }]
+      },
+      secretKey
+    );
+
+    await pipeline.unpackDecryptMeta(newer, secretKey);
+    await pipeline.unpackDecryptMeta(stale, secretKey);
+
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+  });
+
+  test("packCryptMeta rethrows on UDP send failure so callers can skip cache commit", async () => {
+    const senderApp = { debug: jest.fn(), error: jest.fn(), handleMessage: jest.fn() };
+    const senderState = {
+      options: {
+        secretKey,
+        udpPort: 7000,
+        udpMetaPort: 7001,
+        serverType: "client",
+        useMsgpack: false,
+        usePathDictionary: false,
+        stretchAsciiKey: false
+      },
+      socketUdp: {
+        // Always-failing send: caller must observe the rejection.
+        send: jest.fn((_pkt, _port, _addr, cb) => {
+          if (cb) {
+            cb(new Error("EHOSTUNREACH"));
+          }
+        })
+      },
+      metaConfig: { enabled: true, intervalSec: 300, maxPathsPerPacket: 500 }
+    };
+    const senderPipeline = createPipeline(senderApp, senderState, makeMetricsApi());
+
+    await expect(
+      senderPipeline.packCryptMeta(
+        [{ context: "vessels.self", path: "a", meta: { units: "m" } }],
+        "snapshot",
+        secretKey,
+        "127.0.0.1",
+        7001
+      )
+    ).rejects.toBeDefined();
+  });
 });
 
 describe("v1 pipeline.packCryptMeta ↔ unpackDecryptMeta round-trip", () => {

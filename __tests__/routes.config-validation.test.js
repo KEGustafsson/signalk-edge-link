@@ -234,6 +234,32 @@ describe("validateRuntimeConfigBody", () => {
     ).toBeNull();
   });
 
+  test("rejects meta.includePathsMatching that is too long", () => {
+    const huge = "a".repeat(257);
+    expect(
+      validateRuntimeConfigBody("subscription.json", {
+        meta: { enabled: true, includePathsMatching: huge }
+      })
+    ).toBe("meta.includePathsMatching must be at most 256 characters");
+  });
+
+  test("rejects nested-unbounded-quantifier ReDoS shapes at save time", () => {
+    expect(
+      validateRuntimeConfigBody("subscription.json", {
+        meta: { enabled: true, includePathsMatching: "(a+)+" }
+      })
+    ).toBe(
+      "meta.includePathsMatching contains a nested unbounded quantifier (ReDoS shape); refused"
+    );
+  });
+
+  test("rejects meta.includePathsMatching that fails to compile", () => {
+    const result = validateRuntimeConfigBody("subscription.json", {
+      meta: { enabled: true, includePathsMatching: "[unterminated" }
+    });
+    expect(result).toMatch(/^meta\.includePathsMatching failed to compile:/);
+  });
+
   test("rejects excludedSentences array with non-string item", () => {
     expect(validateRuntimeConfigBody("sentence_filter.json", { excludedSentences: [42] })).toBe(
       "excludedSentences[0] must be a string"

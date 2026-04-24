@@ -56,6 +56,11 @@ function createPipeline(
   const { metrics, recordError, trackPathStats } = metricsApi;
   const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
   let metaEnvelopeSeqV1 = 0;
+  // Last accepted inner-envelope seq on the receive side. v1 has no
+  // per-session concept (one socket per pipeline instance), so a single
+  // closure variable is sufficient. Used to drop stale/duplicate envelopes
+  // that UDP reorders or replays.
+  let lastIngestedMetaEnvSeqV1: number | null = null;
 
   /**
    * Compresses, encrypts, and sends delta data via UDP.
@@ -480,9 +485,32 @@ function createPipeline(
           meta?: Record<string, unknown>;
         }>;
         kind?: string;
+        seq?: number;
       };
       if (!Array.isArray(env.entries) || env.entries.length === 0) {
         return;
+      }
+
+      // Drop stale/duplicate envelopes. The inner envelope `seq` is shared
+      // across all chunks of the same batch, so equal-seq chunks are still
+      // accepted; only earlier batches are rejected. Uint32-wrap aware so a
+      // long-running sender's wrap doesn't trigger mass-rejection.
+      if (typeof env.seq === "number" && Number.isFinite(env.seq)) {
+        const envSeq = env.seq >>> 0;
+        if (lastIngestedMetaEnvSeqV1 !== null) {
+          const distance = (envSeq - lastIngestedMetaEnvSeqV1) >>> 0;
+          if (distance !== 0 && distance >= 0x80000000) {
+            app.debug(
+              `v1 meta: stale envelope seq=${envSeq} (last=${lastIngestedMetaEnvSeqV1}), dropping`
+            );
+            return;
+          }
+          if (distance !== 0) {
+            lastIngestedMetaEnvSeqV1 = envSeq;
+          }
+        } else {
+          lastIngestedMetaEnvSeqV1 = envSeq;
+        }
       }
 
       const nowIso = new Date().toISOString();
