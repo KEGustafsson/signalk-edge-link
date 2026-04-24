@@ -18,7 +18,7 @@ import { promisify } from "util";
 import zlib from "node:zlib";
 import * as msgpack from "@msgpack/msgpack";
 import { decryptBinary } from "./crypto";
-import { decodeDelta } from "./pathDictionary";
+import { decodeDelta, decodeMetaEntry } from "./pathDictionary";
 import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "./packet";
 import * as dgram from "dgram";
 import { SequenceTracker } from "./sequence";
@@ -484,6 +484,96 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   }
 
   /**
+   * Decrypt and dispatch a METADATA (0x06) packet.
+   *
+   * The payload envelope is `{ v, kind, seq, idx, total, entries }` where each
+   * entry is `{ context, path, meta }`. We convert every entry back into a
+   * minimal Signal K delta carrying `updates[].meta[]` so the local Signal K
+   * server picks it up through the normal `app.handleMessage` integration
+   * point — no special receiver API is needed.
+   */
+  async function handleMetadataPacket(parsed: ParsedPacket, secretKey: string): Promise<void> {
+    try {
+      const decrypted = decryptBinary(parsed.payload, secretKey, { stretchAsciiKey });
+      const decompressed = (await brotliDecompressAsync(decrypted, {
+        maxOutputLength: MAX_DECOMPRESSED_SIZE
+      })) as Buffer;
+
+      if (decompressed.length > MAX_PARSE_PAYLOAD_SIZE) {
+        app.error(
+          `[v2] META payload too large to parse: ${decompressed.length} bytes (limit ${MAX_PARSE_PAYLOAD_SIZE})`
+        );
+        return;
+      }
+
+      let content: unknown;
+      if (parsed.flags.messagepack) {
+        try {
+          content = msgpack.decode(decompressed);
+        } catch {
+          content = JSON.parse(decompressed.toString());
+        }
+      } else {
+        content = JSON.parse(decompressed.toString());
+      }
+
+      if (!content || typeof content !== "object" || Array.isArray(content)) {
+        app.debug("v2 META envelope was not an object, dropping");
+        return;
+      }
+      const env = content as {
+        v?: number;
+        kind?: string;
+        entries?: Array<{
+          context?: string;
+          path?: string | number;
+          meta?: Record<string, unknown>;
+        }>;
+      };
+      if (!Array.isArray(env.entries) || env.entries.length === 0) {
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      for (const rawEntry of env.entries) {
+        if (!rawEntry || typeof rawEntry.meta !== "object" || !rawEntry.meta) {
+          continue;
+        }
+        // Decode the path dictionary if the sender compressed it.
+        const entry = parsed.flags.pathDictionary
+          ? decodeMetaEntry(rawEntry as { path: string | number; meta: Record<string, unknown> })
+          : rawEntry;
+        const path = typeof entry.path === "string" ? entry.path : String(entry.path ?? "");
+        if (!path) {
+          continue;
+        }
+        const context = typeof rawEntry.context === "string" ? rawEntry.context : "vessels.self";
+        const deltaMessage: Delta = {
+          context,
+          updates: [
+            {
+              timestamp: nowIso,
+              values: [],
+              meta: [{ path, value: entry.meta as Record<string, unknown> }]
+            } as Delta["updates"][number]
+          ]
+        };
+        app.handleMessage("", deltaMessage);
+      }
+
+      metrics.bandwidth.metaBytesIn = (metrics.bandwidth.metaBytesIn || 0) + parsed.payload.length;
+      metrics.bandwidth.metaPacketsIn = (metrics.bandwidth.metaPacketsIn || 0) + 1;
+      app.debug(
+        `v2 meta received: kind=${env.kind ?? "?"}, entries=${env.entries.length}, envSeq=${env.v ?? "?"}`
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      app.error(`v2 handleMetadataPacket error: ${msg}`);
+      recordError("general", `v2 META decode error: ${msg}`);
+    }
+  }
+
+  /**
    * Send UDP packet to a destination
    * @private
    */
@@ -585,6 +675,11 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
             `v2 failed to parse HELLO payload: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
           );
         }
+        return;
+      }
+
+      if (parsed.type === PacketType.METADATA) {
+        await handleMetadataPacket(parsed, secretKey);
         return;
       }
 

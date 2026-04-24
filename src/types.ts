@@ -271,6 +271,10 @@ export interface BandwidthMetrics {
   metaBytesOut?: number;
   /** Count of METADATA packets emitted. */
   metaPacketsOut?: number;
+  /** Cumulative bytes received as METADATA packets. */
+  metaBytesIn?: number;
+  /** Count of METADATA packets received. */
+  metaPacketsIn?: number;
   history: import("./CircularBuffer")<{
     timestamp: number;
     rateOut: number;

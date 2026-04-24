@@ -171,15 +171,39 @@ Controls which Signal K paths are transmitted.
     { "path": "navigation.*" },
     { "path": "environment.wind.*" },
     { "path": "electrical.batteries.*" }
-  ]
+  ],
+  "meta": {
+    "enabled": false,
+    "intervalSec": 300,
+    "includePathsMatching": null,
+    "maxPathsPerPacket": 500
+  }
 }
 ```
 
-| Field              | Type   | Description                                   |
-| ------------------ | ------ | --------------------------------------------- |
-| `context`          | string | Signal K context filter (`"*"` = all vessels) |
-| `subscribe`        | array  | Array of path subscription objects            |
-| `subscribe[].path` | string | Signal K path pattern (supports `*` wildcard) |
+| Field                       | Type           | Description                                                                                              |
+| --------------------------- | -------------- | -------------------------------------------------------------------------------------------------------- |
+| `context`                   | string         | Signal K context filter (`"*"` = all vessels)                                                            |
+| `subscribe`                 | array          | Array of path subscription objects                                                                       |
+| `subscribe[].path`          | string         | Signal K path pattern (supports `*` wildcard)                                                            |
+| `meta`                      | object         | Optional. When absent/omitted, metadata streaming is disabled (default).                                 |
+| `meta.enabled`              | boolean        | Enable metadata streaming. Default `false`.                                                              |
+| `meta.intervalSec`          | number         | Periodic full-snapshot interval, seconds. Range `[30, 86400]`. Default `300`.                            |
+| `meta.includePathsMatching` | string \| null | Optional JavaScript regex; only paths matching it are streamed. `null` / omitted = all subscribed paths. |
+| `meta.maxPathsPerPacket`    | number         | Chunking size for snapshots. Range `[10, 5000]`. Default `500`.                                          |
+
+When meta is enabled the edge-link forwards an initial full snapshot
+~2 seconds after subscribing, emits live diffs (debounced 500 ms) as
+`updates[].meta[]` arrives on the delta stream, and re-broadcasts the full
+snapshot every `intervalSec` so a restarted receiver can recover without a
+round-trip. A receiver may also send a `META_REQUEST` (0x07) control packet
+to demand an immediate snapshot; this is rate-limited to once every 5 s.
+
+**v1 pipeline caveat:** v1 has no packet-type byte, so meta is transmitted on
+a separate UDP port (`udpMetaPort` in the connection config) with an
+`"SKM1"` magic prefix inside the encrypted plaintext. If `udpMetaPort` is
+not configured, meta is a no-op on v1 (a debug log is emitted). v2/v3 peers
+multiplex meta onto the same UDP port as deltas using packet type `0x06`.
 
 ### sentence_filter.json
 
