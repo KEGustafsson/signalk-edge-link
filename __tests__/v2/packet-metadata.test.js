@@ -15,10 +15,21 @@ describe("PacketBuilder.buildMetadataPacket", () => {
     expect(PacketType.METADATA).toBe(0x06);
   });
 
-  test("advances sequence so subsequent DATA/META use distinct seqs", () => {
+  test("METADATA uses its own sequence space and does not advance DATA seq", () => {
+    // Sending two META packets should leave the next DATA packet at seq 0 —
+    // METADATA must never steal DATA sequence numbers or receivers will NAK
+    // apparent gaps in the cumulative-ACK stream.
     builder.buildMetadataPacket(Buffer.from("a"));
-    const dataPacket = builder.buildDataPacket(Buffer.from("b"));
-    expect(dataPacket.readUInt32BE(5)).toBe(1);
+    builder.buildMetadataPacket(Buffer.from("b"));
+    const dataPacket = builder.buildDataPacket(Buffer.from("c"));
+    expect(dataPacket.readUInt32BE(5)).toBe(0);
+  });
+
+  test("successive METADATA packets carry incrementing meta-sequences", () => {
+    const first = builder.buildMetadataPacket(Buffer.from("a"));
+    const second = builder.buildMetadataPacket(Buffer.from("b"));
+    expect(first.readUInt32BE(5)).toBe(0);
+    expect(second.readUInt32BE(5)).toBe(1);
   });
 
   test("round-trips through PacketParser with all flags", () => {

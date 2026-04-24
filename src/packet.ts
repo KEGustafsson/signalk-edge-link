@@ -139,6 +139,7 @@ function crc16(data: Buffer): number {
  */
 export class PacketBuilder {
   _sequence: number;
+  _metaSequence: number;
   _protocolVersion: number;
   _secretKey: string | null;
   _stretchAsciiKey: boolean;
@@ -158,6 +159,11 @@ export class PacketBuilder {
     } = {}
   ) {
     this._sequence = config.initialSequence ?? 0;
+    // METADATA lives in its own sequence space. DATA sequencing drives the
+    // cumulative ACK/NAK protocol on the server; mixing METADATA into it
+    // would create apparent gaps (receivers don't track METADATA sequences)
+    // and trigger spurious NAKs / retransmit churn for real data traffic.
+    this._metaSequence = 0;
     this._protocolVersion = normalizeProtocolVersion(config.protocolVersion);
     this._secretKey = config.secretKey || null;
     this._stretchAsciiKey = !!config.stretchAsciiKey;
@@ -188,12 +194,14 @@ export class PacketBuilder {
   }
 
   /**
-   * Build a METADATA packet. Shares the flag set and the data-packet
-   * build/encrypt pipeline with buildDataPacket but uses packet type 0x06 so
-   * the receiver can dispatch meta into a separate cache.
+   * Build a METADATA packet. Shares the flag set and the build/encrypt
+   * pipeline with buildDataPacket but uses packet type 0x06 and its own
+   * sequence space so that METADATA never steals DATA sequence numbers.
    *
-   * Uses the same sequence counter as DATA so NAK/retransmit semantics apply
-   * uniformly if the caller chooses to enqueue the packet for retransmission.
+   * METADATA is not ACKed/NAKed on the wire — recovery is handled by the
+   * application-level periodic snapshot and by META_REQUEST (0x07). The
+   * separate sequence counter exists purely so a receiver can detect
+   * duplicate or reordered METADATA packets within a single snapshot burst.
    */
   buildMetadataPacket(
     payload: Buffer,
@@ -204,8 +212,17 @@ export class PacketBuilder {
       pathDictionary?: boolean;
     } = {}
   ): Buffer {
-    const packet = this._buildPacket(PacketType.METADATA, payload, flags);
-    this._advanceSequence();
+    // Temporarily swap the header's sequence field to the metadata counter
+    // so _buildPacket writes the correct value, then restore afterwards.
+    const savedDataSeq = this._sequence;
+    this._sequence = this._metaSequence;
+    let packet: Buffer;
+    try {
+      packet = this._buildPacket(PacketType.METADATA, payload, flags);
+    } finally {
+      this._sequence = savedDataSeq;
+    }
+    this._metaSequence = (this._metaSequence + 1) >>> 0;
     return packet;
   }
 

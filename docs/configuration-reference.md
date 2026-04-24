@@ -192,12 +192,12 @@ Controls which Signal K paths are transmitted.
 | `meta.includePathsMatching` | string \| null | Optional JavaScript regex; only paths matching it are streamed. `null` / omitted = all subscribed paths. |
 | `meta.maxPathsPerPacket`    | number         | Chunking size for snapshots. Range `[10, 5000]`. Default `500`.                                          |
 
-When meta is enabled the edge-link forwards an initial full snapshot
-~2 seconds after subscribing, emits live diffs (debounced 500 ms) as
-`updates[].meta[]` arrives on the delta stream, and re-broadcasts the full
-snapshot every `intervalSec` so a restarted receiver can recover without a
-round-trip. A receiver may also send a `META_REQUEST` (0x07) control packet
-to demand an immediate snapshot; this is rate-limited to once every 5 s.
+When meta is enabled the edge-link forwards an initial full snapshot shortly
+after subscribing, coalesces live `updates[].meta[]` changes over a short
+debounce window, and re-broadcasts the full snapshot every `intervalSec` so
+a restarted receiver can recover without a round-trip. A receiver may also
+send a `META_REQUEST` (0x07) control packet to demand an immediate snapshot;
+the response is rate-limited to protect against abusive peers.
 
 **v1 pipeline caveat:** v1 has no packet-type byte, so meta is transmitted on
 a separate UDP port (`udpMetaPort` in the connection config) with an

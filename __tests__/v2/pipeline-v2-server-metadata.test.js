@@ -62,7 +62,7 @@ describe("pipeline-v2-server METADATA handling", () => {
     return { app, state, metricsApi, pipeline };
   }
 
-  test("decrypts and forwards a snapshot envelope as deltas with updates[].meta[]", async () => {
+  test("decrypts and batches entries by context into a single delta per context", async () => {
     const { app, pipeline, metricsApi } = makeHarness();
     const envelope = {
       v: 1,
@@ -80,19 +80,26 @@ describe("pipeline-v2-server METADATA handling", () => {
           context: "vessels.self",
           path: "environment.wind.speedApparent",
           meta: { units: "m/s" }
+        },
+        {
+          context: "vessels.urn:mrn:imo:mmsi:99999",
+          path: "navigation.position",
+          meta: { description: "Remote vessel GPS" }
         }
       ]
     };
     const packet = buildMetaPacket(envelope, secretKey);
     await pipeline.receivePacket(packet, secretKey, { address: "127.0.0.1", port: 13000 });
 
+    // Two contexts => two handleMessage calls (batched by context), not
+    // three (batched per entry).
     expect(app.handleMessage).toHaveBeenCalledTimes(2);
-    const firstDelta = app.handleMessage.mock.calls[0][1];
-    expect(firstDelta.context).toBe("vessels.self");
-    expect(firstDelta.updates[0].meta[0].path).toBe("navigation.speedOverGround");
-    expect(firstDelta.updates[0].meta[0].value).toEqual({
-      units: "m/s",
-      description: "Speed over ground"
+    const selfCall = app.handleMessage.mock.calls.find((c) => c[1].context === "vessels.self");
+    expect(selfCall).toBeDefined();
+    expect(selfCall[1].updates[0].meta).toHaveLength(2);
+    expect(selfCall[1].updates[0].meta[0]).toEqual({
+      path: "navigation.speedOverGround",
+      value: { units: "m/s", description: "Speed over ground" }
     });
     expect(metricsApi.metrics.bandwidth.metaPacketsIn).toBe(1);
   });

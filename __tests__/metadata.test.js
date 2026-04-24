@@ -66,6 +66,28 @@ describe("MetaCache", () => {
   });
 });
 
+describe("MetaCache non-mutating helpers", () => {
+  test("computeDiff returns changed entries without mutating the cache", () => {
+    const cache = new MetaCache();
+    const entries = [{ context: "vessels.self", path: "a", meta: { units: "m" } }];
+    const changed = cache.computeDiff(entries);
+    expect(changed).toHaveLength(1);
+    // Cache is still empty — no side effect.
+    expect(cache.size()).toBe(0);
+    // A second computeDiff still reports the same entry as changed.
+    expect(cache.computeDiff(entries)).toHaveLength(1);
+  });
+
+  test("commit updates the cache so subsequent diff returns []", () => {
+    const cache = new MetaCache();
+    const entries = [{ context: "vessels.self", path: "a", meta: { units: "m" } }];
+    expect(cache.computeDiff(entries)).toHaveLength(1);
+    cache.commit(entries);
+    expect(cache.size()).toBe(1);
+    expect(cache.diff(entries)).toEqual([]);
+  });
+});
+
 describe("extractLiveMeta", () => {
   const enabled = { enabled: true, intervalSec: 300, maxPathsPerPacket: 500 };
 
@@ -147,6 +169,35 @@ describe("extractLiveMeta", () => {
     };
     const cfg = { ...enabled, includePathsMatching: "[unclosed" };
     expect(extractLiveMeta(delta, cfg)).toHaveLength(1);
+  });
+
+  test("overly-long regex falls back to allow-all (ReDoS guard)", () => {
+    const delta = {
+      context: "vessels.self",
+      updates: [{ values: [], meta: [{ path: "a", value: { units: "m/s" } }] }]
+    };
+    const cfg = { ...enabled, includePathsMatching: "(a+)+".repeat(100) };
+    // Would normally filter to zero matches; the length cap forces allow-all.
+    expect(extractLiveMeta(delta, cfg)).toHaveLength(1);
+  });
+
+  test("normalizes vessels.self context to the supplied self URN", () => {
+    const delta = {
+      context: "vessels.self",
+      updates: [{ values: [], meta: [{ path: "a", value: { units: "m" } }] }]
+    };
+    const entries = extractLiveMeta(delta, enabled, "vessels.urn:mrn:imo:mmsi:12345");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].context).toBe("vessels.urn:mrn:imo:mmsi:12345");
+  });
+
+  test("leaves other contexts untouched", () => {
+    const delta = {
+      context: "vessels.urn:mrn:imo:mmsi:99999",
+      updates: [{ values: [], meta: [{ path: "a", value: { units: "m" } }] }]
+    };
+    const entries = extractLiveMeta(delta, enabled, "vessels.urn:mrn:imo:mmsi:12345");
+    expect(entries[0].context).toBe("vessels.urn:mrn:imo:mmsi:99999");
   });
 });
 

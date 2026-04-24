@@ -453,12 +453,13 @@ export interface InstanceState {
   metaConfig: MetaConfig | null;
   /** Periodic metadata snapshot resend timer handle; null when not active. */
   metaTimer: ReturnType<typeof setInterval> | null;
-  /** Monotonic sequence for meta envelopes (independent of UDP sequence). */
-  metaSeq: number;
   /** Coalescing buffer for live meta diff entries collected from delta stream. */
   metaDiffBuffer: MetaEntry[];
   /** Debounce timer for the live meta diff flush; null when not armed. */
   metaDiffFlushTimer: ReturnType<typeof setTimeout> | null;
+  /** One-shot timers that fire a metadata snapshot after (re)subscribe or
+   *  socket recovery. Tracked here so stop() can cancel them. */
+  metaSnapshotTimers: Array<ReturnType<typeof setTimeout>>;
   /** Timestamp (ms) of the last receiver-requested snapshot; used for rate limiting. */
   lastMetaRequestAt: number;
 }

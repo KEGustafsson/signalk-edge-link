@@ -648,10 +648,23 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       } else if (parsed.type === PacketType.META_REQUEST) {
         // Receiver asks us to re-send the full meta snapshot. Rate-limited in
         // the handler (instance.ts) to prevent a malformed receiver from
-        // pinning our CPU/bandwidth on snapshot generation.
+        // pinning our CPU/bandwidth on snapshot generation. The handler
+        // itself is synchronous, but if a future implementation returns a
+        // Promise we swallow rejections here so they don't bubble up into
+        // the control-packet parse error path (which increments
+        // metrics.malformedPackets and would mis-classify the failure).
         if (metaRequestHandler) {
           try {
-            metaRequestHandler();
+            const maybePromise = metaRequestHandler() as unknown as {
+              catch?: (h: (e: unknown) => void) => unknown;
+            } | void;
+            if (maybePromise && typeof maybePromise.catch === "function") {
+              maybePromise.catch((err: unknown) => {
+                app.debug(
+                  `META_REQUEST handler rejected: ${err instanceof Error ? err.message : String(err)}`
+                );
+              });
+            }
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err);
             app.debug(`META_REQUEST handler error: ${errMsg}`);

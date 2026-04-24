@@ -52,7 +52,7 @@ import type {
   MetaEntry,
   MetaConfig
 } from "./types";
-import { MetaCache, collectSnapshot, extractLiveMeta } from "./metadata";
+import { MetaCache, collectSnapshot, extractLiveMeta, resolveSelfContext } from "./metadata";
 
 const DELTA_SEND_MAX_RETRIES = 1;
 const DELTA_SEND_RETRY_BACKOFF_MS = 100;
@@ -144,9 +144,9 @@ function createInstance(
     processDelta: null,
     metaConfig: null,
     metaTimer: null,
-    metaSeq: 0,
     metaDiffBuffer: [],
     metaDiffFlushTimer: null,
+    metaSnapshotTimers: [],
     lastMetaRequestAt: 0
   };
 
@@ -293,12 +293,18 @@ function createInstance(
    *  or malicious receiver from forcing snapshots on every delta. */
   const META_REQUEST_RATE_LIMIT_MS = 5000;
 
-  async function sendMetaEntries(entries: MetaEntry[], kind: "snapshot" | "diff"): Promise<void> {
+  /** Dispatches `entries` through the active pipeline. Returns true on a
+   *  successful send so callers (e.g. `enqueueMetaDiff`) can decide whether
+   *  to commit the MetaCache. Any failure is logged and returns false. */
+  async function sendMetaEntries(
+    entries: MetaEntry[],
+    kind: "snapshot" | "diff"
+  ): Promise<boolean> {
     if (!options.udpAddress || !options.secretKey) {
-      return;
+      return false;
     }
     if (entries.length === 0) {
-      return;
+      return false;
     }
     const protoVer = options.protocolVersion ?? 2;
     try {
@@ -307,7 +313,7 @@ function createInstance(
           app.debug(
             `[${instanceId}] Meta skipped: v1 pipeline requires 'udpMetaPort' in connection config`
           );
-          return;
+          return false;
         }
         await getV1Pipeline().packCryptMeta(
           entries,
@@ -328,13 +334,14 @@ function createInstance(
         app.debug(
           `[${instanceId}] Meta skipped: pipeline not ready or does not support sendMetadata`
         );
-        return;
+        return false;
       }
-      state.metaSeq = (state.metaSeq + 1) >>> 0;
+      return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       app.error(`[${instanceId}] sendMetaEntries failed: ${msg}`);
       recordError("general", `sendMetaEntries failed: ${msg}`);
+      return false;
     }
   }
 
@@ -348,20 +355,25 @@ function createInstance(
       return;
     }
     const entries = collectSnapshot(appProxy, state.metaConfig);
-    await sendMetaEntries(entries, "snapshot");
-    metaCache.replaceAll(entries);
+    const sent = await sendMetaEntries(entries, "snapshot");
+    // Only prime the diff cache on a successful send; on failure the next
+    // snapshot (periodic or META_REQUEST-triggered) will still cover every
+    // path rather than the cache showing stale "already sent" state.
+    if (sent) {
+      metaCache.replaceAll(entries);
+    }
   }
 
   /** Coalesces live meta diffs extracted from deltas; flushes after a short
    *  debounce window so a burst of meta changes becomes one packet. */
   function enqueueMetaDiff(entries: MetaEntry[]): void {
-    // Only forward entries whose hashed value has actually changed — protects
-    // against chatty producers that re-emit identical meta.
-    const changed = metaCache.diff(entries);
-    if (changed.length === 0) {
+    // Buffer raw entries; the actual change-detection (and cache commit)
+    // happens in the flush handler so a failed send doesn't leave the
+    // MetaCache thinking it transmitted something it never did.
+    if (entries.length === 0) {
       return;
     }
-    state.metaDiffBuffer.push(...changed);
+    state.metaDiffBuffer.push(...entries);
     if (state.metaDiffFlushTimer) {
       return;
     }
@@ -369,10 +381,20 @@ function createInstance(
       state.metaDiffFlushTimer = null;
       const pending = state.metaDiffBuffer;
       state.metaDiffBuffer = [];
-      sendMetaEntries(pending, "diff").catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        app.debug(`[${instanceId}] meta diff flush failed: ${msg}`);
-      });
+      const changed = metaCache.computeDiff(pending);
+      if (changed.length === 0) {
+        return;
+      }
+      sendMetaEntries(changed, "diff")
+        .then((sent) => {
+          if (sent) {
+            metaCache.commit(changed);
+          }
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          app.debug(`[${instanceId}] meta diff flush failed: ${msg}`);
+        });
     }, META_DIFF_DEBOUNCE_MS);
   }
 
@@ -391,6 +413,27 @@ function createInstance(
         app.debug(`[${instanceId}] periodic snapshot failed: ${msg}`);
       });
     }, intervalMs);
+  }
+
+  /** Schedules a meta snapshot send after `delayMs`. The returned timer is
+   *  tracked on state.metaSnapshotTimers so stop() can cancel any pending
+   *  work — important because the timeouts are short and rapid (2000 ms
+   *  after resubscribe, 1000 ms after socket recovery) and would otherwise
+   *  fire against a destroyed pipeline after stop(). */
+  function scheduleMetadataSnapshot(delayMs: number): void {
+    const handle = setTimeout(() => {
+      const idx = state.metaSnapshotTimers.indexOf(handle);
+      if (idx !== -1) {
+        state.metaSnapshotTimers.splice(idx, 1);
+      }
+      if (state.stopped) {
+        return;
+      }
+      sendMetadataSnapshot().catch(() => {
+        /* errors already logged inside sendMetadataSnapshot */
+      });
+    }, delayMs);
+    state.metaSnapshotTimers.push(handle);
   }
 
   /** Receiver asked for a fresh meta snapshot (META_REQUEST control packet).
@@ -412,7 +455,10 @@ function createInstance(
   }
 
   /** Parse the `meta` block out of the user-supplied subscription.json.
-   *  Returns null (meta disabled) when absent or malformed. */
+   *  Returns null (meta disabled) when absent or malformed. Out-of-range
+   *  numeric fields fall back to defaults and log an explicit warning so the
+   *  runtime behaviour matches what the API validator enforces — neither
+   *  path silently clamps to a value the user did not request. */
   function parseMetaConfig(raw: unknown): MetaConfig | null {
     if (!raw || typeof raw !== "object") {
       return null;
@@ -426,18 +472,52 @@ function createInstance(
     if (mo.enabled !== true) {
       return null;
     }
+
+    const DEFAULT_INTERVAL_SEC = 300;
+    const DEFAULT_MAX_PATHS = 500;
+
+    let intervalSec = DEFAULT_INTERVAL_SEC;
+    if (mo.intervalSec !== undefined) {
+      if (
+        typeof mo.intervalSec === "number" &&
+        Number.isFinite(mo.intervalSec) &&
+        mo.intervalSec >= 30 &&
+        mo.intervalSec <= 86400
+      ) {
+        intervalSec = mo.intervalSec;
+      } else {
+        app.error(
+          `[${instanceId}] subscription.json meta.intervalSec ${String(
+            mo.intervalSec
+          )} out of range [30,86400]; using default ${DEFAULT_INTERVAL_SEC}s`
+        );
+      }
+    }
+
+    let maxPathsPerPacket = DEFAULT_MAX_PATHS;
+    if (mo.maxPathsPerPacket !== undefined) {
+      if (
+        typeof mo.maxPathsPerPacket === "number" &&
+        Number.isFinite(mo.maxPathsPerPacket) &&
+        mo.maxPathsPerPacket >= 10 &&
+        mo.maxPathsPerPacket <= 5000
+      ) {
+        maxPathsPerPacket = mo.maxPathsPerPacket;
+      } else {
+        app.error(
+          `[${instanceId}] subscription.json meta.maxPathsPerPacket ${String(
+            mo.maxPathsPerPacket
+          )} out of range [10,5000]; using default ${DEFAULT_MAX_PATHS}`
+        );
+      }
+    }
+
     return {
       enabled: true,
-      intervalSec:
-        typeof mo.intervalSec === "number" && Number.isFinite(mo.intervalSec)
-          ? Math.min(86400, Math.max(30, mo.intervalSec))
-          : 300,
+      intervalSec,
       includePathsMatching:
         typeof mo.includePathsMatching === "string" ? mo.includePathsMatching : null,
-      maxPathsPerPacket:
-        typeof mo.maxPathsPerPacket === "number" && Number.isFinite(mo.maxPathsPerPacket)
-          ? Math.min(5000, Math.max(10, mo.maxPathsPerPacket))
-          : 500
+      maxPathsPerPacket
     };
   }
 
@@ -542,7 +622,7 @@ function createInstance(
     // rebuilding the update objects. `extractLiveMeta` returns [] when meta
     // streaming is disabled, so this is zero-cost in the default off state.
     if (state.metaConfig?.enabled) {
-      const liveMeta = extractLiveMeta(delta, state.metaConfig);
+      const liveMeta = extractLiveMeta(delta, state.metaConfig, resolveSelfContext(appProxy));
       if (liveMeta.length > 0) {
         enqueueMetaDiff(liveMeta);
       }
@@ -701,11 +781,7 @@ function createInstance(
         // Prime the receiver's meta cache with a full snapshot once the
         // Signal K state tree has had a moment to settle after (re)subscribe.
         if (state.metaConfig?.enabled) {
-          setTimeout(() => {
-            sendMetadataSnapshot().catch(() => {
-              /* errors already logged inside sendMetadataSnapshot */
-            });
-          }, 2000);
+          scheduleMetadataSnapshot(2000);
         }
       } catch (subscribeError: unknown) {
         // Re-subscribe failed — restore old handlers so stop() can still
@@ -1098,11 +1174,7 @@ function createInstance(
               // with a full snapshot so it doesn't have to wait a full
               // `intervalSec` for periodic resend.
               if (state.metaConfig?.enabled) {
-                setTimeout(() => {
-                  sendMetadataSnapshot().catch(() => {
-                    /* errors already logged inside sendMetadataSnapshot */
-                  });
-                }, 1000);
+                scheduleMetadataSnapshot(1000);
               }
             } catch (recoveryErr: unknown) {
               state.socketRecoveryInProgress = false;
@@ -1285,6 +1357,10 @@ function createInstance(
     state.metaTimer = null;
     clearTimeout(state.metaDiffFlushTimer ?? undefined);
     state.metaDiffFlushTimer = null;
+    for (const handle of state.metaSnapshotTimers) {
+      clearTimeout(handle);
+    }
+    state.metaSnapshotTimers = [];
     state.metaDiffBuffer = [];
     state.metaConfig = null;
     metaCache.clear();

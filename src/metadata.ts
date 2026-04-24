@@ -80,6 +80,36 @@ export class MetaCache {
   }
 
   /**
+   * Non-mutating variant of {@link diff}. Returns the subset of entries that
+   * are new or whose meta has changed without updating the internal cache.
+   * Used by the send pipeline so the cache is only updated after a
+   * successful transmission — a failed send leaves the cache untouched and
+   * the entries will be re-attempted on the next diff.
+   */
+  computeDiff(entries: MetaEntry[]): MetaEntry[] {
+    const changed: MetaEntry[] = [];
+    for (const entry of entries) {
+      const key = this.keyFor(entry);
+      const h = hashMeta(entry.meta);
+      if (this.hashes.get(key) !== h) {
+        changed.push(entry);
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Mark the supplied entries as sent by updating their hashes in the cache.
+   * Call this only after a successful send so future diffs don't re-emit
+   * the same content.
+   */
+  commit(entries: MetaEntry[]): void {
+    for (const entry of entries) {
+      this.hashes.set(this.keyFor(entry), hashMeta(entry.meta));
+    }
+  }
+
+  /**
    * Overwrite the cache with the supplied entries. Used after a successful
    * full-snapshot send so the next diff is computed against the transmitted
    * state.
@@ -167,16 +197,17 @@ export function collectSnapshot(app: SignalKApp, config: MetaConfig | null): Met
   const entries: MetaEntry[] = [];
 
   for (const contextGroup of Object.keys(tree)) {
-    // Signal K top-level groups: "vessels", "aircraft", "atons", ...
+    // `tree.self` is an alias string pointing to the local vessel URN, and
+    // `tree.version` is a server version string; both are leaves, not
+    // context containers, so skip them outright.
+    if (contextGroup === "self" || contextGroup === "version") {
+      continue;
+    }
     const group = tree[contextGroup];
     if (!group || typeof group !== "object") {
       continue;
     }
     for (const contextId of Object.keys(group as Record<string, unknown>)) {
-      // "self" is an alias string at tree.self — skip that pointer entry.
-      if (contextGroup === "self" || contextGroup === "version") {
-        continue;
-      }
       const contextNode = (group as Record<string, unknown>)[contextId];
       if (!contextNode || typeof contextNode !== "object") {
         continue;
@@ -195,11 +226,46 @@ export function collectSnapshot(app: SignalKApp, config: MetaConfig | null): Met
 }
 
 /**
+ * Resolve the local vessel's context string (e.g. `vessels.urn:mrn:...`) from
+ * the Signal K app. Used to normalize `delta.context === "vessels.self"` in
+ * the live meta stream to the same concrete URN `collectSnapshot` emits, so
+ * `MetaCache` can dedupe snapshot and diff entries against the same key.
+ */
+export function resolveSelfContext(app: SignalKApp): string {
+  try {
+    const self = app.getSelfPath?.("");
+    if (self && typeof self === "object") {
+      const id = (self as Record<string, unknown>).mmsi ?? (self as Record<string, unknown>).uuid;
+      if (typeof id === "string" && id.length > 0) {
+        const prefix = (self as Record<string, unknown>).mmsi
+          ? "urn:mrn:imo:mmsi:"
+          : "urn:mrn:signalk:uuid:";
+        return `vessels.${prefix}${id}`;
+      }
+    }
+    if (app.signalk && typeof app.signalk.retrieve === "function") {
+      const tree = app.signalk.retrieve() as Record<string, unknown>;
+      const alias = tree?.self;
+      if (typeof alias === "string" && alias.length > 0) {
+        return `vessels.${alias}`;
+      }
+    }
+  } catch {
+    /* fall through to default */
+  }
+  return "vessels.self";
+}
+
+/**
  * Extract any `updates[].meta[]` entries from a live delta without mutating
  * the delta object. Callers should invoke this BEFORE the delta is passed to
  * the pipeline encoder (which silently drops meta).
  */
-export function extractLiveMeta(delta: Delta, config: MetaConfig | null): MetaEntry[] {
+export function extractLiveMeta(
+  delta: Delta,
+  config: MetaConfig | null,
+  selfContext?: string
+): MetaEntry[] {
   if (!config || !config.enabled) {
     return [];
   }
@@ -207,6 +273,7 @@ export function extractLiveMeta(delta: Delta, config: MetaConfig | null): MetaEn
     return [];
   }
   const filter = buildPathFilter(config.includePathsMatching);
+  const resolvedSelf = selfContext || "vessels.self";
   const out: MetaEntry[] = [];
   for (const update of delta.updates) {
     const metaArr = (update as { meta?: DeltaMeta[] }).meta;
@@ -220,8 +287,12 @@ export function extractLiveMeta(delta: Delta, config: MetaConfig | null): MetaEn
       if (!filter(m.path)) {
         continue;
       }
+      // Normalize "vessels.self" (or an absent context) to the concrete self
+      // URN so MetaCache keys match the snapshot path exactly.
+      const rawContext = delta.context || "vessels.self";
+      const context = rawContext === "vessels.self" ? resolvedSelf : rawContext;
       out.push({
-        context: delta.context || "vessels.self",
+        context,
         path: m.path,
         meta: m.value as Record<string, unknown>
       });
@@ -230,14 +301,23 @@ export function extractLiveMeta(delta: Delta, config: MetaConfig | null): MetaEn
   return out;
 }
 
+/** Maximum operator-supplied regex length. A typical path-matching regex is
+ *  well under 100 chars; refusing huge patterns is a cheap safeguard against
+ *  the obvious catastrophic-backtracking shapes (hundreds of nested `(a+)*`
+ *  groups, etc.) without pulling in a re2 dependency. */
+const MAX_PATH_FILTER_PATTERN_LENGTH = 256;
+
 /**
  * Build a path-inclusion predicate from the user-supplied regex string.
- * Falsy / empty string / null ⇒ always-true. Invalid regex ⇒ always-true
- * (with a silent fallback — operators see no meta filtering rather than
- * hitting a hard error from a typo).
+ * Falsy / empty string / null ⇒ always-true. Invalid or oversized regex
+ * ⇒ always-true (silent fallback — operators see no filtering rather
+ * than hitting a hard error, which matches the existing behaviour).
  */
 function buildPathFilter(pattern: string | null | undefined): (path: string) => boolean {
   if (!pattern) {
+    return () => true;
+  }
+  if (pattern.length > MAX_PATH_FILTER_PATTERN_LENGTH) {
     return () => true;
   }
   try {

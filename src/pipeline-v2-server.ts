@@ -505,9 +505,21 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         maxOutputLength: MAX_DECOMPRESSED_SIZE
       })) as Buffer;
 
+      // Count a successful decrypt+decompress as "meta received on the wire"
+      // regardless of whether the envelope parses — this mirrors the DATA
+      // bandwidth accounting and keeps metaBytesIn useful even when a peer
+      // emits malformed envelopes.
+      metrics.bandwidth.metaBytesIn = (metrics.bandwidth.metaBytesIn || 0) + parsed.payload.length;
+      metrics.bandwidth.metaPacketsIn = (metrics.bandwidth.metaPacketsIn || 0) + 1;
+
       if (decompressed.length > MAX_PARSE_PAYLOAD_SIZE) {
+        metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
         app.error(
           `[v2] META payload too large to parse: ${decompressed.length} bytes (limit ${MAX_PARSE_PAYLOAD_SIZE})`
+        );
+        recordError(
+          "general",
+          `META payload too large: ${decompressed.length} bytes (limit ${MAX_PARSE_PAYLOAD_SIZE})`
         );
         return;
       }
@@ -524,7 +536,9 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       if (!content || typeof content !== "object" || Array.isArray(content)) {
+        metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
         app.debug("v2 META envelope was not an object, dropping");
+        recordError("general", "v2 META envelope was not an object");
         return;
       }
       const env = content as {
@@ -537,15 +551,29 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         }>;
       };
       if (!Array.isArray(env.entries) || env.entries.length === 0) {
+        metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+        app.debug("v2 META envelope has no entries, dropping");
+        recordError("general", "v2 META envelope has no entries");
         return;
       }
 
+      // Group entries by context so the local Signal K server sees one delta
+      // per context rather than one per path. Reduces app.handleMessage
+      // overhead on big snapshots without changing semantics.
       const nowIso = new Date().toISOString();
+      const byContext = new Map<string, Array<{ path: string; value: Record<string, unknown> }>>();
       for (const rawEntry of env.entries) {
         if (!rawEntry || typeof rawEntry.meta !== "object" || !rawEntry.meta) {
           continue;
         }
-        // Decode the path dictionary if the sender compressed it.
+        // Require a present path before attempting pathDictionary decode;
+        // decodeMetaEntry would otherwise coerce `undefined` into "undefined".
+        if (rawEntry.path === null || rawEntry.path === undefined) {
+          continue;
+        }
+        if (typeof rawEntry.path !== "string" && typeof rawEntry.path !== "number") {
+          continue;
+        }
         const entry = parsed.flags.pathDictionary
           ? decodeMetaEntry(rawEntry as { path: string | number; meta: Record<string, unknown> })
           : rawEntry;
@@ -554,26 +582,35 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
           continue;
         }
         const context = typeof rawEntry.context === "string" ? rawEntry.context : "vessels.self";
+        const bucket = byContext.get(context);
+        const metaItem = { path, value: entry.meta as Record<string, unknown> };
+        if (bucket) {
+          bucket.push(metaItem);
+        } else {
+          byContext.set(context, [metaItem]);
+        }
+      }
+
+      for (const [context, metaItems] of byContext) {
         const deltaMessage: Delta = {
           context,
           updates: [
             {
               timestamp: nowIso,
               values: [],
-              meta: [{ path, value: entry.meta as Record<string, unknown> }]
+              meta: metaItems
             } as Delta["updates"][number]
           ]
         };
         app.handleMessage("", deltaMessage);
       }
 
-      metrics.bandwidth.metaBytesIn = (metrics.bandwidth.metaBytesIn || 0) + parsed.payload.length;
-      metrics.bandwidth.metaPacketsIn = (metrics.bandwidth.metaPacketsIn || 0) + 1;
       app.debug(
-        `v2 meta received: kind=${env.kind ?? "?"}, entries=${env.entries.length}, envSeq=${env.v ?? "?"}`
+        `v2 meta received: kind=${env.kind ?? "?"}, entries=${env.entries.length}, contexts=${byContext.size}, envSeq=${env.v ?? "?"}`
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
       app.error(`v2 handleMetadataPacket error: ${msg}`);
       recordError("general", `v2 META decode error: ${msg}`);
     }
@@ -715,6 +752,21 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       if (parsed.type === PacketType.METADATA) {
+        // Apply the same per-session rate limit used for DATA so a malformed
+        // or hostile peer can't overwhelm the meta decoder path.
+        if (session) {
+          const now = Date.now();
+          if (now - session.rateLimitWindowStart >= UDP_RATE_LIMIT_WINDOW) {
+            session.rateLimitCount = 0;
+            session.rateLimitWindowStart = now;
+          }
+          session.rateLimitCount++;
+          if (session.rateLimitCount > UDP_RATE_LIMIT_MAX_PACKETS) {
+            metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
+            app.debug(`[v2-server] rate limited META from ${session.key}`);
+            return;
+          }
+        }
         await handleMetadataPacket(parsed, secretKey);
         return;
       }
