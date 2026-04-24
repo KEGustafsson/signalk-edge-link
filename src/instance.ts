@@ -52,7 +52,13 @@ import type {
   MetaEntry,
   MetaConfig
 } from "./types";
-import { MetaCache, collectSnapshot, extractLiveMeta, resolveSelfContext } from "./metadata";
+import {
+  MetaCache,
+  collectSnapshot,
+  extractLiveMeta,
+  isLikelyUnsafePathFilter,
+  resolveSelfContext
+} from "./metadata";
 
 const DELTA_SEND_MAX_RETRIES = 1;
 const DELTA_SEND_RETRY_BACKOFF_MS = 100;
@@ -415,12 +421,16 @@ function createInstance(
     }, intervalMs);
   }
 
-  /** Schedules a meta snapshot send after `delayMs`. The returned timer is
-   *  tracked on state.metaSnapshotTimers so stop() can cancel any pending
-   *  work — important because the timeouts are short and rapid (2000 ms
-   *  after resubscribe, 1000 ms after socket recovery) and would otherwise
-   *  fire against a destroyed pipeline after stop(). */
+  /** Schedules a meta snapshot send after `delayMs`. Cancels any prior
+   *  pending snapshot timer first — back-to-back (re)subscribes or socket
+   *  recoveries should coalesce into a single pending snapshot rather than
+   *  queue up multiple sends. The returned timer is tracked on
+   *  state.metaSnapshotTimers so stop() can cancel it. */
   function scheduleMetadataSnapshot(delayMs: number): void {
+    for (const existing of state.metaSnapshotTimers) {
+      clearTimeout(existing);
+    }
+    state.metaSnapshotTimers.length = 0;
     const handle = setTimeout(() => {
       const idx = state.metaSnapshotTimers.indexOf(handle);
       if (idx !== -1) {
@@ -512,11 +522,37 @@ function createInstance(
       }
     }
 
+    let includePathsMatching: string | null = null;
+    if (typeof mo.includePathsMatching === "string" && mo.includePathsMatching.length > 0) {
+      const pattern = mo.includePathsMatching;
+      // Reject obvious ReDoS-shape patterns (nested unbounded quantifiers)
+      // at load time rather than letting runtime fall silently back to
+      // allow-all — otherwise a typo like `(.+)+` in subscription.json
+      // would degrade filtering invisibly. Pattern length is also capped.
+      if (pattern.length > 256) {
+        app.error(
+          `[${instanceId}] subscription.json meta.includePathsMatching exceeds 256 chars; ignoring filter`
+        );
+      } else if (isLikelyUnsafePathFilter(pattern)) {
+        app.error(
+          `[${instanceId}] subscription.json meta.includePathsMatching "${pattern}" has a nested unbounded quantifier (ReDoS shape); ignoring filter`
+        );
+      } else {
+        try {
+          new RegExp(pattern);
+          includePathsMatching = pattern;
+        } catch (err: unknown) {
+          app.error(
+            `[${instanceId}] subscription.json meta.includePathsMatching "${pattern}" failed to compile: ${err instanceof Error ? err.message : String(err)}; ignoring filter`
+          );
+        }
+      }
+    }
+
     return {
       enabled: true,
       intervalSec,
-      includePathsMatching:
-        typeof mo.includePathsMatching === "string" ? mo.includePathsMatching : null,
+      includePathsMatching,
       maxPathsPerPacket
     };
   }
@@ -746,15 +782,12 @@ function createInstance(
       state.localSubscription = config;
       app.debug(`[${instanceId}] Subscription configuration updated`);
 
-      // Re-derive the metadata config each time subscription.json changes.
-      // A falsy/absent `meta` block clears state.metaConfig and stops the
-      // periodic timer, restoring pre-feature behaviour.
-      state.metaConfig = parseMetaConfig(config);
-      restartMetadataTimer();
-      // Clear the diff cache so the next snapshot represents the live state
-      // in full (e.g., the user may have just enabled meta, or toggled the
-      // includePathsMatching filter).
-      metaCache.clear();
+      // Stage the new metadata config — do NOT yet touch state.metaConfig,
+      // the periodic timer, or metaCache. If subscribe() throws, the old
+      // subscription remains active until the retry succeeds, so its
+      // previous metadata behaviour must remain intact.
+      const previousMetaConfig = state.metaConfig;
+      const pendingMetaConfig = parseMetaConfig(config);
 
       // Capture the old cleanup handlers but do NOT call them yet.
       // We establish the new subscription first so data keeps flowing during
@@ -778,6 +811,14 @@ function createInstance(
         );
         // New subscription established — release old cleanup handlers.
         previousUnsubscribes.forEach((f: () => void) => f());
+        // Commit the new metadata config AFTER a successful subscribe: swap
+        // state.metaConfig, (re)start the periodic timer, and reset the diff
+        // cache so the next snapshot represents the live state in full. We
+        // reset the cache unconditionally here because even "meta unchanged"
+        // still needs an empty cache for the new subscription's path set.
+        state.metaConfig = pendingMetaConfig;
+        restartMetadataTimer();
+        metaCache.clear();
         // Prime the receiver's meta cache with a full snapshot once the
         // Signal K state tree has had a moment to settle after (re)subscribe.
         if (state.metaConfig?.enabled) {
@@ -786,7 +827,10 @@ function createInstance(
       } catch (subscribeError: unknown) {
         // Re-subscribe failed — restore old handlers so stop() can still
         // clean up and the previous subscription remains active until retry.
+        // Leave state.metaConfig / metaCache / metaTimer untouched so the
+        // previous subscription's metadata stream keeps running unchanged.
         state.unsubscribes = previousUnsubscribes;
+        void previousMetaConfig; // explicit: intentionally unchanged
         const subErrMsg =
           subscribeError instanceof Error ? subscribeError.message : String(subscribeError);
         app.error(`[${instanceId}] Failed to subscribe: ${subErrMsg}`);

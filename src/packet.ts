@@ -212,16 +212,9 @@ export class PacketBuilder {
       pathDictionary?: boolean;
     } = {}
   ): Buffer {
-    // Temporarily swap the header's sequence field to the metadata counter
-    // so _buildPacket writes the correct value, then restore afterwards.
-    const savedDataSeq = this._sequence;
-    this._sequence = this._metaSequence;
-    let packet: Buffer;
-    try {
-      packet = this._buildPacket(PacketType.METADATA, payload, flags);
-    } finally {
-      this._sequence = savedDataSeq;
-    }
+    const packet = this._buildPacket(PacketType.METADATA, payload, flags, {
+      sequence: this._metaSequence
+    });
     this._metaSequence = (this._metaSequence + 1) >>> 0;
     return packet;
   }
@@ -342,13 +335,22 @@ export class PacketBuilder {
       messagepack?: boolean;
       pathDictionary?: boolean;
     },
-    options: { secretKey?: string | null; protocolVersion?: number } = {}
+    options: {
+      secretKey?: string | null;
+      protocolVersion?: number;
+      /** Explicit sequence number to write into the header. Defaults to
+       *  `this._sequence` for DATA/ACK/NAK/HEARTBEAT/HELLO. METADATA passes
+       *  `this._metaSequence` so it draws from its own sequence space
+       *  without mutating the DATA counter. */
+      sequence?: number;
+    } = {}
   ): Buffer {
     const header = Buffer.alloc(HEADER_SIZE);
     const payloadBuffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload || "");
     const protocolVersion = normalizeProtocolVersion(
       options.protocolVersion ?? this._protocolVersion
     );
+    const sequence = (options.sequence ?? this._sequence) >>> 0;
 
     // Magic bytes
     header[0] = MAGIC[0];
@@ -376,8 +378,9 @@ export class PacketBuilder {
     }
     header[4] = flagByte;
 
-    // Sequence number (uint32 big-endian)
-    header.writeUInt32BE(this._sequence, 5);
+    // Sequence number (uint32 big-endian) — DATA uses this._sequence, METADATA
+    // uses this._metaSequence, control packets inherit this._sequence.
+    header.writeUInt32BE(sequence, 5);
 
     let finalPayload = payloadBuffer;
 

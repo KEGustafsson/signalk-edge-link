@@ -5,7 +5,9 @@ const {
   collectSnapshot,
   extractLiveMeta,
   buildMetaEnvelope,
-  splitIntoPackets
+  splitIntoPackets,
+  isLikelyUnsafePathFilter,
+  resolveSelfContext
 } = require("../lib/metadata");
 
 describe("MetaCache", () => {
@@ -90,14 +92,17 @@ describe("MetaCache non-mutating helpers", () => {
 
 describe("extractLiveMeta", () => {
   const enabled = { enabled: true, intervalSec: 300, maxPathsPerPacket: 500 };
+  // Most tests pass a non-null selfContext so "vessels.self" entries
+  // are normalized to the concrete URN instead of being skipped.
+  const selfUrn = "vessels.urn:mrn:imo:mmsi:12345";
 
   test("returns [] when config is null or disabled", () => {
     const delta = {
       context: "vessels.self",
       updates: [{ meta: [{ path: "x", value: { units: "m/s" } }], values: [] }]
     };
-    expect(extractLiveMeta(delta, null)).toEqual([]);
-    expect(extractLiveMeta(delta, { enabled: false, intervalSec: 300 })).toEqual([]);
+    expect(extractLiveMeta(delta, null, selfUrn)).toEqual([]);
+    expect(extractLiveMeta(delta, { enabled: false, intervalSec: 300 }, selfUrn)).toEqual([]);
   });
 
   test("pulls meta entries from updates[].meta[]", () => {
@@ -113,10 +118,10 @@ describe("extractLiveMeta", () => {
         }
       ]
     };
-    const entries = extractLiveMeta(delta, enabled);
+    const entries = extractLiveMeta(delta, enabled, selfUrn);
     expect(entries).toHaveLength(2);
     expect(entries[0]).toEqual({
-      context: "vessels.self",
+      context: selfUrn,
       path: "a",
       meta: { units: "m/s" }
     });
@@ -132,15 +137,18 @@ describe("extractLiveMeta", () => {
         }
       ]
     };
-    expect(extractLiveMeta(delta, enabled)).toHaveLength(1);
+    expect(extractLiveMeta(delta, enabled, selfUrn)).toHaveLength(1);
   });
 
-  test("defaults to vessels.self when delta has no context", () => {
+  test("skips vessels.self entries when selfContext is not yet resolvable", () => {
+    // Without a resolved self URN, emitting "vessels.self" would mismatch
+    // whatever URN collectSnapshot uses for the same path — so we drop the
+    // entry until resolveSelfContext returns a concrete value.
     const delta = {
       updates: [{ values: [], meta: [{ path: "a", value: { units: "m" } }] }]
     };
-    const entries = extractLiveMeta(delta, enabled);
-    expect(entries[0].context).toBe("vessels.self");
+    expect(extractLiveMeta(delta, enabled)).toEqual([]);
+    expect(extractLiveMeta(delta, enabled, null)).toEqual([]);
   });
 
   test("applies includePathsMatching regex", () => {
@@ -157,7 +165,7 @@ describe("extractLiveMeta", () => {
       ]
     };
     const cfg = { ...enabled, includePathsMatching: "^navigation\\." };
-    const entries = extractLiveMeta(delta, cfg);
+    const entries = extractLiveMeta(delta, cfg, selfUrn);
     expect(entries).toHaveLength(1);
     expect(entries[0].path).toBe("navigation.position");
   });
@@ -168,7 +176,7 @@ describe("extractLiveMeta", () => {
       updates: [{ values: [], meta: [{ path: "a", value: { units: "m/s" } }] }]
     };
     const cfg = { ...enabled, includePathsMatching: "[unclosed" };
-    expect(extractLiveMeta(delta, cfg)).toHaveLength(1);
+    expect(extractLiveMeta(delta, cfg, selfUrn)).toHaveLength(1);
   });
 
   test("overly-long regex falls back to allow-all (ReDoS guard)", () => {
@@ -178,7 +186,7 @@ describe("extractLiveMeta", () => {
     };
     const cfg = { ...enabled, includePathsMatching: "(a+)+".repeat(100) };
     // Would normally filter to zero matches; the length cap forces allow-all.
-    expect(extractLiveMeta(delta, cfg)).toHaveLength(1);
+    expect(extractLiveMeta(delta, cfg, selfUrn)).toHaveLength(1);
   });
 
   test("normalizes vessels.self context to the supplied self URN", () => {
@@ -261,6 +269,48 @@ describe("collectSnapshot", () => {
       }
     };
     expect(collectSnapshot(app, enabled)).toEqual([]);
+  });
+});
+
+describe("isLikelyUnsafePathFilter", () => {
+  test("flags nested unbounded quantifiers", () => {
+    expect(isLikelyUnsafePathFilter("(a+)+")).toBe(true);
+    expect(isLikelyUnsafePathFilter("(.*)*")).toBe(true);
+    expect(isLikelyUnsafePathFilter("(a+)*")).toBe(true);
+    expect(isLikelyUnsafePathFilter("(.+)+")).toBe(true);
+    expect(isLikelyUnsafePathFilter("^prefix(.+)+suffix$")).toBe(true);
+  });
+
+  test("leaves benign patterns alone", () => {
+    expect(isLikelyUnsafePathFilter("^navigation\\.")).toBe(false);
+    expect(isLikelyUnsafePathFilter("environment\\.wind\\..*")).toBe(false);
+    expect(isLikelyUnsafePathFilter("(foo|bar)")).toBe(false);
+    expect(isLikelyUnsafePathFilter("(foo)+")).toBe(false); // one quantifier only
+  });
+});
+
+describe("resolveSelfContext", () => {
+  test("returns concrete URN when app.getSelfPath exposes mmsi", () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      getSelfPath: (p) => (p === "" ? { mmsi: "12345" } : null)
+    };
+    expect(resolveSelfContext(app)).toBe("vessels.urn:mrn:imo:mmsi:12345");
+  });
+
+  test("falls back to app.signalk.retrieve().self", () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      signalk: { retrieve: () => ({ self: "urn:mrn:imo:mmsi:99999" }) }
+    };
+    expect(resolveSelfContext(app)).toBe("vessels.urn:mrn:imo:mmsi:99999");
+  });
+
+  test("returns null when self URN cannot be resolved", () => {
+    const app = { debug: jest.fn(), error: jest.fn() };
+    expect(resolveSelfContext(app)).toBeNull();
   });
 });
 

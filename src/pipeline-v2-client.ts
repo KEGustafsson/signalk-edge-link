@@ -134,10 +134,23 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   // layer that knows how to build a snapshot from `app.signalk.retrieve()`.
   let metaRequestHandler: (() => void) | null = null;
   let metaEnvelopeSeq = 0;
-  // Meta-specific bandwidth counter; declared here so it's not wiped by the
-  // shared `metrics.bandwidth` object being reset in test harnesses.
-  if (metrics.bandwidth && metrics.bandwidth.metaBytesOut === undefined) {
-    metrics.bandwidth.metaBytesOut = 0;
+  // Seed all four meta bandwidth counters so downstream consumers (metrics
+  // publishers, prometheus exporter, tests) always see numeric zeros rather
+  // than undefined on a fresh pipeline. Uses || 0 at write sites elsewhere as
+  // belt-and-braces, but consistent snapshots require consistent seeding.
+  if (metrics.bandwidth) {
+    if (metrics.bandwidth.metaBytesOut === undefined) {
+      metrics.bandwidth.metaBytesOut = 0;
+    }
+    if (metrics.bandwidth.metaPacketsOut === undefined) {
+      metrics.bandwidth.metaPacketsOut = 0;
+    }
+    if (metrics.bandwidth.metaBytesIn === undefined) {
+      metrics.bandwidth.metaBytesIn = 0;
+    }
+    if (metrics.bandwidth.metaPacketsIn === undefined) {
+      metrics.bandwidth.metaPacketsIn = 0;
+    }
   }
 
   // RTT tracking for jitter calculation (CircularBuffer gives O(1) push with auto-eviction)
@@ -501,6 +514,11 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       const msg = error instanceof Error ? error.message : String(error);
       app.error(`v2 sendMetadata error: ${msg}`);
       recordError("general", `v2 sendMetadata error: ${msg}`);
+      // Re-throw so callers (e.g., sendMetaEntries in instance.ts) can
+      // distinguish a successful send from a swallowed failure. Without the
+      // rethrow the caller would commit the MetaCache despite nothing
+      // reaching the wire, silently suppressing the next diff.
+      throw error instanceof Error ? error : new Error(msg);
     }
   }
 

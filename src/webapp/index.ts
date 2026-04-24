@@ -121,6 +121,10 @@ class DataConnectorConfig {
   schemaCurrentMode: string | null;
   metricsInterval: ReturnType<typeof setInterval> | null;
   syncTimeout: ReturnType<typeof setTimeout> | null;
+  /** True while syncFromJson() is rebuilding the path-input list — prevents
+   *  addPathItem() from triggering updateJsonFromForm() which would drop the
+   *  textarea's meta block on every path added. */
+  isHydratingFromTextarea: boolean = false;
   tokenHelpText: string;
   deltaTimerConfig: Record<string, unknown> | null;
   subscriptionConfig: Record<string, unknown> | null;
@@ -965,6 +969,15 @@ class DataConnectorConfig {
   }
 
   updateJsonFromForm() {
+    // Skip form → JSON syncing while we're hydrating the form from a
+    // pasted/loaded JSON — otherwise addPathItem() would fire this on every
+    // added path-input and reserialize the subscription.json as just
+    // {context, subscribe} without the meta block, silently dropping meta
+    // from pasted configs.
+    if (this.isHydratingFromTextarea) {
+      return;
+    }
+
     const contextEl = document.getElementById("context") as HTMLInputElement | null;
     const context = contextEl ? contextEl.value || "*" : "*";
     const pathInputs = document.querySelectorAll(".path-input") as NodeListOf<HTMLInputElement>;
@@ -972,9 +985,20 @@ class DataConnectorConfig {
       .map((input) => ({ path: input.value }))
       .filter((sub) => sub.path.trim() !== "");
 
-    const config = { context, subscribe };
+    // Preserve the meta block from whatever is currently in the textarea so
+    // rebuilds triggered by form edits don't drop user-configured metadata
+    // settings. The structured meta controls remain authoritative on save.
+    const config: Record<string, unknown> = { context, subscribe };
     const jsonEl = document.getElementById("subscriptionJson") as HTMLTextAreaElement | null;
     if (jsonEl) {
+      try {
+        const existing = JSON.parse(jsonEl.value);
+        if (existing && typeof existing === "object" && existing.meta !== undefined) {
+          config.meta = existing.meta;
+        }
+      } catch {
+        /* textarea isn't valid JSON right now — ignore, we'll overwrite */
+      }
       jsonEl.value = JSON.stringify(config, null, 2);
     }
   }
@@ -1005,6 +1029,7 @@ class DataConnectorConfig {
   }
 
   syncFromJson() {
+    this.isHydratingFromTextarea = true;
     try {
       const jsonEl = document.getElementById("subscriptionJson") as HTMLTextAreaElement | null;
       if (!jsonEl) {
@@ -1031,6 +1056,8 @@ class DataConnectorConfig {
       this.populateMetaControls(config.meta as Record<string, unknown> | undefined);
     } catch (error: unknown) {
       console.warn("Invalid JSON in editor:", (error as Error).message);
+    } finally {
+      this.isHydratingFromTextarea = false;
     }
   }
 

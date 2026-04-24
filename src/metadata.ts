@@ -230,8 +230,13 @@ export function collectSnapshot(app: SignalKApp, config: MetaConfig | null): Met
  * the Signal K app. Used to normalize `delta.context === "vessels.self"` in
  * the live meta stream to the same concrete URN `collectSnapshot` emits, so
  * `MetaCache` can dedupe snapshot and diff entries against the same key.
+ *
+ * Returns `null` when the self URN is not yet known — a fallback to the
+ * literal `"vessels.self"` would reintroduce the snapshot/live-meta key
+ * mismatch. Callers should treat null as "self not resolvable yet" and
+ * decline to emit `vessels.self` live entries until a concrete URN arrives.
  */
-export function resolveSelfContext(app: SignalKApp): string {
+export function resolveSelfContext(app: SignalKApp): string | null {
   try {
     const self = app.getSelfPath?.("");
     if (self && typeof self === "object") {
@@ -251,9 +256,12 @@ export function resolveSelfContext(app: SignalKApp): string {
       }
     }
   } catch {
-    /* fall through to default */
+    /* fall through */
   }
-  return "vessels.self";
+  if (typeof app.debug === "function") {
+    app.debug("[metadata] self URN not yet resolvable; vessels.self live meta will be skipped");
+  }
+  return null;
 }
 
 /**
@@ -264,7 +272,7 @@ export function resolveSelfContext(app: SignalKApp): string {
 export function extractLiveMeta(
   delta: Delta,
   config: MetaConfig | null,
-  selfContext?: string
+  selfContext?: string | null
 ): MetaEntry[] {
   if (!config || !config.enabled) {
     return [];
@@ -273,7 +281,6 @@ export function extractLiveMeta(
     return [];
   }
   const filter = buildPathFilter(config.includePathsMatching);
-  const resolvedSelf = selfContext || "vessels.self";
   const out: MetaEntry[] = [];
   for (const update of delta.updates) {
     const metaArr = (update as { meta?: DeltaMeta[] }).meta;
@@ -287,10 +294,22 @@ export function extractLiveMeta(
       if (!filter(m.path)) {
         continue;
       }
-      // Normalize "vessels.self" (or an absent context) to the concrete self
-      // URN so MetaCache keys match the snapshot path exactly.
       const rawContext = delta.context || "vessels.self";
-      const context = rawContext === "vessels.self" ? resolvedSelf : rawContext;
+      // Normalize "vessels.self" to the concrete self URN so MetaCache keys
+      // match snapshot keys exactly. If the self URN isn't known yet, skip
+      // the entry rather than emit it under a context that will never match
+      // collectSnapshot's output — otherwise the receiver would see two
+      // copies (one under vessels.self, one under the real URN) and the
+      // local MetaCache diff logic would never dedupe them.
+      let context: string;
+      if (rawContext === "vessels.self") {
+        if (!selfContext) {
+          continue;
+        }
+        context = selfContext;
+      } else {
+        context = rawContext;
+      }
       out.push({
         context,
         path: m.path,
@@ -306,6 +325,29 @@ export function extractLiveMeta(
  *  the obvious catastrophic-backtracking shapes (hundreds of nested `(a+)*`
  *  groups, etc.) without pulling in a re2 dependency. */
 const MAX_PATH_FILTER_PATTERN_LENGTH = 256;
+
+/**
+ * Heuristic detector for the most common ReDoS shape: nested unbounded
+ * quantifiers such as `(a+)+`, `(.*)+`, `(a*)*`, `(.+)*`.
+ *
+ * The check is deliberately narrow — it does not attempt a full ReDoS
+ * analysis (which would require pulling in `safe-regex2` or `re2`) — but it
+ * catches the specific failure mode that is easy to accidentally write and
+ * easy to verify by eye. Callers should also enforce
+ * {@link MAX_PATH_FILTER_PATTERN_LENGTH} and wrap regex compilation in
+ * try/catch so invalid patterns fail safely.
+ *
+ * Exported so the config parser can reject unsafe patterns at load time
+ * with a descriptive error rather than silently dropping to allow-all at
+ * runtime, which would hide operator mistakes.
+ */
+export function isLikelyUnsafePathFilter(pattern: string): boolean {
+  // Matches a group whose body ends in an unbounded quantifier (* or +,
+  // optionally with ? for lazy), immediately followed by another unbounded
+  // quantifier. This is the classic (a+)+ / (a*)* / (a+)* / (a*)+ family.
+  const nested = /\([^()]*[*+][*+?]?\s*\)\s*[*+][*+?]?/;
+  return nested.test(pattern);
+}
 
 /**
  * Build a path-inclusion predicate from the user-supplied regex string.

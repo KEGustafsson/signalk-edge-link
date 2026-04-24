@@ -63,6 +63,10 @@ interface ClientSession {
   /** True once we have emitted a META_REQUEST to this client. Used to cap
    *  outbound META_REQUEST traffic at exactly one per session lifetime. */
   metaRequested: boolean;
+  /** Last observed meta-envelope seq, used to drop stale/duplicate envelopes
+   *  that UDP reorders or replays. null until the first envelope from this
+   *  session arrives. */
+  lastMetaEnvSeq: number | null;
 }
 
 function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
@@ -182,7 +186,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         lastLossReceived: 0,
         rateLimitCount: 0,
         rateLimitWindowStart: Date.now(),
-        metaRequested: false
+        metaRequested: false,
+        lastMetaEnvSeq: null
       };
     }
 
@@ -211,7 +216,9 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       rateLimitCount: 0,
       rateLimitWindowStart: Date.now(),
       // META_REQUEST bookkeeping
-      metaRequested: false
+      metaRequested: false,
+      // Stale-envelope rejection for METADATA packets
+      lastMetaEnvSeq: null
     };
     clientSessions.set(key, session);
     app.debug(`[v2-server] new client session: ${key}`);
@@ -498,7 +505,11 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
    * server picks it up through the normal `app.handleMessage` integration
    * point — no special receiver API is needed.
    */
-  async function handleMetadataPacket(parsed: ParsedPacket, secretKey: string): Promise<void> {
+  async function handleMetadataPacket(
+    parsed: ParsedPacket,
+    secretKey: string,
+    session: ClientSession | null
+  ): Promise<void> {
     try {
       const decrypted = decryptBinary(parsed.payload, secretKey, { stretchAsciiKey });
       const decompressed = (await brotliDecompressAsync(decrypted, {
@@ -544,6 +555,9 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       const env = content as {
         v?: number;
         kind?: string;
+        seq?: number;
+        idx?: number;
+        total?: number;
         entries?: Array<{
           context?: string;
           path?: string | number;
@@ -555,6 +569,31 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         app.debug("v2 META envelope has no entries, dropping");
         recordError("general", "v2 META envelope has no entries");
         return;
+      }
+
+      // Drop stale/duplicate envelopes that UDP reordered or replayed. The
+      // inner envelope `seq` is shared across all chunks of the same
+      // snapshot/diff batch, so multiple chunks with the same seq are
+      // always accepted — only earlier batches are rejected.
+      if (session && typeof env.seq === "number" && Number.isFinite(env.seq)) {
+        const envSeq = env.seq >>> 0;
+        if (session.lastMetaEnvSeq !== null) {
+          const distance = (envSeq - session.lastMetaEnvSeq) >>> 0;
+          // distance 0 = same batch (another chunk); < 0x80000000 = strictly
+          // newer batch; >= 0x80000000 = behind in uint32 space, drop as stale.
+          if (distance !== 0 && distance >= 0x80000000) {
+            metrics.duplicatePackets = (metrics.duplicatePackets || 0) + 1;
+            app.debug(
+              `[v2-server] stale META envelope seq=${envSeq} from ${session.key} (last=${session.lastMetaEnvSeq}), dropping`
+            );
+            return;
+          }
+          if (distance !== 0) {
+            session.lastMetaEnvSeq = envSeq;
+          }
+        } else {
+          session.lastMetaEnvSeq = envSeq;
+        }
       }
 
       // Group entries by context so the local Signal K server sees one delta
@@ -767,7 +806,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
             return;
           }
         }
-        await handleMetadataPacket(parsed, secretKey);
+        await handleMetadataPacket(parsed, secretKey, session);
         return;
       }
 

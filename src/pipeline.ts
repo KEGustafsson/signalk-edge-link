@@ -235,6 +235,11 @@ function createPipeline(
       const msg = error instanceof Error ? error.message : String(error);
       app.error(`packCryptMeta error: ${msg}`);
       recordError("general", `packCryptMeta error: ${msg}`);
+      // Re-throw so the caller (sendMetaEntries) can tell the send failed
+      // and refrain from committing the MetaCache. Without this, a broken
+      // socket/encryption/compression would silently suppress every future
+      // diff for the affected paths.
+      throw error instanceof Error ? error : new Error(msg);
     }
   }
 
@@ -416,8 +421,15 @@ function createPipeline(
         return;
       }
 
+      // Bump bytesIn/packetsIn AND the meta-scoped counters at the same
+      // gate — any packet that reached this code is a meta packet (the
+      // separate udpMetaPort ensures that), so bytesIn should always equal
+      // metaBytesIn for this pipeline path. Keeping them in lockstep lets
+      // consumers cross-check: bytesIn === dataBytesIn + metaBytesIn.
       metrics.bandwidth.bytesIn += packet.length;
       metrics.bandwidth.packetsIn++;
+      metrics.bandwidth.metaBytesIn = (metrics.bandwidth.metaBytesIn || 0) + packet.length;
+      metrics.bandwidth.metaPacketsIn = (metrics.bandwidth.metaPacketsIn || 0) + 1;
 
       const decrypted = decryptBinary(packet, secretKey, {
         stretchAsciiKey: !!state.options.stretchAsciiKey
@@ -500,8 +512,6 @@ function createPipeline(
         app.handleMessage("", delta);
       }
 
-      metrics.bandwidth.metaBytesIn = (metrics.bandwidth.metaBytesIn || 0) + packet.length;
-      metrics.bandwidth.metaPacketsIn = (metrics.bandwidth.metaPacketsIn || 0) + 1;
       app.debug(`v1 meta received: kind=${env.kind ?? "?"}, entries=${env.entries.length}`);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
