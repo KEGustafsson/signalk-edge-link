@@ -18,6 +18,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "useMsgpack",
   "usePathDictionary",
   "enableNotifications",
+  "skipOwnData",
   "protocolVersion",
   "udpAddress",
   "helloMessageSender",
@@ -91,6 +92,9 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     if (conn.alertThresholds !== undefined) {
       return `${p}alertThresholds is not supported in server mode`;
     }
+    if (conn.skipOwnData !== undefined) {
+      return `${p}skipOwnData is not supported in server mode`;
+    }
   }
 
   if (!isValidPort(conn.udpPort, 1024)) {
@@ -122,6 +126,9 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   }
   if (conn.enableNotifications !== undefined && typeof conn.enableNotifications !== "boolean") {
     return `${p}enableNotifications must be a boolean`;
+  }
+  if (conn.skipOwnData !== undefined && typeof conn.skipOwnData !== "boolean") {
+    return `${p}skipOwnData must be a boolean`;
   }
   if (
     conn.name !== undefined &&
@@ -390,6 +397,7 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
     delete out.congestionControl;
     delete out.bonding;
     delete out.alertThresholds;
+    delete out.skipOwnData;
   }
 
   return out as Partial<ConnectionConfig>;

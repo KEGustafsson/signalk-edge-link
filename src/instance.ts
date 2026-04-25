@@ -59,7 +59,7 @@ import {
   parseMetaConfig as parseMetaConfigShared,
   resolveSelfContext
 } from "./metadata";
-import { sanitizeDeltaForSignalK } from "./delta-sanitizer";
+import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "./delta-sanitizer";
 
 const DELTA_SEND_MAX_RETRIES = 1;
 const DELTA_SEND_RETRY_BACKOFF_MS = 100;
@@ -278,10 +278,17 @@ function createInstance(
 
   /**
    * Forward subscribed deltas as-is except for malformed value entries that
-   * Signal K would reject on the receiver side.
+   * Signal K would reject on the receiver side. When `skipOwnData` is set on
+   * a client connection, also drop value/meta entries this plugin publishes
+   * locally — the `networking.edgeLink.*` subtree and the v1 RTT paths
+   * `networking.modem.rtt` / `networking.modem.<instanceId>.rtt`.
    */
   function filterOutboundDelta(delta: Delta): Delta | null {
-    return sanitizeDeltaForSignalK(delta);
+    const sanitized = sanitizeDeltaForSignalK(delta);
+    if (!sanitized || !options.skipOwnData) {
+      return sanitized;
+    }
+    return stripOwnDataFromDelta(sanitized);
   }
 
   // ── Metadata streaming ────────────────────────────────────────────────────

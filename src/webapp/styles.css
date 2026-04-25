@@ -257,6 +257,21 @@ body {
   transition: border-color 0.3s ease;
 }
 
+.form-group input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  border: none;
+  margin: 0 0.5rem 0 0;
+  vertical-align: middle;
+}
+
+.form-group label:has(> input[type="checkbox"]) {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 500;
+  margin-bottom: 0;
+}
+
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;

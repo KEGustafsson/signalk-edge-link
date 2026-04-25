@@ -27,6 +27,7 @@ interface ConnectionData {
   useMsgpack?: boolean;
   usePathDictionary?: boolean;
   enableNotifications?: boolean;
+  skipOwnData?: boolean;
   protocolVersion?: number;
   udpAddress?: string;
   helloMessageSender?: number;
@@ -54,6 +55,7 @@ function defaultClientConnection(name?: string): ConnectionData {
     useMsgpack: false,
     usePathDictionary: false,
     enableNotifications: false,
+    skipOwnData: false,
     protocolVersion: 1,
     udpAddress: "127.0.0.1",
     helloMessageSender: 60,
@@ -134,7 +136,7 @@ const uiSchemaClient: UiSchema = {
   "ui:order": [
     "name", "serverType", "udpAddress", "udpPort", "secretKey", "stretchAsciiKey", "protocolVersion",
     "useMsgpack", "usePathDictionary", "testAddress", "testPort", "pingIntervalTime",
-    "helloMessageSender", "heartbeatInterval", "reliability", "congestionControl", "bonding", "enableNotifications", "alertThresholds"
+    "helloMessageSender", "heartbeatInterval", "reliability", "congestionControl", "bonding", "enableNotifications", "skipOwnData", "alertThresholds"
   ],
   secretKey: { "ui:widget": "password", "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64" },
   stretchAsciiKey: { "ui:help": "Only applies to 32-char ASCII keys. Must match on both peers." },
