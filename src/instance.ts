@@ -281,7 +281,9 @@ function createInstance(
    * Signal K would reject on the receiver side. When `skipOwnData` is set on
    * a client connection, also drop value/meta entries this plugin publishes
    * locally — the `networking.edgeLink.*` subtree and the v1 RTT paths
-   * `networking.modem.rtt` / `networking.modem.<instanceId>.rtt`.
+   * `networking.modem.rtt` / `networking.modem.<instanceId>.rtt` — except
+   * RTT paths themselves (modem + edgeLink), which are always forwarded so
+   * link-health visibility survives skipOwnData on the receiver side.
    */
   function filterOutboundDelta(delta: Delta): Delta | null {
     const sanitized = sanitizeDeltaForSignalK(delta);

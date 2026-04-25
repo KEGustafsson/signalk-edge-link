@@ -79,7 +79,7 @@ describe("sanitizeDeltaForSignalK", () => {
 });
 
 describe("stripOwnDataFromDelta", () => {
-  test("drops networking.edgeLink.* and the modem RTT paths", () => {
+  test("drops networking.edgeLink.* but always keeps RTT paths", () => {
     const delta = {
       context: "vessels.self",
       updates: [
@@ -87,6 +87,7 @@ describe("stripOwnDataFromDelta", () => {
           values: [
             { path: "navigation.speedOverGround", value: 5 },
             { path: "networking.edgeLink.rtt", value: 42 },
+            { path: "networking.edgeLink.shore-server.rtt", value: 50 },
             { path: "networking.edgeLink.shore-server.jitter", value: 1 },
             { path: "networking.modem.rtt", value: 0.05 },
             { path: "networking.modem.shore-server.rtt", value: 0.05 },
@@ -102,6 +103,10 @@ describe("stripOwnDataFromDelta", () => {
         {
           values: [
             { path: "navigation.speedOverGround", value: 5 },
+            { path: "networking.edgeLink.rtt", value: 42 },
+            { path: "networking.edgeLink.shore-server.rtt", value: 50 },
+            { path: "networking.modem.rtt", value: 0.05 },
+            { path: "networking.modem.shore-server.rtt", value: 0.05 },
             { path: "navigation.position", value: { latitude: 1, longitude: 2 } }
           ]
         }
@@ -109,7 +114,7 @@ describe("stripOwnDataFromDelta", () => {
     });
   });
 
-  test("preserves non-RTT data under networking.modem.*", () => {
+  test("preserves non-RTT data under networking.modem.* alongside RTT", () => {
     const delta = {
       context: "vessels.self",
       updates: [
@@ -123,31 +128,33 @@ describe("stripOwnDataFromDelta", () => {
       ]
     };
 
-    expect(stripOwnDataFromDelta(delta)).toEqual({
-      context: "vessels.self",
-      updates: [
-        {
-          values: [
-            { path: "networking.modem.signalStrength", value: -72 },
-            { path: "networking.modem.lte.txBytes", value: 12345 }
-          ]
-        }
-      ]
-    });
+    expect(stripOwnDataFromDelta(delta)).toBe(delta);
   });
 
-  test("drops updates that become empty after stripping", () => {
+  test("drops non-RTT edgeLink entries while keeping RTT", () => {
     expect(
       stripOwnDataFromDelta({
         context: "vessels.self",
         updates: [
-          { values: [{ path: "networking.edgeLink.rtt", value: 1 }] },
-          { values: [{ path: "navigation.speedOverGround", value: 5 }] }
+          { values: [{ path: "networking.edgeLink.jitter", value: 1 }] },
+          {
+            values: [
+              { path: "networking.edgeLink.rtt", value: 42 },
+              { path: "navigation.speedOverGround", value: 5 }
+            ]
+          }
         ]
       })
     ).toEqual({
       context: "vessels.self",
-      updates: [{ values: [{ path: "navigation.speedOverGround", value: 5 }] }]
+      updates: [
+        {
+          values: [
+            { path: "networking.edgeLink.rtt", value: 42 },
+            { path: "navigation.speedOverGround", value: 5 }
+          ]
+        }
+      ]
     });
   });
 
@@ -156,8 +163,8 @@ describe("stripOwnDataFromDelta", () => {
       stripOwnDataFromDelta({
         context: "vessels.self",
         updates: [
-          { values: [{ path: "networking.edgeLink.rtt", value: 1 }] },
-          { values: [{ path: "networking.modem.rtt", value: 0.05 }] }
+          { values: [{ path: "networking.edgeLink.jitter", value: 1 }] },
+          { values: [{ path: "networking.edgeLink.shore-server.packetLoss", value: 0 }] }
         ]
       })
     ).toBeNull();
@@ -171,7 +178,7 @@ describe("stripOwnDataFromDelta", () => {
     expect(stripOwnDataFromDelta(delta)).toBe(delta);
   });
 
-  test("strips own-data meta entries too", () => {
+  test("strips own-data meta entries but keeps RTT meta", () => {
     expect(
       stripOwnDataFromDelta({
         context: "vessels.self",
@@ -180,7 +187,8 @@ describe("stripOwnDataFromDelta", () => {
             values: [{ path: "navigation.speedOverGround", value: 5 }],
             meta: [
               { path: "navigation.speedOverGround", value: { units: "m/s" } },
-              { path: "networking.edgeLink.rtt", value: { units: "ms" } }
+              { path: "networking.edgeLink.rtt", value: { units: "ms" } },
+              { path: "networking.edgeLink.jitter", value: { units: "ms" } }
             ]
           }
         ]
@@ -190,7 +198,10 @@ describe("stripOwnDataFromDelta", () => {
       updates: [
         {
           values: [{ path: "navigation.speedOverGround", value: 5 }],
-          meta: [{ path: "navigation.speedOverGround", value: { units: "m/s" } }]
+          meta: [
+            { path: "navigation.speedOverGround", value: { units: "m/s" } },
+            { path: "networking.edgeLink.rtt", value: { units: "ms" } }
+          ]
         }
       ]
     });

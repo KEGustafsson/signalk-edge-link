@@ -15,20 +15,23 @@ export type DeltaPayload = Delta | Delta[] | Record<string, Delta>;
 const OWN_DATA_PATH_PREFIXES = ["networking.edgeLink."];
 
 /**
- * Match the v1 RTT path published by `publishRtt` in instance.ts —
- * `networking.modem.rtt` (un-namespaced) and
- * `networking.modem.<instanceId>.rtt`. The broader `networking.modem.`
- * subtree is shared with other providers (e.g. signalStrength, txBytes), so
- * matching the entire prefix would strip legitimate non-edge-link data.
+ * RTT paths the plugin publishes — kept by `stripOwnDataFromDelta` even when
+ * `skipOwnData` is on, because operators rely on RTT for link-health
+ * visibility on both sides of the link. Covers v1 modem RTT
+ * (`networking.modem.rtt`, `networking.modem.<instanceId>.rtt`) and v2
+ * edge-link RTT (`networking.edgeLink.rtt`,
+ * `networking.edgeLink.<instanceId>.rtt`).
  */
-const MODEM_RTT_PATH_RE = /^networking\.modem(?:\.[^.]+)?\.rtt$/;
+const RTT_PATH_RE = /^networking\.(?:modem|edgeLink)(?:\.[^.]+)?\.rtt$/;
 
 function isOwnDataPath(path: unknown): boolean {
   if (typeof path !== "string") {
     return false;
   }
-  if (MODEM_RTT_PATH_RE.test(path)) {
-    return true;
+  // RTT paths (modem + edgeLink, namespaced or not) are always forwarded so
+  // the receiver retains link-health visibility regardless of skipOwnData.
+  if (RTT_PATH_RE.test(path)) {
+    return false;
   }
   for (const prefix of OWN_DATA_PATH_PREFIXES) {
     // prefix.slice(0, -1) drops the trailing ".", so a published path that
