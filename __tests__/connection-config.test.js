@@ -371,6 +371,33 @@ describe("sanitizeConnectionConfig", () => {
   });
 });
 
+describe("skipOwnData validation", () => {
+  test("accepts skipOwnData on a client connection", () => {
+    expect(validateConnectionConfig(makeValidClient({ skipOwnData: true }))).toBeNull();
+    expect(validateConnectionConfig(makeValidClient({ skipOwnData: false }))).toBeNull();
+  });
+
+  test("rejects skipOwnData on a server connection", () => {
+    const err = validateConnectionConfig(makeValidServer({ skipOwnData: true }));
+    expect(err).toMatch(/skipOwnData is not supported in server mode/);
+  });
+
+  test("rejects non-boolean skipOwnData", () => {
+    const err = validateConnectionConfig(makeValidClient({ skipOwnData: "yes" }));
+    expect(err).toMatch(/skipOwnData must be a boolean/);
+  });
+
+  test("sanitizeConnectionConfig drops skipOwnData on server connections", () => {
+    const sanitized = sanitizeConnectionConfig(makeValidServer({ skipOwnData: true }));
+    expect(sanitized.skipOwnData).toBeUndefined();
+  });
+
+  test("sanitizeConnectionConfig preserves skipOwnData on client connections", () => {
+    const sanitized = sanitizeConnectionConfig(makeValidClient({ skipOwnData: true }));
+    expect(sanitized.skipOwnData).toBe(true);
+  });
+});
+
 describe("normalizeServerType", () => {
   test("true returns 'server'", () => {
     expect(normalizeServerType(true)).toBe("server");

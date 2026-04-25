@@ -4,6 +4,81 @@ import type { Delta, DeltaUpdate, DeltaValue } from "./types";
 
 export type DeltaPayload = Delta | Delta[] | Record<string, Delta>;
 
+/**
+ * Path prefixes for data this plugin publishes locally. When the
+ * `skipOwnData` option is set on a client connection, value entries with
+ * matching paths are stripped before the delta is forwarded over the link so
+ * the receiver's Signal K tree is not polluted with the sender's own
+ * edge-link metrics.
+ */
+const OWN_DATA_PATH_PREFIXES = ["networking.edgeLink.", "networking.modem."];
+
+function isOwnDataPath(path: unknown): boolean {
+  if (typeof path !== "string") {
+    return false;
+  }
+  for (const prefix of OWN_DATA_PATH_PREFIXES) {
+    if (path === prefix.slice(0, -1) || path.startsWith(prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Drop value/meta entries whose paths are owned by this plugin. Returns null
+ * when nothing remains to forward. Updates that become empty are dropped; the
+ * delta is dropped entirely when no updates survive.
+ */
+export function stripOwnDataFromDelta(delta: Delta | null | undefined): Delta | null {
+  if (!delta || !Array.isArray(delta.updates)) {
+    return null;
+  }
+
+  let changed = false;
+  const surviving: DeltaUpdate[] = [];
+
+  for (const update of delta.updates) {
+    const rawValues = Array.isArray(update.values) ? update.values : [];
+    const values = rawValues.filter((v) => !isOwnDataPath((v as DeltaValue)?.path));
+    const valuesChanged = values.length !== rawValues.length;
+
+    const rawMeta = Array.isArray(update.meta) ? update.meta : null;
+    const meta = rawMeta
+      ? rawMeta.filter((m) => !isOwnDataPath((m as { path?: unknown })?.path))
+      : null;
+    const metaChanged = rawMeta !== null && meta !== null && meta.length !== rawMeta.length;
+
+    if (values.length === 0 && (!meta || meta.length === 0)) {
+      changed = true;
+      continue;
+    }
+
+    if (valuesChanged || metaChanged) {
+      changed = true;
+      const next: DeltaUpdate = { ...update, values };
+      if (meta && meta.length > 0) {
+        next.meta = meta;
+      } else if (rawMeta) {
+        delete next.meta;
+      }
+      surviving.push(next);
+    } else {
+      surviving.push(update);
+    }
+  }
+
+  if (surviving.length === 0) {
+    return null;
+  }
+
+  if (!changed) {
+    return delta;
+  }
+
+  return { ...delta, updates: surviving };
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -444,6 +444,16 @@ export const enableNotificationsProperty: SchemaFragment = {
   default: false
 };
 
+// ── Client-only: skip forwarding plugin-generated data ────────────────────────
+
+export const skipOwnDataProperty: SchemaFragment = {
+  type: "boolean",
+  title: "Skip Plugin's Own Data",
+  description:
+    "Do not forward data this plugin publishes locally (paths under 'networking.edgeLink.*' and the v1 'networking.modem.*' RTT path) over the link. Also suppresses the v2/v3 client telemetry packet that mirrors local link metrics to the receiver. Use this to keep the receiver's Signal K tree free of edge-link's own metrics.",
+  default: false
+};
+
 // ── v2/v3 monitoring alert thresholds (client) ────────────────────────────────
 
 export const alertThresholdsProperty: SchemaFragment = {
@@ -524,6 +534,7 @@ export function buildConnectionItemSchema(): SchemaFragment {
               congestionControl: congestionControlProperty,
               bonding: bondingProperty,
               enableNotifications: enableNotificationsProperty,
+              skipOwnData: skipOwnDataProperty,
               alertThresholds: alertThresholdsProperty
             },
             required: ["udpAddress", "testAddress", "testPort"]
@@ -553,6 +564,7 @@ export function buildWebappConnectionSchema(
   if (isClient) {
     Object.assign(props, clientTransportProperties);
     props.enableNotifications = enableNotificationsProperty;
+    props.skipOwnData = skipOwnDataProperty;
     required.push("udpAddress", "testAddress", "testPort");
     if (isReliableProtocol) {
       props.reliability = clientReliabilityProperty;

@@ -925,11 +925,14 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       }
     }
 
-    // Send client-side telemetry to the server
+    // Send client-side telemetry to the server. Suppressed when the operator
+    // sets skipOwnData — that option is the user's signal that the receiver's
+    // Signal K tree should stay free of edge-link's own metrics.
     if (
       !telemetrySendInFlight &&
       state.readyToSend &&
       state.options &&
+      !state.options.skipOwnData &&
       (state.options.protocolVersion ?? 0) >= 2 &&
       state.options.secretKey &&
       state.options.udpAddress &&
