@@ -33,7 +33,6 @@ import type {
   InstanceState,
   Delta,
   MonitoringState,
-  BondingConfig,
   MetaEntry
 } from "./types";
 import * as dgram from "dgram";
@@ -150,6 +149,12 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
     }
     if (metrics.bandwidth.metaPacketsIn === undefined) {
       metrics.bandwidth.metaPacketsIn = 0;
+    }
+    if (metrics.bandwidth.metaSnapshotsSent === undefined) {
+      metrics.bandwidth.metaSnapshotsSent = 0;
+    }
+    if (metrics.bandwidth.metaDiffsSent === undefined) {
+      metrics.bandwidth.metaDiffsSent = 0;
     }
   }
 
@@ -526,6 +531,14 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         metrics.bandwidth.metaPacketsOut = (metrics.bandwidth.metaPacketsOut || 0) + 1;
         metrics.bandwidth.bytesOut += packet.length;
         metrics.bandwidth.packetsOut++;
+      }
+
+      // Count one envelope per call (a multi-chunk envelope is logically one
+      // snapshot/diff, even though it shows up in metaPacketsOut as N).
+      if (kind === "snapshot") {
+        metrics.bandwidth.metaSnapshotsSent = (metrics.bandwidth.metaSnapshotsSent || 0) + 1;
+      } else {
+        metrics.bandwidth.metaDiffsSent = (metrics.bandwidth.metaDiffsSent || 0) + 1;
       }
 
       app.debug(

@@ -275,6 +275,15 @@ export interface BandwidthMetrics {
   metaBytesIn?: number;
   /** Count of METADATA packets received. */
   metaPacketsIn?: number;
+  /** Count of "snapshot" envelopes successfully sent (one envelope may span
+   *  multiple chunks counted in metaPacketsOut). */
+  metaSnapshotsSent?: number;
+  /** Count of "diff" envelopes successfully sent. */
+  metaDiffsSent?: number;
+  /** Count of incoming META packets dropped by the per-session UDP rate
+   *  limiter — separate from the shared rateLimitedPackets counter so a
+   *  noisy meta channel can be distinguished from a noisy data channel. */
+  metaRateLimitedPackets?: number;
   history: import("./CircularBuffer")<{
     timestamp: number;
     rateOut: number;

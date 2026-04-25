@@ -233,6 +233,12 @@ function createPipeline(
         metrics.bandwidth.packetsOut++;
       }
 
+      if (kind === "snapshot") {
+        metrics.bandwidth.metaSnapshotsSent = (metrics.bandwidth.metaSnapshotsSent || 0) + 1;
+      } else {
+        metrics.bandwidth.metaDiffsSent = (metrics.bandwidth.metaDiffsSent || 0) + 1;
+      }
+
       app.debug(
         `v1 meta sent: kind=${kind}, entries=${entries.length}, chunks=${chunks.length}, envSeq=${envelopeSeq}`
       );

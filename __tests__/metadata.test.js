@@ -7,6 +7,7 @@ const {
   buildMetaEnvelope,
   splitIntoPackets,
   isLikelyUnsafePathFilter,
+  parseMetaConfig,
   resolveSelfContext
 } = require("../lib/metadata");
 
@@ -269,6 +270,120 @@ describe("collectSnapshot", () => {
       }
     };
     expect(collectSnapshot(app, enabled)).toEqual([]);
+  });
+});
+
+describe("parseMetaConfig", () => {
+  function makeReporter() {
+    const calls = [];
+    const fn = (msg) => calls.push(msg);
+    fn.calls = calls;
+    return fn;
+  }
+
+  test("returns null for absent / non-object input", () => {
+    const r = makeReporter();
+    expect(parseMetaConfig(null, r)).toBeNull();
+    expect(parseMetaConfig(undefined, r)).toBeNull();
+    expect(parseMetaConfig("nope", r)).toBeNull();
+    expect(parseMetaConfig(42, r)).toBeNull();
+    expect(r.calls).toEqual([]);
+  });
+
+  test("returns null when meta block is absent or malformed", () => {
+    const r = makeReporter();
+    expect(parseMetaConfig({}, r)).toBeNull();
+    expect(parseMetaConfig({ meta: null }, r)).toBeNull();
+    expect(parseMetaConfig({ meta: "yes" }, r)).toBeNull();
+    expect(parseMetaConfig({ meta: 7 }, r)).toBeNull();
+    // Disabled is also "off".
+    expect(parseMetaConfig({ meta: { enabled: false } }, r)).toBeNull();
+    expect(r.calls).toEqual([]);
+  });
+
+  test("returns the canonical config when fully populated", () => {
+    const r = makeReporter();
+    const cfg = parseMetaConfig(
+      {
+        meta: {
+          enabled: true,
+          intervalSec: 600,
+          includePathsMatching: "^navigation\\.",
+          maxPathsPerPacket: 1000
+        }
+      },
+      r
+    );
+    expect(cfg).toEqual({
+      enabled: true,
+      intervalSec: 600,
+      includePathsMatching: "^navigation\\.",
+      maxPathsPerPacket: 1000
+    });
+    expect(r.calls).toEqual([]);
+  });
+
+  test("falls back to defaults and reports errors for out-of-range numeric fields", () => {
+    const r = makeReporter();
+    const cfg = parseMetaConfig(
+      {
+        meta: {
+          enabled: true,
+          intervalSec: 5,
+          maxPathsPerPacket: 9999999
+        }
+      },
+      r,
+      "test-instance"
+    );
+    expect(cfg.intervalSec).toBe(300);
+    expect(cfg.maxPathsPerPacket).toBe(500);
+    expect(r.calls).toHaveLength(2);
+    expect(r.calls[0]).toMatch(/^\[meta-config\] \[test-instance\] meta\.intervalSec/);
+    expect(r.calls[1]).toMatch(/^\[meta-config\] \[test-instance\] meta\.maxPathsPerPacket/);
+  });
+
+  test("rejects oversize includePathsMatching with a [meta-config] error", () => {
+    const r = makeReporter();
+    const cfg = parseMetaConfig(
+      { meta: { enabled: true, includePathsMatching: "a".repeat(257) } },
+      r
+    );
+    expect(cfg.includePathsMatching).toBeNull();
+    expect(r.calls[0]).toMatch(/^\[meta-config\] meta\.includePathsMatching exceeds 256 chars/);
+  });
+
+  test("rejects nested-unbounded-quantifier patterns at parse time", () => {
+    const r = makeReporter();
+    const cfg = parseMetaConfig({ meta: { enabled: true, includePathsMatching: "(a+)+" } }, r);
+    expect(cfg.includePathsMatching).toBeNull();
+    expect(r.calls[0]).toMatch(/nested unbounded quantifier/);
+  });
+
+  test("rejects patterns that fail to compile", () => {
+    const r = makeReporter();
+    const cfg = parseMetaConfig({ meta: { enabled: true, includePathsMatching: "[unclosed" } }, r);
+    expect(cfg.includePathsMatching).toBeNull();
+    expect(r.calls[0]).toMatch(/failed to compile/);
+  });
+
+  test("ignores non-string includePathsMatching silently (legacy / null)", () => {
+    const r = makeReporter();
+    const cfg = parseMetaConfig({ meta: { enabled: true, includePathsMatching: null } }, r);
+    expect(cfg.includePathsMatching).toBeNull();
+    expect(r.calls).toEqual([]);
+  });
+
+  test("log lines use the [meta-config] prefix consistently for grep", () => {
+    const r = makeReporter();
+    parseMetaConfig(
+      { meta: { enabled: true, intervalSec: -1, includePathsMatching: "(a+)+" } },
+      r,
+      "instance-7"
+    );
+    for (const line of r.calls) {
+      expect(line.startsWith("[meta-config]")).toBe(true);
+    }
   });
 });
 

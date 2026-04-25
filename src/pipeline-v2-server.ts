@@ -67,6 +67,11 @@ interface ClientSession {
    *  that UDP reorders or replays. null until the first envelope from this
    *  session arrives. */
   lastMetaEnvSeq: number | null;
+  /** Set of chunk `idx` values already processed for `lastMetaEnvSeq`. Lets
+   *  us drop exact duplicates of a chunk we've already applied without
+   *  rejecting other chunks (different idx, same seq) of the same multi-
+   *  chunk batch. Cleared when `lastMetaEnvSeq` advances. */
+  seenMetaChunkIdx: Set<number>;
 }
 
 function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
@@ -187,7 +192,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         rateLimitCount: 0,
         rateLimitWindowStart: Date.now(),
         metaRequested: false,
-        lastMetaEnvSeq: null
+        lastMetaEnvSeq: null,
+        seenMetaChunkIdx: new Set<number>()
       };
     }
 
@@ -218,7 +224,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       // META_REQUEST bookkeeping
       metaRequested: false,
       // Stale-envelope rejection for METADATA packets
-      lastMetaEnvSeq: null
+      lastMetaEnvSeq: null,
+      seenMetaChunkIdx: new Set<number>()
     };
     clientSessions.set(key, session);
     app.debug(`[v2-server] new client session: ${key}`);
@@ -572,15 +579,18 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       // Drop stale/duplicate envelopes that UDP reordered or replayed. The
-      // inner envelope `seq` is shared across all chunks of the same
-      // snapshot/diff batch, so multiple chunks with the same seq are
-      // always accepted — only earlier batches are rejected.
+      // inner envelope `seq` identifies a batch (shared across all chunks of
+      // a multi-chunk snapshot/diff); the inner `idx` identifies a specific
+      // chunk within that batch. Two-level dedup:
+      //   - reject envelopes whose seq is behind in uint32 space ("stale")
+      //   - within the current batch, reject any (seq, idx) pair already
+      //     processed ("exact replay"); other idx values for the same seq
+      //     remain accepted so multi-chunk batches still apply in full.
       if (session && typeof env.seq === "number" && Number.isFinite(env.seq)) {
         const envSeq = env.seq >>> 0;
+        const envIdx = typeof env.idx === "number" && Number.isFinite(env.idx) ? env.idx >>> 0 : 0;
         if (session.lastMetaEnvSeq !== null) {
           const distance = (envSeq - session.lastMetaEnvSeq) >>> 0;
-          // distance 0 = same batch (another chunk); < 0x80000000 = strictly
-          // newer batch; >= 0x80000000 = behind in uint32 space, drop as stale.
           if (distance !== 0 && distance >= 0x80000000) {
             metrics.duplicatePackets = (metrics.duplicatePackets || 0) + 1;
             app.debug(
@@ -589,11 +599,22 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
             return;
           }
           if (distance !== 0) {
+            // New batch: advance and reset the per-batch chunk set.
             session.lastMetaEnvSeq = envSeq;
+            session.seenMetaChunkIdx.clear();
+          } else if (session.seenMetaChunkIdx.has(envIdx)) {
+            // Same batch, exact duplicate chunk — drop.
+            metrics.duplicatePackets = (metrics.duplicatePackets || 0) + 1;
+            app.debug(
+              `[v2-server] duplicate META chunk seq=${envSeq} idx=${envIdx} from ${session.key}, dropping`
+            );
+            return;
           }
         } else {
           session.lastMetaEnvSeq = envSeq;
+          session.seenMetaChunkIdx.clear();
         }
+        session.seenMetaChunkIdx.add(envIdx);
       }
 
       // Group entries by context so the local Signal K server sees one delta
@@ -802,6 +823,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
           session.rateLimitCount++;
           if (session.rateLimitCount > UDP_RATE_LIMIT_MAX_PACKETS) {
             metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
+            metrics.bandwidth.metaRateLimitedPackets =
+              (metrics.bandwidth.metaRateLimitedPackets || 0) + 1;
             app.debug(`[v2-server] rate limited META from ${session.key}`);
             return;
           }

@@ -226,6 +226,118 @@ export function collectSnapshot(app: SignalKApp, config: MetaConfig | null): Met
 }
 
 /**
+ * Receiver for parseMetaConfig diagnostics. The plugin's `app` object
+ * implements this trivially (`app.error.bind(app)`); tests can pass
+ * `() => {}` or a jest.fn().
+ */
+export type MetaConfigErrorReporter = (message: string) => void;
+
+const META_CONFIG_LOG_PREFIX = "[meta-config]";
+const META_DEFAULT_INTERVAL_SEC = 300;
+const META_DEFAULT_MAX_PATHS = 500;
+const META_INTERVAL_MIN = 30;
+const META_INTERVAL_MAX = 86400;
+const META_MAX_PATHS_MIN = 10;
+const META_MAX_PATHS_MAX = 5000;
+
+/**
+ * Parse the `meta` block out of a subscription.json document.
+ *
+ * Returns null when meta is absent, malformed, or explicitly disabled.
+ * Out-of-range numeric fields and unsafe `includePathsMatching` patterns
+ * fall back to defaults / null and report a `[meta-config]`-prefixed error
+ * via `report` so log analysis can grep for misconfiguration in one place.
+ *
+ * Lives here (not in `instance.ts`) so it can be unit-tested directly without
+ * spinning up an entire instance. The same parser is also used as the
+ * single source of truth for the plugin runtime via instance.ts.
+ */
+export function parseMetaConfig(
+  raw: unknown,
+  report: MetaConfigErrorReporter,
+  context: string = ""
+): MetaConfig | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const obj = raw as Record<string, unknown>;
+  const m = obj.meta;
+  if (!m || typeof m !== "object") {
+    return null;
+  }
+  const mo = m as Record<string, unknown>;
+  if (mo.enabled !== true) {
+    return null;
+  }
+
+  const tag = context ? `${META_CONFIG_LOG_PREFIX} [${context}]` : META_CONFIG_LOG_PREFIX;
+
+  let intervalSec = META_DEFAULT_INTERVAL_SEC;
+  if (mo.intervalSec !== undefined) {
+    if (
+      typeof mo.intervalSec === "number" &&
+      Number.isFinite(mo.intervalSec) &&
+      mo.intervalSec >= META_INTERVAL_MIN &&
+      mo.intervalSec <= META_INTERVAL_MAX
+    ) {
+      intervalSec = mo.intervalSec;
+    } else {
+      report(
+        `${tag} meta.intervalSec ${String(mo.intervalSec)} out of range ` +
+          `[${META_INTERVAL_MIN},${META_INTERVAL_MAX}]; using default ${META_DEFAULT_INTERVAL_SEC}s`
+      );
+    }
+  }
+
+  let maxPathsPerPacket = META_DEFAULT_MAX_PATHS;
+  if (mo.maxPathsPerPacket !== undefined) {
+    if (
+      typeof mo.maxPathsPerPacket === "number" &&
+      Number.isFinite(mo.maxPathsPerPacket) &&
+      mo.maxPathsPerPacket >= META_MAX_PATHS_MIN &&
+      mo.maxPathsPerPacket <= META_MAX_PATHS_MAX
+    ) {
+      maxPathsPerPacket = mo.maxPathsPerPacket;
+    } else {
+      report(
+        `${tag} meta.maxPathsPerPacket ${String(mo.maxPathsPerPacket)} out of range ` +
+          `[${META_MAX_PATHS_MIN},${META_MAX_PATHS_MAX}]; using default ${META_DEFAULT_MAX_PATHS}`
+      );
+    }
+  }
+
+  let includePathsMatching: string | null = null;
+  if (typeof mo.includePathsMatching === "string" && mo.includePathsMatching.length > 0) {
+    const pattern = mo.includePathsMatching;
+    if (pattern.length > MAX_PATH_FILTER_PATTERN_LENGTH) {
+      report(
+        `${tag} meta.includePathsMatching exceeds ${MAX_PATH_FILTER_PATTERN_LENGTH} chars; ignoring filter`
+      );
+    } else if (isLikelyUnsafePathFilter(pattern)) {
+      report(
+        `${tag} meta.includePathsMatching "${pattern}" has a nested unbounded quantifier (ReDoS shape); ignoring filter`
+      );
+    } else {
+      try {
+        new RegExp(pattern);
+        includePathsMatching = pattern;
+      } catch (err: unknown) {
+        report(
+          `${tag} meta.includePathsMatching "${pattern}" failed to compile: ${err instanceof Error ? err.message : String(err)}; ignoring filter`
+        );
+      }
+    }
+  }
+
+  return {
+    enabled: true,
+    intervalSec,
+    includePathsMatching,
+    maxPathsPerPacket
+  };
+}
+
+/**
  * Resolve the local vessel's context string (e.g. `vessels.urn:mrn:...`) from
  * the Signal K app. Used to normalize `delta.context === "vessels.self"` in
  * the live meta stream to the same concrete URN `collectSnapshot` emits, so

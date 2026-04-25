@@ -53,13 +53,15 @@ All multi-byte integers are big-endian (network byte order).
 
 ## 3. Packet Types
 
-| Value | Name      | Direction       | Description                | Payload                           |
-| ----- | --------- | --------------- | -------------------------- | --------------------------------- |
-| 0x01  | DATA      | Client → Server | Signal K delta data        | Encrypted/compressed delta        |
-| 0x02  | ACK       | Server → Client | Cumulative acknowledgement | uint32 acked sequence             |
-| 0x03  | NAK       | Server → Client | Negative acknowledgement   | Array of uint32 missing sequences |
-| 0x04  | HEARTBEAT | Bidirectional   | Keep-alive                 | None (0 bytes)                    |
-| 0x05  | HELLO     | Client → Server | Connection establishment   | JSON with protocol info           |
+| Value | Name         | Direction       | Description                         | Payload                            |
+| ----- | ------------ | --------------- | ----------------------------------- | ---------------------------------- |
+| 0x01  | DATA         | Client → Server | Signal K delta data                 | Encrypted/compressed delta         |
+| 0x02  | ACK          | Server → Client | Cumulative acknowledgement          | uint32 acked sequence              |
+| 0x03  | NAK          | Server → Client | Negative acknowledgement            | Array of uint32 missing sequences  |
+| 0x04  | HEARTBEAT    | Bidirectional   | Keep-alive                          | None (0 bytes)                     |
+| 0x05  | HELLO        | Client → Server | Connection establishment            | JSON with protocol info            |
+| 0x06  | METADATA     | Client → Server | Signal K path metadata (units, ...) | Encrypted/compressed meta envelope |
+| 0x07  | META_REQUEST | Server → Client | Demand a fresh metadata snapshot    | None (0 bytes)                     |
 
 ### DATA Packet
 
@@ -112,6 +114,105 @@ Payload: JSON string with connection metadata:
 ```
 
 Sent once at connection establishment to identify the client and negotiate protocol version.
+
+### METADATA Packet (0x06)
+
+Optional packet type carrying Signal K path metadata (`units`, `description`,
+`zones`, `displayName`, ...) so the server can populate `updates[].meta[]` for
+the local Signal K instance.
+
+**Sequence space.** METADATA uses an independent uint32 counter (`_metaSequence`
+in `PacketBuilder`) that does NOT advance the DATA counter. This keeps METADATA
+out of the cumulative ACK/NAK stream — losing or reordering METADATA never
+generates spurious DATA NAKs.
+
+**Reliability.** METADATA is **not** ACK/NAK'd. Loss is recovered at the
+application level by:
+
+- Periodic full-snapshot resend at `intervalSec` cadence
+- Server-initiated `META_REQUEST` (0x07) on first contact from a new session
+
+**Payload pipeline** (mirrors DATA):
+
+```
+envelope → JSON|MessagePack → Brotli → AES-256-GCM
+```
+
+with the same flag bits (`COMPRESSED`, `ENCRYPTED`, `MESSAGEPACK`,
+`PATH_DICTIONARY`).
+
+**Envelope schema** (versioned):
+
+```json
+{
+  "v": 1,
+  "kind": "snapshot" | "diff",
+  "seq": <uint32>,
+  "idx": <uint32>,
+  "total": <uint32>,
+  "entries": [
+    { "context": "vessels.urn:mrn:imo:mmsi:12345",
+      "path": "navigation.speedOverGround",
+      "meta": { "units": "m/s", "description": "Speed over ground" } },
+    ...
+  ]
+}
+```
+
+- `v` — envelope schema version, currently `1`. Receivers MUST drop envelopes
+  whose `v` they do not understand.
+- `kind` — `"snapshot"` for a full re-broadcast (additive over `meta[path]`,
+  not full-state replacement); `"diff"` for an incremental update derived from
+  live `updates[].meta[]` events.
+- `seq` — monotonic per sender, identifies the **batch**. Multi-chunk batches
+  share one `seq`. Receivers MUST drop envelopes whose `seq` is behind the
+  last-seen value in uint32 space (wrap-aware comparison: distance ≥ 0x80000000
+  ⇒ stale).
+- `idx`, `total` — chunk index / count within a batch. Receivers MAY apply
+  chunks individually (current additive semantics) and MUST drop exact
+  `(seq, idx)` replays within the same batch.
+- `entries[].path` — string, or path-dictionary integer when the
+  `PATH_DICTIONARY` flag is set on the packet header.
+
+**Receiver semantics.** Each entry is dispatched to the local Signal K server
+as a Signal K delta with `updates[].meta[]`:
+
+```json
+{
+  "context": "<entry.context>",
+  "updates": [{
+    "timestamp": "<now>",
+    "values": [],
+    "meta": [{ "path": "<entry.path>", "value": <entry.meta> }]
+  }]
+}
+```
+
+Implementations SHOULD batch entries by context (one `app.handleMessage`
+per context, not per entry) for snapshot efficiency.
+
+### META_REQUEST Packet (0x07)
+
+Empty-payload control packet. Server → Client.
+
+Sent by the server **once per session** when a HELLO arrives, to demand an
+immediate metadata snapshot rather than waiting up to `intervalSec` for the
+client's next periodic resend. Subject to the same control-packet
+authentication as ACK/NAK/HEARTBEAT/HELLO (CRC16 trailer on v2,
+HMAC tag on v3).
+
+The client SHOULD rate-limit its response to at most one snapshot per ~5
+seconds to protect against malformed or hostile receivers spamming requests.
+
+### v1 metadata transport (separate UDP port)
+
+The legacy v1 wire format has no packet-type byte, so meta cannot be
+multiplexed onto the DATA port without confusing existing v1 receivers.
+Instead, when a v1 client has `udpMetaPort` configured, meta is sent to that
+**separate UDP port** with the 4-byte ASCII magic `SKM1` prefixed inside the
+encrypted plaintext (i.e. before Brotli/AES). Receivers without the magic-aware
+unpacker fail to JSON-parse the payload and silently drop it, preserving
+backwards compatibility.
 
 ## 4. Flags
 

@@ -56,7 +56,7 @@ import {
   MetaCache,
   collectSnapshot,
   extractLiveMeta,
-  isLikelyUnsafePathFilter,
+  parseMetaConfig as parseMetaConfigShared,
   resolveSelfContext
 } from "./metadata";
 
@@ -464,97 +464,11 @@ function createInstance(
     });
   }
 
-  /** Parse the `meta` block out of the user-supplied subscription.json.
-   *  Returns null (meta disabled) when absent or malformed. Out-of-range
-   *  numeric fields fall back to defaults and log an explicit warning so the
-   *  runtime behaviour matches what the API validator enforces — neither
-   *  path silently clamps to a value the user did not request. */
+  /** Thin wrapper around the parser in `metadata.ts` so the instance log
+   *  line is tagged with this connection's instanceId. Errors from the
+   *  shared parser already have the `[meta-config]` prefix. */
   function parseMetaConfig(raw: unknown): MetaConfig | null {
-    if (!raw || typeof raw !== "object") {
-      return null;
-    }
-    const obj = raw as Record<string, unknown>;
-    const m = obj.meta;
-    if (!m || typeof m !== "object") {
-      return null;
-    }
-    const mo = m as Record<string, unknown>;
-    if (mo.enabled !== true) {
-      return null;
-    }
-
-    const DEFAULT_INTERVAL_SEC = 300;
-    const DEFAULT_MAX_PATHS = 500;
-
-    let intervalSec = DEFAULT_INTERVAL_SEC;
-    if (mo.intervalSec !== undefined) {
-      if (
-        typeof mo.intervalSec === "number" &&
-        Number.isFinite(mo.intervalSec) &&
-        mo.intervalSec >= 30 &&
-        mo.intervalSec <= 86400
-      ) {
-        intervalSec = mo.intervalSec;
-      } else {
-        app.error(
-          `[${instanceId}] subscription.json meta.intervalSec ${String(
-            mo.intervalSec
-          )} out of range [30,86400]; using default ${DEFAULT_INTERVAL_SEC}s`
-        );
-      }
-    }
-
-    let maxPathsPerPacket = DEFAULT_MAX_PATHS;
-    if (mo.maxPathsPerPacket !== undefined) {
-      if (
-        typeof mo.maxPathsPerPacket === "number" &&
-        Number.isFinite(mo.maxPathsPerPacket) &&
-        mo.maxPathsPerPacket >= 10 &&
-        mo.maxPathsPerPacket <= 5000
-      ) {
-        maxPathsPerPacket = mo.maxPathsPerPacket;
-      } else {
-        app.error(
-          `[${instanceId}] subscription.json meta.maxPathsPerPacket ${String(
-            mo.maxPathsPerPacket
-          )} out of range [10,5000]; using default ${DEFAULT_MAX_PATHS}`
-        );
-      }
-    }
-
-    let includePathsMatching: string | null = null;
-    if (typeof mo.includePathsMatching === "string" && mo.includePathsMatching.length > 0) {
-      const pattern = mo.includePathsMatching;
-      // Reject obvious ReDoS-shape patterns (nested unbounded quantifiers)
-      // at load time rather than letting runtime fall silently back to
-      // allow-all — otherwise a typo like `(.+)+` in subscription.json
-      // would degrade filtering invisibly. Pattern length is also capped.
-      if (pattern.length > 256) {
-        app.error(
-          `[${instanceId}] subscription.json meta.includePathsMatching exceeds 256 chars; ignoring filter`
-        );
-      } else if (isLikelyUnsafePathFilter(pattern)) {
-        app.error(
-          `[${instanceId}] subscription.json meta.includePathsMatching "${pattern}" has a nested unbounded quantifier (ReDoS shape); ignoring filter`
-        );
-      } else {
-        try {
-          new RegExp(pattern);
-          includePathsMatching = pattern;
-        } catch (err: unknown) {
-          app.error(
-            `[${instanceId}] subscription.json meta.includePathsMatching "${pattern}" failed to compile: ${err instanceof Error ? err.message : String(err)}; ignoring filter`
-          );
-        }
-      }
-    }
-
-    return {
-      enabled: true,
-      intervalSec,
-      includePathsMatching,
-      maxPathsPerPacket
-    };
+    return parseMetaConfigShared(raw, (msg) => app.error(msg), instanceId);
   }
 
   /**
