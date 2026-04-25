@@ -278,6 +278,120 @@ describe("v2 metadata end-to-end (client → server)", () => {
     expect(wire.length).toBe(2);
   });
 
+  test("server accepts a fresh seq=0 from a restarted client (not 'stale')", async () => {
+    // Simulate the lifecycle: client A sends a snapshot, then dies; a new
+    // client process B starts at the same address:port and sends its first
+    // (envSeq=0) snapshot. The server's session struct still has a high
+    // lastMetaEnvSeq from A. Without restart-detection, B's first snapshot
+    // would be rejected as stale and B's metadata would never be received.
+
+    // Two independent client pipelines that emit through their own wires —
+    // each one has its own _metaSequence counter, so each starts at 0.
+    function makeIndependentClient(label) {
+      const wire = [];
+      const app = { debug: jest.fn(), error: jest.fn(), handleMessage: jest.fn() };
+      const state = {
+        instanceId: label,
+        options: {
+          secretKey,
+          udpPort: 9100,
+          udpAddress: "127.0.0.1",
+          useMsgpack: false,
+          usePathDictionary: false,
+          protocolVersion: 2,
+          stretchAsciiKey: false
+        },
+        socketUdp: {
+          send: jest.fn((pkt, port, addr, cb) => {
+            wire.push(Buffer.from(pkt));
+            if (cb) {
+              cb(null);
+            }
+          })
+        },
+        deltaTimerTime: 1000,
+        avgBytesPerDelta: 100,
+        maxDeltasPerBatch: 10,
+        stopped: false
+      };
+      const client = createPipelineV2Client(app, state, makeMetricsApi());
+      return { wire, client };
+    }
+
+    const { wire: wireA, client: clientA } = makeIndependentClient("client-A");
+    const { wire: wireB, client: clientB } = makeIndependentClient("client-B");
+
+    // Build a long-lived server harness so its session struct persists across
+    // both clients (same address:port for the rinfo).
+    const serverApp = { debug: jest.fn(), error: jest.fn(), handleMessage: jest.fn() };
+    const serverMetrics = makeMetricsApi();
+    const serverState = {
+      instanceId: "server-1",
+      options: {
+        secretKey,
+        udpPort: 9100,
+        protocolVersion: 2,
+        useMsgpack: false,
+        usePathDictionary: false,
+        stretchAsciiKey: false,
+        reliability: { nakTimeout: 10 }
+      },
+      socketUdp: { send: jest.fn((_p, _port, _addr, cb) => cb && cb(null)) }
+    };
+    const server = createPipelineV2Server(serverApp, serverState, serverMetrics);
+
+    const rinfo = { address: "10.0.0.5", port: 33000 };
+
+    // Client A sends enough snapshots to push its envSeq past the
+    // restart-detection threshold (8). The threshold guards against
+    // mistaking first-packet replays for restarts; a real restart will
+    // typically happen after the sender has shipped many envelopes.
+    for (let i = 0; i < 12; i++) {
+      await clientA.sendMetadata(
+        [
+          {
+            context: "vessels.self",
+            path: `a${i}`,
+            meta: { units: "m" }
+          }
+        ],
+        "snapshot",
+        secretKey,
+        "127.0.0.1",
+        9100
+      );
+    }
+    for (const pkt of wireA) {
+      await server.receivePacket(pkt, secretKey, rinfo);
+    }
+    expect(serverApp.handleMessage).toHaveBeenCalledTimes(12);
+
+    // Client A "dies"; client B starts fresh and sends its first snapshot
+    // — its envSeq is 0 because _metaSequence initialises to 0 at process
+    // start.
+    serverApp.handleMessage.mockClear();
+    await clientB.sendMetadata(
+      [
+        {
+          context: "vessels.self",
+          path: "from-restarted-client",
+          meta: { units: "rad" }
+        }
+      ],
+      "snapshot",
+      secretKey,
+      "127.0.0.1",
+      9100
+    );
+    for (const pkt of wireB) {
+      await server.receivePacket(pkt, secretKey, rinfo);
+    }
+    expect(serverApp.handleMessage).toHaveBeenCalledTimes(1);
+    expect(serverApp.handleMessage.mock.calls[0][1].updates[0].meta[0].path).toBe(
+      "from-restarted-client"
+    );
+  });
+
   test("client throws (rather than swallows) when UDP send rejects", async () => {
     const { clientApp, clientMetrics } = makeWiredPair();
     // Override the socket to fail every send.

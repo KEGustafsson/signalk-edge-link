@@ -110,6 +110,12 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   // session table (MAX_CLIENT_SESSIONS) by spoofing many source ports from one
   // IP, evicting all legitimate sessions (DoS).
   const MAX_SESSIONS_PER_IP = 5;
+  // Threshold for sender-restart detection on the META envelope sequence.
+  // An incoming envSeq of 0 is treated as a peer restart only once
+  // lastMetaEnvSeq has advanced beyond this value — below it, envSeq=0 is
+  // ambiguous (could be a legitimate first-packet replay) and falls through
+  // to normal dedup. UDP reorders >8 packets backwards are exceedingly rare.
+  const META_RESTART_THRESHOLD = 8;
   let ackTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
@@ -589,6 +595,30 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       if (session && typeof env.seq === "number" && Number.isFinite(env.seq)) {
         const envSeq = env.seq >>> 0;
         const envIdx = typeof env.idx === "number" && Number.isFinite(env.idx) ? env.idx >>> 0 : 0;
+        // Sender-restart detection: the client's meta sequence counter is
+        // initialised to 0 at process start, so an incoming envSeq of 0 with
+        // a sufficiently-advanced lastMetaEnvSeq is a strong signal that the
+        // peer restarted. The "sufficiently advanced" threshold guards
+        // against the first-packet-replay case (lastMetaEnvSeq=0, envSeq=0)
+        // which is indistinguishable from a true restart unless prior
+        // traffic has pushed the seq above a small reorder window. Backwards
+        // reorders of more than META_RESTART_THRESHOLD packets are
+        // exceedingly rare in UDP delivery; treating envSeq=0 as a restart
+        // only above that threshold keeps the dedup-vs-restart decision
+        // unambiguous in the common case.
+        if (
+          session.lastMetaEnvSeq !== null &&
+          envSeq === 0 &&
+          session.lastMetaEnvSeq >= META_RESTART_THRESHOLD
+        ) {
+          app.debug(
+            `[v2-server] META sender restart detected for ${session.key} ` +
+              `(last seq was ${session.lastMetaEnvSeq}); resetting meta state`
+          );
+          session.lastMetaEnvSeq = null;
+          session.seenMetaChunkIdx.clear();
+          session.metaRequested = false;
+        }
         if (session.lastMetaEnvSeq !== null) {
           const distance = (envSeq - session.lastMetaEnvSeq) >>> 0;
           if (distance !== 0 && distance >= 0x80000000) {

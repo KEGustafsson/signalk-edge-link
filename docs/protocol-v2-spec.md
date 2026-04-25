@@ -121,20 +121,24 @@ Optional packet type carrying Signal K path metadata (`units`, `description`,
 `zones`, `displayName`, ...) so the server can populate `updates[].meta[]` for
 the local Signal K instance.
 
-**Sequence space.** METADATA uses an independent uint32 counter (`_metaSequence`
-in `PacketBuilder`) that does NOT advance the DATA counter. This keeps METADATA
-out of the cumulative ACK/NAK stream — losing or reordering METADATA never
-generates spurious DATA NAKs.
+**Sequence space.** METADATA carries an independent uint32 sequence number
+that does not advance the DATA sequence counter. METADATA is therefore outside
+the cumulative ACK/NAK stream — losing or reordering METADATA never generates
+spurious DATA NAKs.
 
 **Reliability.** METADATA is **not** ACK/NAK'd. Loss is recovered at the
 application level by:
 
 - Periodic full-snapshot resend at `intervalSec` cadence
 - Server-initiated `META_REQUEST` (0x07) on first contact from a new session
+- Sender-restart detection: a receiver MUST treat an incoming envelope with
+  `seq == 0` as a sender-lifecycle reset (clear any per-session
+  `lastMetaEnvSeq` / chunk-replay state) rather than dropping it as stale,
+  so a freshly-restarted sender's first envelope is accepted.
 
 **Payload pipeline** (mirrors DATA):
 
-```
+```text
 envelope → JSON|MessagePack → Brotli → AES-256-GCM
 ```
 

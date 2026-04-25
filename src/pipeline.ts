@@ -25,6 +25,11 @@ import type { SignalKApp, MetricsApi, InstanceState, Delta, MetaEntry } from "./
  *  recognise it) simply reject the packet rather than misinterpreting it. */
 const V1_META_MAGIC = Buffer.from("SKM1", "ascii");
 
+/** Threshold for v1 sender-restart detection — see the v2 server's
+ *  META_RESTART_THRESHOLD comment. envSeq=0 is treated as a restart only when
+ *  the last accepted seq has moved beyond this small reorder window. */
+const META_RESTART_THRESHOLD_V1 = 8;
+
 /**
  * Creates the data processing pipeline (compress, encrypt, send / receive, decrypt, decompress).
  * @param app - SignalK app object (for logging)
@@ -501,8 +506,24 @@ function createPipeline(
       // across all chunks of the same batch, so equal-seq chunks are still
       // accepted; only earlier batches are rejected. Uint32-wrap aware so a
       // long-running sender's wrap doesn't trigger mass-rejection.
+      //
+      // Sender-restart detection: the v1 client's meta envelope counter
+      // initialises to 0 at process start. Treat envSeq=0 as a peer restart
+      // only once lastIngestedMetaEnvSeqV1 has advanced beyond a small
+      // reorder window — below the threshold, envSeq=0 is ambiguous with
+      // first-packet replay and falls through to normal dedup.
       if (typeof env.seq === "number" && Number.isFinite(env.seq)) {
         const envSeq = env.seq >>> 0;
+        if (
+          lastIngestedMetaEnvSeqV1 !== null &&
+          envSeq === 0 &&
+          lastIngestedMetaEnvSeqV1 >= META_RESTART_THRESHOLD_V1
+        ) {
+          app.debug(
+            `v1 meta: sender restart detected (last seq was ${lastIngestedMetaEnvSeqV1}); resetting`
+          );
+          lastIngestedMetaEnvSeqV1 = null;
+        }
         if (lastIngestedMetaEnvSeqV1 !== null) {
           const distance = (envSeq - lastIngestedMetaEnvSeqV1) >>> 0;
           if (distance !== 0 && distance >= 0x80000000) {

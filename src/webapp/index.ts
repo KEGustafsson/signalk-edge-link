@@ -1134,6 +1134,18 @@ class DataConnectorConfig {
 
   async saveSubscription() {
     try {
+      // Flush any pending JSON-from-textarea debounce so the structured form
+      // controls (in particular the meta fieldset) reflect what's currently
+      // in the textarea before we read either side. Without this, a user
+      // editing the raw JSON and immediately clicking Save would lose their
+      // textarea-only edits — saveSubscription writes meta from the form
+      // controls, which would still be stale.
+      if (this.syncTimeout) {
+        clearTimeout(this.syncTimeout);
+        this.syncTimeout = null;
+        this.syncFromJson();
+      }
+
       const jsonText = (document.getElementById("subscriptionJson") as HTMLTextAreaElement).value;
       const config = JSON.parse(jsonText);
 

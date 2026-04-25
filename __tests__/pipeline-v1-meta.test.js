@@ -159,6 +159,43 @@ describe("v1 pipeline.unpackDecryptMeta", () => {
     expect(app.handleMessage).not.toHaveBeenCalled();
   });
 
+  test("accepts envelope with seq=0 after a higher seq (sender restart)", async () => {
+    const { app, pipeline } = makeHarness();
+
+    // First, prime the receiver with seq=10.
+    const high = makeEncryptedMeta(
+      {
+        v: 1,
+        kind: "snapshot",
+        seq: 10,
+        idx: 0,
+        total: 1,
+        entries: [{ context: "vessels.self", path: "a", meta: { units: "m" } }]
+      },
+      secretKey
+    );
+    // Then the sender restarts and emits a fresh seq=0 envelope. Without the
+    // restart-detection branch this would be rejected as stale (distance is
+    // 0xFFFFFFF6 in uint32 space, well above 0x80000000).
+    const restart = makeEncryptedMeta(
+      {
+        v: 1,
+        kind: "snapshot",
+        seq: 0,
+        idx: 0,
+        total: 1,
+        entries: [{ context: "vessels.self", path: "b", meta: { units: "m" } }]
+      },
+      secretKey
+    );
+
+    await pipeline.unpackDecryptMeta(high, secretKey);
+    await pipeline.unpackDecryptMeta(restart, secretKey);
+
+    expect(app.handleMessage).toHaveBeenCalledTimes(2);
+    expect(app.handleMessage.mock.calls[1][1].updates[0].meta[0].path).toBe("b");
+  });
+
   test("drops envelopes whose seq is older than the last accepted (UDP replay)", async () => {
     const { app, pipeline } = makeHarness();
 
