@@ -925,19 +925,36 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       }
     }
 
-    // Send client-side telemetry to the server. Suppressed when the operator
-    // sets skipOwnData — that option is the user's signal that the receiver's
-    // Signal K tree should stay free of edge-link's own metrics.
+    // RTT is always published — operators rely on it for link-health visibility
+    // even when skipOwnData suppresses the rest of edge-link's own metrics.
     if (
       !telemetrySendInFlight &&
       state.readyToSend &&
       state.options &&
-      !state.options.skipOwnData &&
       (state.options.protocolVersion ?? 0) >= 2 &&
       state.options.secretKey &&
       state.options.udpAddress &&
       state.options.udpPort
     ) {
+      const rttValues = [{ path: "networking.edgeLink.rtt", value: metrics.rtt || 0 }];
+
+      const extraValues = state.options.skipOwnData
+        ? []
+        : [
+            { path: "networking.edgeLink.jitter", value: metrics.jitter || 0 },
+            { path: "networking.edgeLink.packetLoss", value: packetLoss },
+            {
+              path: "networking.edgeLink.retransmissions",
+              value: metrics.retransmissions || 0
+            },
+            { path: "networking.edgeLink.queueDepth", value: retransmitQueue.getSize() },
+            { path: "networking.edgeLink.retransmitRate", value: retransmitRate },
+            {
+              path: "networking.edgeLink.activeLink",
+              value: bondingManager ? bondingManager.getActiveLinkName() : "primary"
+            }
+          ];
+
       const telemetryDelta = {
         context: "vessels.self",
         updates: [
@@ -947,21 +964,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
               type: "plugin"
             },
             timestamp: new Date().toISOString(),
-            values: [
-              { path: "networking.edgeLink.rtt", value: metrics.rtt || 0 },
-              { path: "networking.edgeLink.jitter", value: metrics.jitter || 0 },
-              { path: "networking.edgeLink.packetLoss", value: packetLoss },
-              {
-                path: "networking.edgeLink.retransmissions",
-                value: metrics.retransmissions || 0
-              },
-              { path: "networking.edgeLink.queueDepth", value: retransmitQueue.getSize() },
-              { path: "networking.edgeLink.retransmitRate", value: retransmitRate },
-              {
-                path: "networking.edgeLink.activeLink",
-                value: bondingManager ? bondingManager.getActiveLinkName() : "primary"
-              }
-            ]
+            values: [...rttValues, ...extraValues]
           }
         ]
       };
