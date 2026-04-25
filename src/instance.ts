@@ -43,7 +43,22 @@ import {
   createWatcherWithRecovery,
   initializePersistentStorage
 } from "./config-watcher";
-import type { SignalKApp, ConnectionConfig, InstanceState, MetricsApi, Delta } from "./types";
+import type {
+  SignalKApp,
+  ConnectionConfig,
+  InstanceState,
+  MetricsApi,
+  Delta,
+  MetaEntry,
+  MetaConfig
+} from "./types";
+import {
+  MetaCache,
+  collectSnapshot,
+  extractLiveMeta,
+  parseMetaConfig as parseMetaConfigShared,
+  resolveSelfContext
+} from "./metadata";
 
 const DELTA_SEND_MAX_RETRIES = 1;
 const DELTA_SEND_RETRY_BACKOFF_MS = 100;
@@ -98,6 +113,7 @@ function createInstance(
     isHealthy: false,
     options,
     socketUdp: null,
+    metaSocketUdp: null,
     readyToSend: false,
     stopped: false,
     isServerMode: false,
@@ -131,31 +147,38 @@ function createInstance(
     configDebounceTimers: {},
     configContentHashes: {},
     configWatcherObjects: [],
-    processDelta: null
+    processDelta: null,
+    metaConfig: null,
+    metaTimer: null,
+    metaDiffBuffer: [],
+    metaDiffFlushTimer: null,
+    metaSnapshotTimers: [],
+    lastMetaRequestAt: 0
   };
 
   const metricsApi = createMetrics();
   const { metrics, recordError, resetMetrics } = metricsApi;
 
   // v1 pipeline is created lazily on first use (only needed in client v1 mode)
-  let v1Pipeline: {
+  type V1Pipeline = {
     packCrypt(
       delta: Delta | Delta[],
       secretKey: string,
       address: string,
       port: number
     ): Promise<void>;
-    unpackDecrypt(msg: Buffer, secretKey: string): Promise<void>;
-  } | null = null;
-  function getV1Pipeline(): {
-    packCrypt(
-      delta: Delta | Delta[],
+    packCryptMeta(
+      entries: MetaEntry[],
+      kind: "snapshot" | "diff",
       secretKey: string,
       address: string,
-      port: number
+      udpMetaPort: number
     ): Promise<void>;
     unpackDecrypt(msg: Buffer, secretKey: string): Promise<void>;
-  } {
+    unpackDecryptMeta(msg: Buffer, secretKey: string): Promise<void>;
+  };
+  let v1Pipeline: V1Pipeline | null = null;
+  function getV1Pipeline(): V1Pipeline {
     if (!v1Pipeline) {
       v1Pipeline = createPipeline(app, state, metricsApi);
     }
@@ -263,6 +286,191 @@ function createInstance(
     return delta;
   }
 
+  // ── Metadata streaming ────────────────────────────────────────────────────
+  /** In-memory cache of last-sent meta (hashed) per context+path. Used to
+   *  compute diffs and to skip no-op periodic resends. */
+  const metaCache = new MetaCache();
+
+  /** Debounce window for coalescing live meta entries observed in the delta
+   *  stream before they are transmitted as a single `diff` packet. */
+  const META_DIFF_DEBOUNCE_MS = 500;
+
+  /** Minimum gap between receiver-initiated snapshot sends. Prevents a noisy
+   *  or malicious receiver from forcing snapshots on every delta. */
+  const META_REQUEST_RATE_LIMIT_MS = 5000;
+
+  /** Dispatches `entries` through the active pipeline. Returns true on a
+   *  successful send so callers (e.g. `enqueueMetaDiff`) can decide whether
+   *  to commit the MetaCache. Any failure is logged and returns false. */
+  async function sendMetaEntries(
+    entries: MetaEntry[],
+    kind: "snapshot" | "diff"
+  ): Promise<boolean> {
+    if (!options.udpAddress || !options.secretKey) {
+      return false;
+    }
+    if (entries.length === 0) {
+      return false;
+    }
+    const protoVer = options.protocolVersion ?? 2;
+    try {
+      if (protoVer === 1) {
+        if (!options.udpMetaPort || options.udpMetaPort <= 0) {
+          app.debug(
+            `[${instanceId}] Meta skipped: v1 pipeline requires 'udpMetaPort' in connection config`
+          );
+          return false;
+        }
+        await getV1Pipeline().packCryptMeta(
+          entries,
+          kind,
+          options.secretKey,
+          options.udpAddress,
+          options.udpMetaPort
+        );
+      } else if (state.pipeline && typeof state.pipeline.sendMetadata === "function") {
+        await state.pipeline.sendMetadata(
+          entries,
+          kind,
+          options.secretKey,
+          options.udpAddress,
+          options.udpPort
+        );
+      } else {
+        app.debug(
+          `[${instanceId}] Meta skipped: pipeline not ready or does not support sendMetadata`
+        );
+        return false;
+      }
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      app.error(`[${instanceId}] sendMetaEntries failed: ${msg}`);
+      recordError("general", `sendMetaEntries failed: ${msg}`);
+      return false;
+    }
+  }
+
+  /**
+   * Build and transmit a full metadata snapshot from the current Signal K
+   * state tree. Resets the internal diff cache afterwards so the next diff is
+   * measured against what was just sent.
+   */
+  async function sendMetadataSnapshot(): Promise<void> {
+    if (!state.metaConfig?.enabled || state.stopped || !state.readyToSend) {
+      return;
+    }
+    const entries = collectSnapshot(appProxy, state.metaConfig);
+    const sent = await sendMetaEntries(entries, "snapshot");
+    // Only prime the diff cache on a successful send; on failure the next
+    // snapshot (periodic or META_REQUEST-triggered) will still cover every
+    // path rather than the cache showing stale "already sent" state.
+    if (sent) {
+      metaCache.replaceAll(entries);
+    }
+  }
+
+  /** Coalesces live meta diffs extracted from deltas; flushes after a short
+   *  debounce window so a burst of meta changes becomes one packet. */
+  function enqueueMetaDiff(entries: MetaEntry[]): void {
+    // Buffer raw entries; the actual change-detection (and cache commit)
+    // happens in the flush handler so a failed send doesn't leave the
+    // MetaCache thinking it transmitted something it never did.
+    if (entries.length === 0) {
+      return;
+    }
+    state.metaDiffBuffer.push(...entries);
+    if (state.metaDiffFlushTimer) {
+      return;
+    }
+    state.metaDiffFlushTimer = setTimeout(() => {
+      state.metaDiffFlushTimer = null;
+      const pending = state.metaDiffBuffer;
+      state.metaDiffBuffer = [];
+      const changed = metaCache.computeDiff(pending);
+      if (changed.length === 0) {
+        return;
+      }
+      sendMetaEntries(changed, "diff")
+        .then((sent) => {
+          if (sent) {
+            metaCache.commit(changed);
+          }
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          app.debug(`[${instanceId}] meta diff flush failed: ${msg}`);
+        });
+    }, META_DIFF_DEBOUNCE_MS);
+  }
+
+  function restartMetadataTimer(): void {
+    if (state.metaTimer) {
+      clearInterval(state.metaTimer);
+      state.metaTimer = null;
+    }
+    if (!state.metaConfig?.enabled) {
+      return;
+    }
+    const intervalMs = Math.max(30, state.metaConfig.intervalSec) * 1000;
+    state.metaTimer = setInterval(() => {
+      sendMetadataSnapshot().catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        app.debug(`[${instanceId}] periodic snapshot failed: ${msg}`);
+      });
+    }, intervalMs);
+  }
+
+  /** Schedules a meta snapshot send after `delayMs`. Cancels any prior
+   *  pending snapshot timer first — back-to-back (re)subscribes or socket
+   *  recoveries should coalesce into a single pending snapshot rather than
+   *  queue up multiple sends. The returned timer is tracked on
+   *  state.metaSnapshotTimers so stop() can cancel it. */
+  function scheduleMetadataSnapshot(delayMs: number): void {
+    for (const existing of state.metaSnapshotTimers) {
+      clearTimeout(existing);
+    }
+    state.metaSnapshotTimers.length = 0;
+    const handle = setTimeout(() => {
+      const idx = state.metaSnapshotTimers.indexOf(handle);
+      if (idx !== -1) {
+        state.metaSnapshotTimers.splice(idx, 1);
+      }
+      if (state.stopped) {
+        return;
+      }
+      sendMetadataSnapshot().catch(() => {
+        /* errors already logged inside sendMetadataSnapshot */
+      });
+    }, delayMs);
+    state.metaSnapshotTimers.push(handle);
+  }
+
+  /** Receiver asked for a fresh meta snapshot (META_REQUEST control packet).
+   *  Rate-limited so a malformed or buggy receiver cannot force continuous
+   *  snapshot work on the edge-link. */
+  function handleMetaRequest(): void {
+    if (!state.metaConfig?.enabled) {
+      return;
+    }
+    const now = Date.now();
+    if (now - state.lastMetaRequestAt < META_REQUEST_RATE_LIMIT_MS) {
+      return;
+    }
+    state.lastMetaRequestAt = now;
+    sendMetadataSnapshot().catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      app.debug(`[${instanceId}] META_REQUEST snapshot failed: ${msg}`);
+    });
+  }
+
+  /** Thin wrapper around the parser in `metadata.ts` so the instance log
+   *  line is tagged with this connection's instanceId. Errors from the
+   *  shared parser already have the `[meta-config]` prefix. */
+  function parseMetaConfig(raw: unknown): MetaConfig | null {
+    return parseMetaConfigShared(raw, (msg) => app.error(msg), instanceId);
+  }
+
   /**
    * Processes an incoming delta from the subscription manager.
    * Buffers and dispatches deltas to the send pipeline.
@@ -357,6 +565,17 @@ function createInstance(
   function processDelta(delta: Delta): void {
     if (!state.readyToSend) {
       return;
+    }
+
+    // Capture live meta BEFORE the delta flows into the pipeline encoder,
+    // because pathDictionary.transformDelta will strip `updates[].meta[]` when
+    // rebuilding the update objects. `extractLiveMeta` returns [] when meta
+    // streaming is disabled, so this is zero-cost in the default off state.
+    if (state.metaConfig?.enabled) {
+      const liveMeta = extractLiveMeta(delta, state.metaConfig, resolveSelfContext(appProxy));
+      if (liveMeta.length > 0) {
+        enqueueMetaDiff(liveMeta);
+      }
     }
 
     const outboundDelta = filterOutboundDelta(delta);
@@ -460,6 +679,21 @@ function createInstance(
           },
           processDelta
         );
+        // Retry succeeded — perform the staged commit that the original
+        // processConfig catch block skipped. Without this, the operator's
+        // new meta block (stashed on state.pendingMetaConfig) would remain
+        // inactive even though subscribe() is now working.
+        if (state.pendingMetaConfig !== undefined) {
+          state.metaConfig = state.pendingMetaConfig;
+          state.pendingMetaConfig = undefined;
+          restartMetadataTimer();
+          metaCache.clear();
+          if (state.metaConfig?.enabled) {
+            scheduleMetadataSnapshot(2000);
+          }
+        }
+        state.readyToSend = true;
+        _setStatus("Subscription restored", true);
       } catch (retryError: unknown) {
         const msg = retryError instanceof Error ? retryError.message : String(retryError);
         app.error(`[${instanceId}] Subscription retry ${attempt} failed: ${msg}`);
@@ -476,6 +710,13 @@ function createInstance(
     processConfig: (config: unknown) => {
       state.localSubscription = config;
       app.debug(`[${instanceId}] Subscription configuration updated`);
+
+      // Stage the new metadata config — do NOT yet touch state.metaConfig,
+      // the periodic timer, or metaCache. If subscribe() throws, the old
+      // subscription remains active until the retry succeeds, so its
+      // previous metadata behaviour must remain intact.
+      const previousMetaConfig = state.metaConfig;
+      const pendingMetaConfig = parseMetaConfig(config);
 
       // Capture the old cleanup handlers but do NOT call them yet.
       // We establish the new subscription first so data keeps flowing during
@@ -499,10 +740,31 @@ function createInstance(
         );
         // New subscription established — release old cleanup handlers.
         previousUnsubscribes.forEach((f: () => void) => f());
+        // Commit the new metadata config AFTER a successful subscribe: swap
+        // state.metaConfig, (re)start the periodic timer, and reset the diff
+        // cache so the next snapshot represents the live state in full. We
+        // reset the cache unconditionally here because even "meta unchanged"
+        // still needs an empty cache for the new subscription's path set.
+        state.metaConfig = pendingMetaConfig;
+        restartMetadataTimer();
+        metaCache.clear();
+        // Prime the receiver's meta cache with a full snapshot once the
+        // Signal K state tree has had a moment to settle after (re)subscribe.
+        if (state.metaConfig?.enabled) {
+          scheduleMetadataSnapshot(2000);
+        }
       } catch (subscribeError: unknown) {
         // Re-subscribe failed — restore old handlers so stop() can still
         // clean up and the previous subscription remains active until retry.
+        // Leave state.metaConfig / metaCache / metaTimer untouched so the
+        // previous subscription's metadata stream keeps running unchanged.
         state.unsubscribes = previousUnsubscribes;
+        void previousMetaConfig; // explicit: intentionally unchanged
+        // Stash the new meta config on state so the scheduled retry can
+        // promote it when subscribe() finally succeeds. Otherwise the
+        // operator's new meta settings would silently sit unused until the
+        // user re-saved subscription.json.
+        state.pendingMetaConfig = pendingMetaConfig;
         const subErrMsg =
           subscribeError instanceof Error ? subscribeError.message : String(subscribeError);
         app.error(`[${instanceId}] Failed to subscribe: ${subErrMsg}`);
@@ -656,6 +918,36 @@ function createInstance(
           getV1Pipeline().unpackDecrypt(delta, options.secretKey);
         });
         app.debug(`[${instanceId}] [v1] Server pipeline initialized`);
+
+        // v1 has no packet-type byte, so meta is streamed on a separate UDP
+        // port by the client. Bind that port here when the operator has opted
+        // in. If `udpMetaPort` is unset we simply don't listen — keeping the
+        // receive side idle is the correct default for existing v1 peers that
+        // don't know about meta.
+        if (typeof options.udpMetaPort === "number" && options.udpMetaPort > 0) {
+          if (options.udpMetaPort === options.udpPort) {
+            app.error(
+              `[${instanceId}] [v1] udpMetaPort (${options.udpMetaPort}) must differ from udpPort; meta disabled`
+            );
+          } else {
+            const metaSocket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+            state.metaSocketUdp = metaSocket;
+            metaSocket.on("message", (msg: Buffer) => {
+              getV1Pipeline()
+                .unpackDecryptMeta(msg, options.secretKey)
+                .catch((err: unknown) => {
+                  const m = err instanceof Error ? err.message : String(err);
+                  app.debug(`[${instanceId}] [v1] meta decrypt failed: ${m}`);
+                });
+            });
+            metaSocket.on("error", (err: NodeJS.ErrnoException) => {
+              app.error(`[${instanceId}] [v1] meta socket error: ${err.message} (${err.code})`);
+              recordError("udpSend", `v1 meta socket error: ${err.message} (${err.code})`);
+            });
+            metaSocket.bind(options.udpMetaPort);
+            app.debug(`[${instanceId}] [v1] Meta listener bound to UDP :${options.udpMetaPort}`);
+          }
+        }
       }
 
       const startupSocket = state.socketUdp;
@@ -855,6 +1147,13 @@ function createInstance(
               state.readyToSend = true;
               _setStatus("UDP socket recovered", true);
               app.debug(`[${instanceId}] UDP socket recovered`);
+              // A socket-level recovery is the strongest local signal that the
+              // remote receiver may have restarted. Re-prime its meta cache
+              // with a full snapshot so it doesn't have to wait a full
+              // `intervalSec` for periodic resend.
+              if (state.metaConfig?.enabled) {
+                scheduleMetadataSnapshot(1000);
+              }
             } catch (recoveryErr: unknown) {
               state.socketRecoveryInProgress = false;
               const recoveryMsg =
@@ -926,6 +1225,9 @@ function createInstance(
         state.pipeline = v2Pipeline;
 
         v2Pipeline.setMonitoring(state.monitoring);
+        if (typeof v2Pipeline.setMetaRequestHandler === "function") {
+          v2Pipeline.setMetaRequestHandler(handleMetaRequest);
+        }
         v2Pipeline.startMetricsPublishing();
 
         if (options.congestionControl && options.congestionControl.enabled) {
@@ -1029,6 +1331,18 @@ function createInstance(
     // Clear timers
     clearInterval(state.helloMessageSender ?? undefined);
     state.helloMessageSender = null;
+    clearInterval(state.metaTimer ?? undefined);
+    state.metaTimer = null;
+    clearTimeout(state.metaDiffFlushTimer ?? undefined);
+    state.metaDiffFlushTimer = null;
+    for (const handle of state.metaSnapshotTimers) {
+      clearTimeout(handle);
+    }
+    state.metaSnapshotTimers = [];
+    state.metaDiffBuffer = [];
+    state.metaConfig = null;
+    state.pendingMetaConfig = undefined;
+    metaCache.clear();
     clearTimeout(state.deltaTimer ?? undefined);
     state.deltaTimer = null;
     clearTimeout(state.pendingRetry ?? undefined);
@@ -1090,11 +1404,20 @@ function createInstance(
       state.pingMonitor = null;
     }
 
-    // Close UDP socket
+    // Close UDP socket(s)
     if (state.socketUdp) {
       state.socketUdp.close();
       state.socketUdp = null;
       app.debug(`[${instanceId}] Stopped`);
+    }
+    if (state.metaSocketUdp) {
+      try {
+        state.metaSocketUdp.close();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        app.debug(`[${instanceId}] Meta socket close failed: ${msg}`);
+      }
+      state.metaSocketUdp = null;
     }
 
     _setStatus("Stopped", false);

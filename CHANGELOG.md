@@ -2,6 +2,34 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [2.3.0] - 2026-04-24
+
+### Added
+
+- **Optional metadata streaming** (`metadata.ts`, `packet.ts`, `pipeline.ts`,
+  `pipeline-v2-client.ts`, `pipeline-v2-server.ts`, `instance.ts`, schema):
+  Signal K path metadata (units, descriptions, zones, display names, ...) can
+  now be forwarded to the remote receiver alongside deltas by adding a `meta`
+  block to `subscription.json`. Default off, so existing deployments are
+  unchanged.
+  - Two new packet types: `METADATA` (0x06) on v2/v3 and `META_REQUEST` (0x07)
+    so a receiver can demand a fresh snapshot on startup without waiting for
+    the next periodic resend.
+  - v1 clients transmit meta on a separate `udpMetaPort` with an `"SKM1"`
+    magic prefix inside the encrypted payload; existing v1 receivers that
+    have not been upgraded ignore the packets.
+  - Full snapshot at startup and on socket recovery; live meta changes
+    pulled from `updates[].meta[]` and coalesced into a debounced diff
+    packet; periodic full resend (default 300 s, configurable 30–86400 s).
+  - Diffs computed against a sha1 cache so unchanged meta is never resent;
+    `includePathsMatching` regex and `maxPathsPerPacket` chunking for
+    bandwidth control.
+  - Web UI: new fieldset in the subscription card exposes the meta toggle,
+    interval, regex, and packet-size controls.
+  - Receiver side: `pipeline-v2-server.ts` decodes METADATA packets and
+    re-emits each entry as a Signal K delta with `updates[].meta[]` so the
+    local Signal K server picks it up via `app.handleMessage`.
+
 ## [2.2.0] - 2026-04-17
 
 ### Breaking

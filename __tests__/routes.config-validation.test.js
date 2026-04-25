@@ -176,6 +176,90 @@ describe("validateRuntimeConfigBody", () => {
     ).toBeNull();
   });
 
+  test("accepts subscription.json with a valid meta block", () => {
+    expect(
+      validateRuntimeConfigBody("subscription.json", {
+        subscribe: [{ path: "*" }],
+        meta: {
+          enabled: true,
+          intervalSec: 300,
+          includePathsMatching: "^navigation\\.",
+          maxPathsPerPacket: 500
+        }
+      })
+    ).toBeNull();
+  });
+
+  test("rejects meta that is not an object", () => {
+    expect(validateRuntimeConfigBody("subscription.json", { meta: "yes" })).toBe(
+      "meta must be an object"
+    );
+    expect(validateRuntimeConfigBody("subscription.json", { meta: [] })).toBe(
+      "meta must be an object"
+    );
+  });
+
+  test("rejects meta.enabled that is not boolean", () => {
+    expect(validateRuntimeConfigBody("subscription.json", { meta: { enabled: "yes" } })).toBe(
+      "meta.enabled must be a boolean"
+    );
+  });
+
+  test("rejects meta.intervalSec out of range", () => {
+    expect(validateRuntimeConfigBody("subscription.json", { meta: { intervalSec: 10 } })).toBe(
+      "meta.intervalSec must be a number between 30 and 86400"
+    );
+    expect(validateRuntimeConfigBody("subscription.json", { meta: { intervalSec: 100000 } })).toBe(
+      "meta.intervalSec must be a number between 30 and 86400"
+    );
+  });
+
+  test("rejects meta.maxPathsPerPacket out of range", () => {
+    expect(validateRuntimeConfigBody("subscription.json", { meta: { maxPathsPerPacket: 5 } })).toBe(
+      "meta.maxPathsPerPacket must be a number between 10 and 5000"
+    );
+  });
+
+  test("rejects non-string meta.includePathsMatching", () => {
+    expect(
+      validateRuntimeConfigBody("subscription.json", { meta: { includePathsMatching: 42 } })
+    ).toBe("meta.includePathsMatching must be a string or null");
+  });
+
+  test("accepts meta.includePathsMatching === null", () => {
+    expect(
+      validateRuntimeConfigBody("subscription.json", {
+        meta: { enabled: true, includePathsMatching: null }
+      })
+    ).toBeNull();
+  });
+
+  test("rejects meta.includePathsMatching that is too long", () => {
+    const huge = "a".repeat(257);
+    expect(
+      validateRuntimeConfigBody("subscription.json", {
+        meta: { enabled: true, includePathsMatching: huge }
+      })
+    ).toBe("meta.includePathsMatching must be at most 256 characters");
+  });
+
+  test("rejects nested-unbounded-quantifier ReDoS shapes at save time", () => {
+    expect(
+      validateRuntimeConfigBody("subscription.json", {
+        meta: { enabled: true, includePathsMatching: "(a+)+" }
+      })
+    ).toBe(
+      "meta.includePathsMatching contains a nested unbounded quantifier (ReDoS shape); refused"
+    );
+  });
+
+  test("rejects meta.includePathsMatching that fails to compile", () => {
+    const result = validateRuntimeConfigBody("subscription.json", {
+      meta: { enabled: true, includePathsMatching: "[unterminated" }
+    });
+    expect(result).toMatch(/^meta\.includePathsMatching failed to compile:/);
+  });
+
   test("rejects excludedSentences array with non-string item", () => {
     expect(validateRuntimeConfigBody("sentence_filter.json", { excludedSentences: [42] })).toBe(
       "excludedSentences[0] must be a string"

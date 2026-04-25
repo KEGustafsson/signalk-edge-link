@@ -18,7 +18,7 @@ import { promisify } from "util";
 import zlib from "node:zlib";
 import * as msgpack from "@msgpack/msgpack";
 import { decryptBinary } from "./crypto";
-import { decodeDelta } from "./pathDictionary";
+import { decodeDelta, decodeMetaEntry } from "./pathDictionary";
 import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "./packet";
 import * as dgram from "dgram";
 import { SequenceTracker } from "./sequence";
@@ -60,6 +60,18 @@ interface ClientSession {
   lastLossReceived: number;
   rateLimitCount: number;
   rateLimitWindowStart: number;
+  /** True once we have emitted a META_REQUEST to this client. Used to cap
+   *  outbound META_REQUEST traffic at exactly one per session lifetime. */
+  metaRequested: boolean;
+  /** Last observed meta-envelope seq, used to drop stale/duplicate envelopes
+   *  that UDP reorders or replays. null until the first envelope from this
+   *  session arrives. */
+  lastMetaEnvSeq: number | null;
+  /** Set of chunk `idx` values already processed for `lastMetaEnvSeq`. Lets
+   *  us drop exact duplicates of a chunk we've already applied without
+   *  rejecting other chunks (different idx, same seq) of the same multi-
+   *  chunk batch. Cleared when `lastMetaEnvSeq` advances. */
+  seenMetaChunkIdx: Set<number>;
 }
 
 function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
@@ -98,6 +110,12 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   // session table (MAX_CLIENT_SESSIONS) by spoofing many source ports from one
   // IP, evicting all legitimate sessions (DoS).
   const MAX_SESSIONS_PER_IP = 5;
+  // Threshold for sender-restart detection on the META envelope sequence.
+  // An incoming envSeq of 0 is treated as a peer restart only once
+  // lastMetaEnvSeq has advanced beyond this value — below it, envSeq=0 is
+  // ambiguous (could be a legitimate first-packet replay) and falls through
+  // to normal dedup. UDP reorders >8 packets backwards are exceedingly rare.
+  const META_RESTART_THRESHOLD = 8;
   let ackTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
@@ -178,7 +196,10 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         lastLossExpected: 0,
         lastLossReceived: 0,
         rateLimitCount: 0,
-        rateLimitWindowStart: Date.now()
+        rateLimitWindowStart: Date.now(),
+        metaRequested: false,
+        lastMetaEnvSeq: null,
+        seenMetaChunkIdx: new Set<number>()
       };
     }
 
@@ -205,7 +226,12 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       lastLossReceived: 0,
       // per-session UDP rate limiting
       rateLimitCount: 0,
-      rateLimitWindowStart: Date.now()
+      rateLimitWindowStart: Date.now(),
+      // META_REQUEST bookkeeping
+      metaRequested: false,
+      // Stale-envelope rejection for METADATA packets
+      lastMetaEnvSeq: null,
+      seenMetaChunkIdx: new Set<number>()
     };
     clientSessions.set(key, session);
     app.debug(`[v2-server] new client session: ${key}`);
@@ -484,6 +510,221 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   }
 
   /**
+   * Decrypt and dispatch a METADATA (0x06) packet.
+   *
+   * The payload envelope is `{ v, kind, seq, idx, total, entries }` where each
+   * entry is `{ context, path, meta }`. We convert every entry back into a
+   * minimal Signal K delta carrying `updates[].meta[]` so the local Signal K
+   * server picks it up through the normal `app.handleMessage` integration
+   * point — no special receiver API is needed.
+   */
+  async function handleMetadataPacket(
+    parsed: ParsedPacket,
+    secretKey: string,
+    session: ClientSession | null
+  ): Promise<void> {
+    try {
+      const decrypted = decryptBinary(parsed.payload, secretKey, { stretchAsciiKey });
+      const decompressed = (await brotliDecompressAsync(decrypted, {
+        maxOutputLength: MAX_DECOMPRESSED_SIZE
+      })) as Buffer;
+
+      // Count a successful decrypt+decompress as "meta received on the wire"
+      // regardless of whether the envelope parses — this mirrors the DATA
+      // bandwidth accounting and keeps metaBytesIn useful even when a peer
+      // emits malformed envelopes.
+      metrics.bandwidth.metaBytesIn = (metrics.bandwidth.metaBytesIn || 0) + parsed.payload.length;
+      metrics.bandwidth.metaPacketsIn = (metrics.bandwidth.metaPacketsIn || 0) + 1;
+
+      if (decompressed.length > MAX_PARSE_PAYLOAD_SIZE) {
+        metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+        app.error(
+          `[v2] META payload too large to parse: ${decompressed.length} bytes (limit ${MAX_PARSE_PAYLOAD_SIZE})`
+        );
+        recordError(
+          "general",
+          `META payload too large: ${decompressed.length} bytes (limit ${MAX_PARSE_PAYLOAD_SIZE})`
+        );
+        return;
+      }
+
+      let content: unknown;
+      if (parsed.flags.messagepack) {
+        try {
+          content = msgpack.decode(decompressed);
+        } catch {
+          content = JSON.parse(decompressed.toString());
+        }
+      } else {
+        content = JSON.parse(decompressed.toString());
+      }
+
+      if (!content || typeof content !== "object" || Array.isArray(content)) {
+        metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+        app.debug("v2 META envelope was not an object, dropping");
+        recordError("general", "v2 META envelope was not an object");
+        return;
+      }
+      const env = content as {
+        v?: number;
+        kind?: string;
+        seq?: number;
+        idx?: number;
+        total?: number;
+        entries?: Array<{
+          context?: string;
+          path?: string | number;
+          meta?: Record<string, unknown>;
+        }>;
+      };
+      if (!Array.isArray(env.entries) || env.entries.length === 0) {
+        metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+        app.debug("v2 META envelope has no entries, dropping");
+        recordError("general", "v2 META envelope has no entries");
+        return;
+      }
+
+      // Drop stale/duplicate envelopes that UDP reordered or replayed. The
+      // inner envelope `seq` identifies a batch (shared across all chunks of
+      // a multi-chunk snapshot/diff); the inner `idx` identifies a specific
+      // chunk within that batch. Two-level dedup:
+      //   - reject envelopes whose seq is behind in uint32 space ("stale")
+      //   - within the current batch, reject any (seq, idx) pair already
+      //     processed ("exact replay"); other idx values for the same seq
+      //     remain accepted so multi-chunk batches still apply in full.
+      if (session && typeof env.seq === "number" && Number.isFinite(env.seq)) {
+        const envSeq = env.seq >>> 0;
+        const envIdx = typeof env.idx === "number" && Number.isFinite(env.idx) ? env.idx >>> 0 : 0;
+        // Sender-restart detection: the client's meta sequence counter is
+        // initialised to 0 at process start, so an incoming envSeq of 0 with
+        // a sufficiently-advanced lastMetaEnvSeq is a strong signal that the
+        // peer restarted. The "sufficiently advanced" threshold guards
+        // against the first-packet-replay case (lastMetaEnvSeq=0, envSeq=0)
+        // which is indistinguishable from a true restart unless prior
+        // traffic has pushed the seq above a small reorder window. Backwards
+        // reorders of more than META_RESTART_THRESHOLD packets are
+        // exceedingly rare in UDP delivery; treating envSeq=0 as a restart
+        // only above that threshold keeps the dedup-vs-restart decision
+        // unambiguous in the common case.
+        if (
+          session.lastMetaEnvSeq !== null &&
+          envSeq === 0 &&
+          session.lastMetaEnvSeq >= META_RESTART_THRESHOLD
+        ) {
+          app.debug(
+            `[v2-server] META sender restart detected for ${session.key} ` +
+              `(last seq was ${session.lastMetaEnvSeq}); resetting meta state`
+          );
+          session.lastMetaEnvSeq = null;
+          session.seenMetaChunkIdx.clear();
+          session.metaRequested = false;
+        }
+        if (session.lastMetaEnvSeq !== null) {
+          const distance = (envSeq - session.lastMetaEnvSeq) >>> 0;
+          if (distance !== 0 && distance >= 0x80000000) {
+            metrics.duplicatePackets = (metrics.duplicatePackets || 0) + 1;
+            app.debug(
+              `[v2-server] stale META envelope seq=${envSeq} from ${session.key} (last=${session.lastMetaEnvSeq}), dropping`
+            );
+            return;
+          }
+          if (distance !== 0) {
+            // New batch: advance and reset the per-batch chunk set.
+            session.lastMetaEnvSeq = envSeq;
+            session.seenMetaChunkIdx.clear();
+          } else if (session.seenMetaChunkIdx.has(envIdx)) {
+            // Same batch, exact duplicate chunk — drop.
+            metrics.duplicatePackets = (metrics.duplicatePackets || 0) + 1;
+            app.debug(
+              `[v2-server] duplicate META chunk seq=${envSeq} idx=${envIdx} from ${session.key}, dropping`
+            );
+            return;
+          }
+        } else {
+          session.lastMetaEnvSeq = envSeq;
+          session.seenMetaChunkIdx.clear();
+        }
+        session.seenMetaChunkIdx.add(envIdx);
+      }
+
+      // Group entries by context so the local Signal K server sees one delta
+      // per context rather than one per path. Reduces app.handleMessage
+      // overhead on big snapshots without changing semantics.
+      const nowIso = new Date().toISOString();
+      const byContext = new Map<string, Array<{ path: string; value: Record<string, unknown> }>>();
+      for (const rawEntry of env.entries) {
+        if (!rawEntry || typeof rawEntry.meta !== "object" || !rawEntry.meta) {
+          continue;
+        }
+        // Require a present path before attempting pathDictionary decode;
+        // decodeMetaEntry would otherwise coerce `undefined` into "undefined".
+        if (rawEntry.path === null || rawEntry.path === undefined) {
+          continue;
+        }
+        if (typeof rawEntry.path !== "string" && typeof rawEntry.path !== "number") {
+          continue;
+        }
+        const entry = parsed.flags.pathDictionary
+          ? decodeMetaEntry(rawEntry as { path: string | number; meta: Record<string, unknown> })
+          : rawEntry;
+        const path = typeof entry.path === "string" ? entry.path : String(entry.path ?? "");
+        if (!path) {
+          continue;
+        }
+        const context = typeof rawEntry.context === "string" ? rawEntry.context : "vessels.self";
+        const bucket = byContext.get(context);
+        const metaItem = { path, value: entry.meta as Record<string, unknown> };
+        if (bucket) {
+          bucket.push(metaItem);
+        } else {
+          byContext.set(context, [metaItem]);
+        }
+      }
+
+      for (const [context, metaItems] of byContext) {
+        const deltaMessage: Delta = {
+          context,
+          updates: [
+            {
+              timestamp: nowIso,
+              values: [],
+              meta: metaItems
+            } as Delta["updates"][number]
+          ]
+        };
+        app.handleMessage("", deltaMessage);
+      }
+
+      app.debug(
+        `v2 meta received: kind=${env.kind ?? "?"}, entries=${env.entries.length}, contexts=${byContext.size}, envSeq=${env.v ?? "?"}`
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+      app.error(`v2 handleMetadataPacket error: ${msg}`);
+      recordError("general", `v2 META decode error: ${msg}`);
+    }
+  }
+
+  /**
+   * Build and send a META_REQUEST (0x07) control packet to a client.
+   * Instructs the client to emit a fresh metadata snapshot — used on first
+   * contact from a new session so the receiver doesn't have to wait for the
+   * client's periodic resend cycle.
+   */
+  async function _sendMetaRequest(session: ClientSession, secretKey: string): Promise<void> {
+    try {
+      const packet = packetBuilder.buildMetaRequestPacket({ secretKey });
+      await _sendUDP(packet, { address: session.address, port: session.port });
+      app.debug(`[v2-server] META_REQUEST sent to ${session.key}`);
+    } catch (err: unknown) {
+      // Re-throw so the caller's .catch() records it once, rather than
+      // double-logging here.
+      throw err;
+    }
+  }
+
+  /**
    * Send UDP packet to a destination
    * @private
    */
@@ -585,6 +826,40 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
             `v2 failed to parse HELLO payload: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
           );
         }
+        // HELLO is the earliest reliable indication of a live peer, so use it
+        // as the trigger to demand a fresh metadata snapshot. The client
+        // self-rate-limits META_REQUEST responses (5 s window), and we only
+        // emit one per session, so this is safe even across rapid reconnects.
+        if (session && !session.metaRequested) {
+          session.metaRequested = true;
+          _sendMetaRequest(session, secretKey).catch((err: unknown) => {
+            app.debug(
+              `[v2-server] META_REQUEST send failed: ${err instanceof Error ? err.message : String(err)}`
+            );
+          });
+        }
+        return;
+      }
+
+      if (parsed.type === PacketType.METADATA) {
+        // Apply the same per-session rate limit used for DATA so a malformed
+        // or hostile peer can't overwhelm the meta decoder path.
+        if (session) {
+          const now = Date.now();
+          if (now - session.rateLimitWindowStart >= UDP_RATE_LIMIT_WINDOW) {
+            session.rateLimitCount = 0;
+            session.rateLimitWindowStart = now;
+          }
+          session.rateLimitCount++;
+          if (session.rateLimitCount > UDP_RATE_LIMIT_MAX_PACKETS) {
+            metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
+            metrics.bandwidth.metaRateLimitedPackets =
+              (metrics.bandwidth.metaRateLimitedPackets || 0) + 1;
+            app.debug(`[v2-server] rate limited META from ${session.key}`);
+            return;
+          }
+        }
+        await handleMetadataPacket(parsed, secretKey, session);
         return;
       }
 

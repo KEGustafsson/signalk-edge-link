@@ -15,7 +15,7 @@
 
 import CircularBuffer from "./CircularBuffer";
 import { encryptBinary } from "./crypto";
-import { encodeDelta } from "./pathDictionary";
+import { encodeDelta, encodeMetaEntry } from "./pathDictionary";
 import {
   deltaBuffer,
   compressPayload,
@@ -26,13 +26,14 @@ import { RetransmitQueue } from "./retransmit-queue";
 import { MetricsPublisher } from "./metrics-publisher";
 import { CongestionControl } from "./congestion";
 import { BondingManager } from "./bonding";
+import { splitIntoPackets, buildMetaEnvelope } from "./metadata";
 import type {
   SignalKApp,
   MetricsApi,
   InstanceState,
   Delta,
   MonitoringState,
-  BondingConfig
+  MetaEntry
 } from "./types";
 import * as dgram from "dgram";
 import {
@@ -126,6 +127,36 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
 
   // Enhanced monitoring hooks (set externally via setMonitoring)
   let monitoringHooks: MonitoringState | null = null;
+
+  // Callback fired when the receiver asks for a fresh metadata snapshot
+  // (META_REQUEST control packet). Wired up by instance.ts, which is the only
+  // layer that knows how to build a snapshot from `app.signalk.retrieve()`.
+  let metaRequestHandler: (() => void) | null = null;
+  let metaEnvelopeSeq = 0;
+  // Seed all four meta bandwidth counters so downstream consumers (metrics
+  // publishers, prometheus exporter, tests) always see numeric zeros rather
+  // than undefined on a fresh pipeline. Uses || 0 at write sites elsewhere as
+  // belt-and-braces, but consistent snapshots require consistent seeding.
+  if (metrics.bandwidth) {
+    if (metrics.bandwidth.metaBytesOut === undefined) {
+      metrics.bandwidth.metaBytesOut = 0;
+    }
+    if (metrics.bandwidth.metaPacketsOut === undefined) {
+      metrics.bandwidth.metaPacketsOut = 0;
+    }
+    if (metrics.bandwidth.metaBytesIn === undefined) {
+      metrics.bandwidth.metaBytesIn = 0;
+    }
+    if (metrics.bandwidth.metaPacketsIn === undefined) {
+      metrics.bandwidth.metaPacketsIn = 0;
+    }
+    if (metrics.bandwidth.metaSnapshotsSent === undefined) {
+      metrics.bandwidth.metaSnapshotsSent = 0;
+    }
+    if (metrics.bandwidth.metaDiffsSent === undefined) {
+      metrics.bandwidth.metaDiffsSent = 0;
+    }
+  }
 
   // RTT tracking for jitter calculation (CircularBuffer gives O(1) push with auto-eviction)
   const rttSamples = new CircularBuffer<number>(10);
@@ -424,6 +455,112 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   }
 
   /**
+   * Send a batch of Signal K metadata entries to the receiver as one or more
+   * METADATA (0x06) packets. Mirrors the compress → encrypt → packet-build
+   * pipeline of `sendDelta` but uses a meta envelope so the receiver can
+   * reconstruct multi-chunk snapshots.
+   *
+   * Snapshots are NOT inserted into the retransmit queue — eventual
+   * consistency is provided by the periodic resend timer in instance.ts, and
+   * the receiver can always request a fresh snapshot via META_REQUEST.
+   */
+  async function sendMetadata(
+    entries: MetaEntry[],
+    kind: "snapshot" | "diff",
+    secretKey: string,
+    udpAddress: string,
+    udpPort: number
+  ): Promise<void> {
+    try {
+      if (!state.options) {
+        app.debug("sendMetadata called but plugin is stopped, ignoring");
+        return;
+      }
+      if (entries.length === 0) {
+        return;
+      }
+
+      const maxPerPacket = state.metaConfig?.maxPathsPerPacket ?? 500;
+      const chunks = splitIntoPackets(entries, maxPerPacket);
+      const usePathDict = !!state.options.usePathDictionary;
+      const useMsgpack = !!state.options.useMsgpack;
+
+      // Assign one envelope seq per chunk group so the receiver can correlate
+      // `idx/total` inside a single snapshot/diff operation.
+      const envelopeSeq = metaEnvelopeSeq++ >>> 0;
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const processedEntries = usePathDict ? chunk.map(encodeMetaEntry) : chunk;
+        const envelope = buildMetaEnvelope(processedEntries, kind, envelopeSeq, i, chunks.length);
+
+        const serialized = deltaBuffer(envelope, useMsgpack);
+        const compressed = await compressPayload(serialized, useMsgpack);
+        const encrypted = encryptBinary(compressed, secretKey, { stretchAsciiKey });
+        const packet = packetBuilder.buildMetadataPacket(encrypted, {
+          compressed: true,
+          encrypted: true,
+          messagepack: useMsgpack,
+          pathDictionary: usePathDict
+        });
+
+        // Mirror sendDelta's MTU guard + monitoring hooks so META traffic is
+        // visible to the same observability surfaces as DATA. Oversized META
+        // packets would otherwise fragment silently, and a user running a
+        // packet capture would see DATA but not META — confusing.
+        if (packet.length > MAX_SAFE_UDP_PAYLOAD) {
+          app.debug(
+            `Warning: v2 meta packet size ${packet.length} bytes exceeds safe MTU (${MAX_SAFE_UDP_PAYLOAD}), may fragment.`
+          );
+          metrics.smartBatching.oversizedPackets++;
+        }
+
+        await udpSendAsync(packet, udpAddress, udpPort);
+
+        if (monitoringHooks) {
+          const rinfo = { address: udpAddress, port: udpPort };
+          if (monitoringHooks.packetCapture) {
+            monitoringHooks.packetCapture.capture(packet, "send", rinfo);
+          }
+          if (monitoringHooks.packetInspector) {
+            monitoringHooks.packetInspector.inspect(packet, "send", rinfo);
+          }
+        }
+
+        metrics.bandwidth.metaBytesOut = (metrics.bandwidth.metaBytesOut || 0) + packet.length;
+        metrics.bandwidth.metaPacketsOut = (metrics.bandwidth.metaPacketsOut || 0) + 1;
+        metrics.bandwidth.bytesOut += packet.length;
+        metrics.bandwidth.packetsOut++;
+      }
+
+      // Count one envelope per call (a multi-chunk envelope is logically one
+      // snapshot/diff, even though it shows up in metaPacketsOut as N).
+      if (kind === "snapshot") {
+        metrics.bandwidth.metaSnapshotsSent = (metrics.bandwidth.metaSnapshotsSent || 0) + 1;
+      } else {
+        metrics.bandwidth.metaDiffsSent = (metrics.bandwidth.metaDiffsSent || 0) + 1;
+      }
+
+      app.debug(
+        `v2 meta sent: kind=${kind}, entries=${entries.length}, chunks=${chunks.length}, envSeq=${envelopeSeq}`
+      );
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      app.error(`v2 sendMetadata error: ${msg}`);
+      recordError("general", `v2 sendMetadata error: ${msg}`);
+      // Re-throw so callers (e.g., sendMetaEntries in instance.ts) can
+      // distinguish a successful send from a swallowed failure. Without the
+      // rethrow the caller would commit the MetaCache despite nothing
+      // reaching the wire, silently suppressing the next diff.
+      throw error instanceof Error ? error : new Error(msg);
+    }
+  }
+
+  function setMetaRequestHandler(handler: (() => void) | null): void {
+    metaRequestHandler = handler;
+  }
+
+  /**
    * Handle incoming ACK packet from server.
    * Removes acknowledged packets from the retransmit queue.
    *
@@ -560,6 +697,30 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         receiveACK(parsed, rinfo);
       } else if (parsed.type === PacketType.NAK) {
         await receiveNAK(parsed, rinfo.address, rinfo.port);
+      } else if (parsed.type === PacketType.META_REQUEST) {
+        // Receiver asks us to re-send the full meta snapshot. Rate-limited in
+        // the handler (instance.ts) to prevent a malformed receiver from
+        // pinning our CPU/bandwidth on snapshot generation. The handler
+        // itself is synchronous, but if a future implementation returns a
+        // Promise we swallow rejections here so they don't bubble up into
+        // the control-packet parse error path (which increments
+        // metrics.malformedPackets and would mis-classify the failure).
+        if (metaRequestHandler) {
+          try {
+            // Wrap in Promise.resolve so any thenable (PromiseLike) returned
+            // by the handler — not just real Promises with .catch — gets a
+            // .catch attached. This handles unusual user-supplied thenables
+            // and is simpler than feature-detecting .catch / .then directly.
+            Promise.resolve(metaRequestHandler() as unknown).catch((err: unknown) => {
+              app.debug(
+                `META_REQUEST handler rejected: ${err instanceof Error ? err.message : String(err)}`
+              );
+            });
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            app.debug(`META_REQUEST handler error: ${errMsg}`);
+          }
+        }
       }
       // Ignore other packet types on client side
     } catch (err: unknown) {
@@ -956,6 +1117,8 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
 
   return {
     sendDelta,
+    sendMetadata,
+    setMetaRequestHandler,
     getPacketBuilder,
     getRetransmitQueue,
     getMetricsPublisher,

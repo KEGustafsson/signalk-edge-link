@@ -121,6 +121,10 @@ class DataConnectorConfig {
   schemaCurrentMode: string | null;
   metricsInterval: ReturnType<typeof setInterval> | null;
   syncTimeout: ReturnType<typeof setTimeout> | null;
+  /** True while syncFromJson() is rebuilding the path-input list — prevents
+   *  addPathItem() from triggering updateJsonFromForm() which would drop the
+   *  textarea's meta block on every path added. */
+  isHydratingFromTextarea: boolean = false;
   tokenHelpText: string;
   deltaTimerConfig: Record<string, unknown> | null;
   subscriptionConfig: Record<string, unknown> | null;
@@ -484,6 +488,37 @@ class DataConnectorConfig {
               <div id="pathsList" class="paths-list"></div>
               <button id="addPath" class="btn btn-secondary">Add Path</button>
             </div>
+            <fieldset class="meta-config">
+              <legend>Metadata streaming</legend>
+              <p class="help-text">
+                Also forward Signal K path metadata (units, descriptions, zones,
+                display names, ...) to the remote receiver. Disabled by default.
+                Meta is sent as a full snapshot at startup and re-broadcast on
+                an interval so a restarted receiver can recover without a
+                round-trip.
+              </p>
+              <div class="form-group">
+                <label>
+                  <input type="checkbox" id="metaEnabled" />
+                  Include metadata
+                </label>
+              </div>
+              <div class="form-group">
+                <label for="metaIntervalSec">Snapshot interval (seconds):</label>
+                <input type="number" id="metaIntervalSec" min="30" max="86400" step="1" placeholder="300" />
+                <small class="help-text">Between 30 and 86400. Default 300 (5 minutes).</small>
+              </div>
+              <div class="form-group">
+                <label for="metaPathsRegex">Include paths matching (regex, optional):</label>
+                <input type="text" id="metaPathsRegex" placeholder="" />
+                <small class="help-text">Leave empty to include every subscribed path.</small>
+              </div>
+              <div class="form-group">
+                <label for="metaMaxPerPacket">Max paths per packet:</label>
+                <input type="number" id="metaMaxPerPacket" min="10" max="5000" step="1" placeholder="500" />
+                <small class="help-text">Between 10 and 5000. Default 500.</small>
+              </div>
+            </fieldset>
             <div class="json-editor">
               <h3>JSON Editor</h3>
               <textarea id="subscriptionJson" rows="10" placeholder='{"context": "*", "subscribe": [{"path": "*"}]}'></textarea>
@@ -776,6 +811,21 @@ class DataConnectorConfig {
       contextInput.addEventListener("input", () => this.updateJsonFromForm());
     }
 
+    // Meta controls feed the same JSON-from-form sync so the textarea always
+    // reflects the current state of the structured controls. Without these
+    // listeners, the textarea would lag behind the form until save and the
+    // user viewing the raw JSON would see stale content.
+    for (const metaId of ["metaEnabled", "metaIntervalSec", "metaPathsRegex", "metaMaxPerPacket"]) {
+      const el = document.getElementById(metaId);
+      if (el) {
+        el.addEventListener("input", () => this.updateJsonFromForm());
+        if (metaId === "metaEnabled") {
+          // checkbox emits "change" rather than "input" on some browsers
+          el.addEventListener("change", () => this.updateJsonFromForm());
+        }
+      }
+    }
+
     const savePluginConfigBtn = document.getElementById("savePluginConfig");
     if (savePluginConfigBtn) {
       savePluginConfigBtn.addEventListener("click", () => this.savePluginConfig());
@@ -825,6 +875,9 @@ class DataConnectorConfig {
       if (jsonEl) {
         jsonEl.value = JSON.stringify(this.subscriptionConfig, null, 2);
       }
+
+      // Populate the structured metadata controls from the loaded config.
+      this.populateMetaControls(cfg.meta as Record<string, unknown> | undefined);
     }
 
     if (
@@ -931,6 +984,15 @@ class DataConnectorConfig {
   }
 
   updateJsonFromForm() {
+    // Skip form → JSON syncing while we're hydrating the form from a
+    // pasted/loaded JSON — otherwise addPathItem() would fire this on every
+    // added path-input and reserialize the subscription.json as just
+    // {context, subscribe} without the meta block, silently dropping meta
+    // from pasted configs.
+    if (this.isHydratingFromTextarea) {
+      return;
+    }
+
     const contextEl = document.getElementById("context") as HTMLInputElement | null;
     const context = contextEl ? contextEl.value || "*" : "*";
     const pathInputs = document.querySelectorAll(".path-input") as NodeListOf<HTMLInputElement>;
@@ -938,14 +1000,59 @@ class DataConnectorConfig {
       .map((input) => ({ path: input.value }))
       .filter((sub) => sub.path.trim() !== "");
 
-    const config = { context, subscribe };
+    // Build the meta block from the structured controls — they are the
+    // authoritative source for metadata settings. The textarea becomes a
+    // read-only mirror of the form state, kept in sync on every input.
+    const config: Record<string, unknown> = { context, subscribe };
+    const metaEnabledEl = document.getElementById("metaEnabled") as HTMLInputElement | null;
+    if (metaEnabledEl && metaEnabledEl.checked) {
+      const intervalEl = document.getElementById("metaIntervalSec") as HTMLInputElement | null;
+      const pathsEl = document.getElementById("metaPathsRegex") as HTMLInputElement | null;
+      const maxEl = document.getElementById("metaMaxPerPacket") as HTMLInputElement | null;
+      const intervalSec = intervalEl && intervalEl.value ? Number(intervalEl.value) : 300;
+      const maxPathsPerPacket = maxEl && maxEl.value ? Number(maxEl.value) : 500;
+      const includePathsMatching = pathsEl && pathsEl.value ? pathsEl.value : null;
+      config.meta = {
+        enabled: true,
+        intervalSec,
+        includePathsMatching,
+        maxPathsPerPacket
+      };
+    }
+
     const jsonEl = document.getElementById("subscriptionJson") as HTMLTextAreaElement | null;
     if (jsonEl) {
       jsonEl.value = JSON.stringify(config, null, 2);
     }
   }
 
+  /** Populate the structured meta controls from a parsed `meta` block.
+   *  Passing undefined/null resets the controls to their empty state so the
+   *  UI always matches what the textarea / loaded config contains. */
+  populateMetaControls(meta: Record<string, unknown> | undefined | null) {
+    const metaEnabled = document.getElementById("metaEnabled") as HTMLInputElement | null;
+    if (metaEnabled) {
+      metaEnabled.checked = !!(meta && meta.enabled === true);
+    }
+    const metaIntervalSec = document.getElementById("metaIntervalSec") as HTMLInputElement | null;
+    if (metaIntervalSec) {
+      metaIntervalSec.value =
+        meta && typeof meta.intervalSec === "number" ? String(meta.intervalSec) : "";
+    }
+    const metaPathsRegex = document.getElementById("metaPathsRegex") as HTMLInputElement | null;
+    if (metaPathsRegex) {
+      metaPathsRegex.value =
+        meta && typeof meta.includePathsMatching === "string" ? meta.includePathsMatching : "";
+    }
+    const metaMaxPerPacket = document.getElementById("metaMaxPerPacket") as HTMLInputElement | null;
+    if (metaMaxPerPacket) {
+      metaMaxPerPacket.value =
+        meta && typeof meta.maxPathsPerPacket === "number" ? String(meta.maxPathsPerPacket) : "";
+    }
+  }
+
   syncFromJson() {
+    this.isHydratingFromTextarea = true;
     try {
       const jsonEl = document.getElementById("subscriptionJson") as HTMLTextAreaElement | null;
       if (!jsonEl) {
@@ -965,8 +1072,15 @@ class DataConnectorConfig {
           config.subscribe.forEach((sub: { path?: string }) => this.addPathItem(sub.path || ""));
         }
       }
+
+      // Keep the meta form in sync with the raw JSON editor. Without this,
+      // editing the textarea would leave the checkbox/interval/regex/max
+      // controls showing the previously-loaded values.
+      this.populateMetaControls(config.meta as Record<string, unknown> | undefined);
     } catch (error: unknown) {
       console.warn("Invalid JSON in editor:", (error as Error).message);
+    } finally {
+      this.isHydratingFromTextarea = false;
     }
   }
 
@@ -1020,6 +1134,18 @@ class DataConnectorConfig {
 
   async saveSubscription() {
     try {
+      // Flush any pending JSON-from-textarea debounce so the structured form
+      // controls (in particular the meta fieldset) reflect what's currently
+      // in the textarea before we read either side. Without this, a user
+      // editing the raw JSON and immediately clicking Save would lose their
+      // textarea-only edits — saveSubscription writes meta from the form
+      // controls, which would still be stale.
+      if (this.syncTimeout) {
+        clearTimeout(this.syncTimeout);
+        this.syncTimeout = null;
+        this.syncFromJson();
+      }
+
       const jsonText = (document.getElementById("subscriptionJson") as HTMLTextAreaElement).value;
       const config = JSON.parse(jsonText);
 
@@ -1028,6 +1154,31 @@ class DataConnectorConfig {
       }
       if (!config.subscribe || !Array.isArray(config.subscribe)) {
         throw new Error("Subscribe array is required");
+      }
+
+      // The structured meta controls are authoritative for the meta block on
+      // save. This lets users toggle the checkbox off (removing `meta` from
+      // the saved config) or edit the interval/regex/max fields even after a
+      // meta block has been saved before — the previous "textarea wins"
+      // policy made those UI controls one-time-only after first enable.
+      const metaEnabledEl = document.getElementById("metaEnabled") as HTMLInputElement | null;
+      if (metaEnabledEl && metaEnabledEl.checked) {
+        const intervalEl = document.getElementById("metaIntervalSec") as HTMLInputElement | null;
+        const pathsEl = document.getElementById("metaPathsRegex") as HTMLInputElement | null;
+        const maxEl = document.getElementById("metaMaxPerPacket") as HTMLInputElement | null;
+        const intervalSec = intervalEl && intervalEl.value ? Number(intervalEl.value) : 300;
+        const maxPathsPerPacket = maxEl && maxEl.value ? Number(maxEl.value) : 500;
+        const includePathsMatching = pathsEl && pathsEl.value ? pathsEl.value : null;
+        config.meta = {
+          enabled: true,
+          intervalSec,
+          includePathsMatching,
+          maxPathsPerPacket
+        };
+      } else if (config.meta !== undefined) {
+        // Checkbox unchecked — drop any previously-saved meta block so the
+        // runtime stops streaming metadata.
+        delete config.meta;
       }
 
       await this.saveConfig(
