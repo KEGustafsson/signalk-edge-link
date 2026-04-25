@@ -280,10 +280,16 @@ function createInstance(
    * Forward subscribed deltas as-is except for malformed value entries that
    * Signal K would reject on the receiver side. When `skipOwnData` is set on
    * a client connection, also drop value/meta entries this plugin publishes
-   * locally — the `networking.edgeLink.*` subtree and the v1 RTT paths
-   * `networking.modem.rtt` / `networking.modem.<instanceId>.rtt` — except
-   * RTT paths themselves (modem + edgeLink), which are always forwarded so
-   * link-health visibility survives skipOwnData on the receiver side.
+   * locally under the `networking.edgeLink.*` subtree, so the receiver's
+   * Signal K tree is not polluted with the sender's own edge-link metrics.
+   *
+   * Exception: RTT paths are always forwarded regardless of skipOwnData so
+   * the operator retains link-health visibility on both sides of the link.
+   * The carve-out covers both v2 edge-link RTT
+   * (`networking.edgeLink.rtt`, `networking.edgeLink.<instanceId>.rtt`) and
+   * the v1 modem RTT paths historically published by `publishRtt`
+   * (`networking.modem.rtt`, `networking.modem.<instanceId>.rtt`). See
+   * `stripOwnDataFromDelta` in `delta-sanitizer.ts` for the implementation.
    */
   function filterOutboundDelta(delta: Delta): Delta | null {
     const sanitized = sanitizeDeltaForSignalK(delta);
