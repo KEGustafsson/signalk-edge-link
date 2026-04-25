@@ -83,6 +83,26 @@ export function formatPrometheusMetrics(
   // Delta counters
   counter("deltas_sent_total", "Total deltas sent", metrics.deltasSent);
   counter("deltas_received_total", "Total deltas received", metrics.deltasReceived);
+  counter(
+    "data_packets_received_total",
+    "Total v2 data packets received",
+    metrics.dataPacketsReceived || 0
+  );
+  counter(
+    "rate_limited_packets_total",
+    "Total packets dropped by rate limiting",
+    metrics.rateLimitedPackets || 0
+  );
+  counter(
+    "dropped_delta_batches_total",
+    "Total delta batches dropped before send",
+    metrics.droppedDeltaBatches || 0
+  );
+  counter(
+    "dropped_deltas_total",
+    "Total deltas dropped before send",
+    metrics.droppedDeltaCount || 0
+  );
 
   // Error counters
   counter("udp_send_errors_total", "Total UDP send errors", metrics.udpSendErrors);
@@ -119,6 +139,41 @@ export function formatPrometheusMetrics(
   );
   counter("packets_out_total", "Total packets sent", metrics.bandwidth.packetsOut);
   counter("packets_in_total", "Total packets received", metrics.bandwidth.packetsIn);
+  counter(
+    "metadata_bytes_out_total",
+    "Total bytes sent as metadata packets",
+    metrics.bandwidth.metaBytesOut || 0
+  );
+  counter(
+    "metadata_bytes_in_total",
+    "Total bytes received as metadata packets",
+    metrics.bandwidth.metaBytesIn || 0
+  );
+  counter(
+    "metadata_packets_out_total",
+    "Total metadata packets sent",
+    metrics.bandwidth.metaPacketsOut || 0
+  );
+  counter(
+    "metadata_packets_in_total",
+    "Total metadata packets received",
+    metrics.bandwidth.metaPacketsIn || 0
+  );
+  counter(
+    "metadata_snapshots_sent_total",
+    "Total metadata snapshot envelopes sent",
+    metrics.bandwidth.metaSnapshotsSent || 0
+  );
+  counter(
+    "metadata_diffs_sent_total",
+    "Total metadata diff envelopes sent",
+    metrics.bandwidth.metaDiffsSent || 0
+  );
+  counter(
+    "metadata_rate_limited_packets_total",
+    "Total metadata packets dropped by rate limiting",
+    metrics.bandwidth.metaRateLimitedPackets || 0
+  );
   gauge(
     "bandwidth_rate_out_bytes",
     "Current outbound bandwidth (bytes/s)",

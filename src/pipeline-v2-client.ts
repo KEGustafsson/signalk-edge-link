@@ -16,6 +16,7 @@
 import CircularBuffer from "./CircularBuffer";
 import { encryptBinary } from "./crypto";
 import { encodeDelta, encodeMetaEntry } from "./pathDictionary";
+import { sanitizeDeltaPayloadForSignalK, type DeltaPayload } from "./delta-sanitizer";
 import {
   deltaBuffer,
   compressPayload,
@@ -177,13 +178,39 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
     return distance !== 0 && distance < 0x80000000;
   }
 
-  function recordPathLatencies(deltaPayload: Delta | Delta[]): void {
+  function isSingleDeltaPayload(deltaPayload: DeltaPayload): deltaPayload is Delta {
+    return !Array.isArray(deltaPayload) && Array.isArray((deltaPayload as Delta).updates);
+  }
+
+  function deltaPayloadItems(deltaPayload: DeltaPayload): Delta[] {
+    if (Array.isArray(deltaPayload)) {
+      return deltaPayload;
+    }
+    if (isSingleDeltaPayload(deltaPayload)) {
+      return [deltaPayload];
+    }
+    return Object.values(deltaPayload);
+  }
+
+  function encodeDeltaPayload(deltaPayload: DeltaPayload): DeltaPayload {
+    if (Array.isArray(deltaPayload)) {
+      return deltaPayload.map(encodeDelta);
+    }
+    if (isSingleDeltaPayload(deltaPayload)) {
+      return encodeDelta(deltaPayload);
+    }
+    return Object.fromEntries(
+      Object.entries(deltaPayload).map(([key, value]) => [key, encodeDelta(value)])
+    );
+  }
+
+  function recordPathLatencies(deltaPayload: DeltaPayload): void {
     if (!monitoringHooks || !monitoringHooks.pathLatencyTracker) {
       return;
     }
 
     const now = Date.now();
-    const deltas = Array.isArray(deltaPayload) ? deltaPayload : [deltaPayload];
+    const deltas = deltaPayloadItems(deltaPayload);
 
     for (const delta of deltas) {
       if (!delta || !Array.isArray(delta.updates)) {
@@ -345,24 +372,27 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         return;
       }
 
+      const sanitizedDelta = sanitizeDeltaPayloadForSignalK(delta);
+      if (sanitizedDelta === null) {
+        app.debug("sendDelta skipped: no valid Signal K values");
+        return;
+      }
+
       // Apply path dictionary encoding if enabled
       const processedDelta = state.options.usePathDictionary
-        ? Array.isArray(delta)
-          ? delta.map(encodeDelta)
-          : encodeDelta(delta)
-        : delta;
+        ? encodeDeltaPayload(sanitizedDelta)
+        : sanitizedDelta;
 
       // Serialize to buffer
       const serialized = deltaBuffer(processedDelta, state.options.useMsgpack);
 
       metrics.bandwidth.bytesOutRaw += serialized.length;
 
-      if (Array.isArray(delta)) {
-        delta.forEach((d) => trackPathStats(d, serialized.length / delta.length));
-      } else {
-        trackPathStats(delta, serialized.length);
+      const sanitizedItems = deltaPayloadItems(sanitizedDelta);
+      for (const item of sanitizedItems) {
+        trackPathStats(item, serialized.length / sanitizedItems.length);
       }
-      recordPathLatencies(delta);
+      recordPathLatencies(sanitizedDelta);
 
       // Compress
       const compressed = await compressPayload(serialized, state.options?.useMsgpack ?? false);
@@ -424,7 +454,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
 
       // Update smart batching model
       // Guard against empty array: treat 0 as 1 to avoid Infinity in bytesPerDelta.
-      const deltaCount = Array.isArray(delta) && delta.length > 0 ? delta.length : 1;
+      const deltaCount = Math.max(1, sanitizedItems.length);
       const bytesPerDelta = packet.length / deltaCount;
 
       state.avgBytesPerDelta =

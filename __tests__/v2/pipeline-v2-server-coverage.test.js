@@ -226,20 +226,12 @@ describe("Payload size limit (MAX_PARSE_PAYLOAD_SIZE = 512KB)", () => {
     const { pipeline, app } = makeServer();
     const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
 
-    // Create a payload that is > 512KB when decompressed.
-    // A large JSON array of repeated objects compresses well with Brotli.
-    const bigArray = [];
-    for (let i = 0; i < 5000; i++) {
-      bigArray.push({
-        context: "vessels.self",
-        updates: [{ values: [{ path: "navigation.speedOverGround." + "x".repeat(80), value: i }] }]
-      });
-    }
-    const json = JSON.stringify(bigArray);
-    // Verify it's actually > 512KB
-    expect(Buffer.byteLength(json)).toBeGreaterThan(512 * 1024);
+    // The server rejects before JSON parsing, so a compact repeated payload is
+    // enough to exercise the decompressed-size guard without slowing the suite.
+    const oversizedPayload = Buffer.alloc(512 * 1024 + 1, 0x20);
+    expect(oversizedPayload.length).toBeGreaterThan(512 * 1024);
 
-    const compressed = await brotliCompressAsync(Buffer.from(json));
+    const compressed = await brotliCompressAsync(oversizedPayload);
     const encrypted = encryptBinary(compressed, SECRET_KEY);
     const pkt = builder.buildDataPacket(encrypted, {
       compressed: true,
@@ -319,6 +311,52 @@ describe("Null and invalid delta handling", () => {
 
     // Empty updates array means handleMessage should not be called
     expect(app.handleMessage).not.toHaveBeenCalled();
+  });
+
+  test("skips deltas whose updates have no valid value paths", async () => {
+    const { pipeline, app } = makeServer();
+    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+
+    const payload = [
+      {
+        context: "vessels.self",
+        updates: [{ values: [null, { value: 1 }, { path: "", value: 2 }] }]
+      }
+    ];
+    const pkt = await makeEncryptedPacket(payload, builder);
+    await pipeline.receivePacket(pkt, SECRET_KEY, { address: "10.0.0.9", port: 8301 });
+
+    expect(app.handleMessage).not.toHaveBeenCalled();
+    expect(app.debug).toHaveBeenCalledWith(
+      expect.stringContaining("skipping delta with no valid Signal K values")
+    );
+  });
+
+  test("drops invalid value entries and forwards the remaining valid values", async () => {
+    const { pipeline, app } = makeServer();
+    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+
+    const payload = [
+      {
+        context: "vessels.self",
+        updates: [
+          {
+            values: [
+              { value: 1 },
+              { path: "navigation.speedOverGround", value: 5.1 },
+              { path: null, value: 2 }
+            ]
+          }
+        ]
+      }
+    ];
+    const pkt = await makeEncryptedPacket(payload, builder);
+    await pipeline.receivePacket(pkt, SECRET_KEY, { address: "10.0.0.9", port: 8302 });
+
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+    expect(app.handleMessage.mock.calls[0][1].updates[0].values).toEqual([
+      { path: "navigation.speedOverGround", value: 5.1 }
+    ]);
   });
 
   test("handles non-object payload gracefully", async () => {

@@ -451,6 +451,10 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       expect(data.stats.udpSendErrors).toBe(0);
       expect(data.stats.compressionErrors).toBe(0);
       expect(data.stats.encryptionErrors).toBe(0);
+      expect(data.stats).toHaveProperty("dataPacketsReceived");
+      expect(data.stats).toHaveProperty("rateLimitedPackets");
+      expect(data.stats).toHaveProperty("droppedDeltaBatches");
+      expect(data.stats).toHaveProperty("droppedDeltaCount");
     });
 
     test("bandwidth data includes formatted values for webapp display", async () => {
@@ -466,6 +470,14 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       expect(data.bandwidth.avgPacketSizeFormatted).toBeDefined();
       expect(data.bandwidth.packetsOut).toBe(1);
       expect(typeof data.bandwidth.compressionRatio).toBe("number");
+      expect(data.bandwidth.bytesInRawFormatted).toBeDefined();
+      expect(data.bandwidth.metaBytesOut).toBe(0);
+      expect(data.bandwidth.metaPacketsOut).toBe(0);
+      expect(data.bandwidth.metaBytesIn).toBe(0);
+      expect(data.bandwidth.metaPacketsIn).toBe(0);
+      expect(data.bandwidth.metaSnapshotsSent).toBe(0);
+      expect(data.bandwidth.metaDiffsSent).toBe(0);
+      expect(data.bandwidth.metaRateLimitedPackets).toBe(0);
       expect(data.bandwidth.history).toBeInstanceOf(Array);
     });
 

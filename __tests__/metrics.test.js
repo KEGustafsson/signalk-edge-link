@@ -42,8 +42,23 @@ describe("Metrics Reset", () => {
     metrics.naksSent = 2;
     metrics.duplicatePackets = 11;
     metrics.dataPacketsReceived = 99;
+    metrics.rateLimitedPackets = 4;
+    metrics.droppedDeltaBatches = 3;
+    metrics.droppedDeltaCount = 12;
+    metrics.bandwidth.metaBytesOut = 1234;
+    metrics.bandwidth.metaPacketsOut = 5;
+    metrics.bandwidth.metaBytesIn = 4321;
+    metrics.bandwidth.metaPacketsIn = 6;
+    metrics.bandwidth.metaSnapshotsSent = 2;
+    metrics.bandwidth.metaDiffsSent = 3;
+    metrics.bandwidth.metaRateLimitedPackets = 1;
     metrics.pathStats.set("navigation.position", { count: 1, bytes: 1, lastUpdate: Date.now() });
-    metrics.bandwidth.history.push({ timestamp: Date.now(), rateOut: 1, rateIn: 1, compressionRatio: 1 });
+    metrics.bandwidth.history.push({
+      timestamp: Date.now(),
+      rateOut: 1,
+      rateIn: 1,
+      compressionRatio: 1
+    });
 
     resetMetrics();
 
@@ -56,10 +71,19 @@ describe("Metrics Reset", () => {
     expect(metrics.naksSent).toBe(0);
     expect(metrics.duplicatePackets).toBe(0);
     expect(metrics.dataPacketsReceived).toBe(0);
+    expect(metrics.rateLimitedPackets).toBe(0);
+    expect(metrics.droppedDeltaBatches).toBe(0);
+    expect(metrics.droppedDeltaCount).toBe(0);
+    expect(metrics.bandwidth.metaBytesOut).toBe(0);
+    expect(metrics.bandwidth.metaPacketsOut).toBe(0);
+    expect(metrics.bandwidth.metaBytesIn).toBe(0);
+    expect(metrics.bandwidth.metaPacketsIn).toBe(0);
+    expect(metrics.bandwidth.metaSnapshotsSent).toBe(0);
+    expect(metrics.bandwidth.metaDiffsSent).toBe(0);
+    expect(metrics.bandwidth.metaRateLimitedPackets).toBe(0);
     expect(metrics.pathStats.size).toBe(0);
     expect(metrics.bandwidth.history.length).toBe(0);
   });
-
 
   test("tracks categorized recent errors and resets them", () => {
     const api = createMetrics();
@@ -73,7 +97,9 @@ describe("Metrics Reset", () => {
     expect(metrics.errorCounts.udpSend).toBe(1);
     expect(metrics.errorCounts.general).toBe(1);
     expect(metrics.recentErrors.length).toBe(3);
-    expect(metrics.recentErrors[2]).toEqual(expect.objectContaining({ category: "general", message: "unknown failed" }));
+    expect(metrics.recentErrors[2]).toEqual(
+      expect.objectContaining({ category: "general", message: "unknown failed" })
+    );
 
     resetMetrics();
 
@@ -91,11 +117,16 @@ describe("Metrics Reset", () => {
       metrics.pathStats.set(`test.path.${i}`, { count: 1, bytes: 1, lastUpdate: i });
     }
 
-    trackPathStats({
-      updates: [{
-        values: [{ path: "navigation.newPath", value: 1 }]
-      }]
-    }, 100);
+    trackPathStats(
+      {
+        updates: [
+          {
+            values: [{ path: "navigation.newPath", value: 1 }]
+          }
+        ]
+      },
+      100
+    );
 
     expect(metrics.pathStats.size).toBe(PATH_STATS_MAX_SIZE);
     expect(metrics.pathStats.has("navigation.newPath")).toBe(true);

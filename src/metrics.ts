@@ -66,6 +66,10 @@ function createMetrics(): MetricsApi {
     lastError: null,
     lastErrorTime: null,
     packetLoss: 0,
+    dataPacketsReceived: 0,
+    rateLimitedPackets: 0,
+    droppedDeltaBatches: 0,
+    droppedDeltaCount: 0,
     remoteNetworkQuality: {
       rtt: 0,
       jitter: 0,
@@ -89,6 +93,13 @@ function createMetrics(): MetricsApi {
       rateOut: 0,
       rateIn: 0,
       compressionRatio: 0,
+      metaBytesOut: 0,
+      metaPacketsOut: 0,
+      metaBytesIn: 0,
+      metaPacketsIn: 0,
+      metaSnapshotsSent: 0,
+      metaDiffsSent: 0,
+      metaRateLimitedPackets: 0,
       // Explicit generic parameter so the type matches BandwidthMetrics.history
       // and removes the need for the `as any` cast on the whole object.
       history: new CircularBuffer<{
@@ -195,7 +206,10 @@ function createMetrics(): MetricsApi {
       acksSent: 0,
       naksSent: 0,
       duplicatePackets: 0,
-      dataPacketsReceived: 0
+      dataPacketsReceived: 0,
+      rateLimitedPackets: 0,
+      droppedDeltaBatches: 0,
+      droppedDeltaCount: 0
     });
     Object.assign(metrics.bandwidth, {
       bytesOut: 0,
@@ -210,6 +224,13 @@ function createMetrics(): MetricsApi {
       rateOut: 0,
       rateIn: 0,
       compressionRatio: 0,
+      metaBytesOut: 0,
+      metaPacketsOut: 0,
+      metaBytesIn: 0,
+      metaPacketsIn: 0,
+      metaSnapshotsSent: 0,
+      metaDiffsSent: 0,
+      metaRateLimitedPackets: 0,
       history: new CircularBuffer(BANDWIDTH_HISTORY_MAX)
     });
     metrics.pathStats.clear();

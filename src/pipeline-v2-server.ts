@@ -19,6 +19,7 @@ import zlib from "node:zlib";
 import * as msgpack from "@msgpack/msgpack";
 import { decryptBinary } from "./crypto";
 import { decodeDelta, decodeMetaEntry } from "./pathDictionary";
+import { sanitizeDeltaForSignalK } from "./delta-sanitizer";
 import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "./packet";
 import * as dgram from "dgram";
 import { SequenceTracker } from "./sequence";
@@ -1012,6 +1013,13 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
           app.debug(`v2 skipping null delta after decoding at index ${i}`);
           continue;
         }
+
+        const sanitizedDelta = sanitizeDeltaForSignalK(deltaMessage);
+        if (sanitizedDelta === null) {
+          app.debug(`v2 skipping delta with no valid Signal K values at index ${i}`);
+          continue;
+        }
+        deltaMessage = sanitizedDelta;
 
         _ingestRemoteTelemetry(deltaMessage);
         if (!Array.isArray(deltaMessage.updates) || deltaMessage.updates.length === 0) {

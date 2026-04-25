@@ -1348,6 +1348,17 @@ describe("status and error summary routes", () => {
     bundle.metricsApi.metrics.recentErrors = [
       { category: "udpSend", message: "socket down", timestamp: 42 }
     ];
+    bundle.metricsApi.metrics.dataPacketsReceived = 8;
+    bundle.metricsApi.metrics.rateLimitedPackets = 2;
+    bundle.metricsApi.metrics.droppedDeltaBatches = 1;
+    bundle.metricsApi.metrics.droppedDeltaCount = 12;
+    bundle.metricsApi.metrics.bandwidth.metaBytesOut = 100;
+    bundle.metricsApi.metrics.bandwidth.metaPacketsOut = 3;
+    bundle.metricsApi.metrics.bandwidth.metaBytesIn = 200;
+    bundle.metricsApi.metrics.bandwidth.metaPacketsIn = 4;
+    bundle.metricsApi.metrics.bandwidth.metaSnapshotsSent = 1;
+    bundle.metricsApi.metrics.bandwidth.metaDiffsSent = 2;
+    bundle.metricsApi.metrics.bandwidth.metaRateLimitedPackets = 1;
 
     const instanceRegistry = {
       get: jest.fn(() => bundle),
@@ -1368,7 +1379,21 @@ describe("status and error summary routes", () => {
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
         stats: expect.objectContaining({
-          errorCounts: { general: 2, udpSend: 1 }
+          errorCounts: { general: 2, udpSend: 1 },
+          dataPacketsReceived: 8,
+          rateLimitedPackets: 2,
+          droppedDeltaBatches: 1,
+          droppedDeltaCount: 12
+        }),
+        bandwidth: expect.objectContaining({
+          bytesInRawFormatted: "0 B",
+          metaBytesOut: 100,
+          metaPacketsOut: 3,
+          metaBytesIn: 200,
+          metaPacketsIn: 4,
+          metaSnapshotsSent: 1,
+          metaDiffsSent: 2,
+          metaRateLimitedPackets: 1
         }),
         recentErrors: [{ category: "udpSend", message: "socket down", timestamp: 42 }]
       })

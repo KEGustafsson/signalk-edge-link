@@ -12,6 +12,24 @@ const {
 } = require("../lib/config-watcher");
 const { FILE_WATCH_DEBOUNCE_DELAY } = require("../lib/constants");
 
+async function waitForExpect(assertion, timeoutMs = FILE_WATCH_DEBOUNCE_DELAY + 1000) {
+  const start = Date.now();
+  let lastError;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      assertion();
+      return;
+    } catch (err) {
+      lastError = err;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  if (lastError) {
+    throw lastError;
+  }
+  assertion();
+}
+
 describe("createDebouncedConfigHandler", () => {
   let tmpDir;
 
@@ -45,13 +63,14 @@ describe("createDebouncedConfigHandler", () => {
 
     await fs.promises.writeFile(configPath, "{ invalid", "utf-8");
     handleChange();
-    await new Promise((resolve) => setTimeout(resolve, FILE_WATCH_DEBOUNCE_DELAY + 50));
 
-    expect(processConfig).not.toHaveBeenCalled();
-    expect(state.configContentHashes.Subscription).toBeUndefined();
-    expect(app.error).toHaveBeenCalledWith(
-      expect.stringContaining("Error handling Subscription change")
-    );
+    await waitForExpect(() => {
+      expect(processConfig).not.toHaveBeenCalled();
+      expect(state.configContentHashes.Subscription).toBeUndefined();
+      expect(app.error).toHaveBeenCalledWith(
+        expect.stringContaining("Error handling Subscription change")
+      );
+    });
 
     await fs.promises.writeFile(
       configPath,
@@ -59,11 +78,12 @@ describe("createDebouncedConfigHandler", () => {
       "utf-8"
     );
     handleChange();
-    await new Promise((resolve) => setTimeout(resolve, FILE_WATCH_DEBOUNCE_DELAY + 50));
 
-    expect(processConfig).toHaveBeenCalledTimes(1);
-    expect(processConfig).toHaveBeenCalledWith({ context: "*", subscribe: [{ path: "*" }] });
-    expect(state.configContentHashes.Subscription).toMatch(/^[a-f0-9]+$/);
+    await waitForExpect(() => {
+      expect(processConfig).toHaveBeenCalledTimes(1);
+      expect(processConfig).toHaveBeenCalledWith({ context: "*", subscribe: [{ path: "*" }] });
+      expect(state.configContentHashes.Subscription).toMatch(/^[a-f0-9]+$/);
+    });
   });
 
   test("skips processing when content hash is unchanged on repeated events", async () => {
@@ -87,14 +107,16 @@ describe("createDebouncedConfigHandler", () => {
     });
 
     handleChange();
-    await new Promise((r) => setTimeout(r, FILE_WATCH_DEBOUNCE_DELAY + 50));
-    expect(processConfig).toHaveBeenCalledTimes(1);
+    await waitForExpect(() => {
+      expect(processConfig).toHaveBeenCalledTimes(1);
+    });
 
     handleChange();
-    await new Promise((r) => setTimeout(r, FILE_WATCH_DEBOUNCE_DELAY + 50));
 
-    expect(processConfig).toHaveBeenCalledTimes(1);
-    expect(app.debug).toHaveBeenCalledWith(expect.stringContaining("unchanged"));
+    await waitForExpect(() => {
+      expect(processConfig).toHaveBeenCalledTimes(1);
+      expect(app.debug).toHaveBeenCalledWith(expect.stringContaining("unchanged"));
+    });
   });
 
   test("uses readFallback when the file is missing", async () => {
@@ -115,10 +137,11 @@ describe("createDebouncedConfigHandler", () => {
     });
 
     handleChange();
-    await new Promise((r) => setTimeout(r, FILE_WATCH_DEBOUNCE_DELAY + 50));
 
-    expect(processConfig).toHaveBeenCalledWith(fallback);
-    expect(app.error).not.toHaveBeenCalled();
+    await waitForExpect(() => {
+      expect(processConfig).toHaveBeenCalledWith(fallback);
+      expect(app.error).not.toHaveBeenCalled();
+    });
   });
 
   test("does not invoke processConfig once state.stopped is set during debounce", async () => {
@@ -164,10 +187,11 @@ describe("createDebouncedConfigHandler", () => {
     });
 
     handleChange();
-    await new Promise((r) => setTimeout(r, FILE_WATCH_DEBOUNCE_DELAY + 50));
 
-    expect(processConfig).toHaveBeenCalledTimes(1);
-    expect(state.configContentHashes.Late).toBeUndefined();
+    await waitForExpect(() => {
+      expect(processConfig).toHaveBeenCalledTimes(1);
+      expect(state.configContentHashes.Late).toBeUndefined();
+    });
   });
 
   test("suppresses error logging when stopped before the rejection is surfaced", async () => {

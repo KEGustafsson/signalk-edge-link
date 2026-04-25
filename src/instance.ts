@@ -59,6 +59,7 @@ import {
   parseMetaConfig as parseMetaConfigShared,
   resolveSelfContext
 } from "./metadata";
+import { sanitizeDeltaForSignalK } from "./delta-sanitizer";
 
 const DELTA_SEND_MAX_RETRIES = 1;
 const DELTA_SEND_RETRY_BACKOFF_MS = 100;
@@ -276,14 +277,11 @@ function createInstance(
   });
 
   /**
-   * Outbound filtering is intentionally disabled:
-   * forward all subscribed deltas as-is.
+   * Forward subscribed deltas as-is except for malformed value entries that
+   * Signal K would reject on the receiver side.
    */
   function filterOutboundDelta(delta: Delta): Delta | null {
-    if (!delta || !Array.isArray(delta.updates) || delta.updates.length === 0) {
-      return null;
-    }
-    return delta;
+    return sanitizeDeltaForSignalK(delta);
   }
 
   // ── Metadata streaming ────────────────────────────────────────────────────

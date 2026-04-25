@@ -1284,6 +1284,10 @@ class DataConnectorConfig {
 
     const cryptoErrors = (stats.errorCounts && stats.errorCounts.crypto) || 0;
     const malformedPackets = stats.malformedPackets || 0;
+    const dataPacketsReceived = stats.dataPacketsReceived || 0;
+    const rateLimitedPackets = stats.rateLimitedPackets || 0;
+    const droppedDeltaBatches = stats.droppedDeltaBatches || 0;
+    const droppedDeltaCount = stats.droppedDeltaCount || 0;
 
     const hasErrors =
       stats.udpSendErrors > 0 ||
@@ -1291,7 +1295,9 @@ class DataConnectorConfig {
       stats.encryptionErrors > 0 ||
       stats.subscriptionErrors > 0 ||
       cryptoErrors > 0 ||
-      malformedPackets > 0;
+      malformedPackets > 0 ||
+      rateLimitedPackets > 0 ||
+      droppedDeltaCount > 0;
 
     const protocolVersion = metrics.protocolVersion || 1;
     const protocolLabel = protocolVersion >= 2 ? `v${protocolVersion}` : "v1";
@@ -1320,10 +1326,34 @@ class DataConnectorConfig {
       isClient
         ? renderStatItem("Deltas Sent", stats.deltasSent.toLocaleString())
         : renderStatItem("Deltas Received", stats.deltasReceived.toLocaleString()),
+      !isClient
+        ? renderStatItem("Data Packets Received", dataPacketsReceived.toLocaleString())
+        : "",
       isClient
         ? renderStatItem("UDP Send Errors", stats.udpSendErrors, stats.udpSendErrors > 0)
         : "",
       isClient ? renderStatItem("UDP Retries", stats.udpRetries) : "",
+      !isClient
+        ? renderStatItem(
+            "Rate-Limited Packets",
+            rateLimitedPackets.toLocaleString(),
+            rateLimitedPackets > 0
+          )
+        : "",
+      isClient
+        ? renderStatItem(
+            "Dropped Delta Batches",
+            droppedDeltaBatches.toLocaleString(),
+            droppedDeltaBatches > 0
+          )
+        : "",
+      isClient
+        ? renderStatItem(
+            "Dropped Deltas",
+            droppedDeltaCount.toLocaleString(),
+            droppedDeltaCount > 0
+          )
+        : "",
       renderStatItem("Compression Errors", stats.compressionErrors, stats.compressionErrors > 0),
       renderStatItem("Encryption Errors", stats.encryptionErrors, stats.encryptionErrors > 0),
       subscriptionErrorStat,
@@ -1475,6 +1505,11 @@ class DataConnectorConfig {
 
     const rttDisplay = nq.rtt !== undefined ? nq.rtt + " ms" : "N/A";
     const jitterDisplay = nq.jitter !== undefined ? nq.jitter + " ms" : "N/A";
+    const packetLoss = Number.isFinite(nq.packetLoss) ? nq.packetLoss : 0;
+    const retransmitRate = Number.isFinite(nq.retransmitRate) ? nq.retransmitRate : 0;
+    const packetLossDisplay = this.formatRatioPercent(packetLoss);
+    const retransmitRateDisplay = this.formatRatioPercent(retransmitRate);
+    const dataSourceDisplay = nq.dataSource || "local";
 
     let nqHtml = `
       <div class="network-quality-dashboard">
@@ -1486,12 +1521,25 @@ class DataConnectorConfig {
           <div class="nq-key-metrics">
             ${renderMetricItem("RTT", rttDisplay, nq.rtt > 500 ? "error" : nq.rtt > 200 ? "warning" : "")}
             ${renderMetricItem("Jitter", jitterDisplay, nq.jitter > 100 ? "error" : nq.jitter > 50 ? "warning" : "")}
+            ${renderMetricItem(
+              "Packet Loss",
+              packetLossDisplay,
+              packetLoss > 0.1 ? "error" : packetLoss > 0.03 ? "warning" : ""
+            )}
           </div>
         </div>
 
         <div class="nq-details">
           <h5>Reliability Statistics</h5>
           <div class="stats-grid">
+            ${renderStatItem("Data Source", dataSourceDisplay)}
+            ${nq.activeLink ? renderStatItem("Active Link", nq.activeLink) : ""}
+            ${renderStatItem("Retransmit Rate", retransmitRateDisplay, retransmitRate > 0.1)}
+            ${
+              nq.lastRemoteUpdate
+                ? renderStatItem("Last Remote Update", this.formatTimestampAge(nq.lastRemoteUpdate))
+                : ""
+            }
     `;
 
     if (isClient) {
@@ -1526,8 +1574,16 @@ class DataConnectorConfig {
 
     const savedBytes = isClient ? bw.bytesOutRaw - bw.bytesOut : bw.bytesInRaw - bw.bytesIn;
     const savedFormatted = this.formatBytes(savedBytes > 0 ? savedBytes : 0);
+    const metaBytesOut = bw.metaBytesOut || 0;
+    const metaBytesIn = bw.metaBytesIn || 0;
+    const metaPacketsOut = bw.metaPacketsOut || 0;
+    const metaPacketsIn = bw.metaPacketsIn || 0;
+    const metaSnapshotsSent = bw.metaSnapshotsSent || 0;
+    const metaDiffsSent = bw.metaDiffsSent || 0;
+    const metaRateLimitedPackets = bw.metaRateLimitedPackets || 0;
 
     let bandwidthStats: string[];
+    let metadataStats: string[];
     if (isClient) {
       bandwidthStats = [
         renderBwStat("Total Sent (Compressed)", bw.bytesOutFormatted),
@@ -1535,12 +1591,26 @@ class DataConnectorConfig {
         renderBwStat("Bandwidth Saved", savedFormatted, true, true),
         renderBwStat("Packets Sent", bw.packetsOut.toLocaleString())
       ];
+      metadataStats = [
+        renderBwStat("Metadata Sent", bw.metaBytesOutFormatted || this.formatBytes(metaBytesOut)),
+        renderBwStat("Metadata Packets Sent", metaPacketsOut.toLocaleString()),
+        renderBwStat("Metadata Snapshots Sent", metaSnapshotsSent.toLocaleString()),
+        renderBwStat("Metadata Diffs Sent", metaDiffsSent.toLocaleString())
+      ];
     } else {
       bandwidthStats = [
         renderBwStat("Total Received (Compressed)", bw.bytesInFormatted),
-        renderBwStat("Total Raw (After Decompression)", this.formatBytes(bw.bytesInRaw || 0)),
+        renderBwStat(
+          "Total Raw (After Decompression)",
+          bw.bytesInRawFormatted || this.formatBytes(bw.bytesInRaw || 0)
+        ),
         renderBwStat("Bandwidth Saved", savedFormatted, true, true),
         renderBwStat("Packets Received", bw.packetsIn.toLocaleString())
+      ];
+      metadataStats = [
+        renderBwStat("Metadata Received", bw.metaBytesInFormatted || this.formatBytes(metaBytesIn)),
+        renderBwStat("Metadata Packets Received", metaPacketsIn.toLocaleString()),
+        renderBwStat("Metadata Rate-Limited", metaRateLimitedPackets.toLocaleString())
       ];
     }
 
@@ -1564,6 +1634,11 @@ class DataConnectorConfig {
         <div class="bandwidth-details">
           <h5>Bandwidth Details</h5>
           <div class="bandwidth-grid">${bandwidthStats.join("")}</div>
+        </div>
+
+        <div class="bandwidth-details metadata-details">
+          <h5>Metadata Traffic</h5>
+          <div class="bandwidth-grid">${metadataStats.join("")}</div>
         </div>
 
         ${this.renderBandwidthChart(bw.history, isClient)}
@@ -2177,6 +2252,30 @@ class DataConnectorConfig {
     const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  }
+
+  formatRatioPercent(value: number): string {
+    if (!Number.isFinite(value) || value <= 0) {
+      return "0.0%";
+    }
+    return (value * 100).toFixed(1) + "%";
+  }
+
+  formatTimestampAge(timestamp: number): string {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+      return "N/A";
+    }
+    const ageMs = Math.max(0, Date.now() - timestamp);
+    if (ageMs < 1000) {
+      return "just now";
+    }
+    if (ageMs < 60000) {
+      return `${Math.floor(ageMs / 1000)}s ago`;
+    }
+    if (ageMs < 3600000) {
+      return `${Math.floor(ageMs / 60000)}m ago`;
+    }
+    return `${Math.floor(ageMs / 3600000)}h ago`;
   }
 
   escapeHtml(text: string): string {

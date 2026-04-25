@@ -318,6 +318,14 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       return localVal ?? 0;
     }
 
+    const bondingManager =
+      state.pipeline && state.pipeline.getBondingManager
+        ? state.pipeline.getBondingManager()
+        : null;
+    const localActiveLink = bondingManager
+      ? bondingManager.getActiveLinkName() || "primary"
+      : "primary";
+
     return {
       rtt: selectMetric(remote.rtt, metrics.rtt),
       jitter: selectMetric(remote.jitter, metrics.jitter),
@@ -325,7 +333,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       retransmissions: selectMetric(remote.retransmissions, metrics.retransmissions),
       queueDepth: selectMetric(remote.queueDepth, metrics.queueDepth),
       retransmitRate: selectMetric(remote.retransmitRate, clientRetransmitRate),
-      activeLink: hasFreshRemote ? (remote.activeLink ?? "primary") : "primary",
+      activeLink: hasFreshRemote ? (remote.activeLink ?? "primary") : localActiveLink,
       dataSource: hasFreshRemote ? "remote-client" : "local",
       lastUpdate: hasFreshRemote ? remote.lastUpdate : 0
     };
@@ -373,6 +381,10 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         subscriptionErrors: metrics.subscriptionErrors,
         duplicatePackets: metrics.duplicatePackets || 0,
         malformedPackets: metrics.malformedPackets || 0,
+        dataPacketsReceived: metrics.dataPacketsReceived || 0,
+        rateLimitedPackets: metrics.rateLimitedPackets || 0,
+        droppedDeltaBatches: metrics.droppedDeltaBatches || 0,
+        droppedDeltaCount: metrics.droppedDeltaCount || 0,
         errorCounts: { ...(metrics.errorCounts || {}) }
       },
       status: {
@@ -385,6 +397,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
           : metrics.bandwidth.packetsOut;
         const bytes = state.isServerMode ? metrics.bandwidth.bytesIn : metrics.bandwidth.bytesOut;
         const avgPacketSize = packets > 0 ? Math.round(bytes / packets) : 0;
+        const metaBytesOut = metrics.bandwidth.metaBytesOut || 0;
+        const metaBytesIn = metrics.bandwidth.metaBytesIn || 0;
 
         return {
           bytesOut: metrics.bandwidth.bytesOut,
@@ -394,6 +408,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
           bytesOutFormatted: formatBytes(metrics.bandwidth.bytesOut),
           bytesInFormatted: formatBytes(metrics.bandwidth.bytesIn),
           bytesOutRawFormatted: formatBytes(metrics.bandwidth.bytesOutRaw),
+          bytesInRawFormatted: formatBytes(metrics.bandwidth.bytesInRaw),
           packetsOut: metrics.bandwidth.packetsOut,
           packetsIn: metrics.bandwidth.packetsIn,
           rateOut: metrics.bandwidth.rateOut,
@@ -403,6 +418,15 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
           compressionRatio: metrics.bandwidth.compressionRatio,
           avgPacketSize,
           avgPacketSizeFormatted: avgPacketSize > 0 ? formatBytes(avgPacketSize) : "0 B",
+          metaBytesOut,
+          metaBytesIn,
+          metaBytesOutFormatted: formatBytes(metaBytesOut),
+          metaBytesInFormatted: formatBytes(metaBytesIn),
+          metaPacketsOut: metrics.bandwidth.metaPacketsOut || 0,
+          metaPacketsIn: metrics.bandwidth.metaPacketsIn || 0,
+          metaSnapshotsSent: metrics.bandwidth.metaSnapshotsSent || 0,
+          metaDiffsSent: metrics.bandwidth.metaDiffsSent || 0,
+          metaRateLimitedPackets: metrics.bandwidth.metaRateLimitedPackets || 0,
           history: metrics.bandwidth.history.toArray().slice(-30)
         };
       })(),
@@ -425,15 +449,14 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
           packetLoss: effectiveNetwork.packetLoss,
           retransmissions: effectiveNetwork.retransmissions,
           queueDepth: effectiveNetwork.queueDepth,
+          retransmitRate: effectiveNetwork.retransmitRate,
           acksSent: metrics.acksSent || 0,
           naksSent: metrics.naksSent || 0,
+          activeLink: effectiveNetwork.activeLink,
           dataSource: effectiveNetwork.dataSource
         };
         if (state.isServerMode && effectiveNetwork.lastUpdate > 0) {
           networkData.lastRemoteUpdate = effectiveNetwork.lastUpdate;
-        }
-        if (state.isServerMode) {
-          networkData.activeLink = effectiveNetwork.activeLink;
         }
 
         const publisher = getActiveMetricsPublisher(state);

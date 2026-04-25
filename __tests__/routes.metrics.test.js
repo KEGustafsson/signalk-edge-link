@@ -174,6 +174,7 @@ describe("GET /network-metrics", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toHaveProperty("rtt");
     expect(res.body).toHaveProperty("jitter");
+    expect(res.body).toHaveProperty("retransmitRate");
     expect(res.body).toHaveProperty("timestamp");
   });
 

@@ -430,7 +430,9 @@ function transformDelta(
       for (let j = 0; j < values.length; j++) {
         const value = values[j];
 
-        if (shouldTransform(value)) {
+        if (!value || typeof value !== "object") {
+          transformedValues[j] = value;
+        } else if (shouldTransform(value)) {
           const transformedPath = pathTransform(value.path);
           transformedValues[j] = { ...value, path: transformedPath as string };
         } else {

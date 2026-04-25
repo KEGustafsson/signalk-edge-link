@@ -44,6 +44,7 @@ function register(router: Router, ctx: RouteContext): void {
         packetLoss: effectiveNetwork.packetLoss,
         retransmissions: effectiveNetwork.retransmissions,
         queueDepth: effectiveNetwork.queueDepth,
+        retransmitRate: effectiveNetwork.retransmitRate,
         acksSent: metrics.acksSent || 0,
         naksSent: metrics.naksSent || 0,
         activeLink: effectiveNetwork.activeLink,

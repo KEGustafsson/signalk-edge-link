@@ -3,6 +3,7 @@
 import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary, decryptBinary } from "./crypto";
 import { encodeDelta, decodeDelta, encodeMetaEntry, decodeMetaEntry } from "./pathDictionary";
+import { sanitizeDeltaForSignalK } from "./delta-sanitizer";
 import {
   deltaBuffer,
   compressPayload,
@@ -350,6 +351,12 @@ function createPipeline(
         // Skip if decoding returned null
         if (deltaMessage === null || deltaMessage === undefined) {
           app.debug(`Skipping null delta message after decoding at index ${i}`);
+          continue;
+        }
+
+        deltaMessage = sanitizeDeltaForSignalK(deltaMessage);
+        if (deltaMessage === null) {
+          app.debug(`Skipping delta with no valid Signal K values at index ${i}`);
           continue;
         }
 

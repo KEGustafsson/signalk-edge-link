@@ -30,6 +30,10 @@ describe("Prometheus Metrics Exporter", () => {
       queueDepth: 5,
       acksSent: 900,
       naksSent: 10,
+      dataPacketsReceived: 875,
+      rateLimitedPackets: 4,
+      droppedDeltaBatches: 2,
+      droppedDeltaCount: 9,
       bandwidth: {
         bytesOut: 500000,
         bytesIn: 200000,
@@ -40,6 +44,13 @@ describe("Prometheus Metrics Exporter", () => {
         rateOut: 8000,
         rateIn: 3000,
         compressionRatio: 50,
+        metaBytesOut: 12345,
+        metaBytesIn: 6789,
+        metaPacketsOut: 12,
+        metaPacketsIn: 8,
+        metaSnapshotsSent: 3,
+        metaDiffsSent: 6,
+        metaRateLimitedPackets: 1,
         history: new CircularBuffer(60)
       },
       smartBatching: {
@@ -80,6 +91,10 @@ describe("Prometheus Metrics Exporter", () => {
       expect(text).toContain("1000");
       expect(text).toContain("signalk_edge_link_deltas_received_total");
       expect(text).toContain("950");
+      expect(text).toContain("signalk_edge_link_data_packets_received_total");
+      expect(text).toContain("signalk_edge_link_rate_limited_packets_total");
+      expect(text).toContain("signalk_edge_link_dropped_delta_batches_total");
+      expect(text).toContain("signalk_edge_link_dropped_deltas_total");
     });
 
     test("includes error counters", () => {
@@ -88,7 +103,6 @@ describe("Prometheus Metrics Exporter", () => {
       expect(text).toContain("signalk_edge_link_compression_errors_total");
       expect(text).toContain("signalk_edge_link_encryption_errors_total");
     });
-
 
     test("includes malformed packet counter", () => {
       const text = formatPrometheusMetrics(metrics, state);
@@ -109,6 +123,13 @@ describe("Prometheus Metrics Exporter", () => {
       expect(text).toContain("signalk_edge_link_bytes_out_total");
       expect(text).toContain("signalk_edge_link_bandwidth_rate_out_bytes");
       expect(text).toContain("signalk_edge_link_compression_ratio_percent");
+      expect(text).toContain("signalk_edge_link_metadata_bytes_out_total");
+      expect(text).toContain("signalk_edge_link_metadata_bytes_in_total");
+      expect(text).toContain("signalk_edge_link_metadata_packets_out_total");
+      expect(text).toContain("signalk_edge_link_metadata_packets_in_total");
+      expect(text).toContain("signalk_edge_link_metadata_snapshots_sent_total");
+      expect(text).toContain("signalk_edge_link_metadata_diffs_sent_total");
+      expect(text).toContain("signalk_edge_link_metadata_rate_limited_packets_total");
     });
 
     test("includes network quality metrics", () => {
@@ -213,8 +234,12 @@ describe("Prometheus Metrics Exporter", () => {
       };
       const text = formatPrometheusMetrics(metrics, state, extra);
       const lines = text.split("\n");
-      const typeLines = lines.filter((line) => line.startsWith("# TYPE signalk_edge_link_bonding_link_status "));
-      const helpLines = lines.filter((line) => line.startsWith("# HELP signalk_edge_link_bonding_link_status "));
+      const typeLines = lines.filter((line) =>
+        line.startsWith("# TYPE signalk_edge_link_bonding_link_status ")
+      );
+      const helpLines = lines.filter((line) =>
+        line.startsWith("# HELP signalk_edge_link_bonding_link_status ")
+      );
       expect(typeLines).toHaveLength(1);
       expect(helpLines).toHaveLength(1);
     });
@@ -245,14 +270,14 @@ describe("Prometheus Metrics Exporter", () => {
     });
 
     test("escapes quotes, backslashes, and newlines in label values", () => {
-      const result = formatLabels({ source: "a\"b\\c\nd" });
+      const result = formatLabels({ source: 'a"b\\c\nd' });
       expect(result).toBe('{source="a\\"b\\\\c\\nd"}');
     });
   });
 
   describe("escapeLabelValue", () => {
     test("returns escaped Prometheus-safe label value", () => {
-      expect(escapeLabelValue("x\"y\\z\nq")).toBe("x\\\"y\\\\z\\nq");
+      expect(escapeLabelValue('x"y\\z\nq')).toBe('x\\"y\\\\z\\nq');
     });
   });
 
@@ -307,7 +332,7 @@ describe("Prometheus Metrics Exporter", () => {
       const lines = text.split("\n");
 
       // Find counter types
-      const counterLines = lines.filter(l => l.includes("# TYPE") && l.includes("counter"));
+      const counterLines = lines.filter((l) => l.includes("# TYPE") && l.includes("counter"));
       expect(counterLines.length).toBeGreaterThan(0);
 
       // Verify counter metrics end with _total
@@ -321,7 +346,7 @@ describe("Prometheus Metrics Exporter", () => {
       const text = formatPrometheusMetrics(metrics, state);
       const lines = text.split("\n");
 
-      const gaugeLines = lines.filter(l => l.includes("# TYPE") && l.includes("gauge"));
+      const gaugeLines = lines.filter((l) => l.includes("# TYPE") && l.includes("gauge"));
       expect(gaugeLines.length).toBeGreaterThan(0);
     });
 
@@ -329,8 +354,8 @@ describe("Prometheus Metrics Exporter", () => {
       const text = formatPrometheusMetrics(metrics, state);
       const lines = text.split("\n");
 
-      const helpLines = lines.filter(l => l.startsWith("# HELP"));
-      const typeLines = lines.filter(l => l.startsWith("# TYPE"));
+      const helpLines = lines.filter((l) => l.startsWith("# HELP"));
+      const typeLines = lines.filter((l) => l.startsWith("# TYPE"));
       expect(helpLines.length).toBe(typeLines.length);
     });
   });
