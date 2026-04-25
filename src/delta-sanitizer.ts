@@ -9,15 +9,31 @@ export type DeltaPayload = Delta | Delta[] | Record<string, Delta>;
  * `skipOwnData` option is set on a client connection, value entries with
  * matching paths are stripped before the delta is forwarded over the link so
  * the receiver's Signal K tree is not polluted with the sender's own
- * edge-link metrics.
+ * edge-link metrics. The `networking.edgeLink.*` subtree is owned entirely
+ * by this plugin so the whole prefix is matched.
  */
-const OWN_DATA_PATH_PREFIXES = ["networking.edgeLink.", "networking.modem."];
+const OWN_DATA_PATH_PREFIXES = ["networking.edgeLink."];
+
+/**
+ * Match the v1 RTT path published by `publishRtt` in instance.ts —
+ * `networking.modem.rtt` (un-namespaced) and
+ * `networking.modem.<instanceId>.rtt`. The broader `networking.modem.`
+ * subtree is shared with other providers (e.g. signalStrength, txBytes), so
+ * matching the entire prefix would strip legitimate non-edge-link data.
+ */
+const MODEM_RTT_PATH_RE = /^networking\.modem(?:\.[^.]+)?\.rtt$/;
 
 function isOwnDataPath(path: unknown): boolean {
   if (typeof path !== "string") {
     return false;
   }
+  if (MODEM_RTT_PATH_RE.test(path)) {
+    return true;
+  }
   for (const prefix of OWN_DATA_PATH_PREFIXES) {
+    // prefix.slice(0, -1) drops the trailing ".", so a published path that
+    // matches the prefix root exactly (e.g. just "networking.edgeLink") still
+    // counts as own data; startsWith(prefix) covers everything underneath.
     if (path === prefix.slice(0, -1) || path.startsWith(prefix)) {
       return true;
     }

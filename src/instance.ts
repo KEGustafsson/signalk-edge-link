@@ -280,7 +280,8 @@ function createInstance(
    * Forward subscribed deltas as-is except for malformed value entries that
    * Signal K would reject on the receiver side. When `skipOwnData` is set on
    * a client connection, also drop value/meta entries this plugin publishes
-   * locally (paths under `networking.edgeLink.*` and `networking.modem.*`).
+   * locally — the `networking.edgeLink.*` subtree and the v1 RTT paths
+   * `networking.modem.rtt` / `networking.modem.<instanceId>.rtt`.
    */
   function filterOutboundDelta(delta: Delta): Delta | null {
     const sanitized = sanitizeDeltaForSignalK(delta);

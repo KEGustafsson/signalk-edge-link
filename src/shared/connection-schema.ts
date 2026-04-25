@@ -450,7 +450,7 @@ export const skipOwnDataProperty: SchemaFragment = {
   type: "boolean",
   title: "Skip Plugin's Own Data",
   description:
-    "Do not forward data this plugin publishes locally (paths under 'networking.edgeLink.*' and the v1 'networking.modem.*' RTT path) over the link. Also suppresses the v2/v3 client telemetry packet that mirrors local link metrics to the receiver. Use this to keep the receiver's Signal K tree free of edge-link's own metrics.",
+    "Do not forward data this plugin publishes locally over the link. Strips entries under 'networking.edgeLink.*' and the v1 RTT path 'networking.modem.rtt' / 'networking.modem.<id>.rtt'; other 'networking.modem.*' paths from external providers are left intact. Also suppresses the v2/v3 client telemetry packet that mirrors local link metrics to the receiver.",
   default: false
 };
 

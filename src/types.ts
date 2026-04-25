@@ -215,10 +215,13 @@ export interface ConnectionConfig {
   /**
    * When true, drop value entries this plugin publishes locally before they
    * are forwarded over the link. Targets paths under `networking.edgeLink.*`
-   * (and `networking.modem.*` for the v1 RTT publisher). Also suppresses the
-   * v2/v3 client-side telemetry packet that mirrors the client's own link
-   * metrics to the receiver. Default false (current behaviour: own data is
-   * forwarded along with all other subscribed deltas).
+   * and the v1 RTT publisher's `networking.modem.rtt` /
+   * `networking.modem.<instanceId>.rtt` paths. Other paths under
+   * `networking.modem.*` (signalStrength, txBytes, ...) come from external
+   * providers and are left intact. Also suppresses the v2/v3 client-side
+   * telemetry packet that mirrors the client's own link metrics to the
+   * receiver. Default false (current behaviour: own data is forwarded along
+   * with all other subscribed deltas).
    *
    * Client mode only. Ignored on server-mode connections.
    */
