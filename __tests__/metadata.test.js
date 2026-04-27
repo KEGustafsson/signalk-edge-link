@@ -141,6 +141,80 @@ describe("extractLiveMeta", () => {
     expect(extractLiveMeta(delta, enabled, selfUrn)).toHaveLength(1);
   });
 
+  test("strips undefined fields from live metadata values", () => {
+    const delta = {
+      context: "vessels.self",
+      updates: [
+        {
+          values: [],
+          meta: [
+            {
+              path: "navigation.speedOverGround",
+              value: {
+                units: "m/s",
+                description: undefined,
+                displayName: "SOG"
+              }
+            }
+          ]
+        }
+      ]
+    };
+    const entries = extractLiveMeta(delta, enabled, selfUrn);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].meta).toEqual({ units: "m/s", displayName: "SOG" });
+  });
+
+  test("drops live metadata entries that become empty after undefined stripping", () => {
+    const delta = {
+      context: "vessels.self",
+      updates: [
+        {
+          values: [],
+          meta: [{ path: "navigation.courseOverGroundTrue", value: { units: undefined } }]
+        }
+      ]
+    };
+    expect(extractLiveMeta(delta, enabled, selfUrn)).toEqual([]);
+  });
+
+  test("strips null and empty placeholder fields from live metadata", () => {
+    const delta = {
+      context: "vessels.self",
+      updates: [
+        {
+          values: [],
+          meta: [
+            {
+              path: "notifications.engine.coolantTemperature",
+              value: {
+                units: "K",
+                description: "Coolant temperature",
+                zones: null,
+                renderer: null,
+                methods: [],
+                displayUnits: {
+                  category: "temperature",
+                  targetUnit: "C"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    };
+    const entries = extractLiveMeta(delta, enabled, selfUrn);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].meta).toEqual({
+      units: "K",
+      description: "Coolant temperature",
+      displayUnits: {
+        category: "temperature",
+        targetUnit: "C"
+      }
+    });
+  });
+
   test("skips vessels.self entries when selfContext is not yet resolvable", () => {
     // Without a resolved self URN, emitting "vessels.self" would mismatch
     // whatever URN collectSnapshot uses for the same path — so we drop the
@@ -257,6 +331,37 @@ describe("collectSnapshot", () => {
     const paths = entries.map((e) => e.path).sort();
     expect(paths).toEqual(["navigation.position", "navigation.speedOverGround"]);
     expect(entries[0].context).toBe("vessels.urn:mrn:imo:mmsi:12345");
+  });
+
+  test("strips undefined/null/empty placeholder fields from snapshot metadata and skips empty metadata objects", () => {
+    const tree = {
+      vessels: {
+        "urn:mrn:imo:mmsi:12345": {
+          navigation: {
+            speedOverGround: {
+              value: 5.2,
+              meta: { units: "m/s", description: undefined, zones: null, methods: [] }
+            },
+            courseOverGroundTrue: {
+              value: 1.1,
+              meta: { description: undefined, renderer: null }
+            }
+          }
+        }
+      }
+    };
+    const app = {
+      debug: () => {},
+      error: () => {},
+      signalk: { retrieve: () => tree }
+    };
+    const entries = collectSnapshot(app, enabled);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toEqual({
+      context: "vessels.urn:mrn:imo:mmsi:12345",
+      path: "navigation.speedOverGround",
+      meta: { units: "m/s" }
+    });
   });
 
   test("handles retrieve() throwing gracefully", () => {

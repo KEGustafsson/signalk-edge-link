@@ -49,6 +49,36 @@ function hashMeta(meta: Record<string, unknown>): string {
 }
 
 /**
+ * Deep-clone a metadata payload while removing "unset" leaves.
+ *
+ * In practice many upstream producers encode missing JS values as `null`
+ * (JSON has no `undefined`) and may emit empty arrays/objects as placeholders.
+ * These carry no useful metadata and should not be sent over the wire.
+ *
+ * Returns null when no useful data remains.
+ */
+function stripUndefinedDeep(value: unknown): unknown {
+  if (value === undefined) {
+    return null;
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const cleaned = value.map((item) => stripUndefinedDeep(item)).filter((item) => item !== null);
+    return cleaned.length > 0 ? cleaned : null;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const cleaned = stripUndefinedDeep(v);
+    if (cleaned !== null) {
+      out[k] = cleaned;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
  * Cache of the last-sent meta value (hash) per `context+path` pair.
  *
  * `diff` returns only the entries whose hashed value has changed since the
@@ -145,7 +175,10 @@ function walkMeta(
   }
   const obj = node as Record<string, unknown>;
   if (obj.meta && typeof obj.meta === "object" && !Array.isArray(obj.meta)) {
-    onMeta(pathParts.join("."), obj.meta as Record<string, unknown>);
+    const cleanedMeta = stripUndefinedDeep(obj.meta);
+    if (cleanedMeta && typeof cleanedMeta === "object" && !Array.isArray(cleanedMeta)) {
+      onMeta(pathParts.join("."), cleanedMeta as Record<string, unknown>);
+    }
   }
   for (const key of Object.keys(obj)) {
     // Signal K "value", "timestamp", "$source" are leaves, not sub-paths.
@@ -422,10 +455,14 @@ export function extractLiveMeta(
       } else {
         context = rawContext;
       }
+      const cleanedMeta = stripUndefinedDeep(m.value);
+      if (!cleanedMeta || typeof cleanedMeta !== "object" || Array.isArray(cleanedMeta)) {
+        continue;
+      }
       out.push({
         context,
         path: m.path,
-        meta: m.value as Record<string, unknown>
+        meta: cleanedMeta as Record<string, unknown>
       });
     }
   }
