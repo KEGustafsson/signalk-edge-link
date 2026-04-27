@@ -165,7 +165,7 @@ describe("extractLiveMeta", () => {
     expect(entries[0].meta).toEqual({ units: "m/s", displayName: "SOG" });
   });
 
-  test("drops live metadata entries that become empty after undefined stripping", () => {
+  test("drops live metadata entries that become empty after unset stripping", () => {
     const delta = {
       context: "vessels.self",
       updates: [
@@ -178,7 +178,7 @@ describe("extractLiveMeta", () => {
     expect(extractLiveMeta(delta, enabled, selfUrn)).toEqual([]);
   });
 
-  test("strips null and empty placeholder fields from live metadata", () => {
+  test("preserves explicit null clears while stripping empty placeholders from live metadata", () => {
     const delta = {
       context: "vessels.self",
       updates: [
@@ -208,6 +208,8 @@ describe("extractLiveMeta", () => {
     expect(entries[0].meta).toEqual({
       units: "K",
       description: "Coolant temperature",
+      zones: null,
+      renderer: null,
       displayUnits: {
         category: "temperature",
         targetUnit: "C"
@@ -333,7 +335,7 @@ describe("collectSnapshot", () => {
     expect(entries[0].context).toBe("vessels.urn:mrn:imo:mmsi:12345");
   });
 
-  test("strips undefined/null/empty placeholder fields from snapshot metadata and skips empty metadata objects", () => {
+  test("preserves null clears in snapshot metadata while stripping undefined/empty placeholders", () => {
     const tree = {
       vessels: {
         "urn:mrn:imo:mmsi:12345": {
@@ -356,11 +358,16 @@ describe("collectSnapshot", () => {
       signalk: { retrieve: () => tree }
     };
     const entries = collectSnapshot(app, enabled);
-    expect(entries).toHaveLength(1);
+    expect(entries).toHaveLength(2);
     expect(entries[0]).toEqual({
       context: "vessels.urn:mrn:imo:mmsi:12345",
       path: "navigation.speedOverGround",
-      meta: { units: "m/s" }
+      meta: { units: "m/s", zones: null }
+    });
+    expect(entries[1]).toEqual({
+      context: "vessels.urn:mrn:imo:mmsi:12345",
+      path: "navigation.courseOverGroundTrue",
+      meta: { renderer: null }
     });
   });
 
