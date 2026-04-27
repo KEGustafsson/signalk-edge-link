@@ -48,6 +48,39 @@ function hashMeta(meta: Record<string, unknown>): string {
   return createHash("sha1").update(stableStringify(meta)).digest("hex");
 }
 
+const STRIP_UNSET = Symbol("strip-unset");
+
+/**
+ * Deep-clone a metadata payload while removing unset placeholders.
+ *
+ * Explicit `null` values are preserved so metadata clear operations
+ * (`{ someField: null }`) can propagate to receivers.
+ *
+ * Returns a private sentinel when no useful data remains.
+ */
+function stripUnsetDeep(value: unknown): unknown {
+  if (value === undefined) {
+    return STRIP_UNSET;
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const cleaned = value
+      .map((item) => stripUnsetDeep(item))
+      .filter((item) => item !== STRIP_UNSET);
+    return cleaned.length > 0 ? cleaned : STRIP_UNSET;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const cleaned = stripUnsetDeep(v);
+    if (cleaned !== STRIP_UNSET) {
+      out[k] = cleaned;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : STRIP_UNSET;
+}
+
 /**
  * Cache of the last-sent meta value (hash) per `context+path` pair.
  *
@@ -145,7 +178,15 @@ function walkMeta(
   }
   const obj = node as Record<string, unknown>;
   if (obj.meta && typeof obj.meta === "object" && !Array.isArray(obj.meta)) {
-    onMeta(pathParts.join("."), obj.meta as Record<string, unknown>);
+    const cleanedMeta = stripUnsetDeep(obj.meta);
+    if (
+      cleanedMeta !== STRIP_UNSET &&
+      cleanedMeta &&
+      typeof cleanedMeta === "object" &&
+      !Array.isArray(cleanedMeta)
+    ) {
+      onMeta(pathParts.join("."), cleanedMeta as Record<string, unknown>);
+    }
   }
   for (const key of Object.keys(obj)) {
     // Signal K "value", "timestamp", "$source" are leaves, not sub-paths.
@@ -422,10 +463,19 @@ export function extractLiveMeta(
       } else {
         context = rawContext;
       }
+      const cleanedMeta = stripUnsetDeep(m.value);
+      if (
+        cleanedMeta === STRIP_UNSET ||
+        !cleanedMeta ||
+        typeof cleanedMeta !== "object" ||
+        Array.isArray(cleanedMeta)
+      ) {
+        continue;
+      }
       out.push({
         context,
         path: m.path,
-        meta: m.value as Record<string, unknown>
+        meta: cleanedMeta as Record<string, unknown>
       });
     }
   }
