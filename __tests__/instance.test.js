@@ -492,4 +492,64 @@ describe("createInstance", () => {
       jest.useRealTimers();
     }
   });
+
+  test("pending batch retry blocks new deltas from bypassing backoff", async () => {
+    jest.useFakeTimers();
+    const app = makeMockApp();
+    const inst = createInstance(
+      app,
+      makeClientOptions({ protocolVersion: 2 }),
+      "retry-backoff-test",
+      "plugin",
+      jest.fn()
+    );
+
+    try {
+      await inst.start();
+      jest.advanceTimersByTime(500);
+      await Promise.resolve();
+
+      const state = inst.getState();
+      state.readyToSend = true;
+      state.maxDeltasPerBatch = 1;
+
+      const firstDelta = {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.speedOverGround", value: 1.2 }] }]
+      };
+      const secondDelta = {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.headingTrue", value: 1.57 }] }]
+      };
+
+      state.pipeline.sendDelta = jest
+        .fn()
+        .mockRejectedValueOnce(new Error("forced UDP send failure"))
+        .mockResolvedValue(undefined);
+
+      state.processDelta(firstDelta);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(state.pipeline.sendDelta).toHaveBeenCalledTimes(1);
+      expect(state.pendingRetry).not.toBeNull();
+
+      state.processDelta(secondDelta);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(state.pipeline.sendDelta).toHaveBeenCalledTimes(1);
+      expect(state.deltas.length).toBe(2);
+
+      await jest.advanceTimersByTimeAsync(100);
+
+      expect(state.pipeline.sendDelta).toHaveBeenCalledTimes(2);
+      expect(state.pipeline.sendDelta.mock.calls[1][0][0].updates[0].values[0].path).toBe(
+        "navigation.speedOverGround"
+      );
+    } finally {
+      inst.stop();
+      jest.useRealTimers();
+    }
+  });
 });

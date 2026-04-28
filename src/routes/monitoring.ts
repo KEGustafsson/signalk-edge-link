@@ -416,6 +416,7 @@ function register(router: Router, ctx: RouteContext): void {
   router.get(
     "/monitoring/inspector",
     rateLimitMiddleware,
+    managementAuthMiddleware("monitoring.inspector.read"),
     (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();
@@ -436,6 +437,7 @@ function register(router: Router, ctx: RouteContext): void {
   router.get(
     "/monitoring/simulation",
     rateLimitMiddleware,
+    managementAuthMiddleware("monitoring.simulation.read"),
     (req: RouteRequest, res: RouteResponse) => {
       try {
         const bundle = getFirstBundle();

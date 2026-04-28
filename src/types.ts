@@ -242,6 +242,8 @@ export interface AlertThresholds {
 
 /** Per-connection configuration. */
 export interface ConnectionConfig {
+  /** Stable per-connection identity used for config editing and secret restoration. */
+  connectionId?: string;
   /** Human-readable label shown in the UI and logs. */
   name?: string;
   /** Role of this end of the connection: "client" or "server". */

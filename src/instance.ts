@@ -557,14 +557,14 @@ function createInstance(
     }
   }
 
-  function scheduleBatchRetry(batch: Delta[], retryCount: number): void {
+  function scheduleBatchRetry(batchSize: number, retryCount: number): void {
     if (state.pendingRetry || state.stopped) {
       return;
     }
 
     state.pendingRetry = setTimeout(() => {
       state.pendingRetry = null;
-      flushDeltaBatch(batch.length, retryCount);
+      flushDeltaBatch(batchSize, retryCount);
     }, DELTA_SEND_RETRY_BACKOFF_MS);
   }
 
@@ -574,6 +574,7 @@ function createInstance(
   ): Promise<void> {
     if (
       state.batchSendInFlight ||
+      state.pendingRetry ||
       state.stopped ||
       !state.readyToSend ||
       state.socketRecoveryInProgress
@@ -602,7 +603,7 @@ function createInstance(
       );
 
       if (nextRetryCount <= DELTA_SEND_MAX_RETRIES) {
-        scheduleBatchRetry(batch, nextRetryCount);
+        scheduleBatchRetry(actualBatchSize, nextRetryCount);
       } else {
         state.deltas.splice(0, actualBatchSize);
         state.timer = false;
@@ -663,7 +664,7 @@ function createInstance(
     setImmediate(() => app.reportOutputMessages());
 
     const batchReady = state.deltas.length >= state.maxDeltasPerBatch;
-    if (batchReady || state.timer) {
+    if ((batchReady || state.timer) && !state.pendingRetry) {
       if (batchReady) {
         app.debug(`[${instanceId}] Smart batch: sending ${state.deltas.length} deltas`);
         metrics.smartBatching.earlySends++;

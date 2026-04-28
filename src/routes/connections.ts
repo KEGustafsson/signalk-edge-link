@@ -90,25 +90,30 @@ function register(router: Router, ctx: RouteContext): void {
     pluginRef._currentOptions = nextOptions as typeof pluginRef._currentOptions;
     return res.status(successStatus).json({ success: true });
   }
-  router.get("/connections", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
-    try {
-      const all = instanceRegistry.getAll();
-      res.json(
-        all.map((b: InstanceBundle) => ({
-          id: b.id,
-          name: b.name,
-          type: b.state.isServerMode ? "server" : "client",
-          port: b.state.options && b.state.options.udpPort,
-          protocolVersion: b.state.options && b.state.options.protocolVersion,
-          status: b.state.instanceStatus,
-          healthy: b.state.isHealthy,
-          readyToSend: b.state.readyToSend
-        }))
-      );
-    } catch (err: unknown) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  router.get(
+    "/connections",
+    rateLimitMiddleware,
+    managementAuthMiddleware("connections.list"),
+    (req: RouteRequest, res: RouteResponse) => {
+      try {
+        const all = instanceRegistry.getAll();
+        res.json(
+          all.map((b: InstanceBundle) => ({
+            id: b.id,
+            name: b.name,
+            type: b.state.isServerMode ? "server" : "client",
+            port: b.state.options && b.state.options.udpPort,
+            protocolVersion: b.state.options && b.state.options.protocolVersion,
+            status: b.state.instanceStatus,
+            healthy: b.state.isHealthy,
+            readyToSend: b.state.readyToSend
+          }))
+        );
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      }
     }
-  });
+  );
 
   // Alias for management tooling: keep shape close to the implementation plan
   // by exposing current status and a compact metrics summary.

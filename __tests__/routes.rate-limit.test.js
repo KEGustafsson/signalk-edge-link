@@ -1374,7 +1374,7 @@ describe("status and error summary routes", () => {
     const req = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
     const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
 
-    metricsRoute.handlers[1](req, res);
+    metricsRoute.handlers.at(-1)(req, res);
 
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1836,6 +1836,12 @@ describe("management API token authorization", () => {
     routes.registerWithRouter(router);
 
     const specs = [
+      { method: "get", path: "/metrics" },
+      { method: "get", path: "/network-metrics" },
+      { method: "get", path: "/prometheus" },
+      { method: "get", path: "/connections" },
+      { method: "get", path: "/paths" },
+      { method: "get", path: "/plugin-schema" },
       { method: "get", path: "/plugin-config" },
       { method: "post", path: "/plugin-config" },
       {
@@ -1864,6 +1870,8 @@ describe("management API token authorization", () => {
       { method: "post", path: "/capture/start" },
       { method: "post", path: "/capture/stop" },
       { method: "get", path: "/capture/export" },
+      { method: "get", path: "/monitoring/inspector" },
+      { method: "get", path: "/monitoring/simulation" },
       { method: "post", path: "/delta-timer", req: { body: { value: 200 } } },
       { method: "post", path: "/bonding/failover" },
       {

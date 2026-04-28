@@ -1097,6 +1097,108 @@ describe("SignalK Data Connector Plugin", () => {
       );
     });
 
+    test("POST /plugin-config restores redacted secrets by persisted connectionId when index changes", async () => {
+      const alphaSecret = "12345678901234567890123456789012";
+      const betaSecret = "ZYXWVUTSRQPONMLKJIHGFEDCBA654321";
+      diskFile.configuration = {
+        connections: [
+          {
+            connectionId: "ui-stable-connection-id",
+            name: "alpha",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: alphaSecret,
+            udpAddress: "10.0.0.1",
+            testAddress: "10.0.0.1",
+            testPort: 80
+          },
+          {
+            connectionId: "other-connection-id",
+            name: "beta",
+            serverType: "client",
+            udpPort: 4447,
+            secretKey: betaSecret,
+            udpAddress: "10.0.0.2",
+            testAddress: "10.0.0.2",
+            testPort: 80
+          }
+        ]
+      };
+
+      const read = await readConfig();
+      const response = await saveConfig({
+        connections: [
+          { ...read.configuration.connections[1], secretKey: "[redacted]" },
+          {
+            ...read.configuration.connections[0],
+            connectionId: " ui-stable-connection-id ",
+            name: "renamed-client",
+            udpPort: 4448,
+            secretKey: "[redacted]"
+          }
+        ]
+      });
+
+      expect(response.success).toBe(true);
+      expect(diskFile.configuration.connections[1].connectionId).toBe("ui-stable-connection-id");
+      expect(diskFile.configuration.connections[1].name).toBe("renamed-client");
+      expect(diskFile.configuration.connections[1].udpPort).toBe(4448);
+      expect(diskFile.configuration.connections[1].secretKey).toBe(alphaSecret);
+      expect(diskFile.configuration.connections[0].connectionId).toBe("other-connection-id");
+      expect(diskFile.configuration.connections[0].secretKey).toBe(betaSecret);
+    });
+
+    test("POST /plugin-config rejects redacted secrets that only match by legacy array index", async () => {
+      const alphaSecret = "12345678901234567890123456789012";
+      const betaSecret = "ZYXWVUTSRQPONMLKJIHGFEDCBA654321";
+      diskFile.configuration = {
+        connections: [
+          {
+            name: "alpha",
+            serverType: "client",
+            udpPort: 4446,
+            secretKey: alphaSecret,
+            udpAddress: "10.0.0.1",
+            testAddress: "10.0.0.1",
+            testPort: 80
+          },
+          {
+            name: "beta",
+            serverType: "client",
+            udpPort: 4447,
+            secretKey: betaSecret,
+            udpAddress: "10.0.0.2",
+            testAddress: "10.0.0.2",
+            testPort: 80
+          }
+        ]
+      };
+
+      const read = await readConfig();
+      const response = await saveConfig({
+        connections: [
+          {
+            ...read.configuration.connections[0],
+            connectionId: "new-connection-id",
+            name: "replacement",
+            udpPort: 4555,
+            secretKey: "[redacted]"
+          },
+          {
+            ...read.configuration.connections[1],
+            connectionId: "beta-connection-id",
+            secretKey: "[redacted]"
+          }
+        ]
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain("replacement");
+      expect(response.error).toContain("no stored secretKey");
+      expect(diskFile.configuration.connections[0].secretKey).toBe(alphaSecret);
+      expect(diskFile.configuration.connections[1].secretKey).toBe(betaSecret);
+    });
+
     test("POST /plugin-config restores redacted secrets by stable identity when connections are reordered", async () => {
       diskFile.configuration = {
         connections: [

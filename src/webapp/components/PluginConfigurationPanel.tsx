@@ -10,7 +10,7 @@ const API_BASE = "/plugins/signalk-edge-link";
 
 // ── Stable ID helper ──────────────────────────────────────────────────────────
 // Each connection object carries a frontend-only `_id` for use as React key.
-// It is stripped before the array is POSTed to the backend.
+// `connectionId` is persisted so redacted secrets can survive identity edits.
 
 let _idSeq = 0;
 function makeId(): string { return `skel-${Date.now()}-${++_idSeq}`; }
@@ -19,6 +19,7 @@ function makeId(): string { return `skel-${Date.now()}-${++_idSeq}`; }
 
 interface ConnectionData {
   _id: string;
+  connectionId?: string;
   name?: string;
   serverType?: string;
   udpPort?: number;
@@ -45,8 +46,10 @@ interface SaveStatus {
 // ── Default config factories ──────────────────────────────────────────────────
 
 function defaultClientConnection(name?: string): ConnectionData {
+  const id = makeId();
   return {
-    _id: makeId(),
+    _id: id,
+    connectionId: id,
     name: name || "client",
     serverType: "client",
     udpPort: 4446,
@@ -66,8 +69,10 @@ function defaultClientConnection(name?: string): ConnectionData {
 }
 
 function defaultServerConnection(name?: string): ConnectionData {
+  const id = makeId();
   return {
-    _id: makeId(),
+    _id: id,
+    connectionId: id,
     name: name || "server",
     serverType: "server",
     udpPort: 4446,
@@ -81,7 +86,15 @@ function defaultServerConnection(name?: string): ConnectionData {
 
 /** Attach a stable _id to loaded connections that don't already have one. */
 function withId(conn: Omit<ConnectionData, "_id"> & { _id?: string }): ConnectionData {
-  return conn._id ? (conn as ConnectionData) : { ...conn, _id: makeId() };
+  const connectionId =
+    typeof conn.connectionId === "string" && conn.connectionId.trim()
+      ? conn.connectionId.trim()
+      : conn._id || makeId();
+  return {
+    ...conn,
+    _id: conn._id || connectionId,
+    connectionId
+  } as ConnectionData;
 }
 
 // Fill schema defaults into loaded form data so RJSF has nothing to augment on
@@ -351,7 +364,11 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
       const base = next.serverType === "server"
         ? defaultServerConnection(next.name)
         : defaultClientConnection(next.name);
-      const merged: ConnectionData = { ...base, _id: conn._id };
+      const merged: ConnectionData = {
+        ...base,
+        _id: conn._id,
+        connectionId: conn.connectionId || conn._id
+      };
       for (const k of SHARED_FIELDS) {
         if (next[k] !== undefined) { (merged as Record<string, unknown>)[k] = next[k]; }
       }
@@ -364,7 +381,11 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
     // internal re-renders), and we do not want that to trip the dirty flag.
     // Order-insensitive compare so a reshuffled-but-equivalent formData does
     // not look like a real edit.
-    const proposed: ConnectionData = { ...next, _id: conn._id };
+    const proposed: ConnectionData = {
+      ...next,
+      _id: conn._id,
+      connectionId: next.connectionId || conn.connectionId || conn._id
+    };
     const { _id: _aId, ...a } = proposed;
     const { _id: _bId, ...b } = conn;
     if (connectionsEqual(a, b)) { return; }
@@ -535,7 +556,13 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
     savingRef.current = true;
     setSaveStatus({ type: "saving", message: "Saving configuration..." });
     try {
-      const payload = connections.map(({ _id, ...rest }) => rest);
+      const payload = connections.map(({ _id, ...rest }) => ({
+        ...rest,
+        connectionId:
+          typeof rest.connectionId === "string" && rest.connectionId.trim()
+            ? rest.connectionId.trim()
+            : _id
+      }));
       const res = await apiFetch(`${API_BASE}/plugin-config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

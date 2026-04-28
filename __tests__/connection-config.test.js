@@ -105,6 +105,16 @@ describe("validateConnectionConfig", () => {
       const error = validateConnectionConfig(makeValidClient({ protocolVersion: 4 }));
       expect(error).toMatch(/protocolVersion/);
     });
+
+    test("validates connectionId after trimming whitespace", () => {
+      const paddedId = ` ${"a".repeat(80)} `;
+      expect(validateConnectionConfig(makeValidClient({ connectionId: paddedId }))).toBeNull();
+    });
+
+    test("rejects blank connectionId", () => {
+      const error = validateConnectionConfig(makeValidClient({ connectionId: "   " }));
+      expect(error).toMatch(/connectionId/);
+    });
   });
 
   describe("server mode validation", () => {
@@ -368,6 +378,11 @@ describe("sanitizeConnectionConfig", () => {
     expect(result.udpAddress).toBe("192.168.1.1");
     expect(result.useMsgpack).toBe(true);
     expect(result.reliability).toEqual({ retransmitQueueSize: 500 });
+  });
+
+  test("trims connectionId in sanitized config", () => {
+    const result = sanitizeConnectionConfig(makeValidClient({ connectionId: " stable-id " }));
+    expect(result.connectionId).toBe("stable-id");
   });
 });
 
