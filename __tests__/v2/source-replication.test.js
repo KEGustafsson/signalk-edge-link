@@ -158,4 +158,24 @@ describe("source replication registry", () => {
     expect(snap.sources[0].identity.src).toBe("n2k");
     expect(snap.sources[0].identity.instance).toBe("5");
   });
+
+  test("does not create a source record when update has no source metadata even with client id", () => {
+    const registry = createSourceRegistry({ debug: jest.fn() });
+    registry.upsertFromDelta(
+      {
+        context: "vessels.self",
+        updates: [
+          {
+            values: [{ path: "navigation.speedOverGround", value: 4.2 }]
+          }
+        ]
+      },
+      "client-a"
+    );
+
+    const snap = registry.snapshot();
+    const metrics = registry.getMetrics();
+    expect(snap.size).toBe(0);
+    expect(metrics.missingIdentity).toBe(1);
+  });
 });
