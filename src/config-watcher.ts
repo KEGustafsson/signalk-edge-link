@@ -292,7 +292,10 @@ export async function initializePersistentStorage({
       await saveConfigFile(file, data);
       app.debug(`[${instanceId}] Initialized ${name} with defaults`);
     } else if (existing.status === "ok" && name === "sentence_filter.json") {
-      const sentenceConfig = existing.data as Record<string, unknown>;
+      const sentenceConfig =
+        existing.data && typeof existing.data === "object" && !Array.isArray(existing.data)
+          ? (existing.data as Record<string, unknown>)
+          : {};
       state.excludedSentences = Array.isArray(sentenceConfig.excludedSentences)
         ? (sentenceConfig.excludedSentences as string[])
         : ["GSV"];

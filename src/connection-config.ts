@@ -137,13 +137,14 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   ) {
     return `${p}name must be a string of at most 40 characters`;
   }
-  if (
-    conn.connectionId !== undefined &&
-    (typeof conn.connectionId !== "string" ||
-      !(conn.connectionId as string).trim() ||
-      (conn.connectionId as string).length > 80)
-  ) {
-    return `${p}connectionId must be a non-empty string of at most 80 characters`;
+  if (conn.connectionId !== undefined) {
+    if (typeof conn.connectionId !== "string") {
+      return `${p}connectionId must be a non-empty string of at most 80 characters`;
+    }
+    const trimmedConnectionId = conn.connectionId.trim();
+    if (!trimmedConnectionId || trimmedConnectionId.length > 80) {
+      return `${p}connectionId must be a non-empty string of at most 80 characters`;
+    }
   }
 
   if (serverType === "client") {

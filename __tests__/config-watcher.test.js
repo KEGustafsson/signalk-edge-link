@@ -392,4 +392,26 @@ describe("initializePersistentStorage", () => {
 
     expect(state.excludedSentences).toEqual(["GSV", "GLL"]);
   });
+
+  test("falls back to default excludedSentences when sentence_filter.json is not an object", async () => {
+    const instanceDir = path.join(tmpDir, "instances", "custom");
+    await fs.promises.mkdir(instanceDir, { recursive: true });
+    await fs.promises.writeFile(path.join(instanceDir, "sentence_filter.json"), "null", "utf-8");
+
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      getDataDirPath: () => tmpDir
+    };
+    const state = {
+      deltaTimerFile: null,
+      subscriptionFile: null,
+      sentenceFilterFile: null,
+      excludedSentences: []
+    };
+
+    await initializePersistentStorage({ instanceId: "custom", app, state });
+
+    expect(state.excludedSentences).toEqual(["GSV"]);
+  });
 });

@@ -71,15 +71,16 @@ function register(router: Router, ctx: RouteContext): void {
     return [];
   }
 
-  function getConnectionIdentityKey(connection: Record<string, unknown>): string | null {
-    if (!connection || typeof connection !== "object") {
+  function normalizeConnectionId(value: unknown): string | null {
+    if (typeof value !== "string") {
       return null;
     }
 
-    if (connection.connectionId && typeof connection.connectionId === "string") {
-      return `id:${connection.connectionId}`;
-    }
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
 
+  function getLegacyConnectionIdentityKey(connection: Record<string, unknown>): string | null {
     if (
       !connection.name ||
       !connection.serverType ||
@@ -90,6 +91,19 @@ function register(router: Router, ctx: RouteContext): void {
     }
 
     return `legacy:${connection.name}::${connection.serverType}::${connection.udpPort}`;
+  }
+
+  function getConnectionIdentityKey(connection: Record<string, unknown>): string | null {
+    if (!connection || typeof connection !== "object") {
+      return null;
+    }
+
+    const normalizedConnectionId = normalizeConnectionId(connection.connectionId);
+    if (normalizedConnectionId) {
+      return `id:${normalizedConnectionId}`;
+    }
+
+    return getLegacyConnectionIdentityKey(connection);
   }
 
   function restoreRedactedSecretKeys(
@@ -119,18 +133,25 @@ function register(router: Router, ctx: RouteContext): void {
         return connection;
       }
 
+      const normalizedConnectionId = normalizeConnectionId(connection.connectionId);
       const identityKey = getConnectionIdentityKey(connection);
       const persisted = identityKey ? persistedByIdentity.get(identityKey) : null;
+      const legacyIdentityKey = getLegacyConnectionIdentityKey(connection);
       const persistedAtIndex =
-        typeof connection.connectionId === "string" &&
-        connection.connectionId.trim() &&
+        normalizedConnectionId &&
+        legacyIdentityKey &&
         persistedConnections.length === connectionList.length
           ? persistedConnections[index]
           : null;
+      const persistedAtIndexLegacyKey = persistedAtIndex
+        ? getLegacyConnectionIdentityKey(persistedAtIndex)
+        : null;
       const indexFallbackIsSafe =
         !!persistedAtIndex &&
+        persistedAtIndexLegacyKey === legacyIdentityKey &&
         typeof persistedAtIndex.secretKey === "string" &&
         !!persistedAtIndex.secretKey &&
+        !duplicateIdentityKeys.has(legacyIdentityKey || "") &&
         !getConnectionIdentityKey(persistedAtIndex)?.startsWith("id:");
 
       if (!identityKey && !indexFallbackIsSafe) {
