@@ -153,6 +153,7 @@ function chooseValue(
 
 export function createSourceRegistry(app: { debug: (msg: string) => void }) {
   const records = new Map<string, SourceReplicationRecord>();
+  let lastLoggedRegistrySize = 0;
   const metrics: SourceRegistryMetrics = {
     upserts: 0,
     noops: 0,
@@ -295,8 +296,9 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
       metrics.upserts++;
     }
 
-    if (records.size % 50 === 0 && records.size > 0) {
+    if (records.size % 50 === 0 && records.size > 0 && records.size !== lastLoggedRegistrySize) {
       app.debug(`[source-replication] registry-size=${records.size}`);
+      lastLoggedRegistrySize = records.size;
     }
   }
 
