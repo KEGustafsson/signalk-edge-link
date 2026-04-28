@@ -47,6 +47,8 @@ const brotliDecompressAsync = promisify(zlib.brotliDecompress);
  */
 interface ClientSession {
   key: string;
+  sourceClientInstanceId: string | null;
+  clientId: string | null;
   address: string;
   port: number;
   sequenceTracker: SequenceTracker;
@@ -179,6 +181,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       // packet can still be processed for this request without polluting state.
       return {
         key,
+        sourceClientInstanceId: null,
+        clientId: null,
         address: rinfo.address,
         port: rinfo.port,
         sequenceTracker: new SequenceTracker({
@@ -206,6 +210,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
 
     const session = {
       key,
+      sourceClientInstanceId: null,
+      clientId: null,
       address: rinfo.address,
       port: rinfo.port,
       sequenceTracker: new SequenceTracker({
@@ -824,6 +830,18 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         try {
           const info = JSON.parse(parsed.payload.toString());
           app.debug(`v2 hello from client: ${JSON.stringify(info)}`);
+          if (session && info && typeof info === "object") {
+            const helloClientId =
+              typeof info.clientId === "string" && info.clientId.trim()
+                ? info.clientId.trim()
+                : null;
+            const helloInstanceId =
+              typeof info.instanceId === "string" && info.instanceId.trim()
+                ? info.instanceId.trim()
+                : null;
+            session.clientId = helloClientId;
+            session.sourceClientInstanceId = helloInstanceId || helloClientId;
+          }
         } catch (parseErr: unknown) {
           app.error(
             `v2 failed to parse HELLO payload: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
@@ -1028,7 +1046,18 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
           continue;
         }
         if (state.sourceRegistry && typeof state.sourceRegistry.upsertFromDelta === "function") {
-          state.sourceRegistry.upsertFromDelta(deltaMessage, session ? session.key : "unknown");
+          const deltaRecord = deltaMessage as unknown as Record<string, unknown>;
+          const deltaSourceInstanceId =
+            deltaMessage &&
+            typeof deltaMessage === "object" &&
+            typeof deltaRecord.sourceClientInstanceId === "string"
+              ? (deltaRecord.sourceClientInstanceId as string) || null
+              : null;
+          const stableSourceClientId =
+            (session && (session.sourceClientInstanceId || session.clientId)) ||
+            deltaSourceInstanceId ||
+            "unknown";
+          state.sourceRegistry.upsertFromDelta(deltaMessage, stableSourceClientId);
         }
 
         trackPathStats(deltaMessage, decompressed.length / deltas.length);

@@ -147,7 +147,13 @@ function register(router: Router, ctx: RouteContext): void {
     managementAuthMiddleware("sources.read"),
     (req: RouteRequest, res: RouteResponse) => {
       try {
-        const bundle = getFirstBundle();
+        const serverBundle =
+          instanceRegistry
+            .getAll()
+            .find(
+              (bundle) => bundle.state && bundle.state.isServerMode && bundle.state.sourceRegistry
+            ) || null;
+        const bundle = serverBundle || getFirstBundle();
         if (!bundle) {
           return res.status(503).json({ error: "Plugin not started" });
         }

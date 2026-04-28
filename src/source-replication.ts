@@ -49,6 +49,13 @@ function toCanonicalIdentity(
   const instance = normalizeText(source?.instance);
   const pgn = Number.isFinite(Number(source?.pgn)) ? Number(source?.pgn) : undefined;
   const parsedDeviceId = normalizeText(source?.deviceId);
+  const hasMetadata =
+    !!label ||
+    !!sourceRef ||
+    src !== undefined ||
+    instance !== undefined ||
+    pgn !== undefined ||
+    parsedDeviceId !== undefined;
 
   if (
     !label &&
@@ -56,8 +63,7 @@ function toCanonicalIdentity(
     src === undefined &&
     instance === undefined &&
     pgn === undefined &&
-    parsedDeviceId === undefined &&
-    !sourceClientInstanceId
+    parsedDeviceId === undefined
   ) {
     return null;
   }
@@ -70,7 +76,7 @@ function toCanonicalIdentity(
     pgn,
     deviceId:
       parsedDeviceId ||
-      (sourceClientInstanceId ? sanitizeKeyPart(sourceClientInstanceId) : undefined)
+      (hasMetadata && sourceClientInstanceId ? sanitizeKeyPart(sourceClientInstanceId) : undefined)
   };
 }
 
@@ -91,7 +97,8 @@ function createSourceKey(
       pgn: identity.pgn ?? "",
       deviceId: identity.deviceId || ""
     });
-    return `source-identity:${sanitizeKeyPart(canonicalIdentity)}`;
+    const identityHash = crypto.createHash("sha256").update(canonicalIdentity).digest("hex");
+    return `source-identity:${identityHash}`;
   }
   return "source-identity:unknown";
 }

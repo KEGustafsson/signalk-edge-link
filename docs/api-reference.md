@@ -72,6 +72,15 @@ Returns comprehensive real-time statistics and performance data.
     "naksSent": 0,
     "linkQuality": 92
   },
+  "sourceReplication": {
+    "metrics": {
+      "upserts": 42,
+      "noops": 101,
+      "missingIdentity": 2,
+      "conflicts": 7
+    },
+    "registry": null
+  },
   "lastError": null
 }
 ```
@@ -106,6 +115,7 @@ Returns current network quality metrics including link quality score.
 Returns server source-replication entries (schema v1) with identity, timing, and provenance fields.
 
 **Available in:** Client and Server mode (typically meaningful in server mode)
+**Auth required:** Yes (`sources.read`, enforced by `managementAuthMiddleware("sources.read")`)
 
 **Response:**
 
@@ -135,6 +145,7 @@ Returns server source-replication entries (schema v1) with identity, timing, and
 `GET /metrics` includes only `sourceReplication.metrics` counters (`upserts`, `noops`, `missingIdentity`, `conflicts`).
 
 For full field definitions and compatibility shapes, see `docs/source-replication-schema.md`.
+Route implementation details: `src/routes/metrics.ts`.
 
 Source replication in this endpoint is driven by normal DATA delta ingest (`update.source`/`$source`) and does not depend on optional metadata packet streaming being enabled.
 

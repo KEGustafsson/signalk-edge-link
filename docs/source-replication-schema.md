@@ -26,7 +26,8 @@ The server maintains a normalized source-registry replica of client-provided upd
 ## Canonicalization rules
 
 - Registry key is deterministic and derived from sanitized identity fields:
-  - `source-ref:$source` when `$source` is present, otherwise a deterministic hash-like key from the raw `source` object payload
+  - `source-ref:$source` when `$source` is present
+  - otherwise `source-identity:<sha256(canonical-identity)>` where canonical identity is derived from `identity.type/label/src/instance/pgn/deviceId`
 - Values are sanitized to lowercase-safe key tokens for the key material.
 - `source` payload fields are preserved as provided by the client (no special parsing of labels such as `ws.*`).
 - Legacy `$source` values are retained as-is and used as the primary deterministic source key.
