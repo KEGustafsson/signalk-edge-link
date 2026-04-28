@@ -1,6 +1,6 @@
 {
   "name": "signalk-edge-link",
-  "version": "2.4.1",
+  "version": "2.5.0",
   "description": "SignalK Edge Link. Secure UDP link for data exchange.",
   "main": "lib/index.js",
   "files": [

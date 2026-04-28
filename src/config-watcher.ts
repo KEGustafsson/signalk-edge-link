@@ -12,7 +12,7 @@
 import { promises as fsPromises, watch, FSWatcher } from "fs";
 import { join } from "path";
 import * as crypto from "crypto";
-import { loadConfigFile, saveConfigFile } from "./config-io";
+import { loadConfigFileSafe, saveConfigFile } from "./config-io";
 import {
   DEFAULT_DELTA_TIMER,
   FILE_WATCH_DEBOUNCE_DELAY,
@@ -287,15 +287,19 @@ export async function initializePersistentStorage({
   ];
 
   for (const { file, data, name } of defaults) {
-    const existing = await loadConfigFile(file);
-    if (!existing) {
+    const existing = await loadConfigFileSafe(file, app);
+    if (existing.status === "not_found") {
       await saveConfigFile(file, data);
       app.debug(`[${instanceId}] Initialized ${name} with defaults`);
-    } else if (name === "sentence_filter.json") {
-      const sentenceConfig = existing as Record<string, unknown>;
+    } else if (existing.status === "ok" && name === "sentence_filter.json") {
+      const sentenceConfig = existing.data as Record<string, unknown>;
       state.excludedSentences = Array.isArray(sentenceConfig.excludedSentences)
         ? (sentenceConfig.excludedSentences as string[])
         : ["GSV"];
+    } else if (existing.status === "parse_error" || existing.status === "read_error") {
+      app.error(
+        `[${instanceId}] Preserving existing ${name}; default initialization skipped after ${existing.status}: ${existing.message}`
+      );
     }
   }
 }

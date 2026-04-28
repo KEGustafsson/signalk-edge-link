@@ -1097,6 +1097,23 @@ describe("SignalK Data Connector Plugin", () => {
       );
     });
 
+    test("POST /plugin-config restores redacted secrets by UI connectionId when legacy identity changes", async () => {
+      const read = await readConfig();
+
+      read.configuration.connections[0].connectionId = "ui-stable-connection-id";
+      read.configuration.connections[0].name = "renamed-client";
+      read.configuration.connections[0].udpPort = 4447;
+      const response = await saveConfig(read.configuration);
+
+      expect(response.success).toBe(true);
+      expect(diskFile.configuration.connections[0].connectionId).toBe("ui-stable-connection-id");
+      expect(diskFile.configuration.connections[0].name).toBe("renamed-client");
+      expect(diskFile.configuration.connections[0].udpPort).toBe(4447);
+      expect(diskFile.configuration.connections[0].secretKey).toBe(
+        "12345678901234567890123456789012"
+      );
+    });
+
     test("POST /plugin-config restores redacted secrets by stable identity when connections are reordered", async () => {
       diskFile.configuration = {
         connections: [

@@ -10,6 +10,7 @@ import type {
 } from "./types";
 
 export const VALID_CONNECTION_KEYS: string[] = [
+  "connectionId",
   "name",
   "serverType",
   "udpPort",
@@ -135,6 +136,14 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     (typeof conn.name !== "string" || (conn.name as string).length > 40)
   ) {
     return `${p}name must be a string of at most 40 characters`;
+  }
+  if (
+    conn.connectionId !== undefined &&
+    (typeof conn.connectionId !== "string" ||
+      !(conn.connectionId as string).trim() ||
+      (conn.connectionId as string).length > 80)
+  ) {
+    return `${p}connectionId must be a non-empty string of at most 80 characters`;
   }
 
   if (serverType === "client") {
@@ -382,6 +391,10 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
     if (conn[key] !== undefined) {
       out[key] = conn[key];
     }
+  }
+
+  if (typeof out.connectionId === "string") {
+    out.connectionId = out.connectionId.trim();
   }
 
   if (serverType !== undefined) {

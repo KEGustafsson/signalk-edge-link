@@ -3,21 +3,25 @@ const { promises: fs } = require("fs");
 const path = require("path");
 const os = require("os");
 
-jest.mock("ping-monitor", () => {
-  const { EventEmitter } = require("events");
+jest.mock(
+  "ping-monitor",
+  () => {
+    const { EventEmitter } = require("events");
 
-  class MockMonitor extends EventEmitter {
-    constructor() {
-      super();
-      MockMonitor.instances.push(this);
+    class MockMonitor extends EventEmitter {
+      constructor() {
+        super();
+        MockMonitor.instances.push(this);
+      }
+
+      stop() {}
     }
 
-    stop() {}
-  }
-
-  MockMonitor.instances = [];
-  return MockMonitor;
-}, { virtual: true });
+    MockMonitor.instances = [];
+    return MockMonitor;
+  },
+  { virtual: true }
+);
 
 // We'll test the config functions indirectly through the plugin
 const createPlugin = require("../lib/index");
@@ -199,6 +203,12 @@ describe("Configuration File Operations", () => {
 
       // Should not throw, should use defaults
       await expect(plugin.start(options)).resolves.not.toThrow();
+
+      const content = await fs.readFile(deltaTimerPath, "utf-8");
+      expect(content).toBe("{ invalid json }");
+      expect(mockApp.error).toHaveBeenCalledWith(
+        expect.stringContaining("Preserving existing delta_timer.json")
+      );
     });
   });
 

@@ -57,9 +57,11 @@ function register(router: Router, ctx: RouteContext): void {
     return options.configuration || {};
   }
 
-  function getPersistedConnections(config: Record<string, unknown>) {
+  function getPersistedConnections(config: Record<string, unknown>): Record<string, unknown>[] {
     if (Array.isArray(config.connections)) {
-      return config.connections.map((connection: unknown) => ({ ...(connection as object) }));
+      return config.connections.map((connection: unknown) => ({
+        ...(connection as Record<string, unknown>)
+      }));
     }
 
     if (config && typeof config === "object" && config.serverType) {
@@ -118,20 +120,37 @@ function register(router: Router, ctx: RouteContext): void {
       }
 
       const identityKey = getConnectionIdentityKey(connection);
-      if (!identityKey) {
+      const persisted = identityKey ? persistedByIdentity.get(identityKey) : null;
+      const persistedAtIndex =
+        typeof connection.connectionId === "string" &&
+        connection.connectionId.trim() &&
+        persistedConnections.length === connectionList.length
+          ? persistedConnections[index]
+          : null;
+      const indexFallbackIsSafe =
+        !!persistedAtIndex &&
+        typeof persistedAtIndex.secretKey === "string" &&
+        !!persistedAtIndex.secretKey &&
+        !getConnectionIdentityKey(persistedAtIndex)?.startsWith("id:");
+
+      if (!identityKey && !indexFallbackIsSafe) {
         throw new Error(
           `connections[${index}].secretKey is redacted, but connection identity is incomplete (requires connectionId or name/serverType/udpPort)`
         );
       }
 
-      if (duplicateIdentityKeys.has(identityKey)) {
+      if (identityKey && duplicateIdentityKeys.has(identityKey)) {
         throw new Error(
           `connections[${index}] (${connection.name || "unnamed"}) is ambiguous: multiple stored connections match its identity`
         );
       }
 
-      const persisted = persistedByIdentity.get(identityKey);
-      if (!persisted || typeof persisted.secretKey !== "string" || !persisted.secretKey) {
+      const matchedPersisted = persisted || (indexFallbackIsSafe ? persistedAtIndex : null);
+      if (
+        !matchedPersisted ||
+        typeof matchedPersisted.secretKey !== "string" ||
+        !matchedPersisted.secretKey
+      ) {
         throw new Error(
           `connections[${index}] (${connection.name || "unnamed"} ${connection.serverType || "unknown"} ${connection.udpPort || "unknown"}) has redacted secretKey, but no stored secretKey exists for this connection identity`
         );
@@ -139,27 +158,32 @@ function register(router: Router, ctx: RouteContext): void {
 
       return {
         ...connection,
-        secretKey: persisted.secretKey
+        secretKey: matchedPersisted.secretKey
       };
     });
   }
 
-  router.get("/paths", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
-    const paths = getAllPaths();
+  router.get(
+    "/paths",
+    rateLimitMiddleware,
+    managementAuthMiddleware("paths.read"),
+    (req: RouteRequest, res: RouteResponse) => {
+      const paths = getAllPaths();
 
-    const categorized: Record<string, unknown> = {};
-    for (const [key, category] of Object.entries(PATH_CATEGORIES) as [
-      string,
-      { prefix: string }
-    ][]) {
-      categorized[key] = {
-        ...category,
-        paths: paths.filter((path: string) => path.startsWith(category.prefix))
-      };
+      const categorized: Record<string, unknown> = {};
+      for (const [key, category] of Object.entries(PATH_CATEGORIES) as [
+        string,
+        { prefix: string }
+      ][]) {
+        categorized[key] = {
+          ...category,
+          paths: paths.filter((path: string) => path.startsWith(category.prefix))
+        };
+      }
+
+      res.json({ total: paths.length, categories: categorized });
     }
-
-    res.json({ total: paths.length, categories: categorized });
-  });
+  );
 
   router.get(
     "/plugin-config",
@@ -217,12 +241,10 @@ function register(router: Router, ctx: RouteContext): void {
         try {
           connectionList = restoreRedactedSecretKeys(connectionList, persistedConfig);
         } catch (error: unknown) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              error: error instanceof Error ? error.message : String(error)
-            });
+          return res.status(400).json({
+            success: false,
+            error: error instanceof Error ? error.message : String(error)
+          });
         }
 
         for (let index = 0; index < connectionList.length; index++) {
@@ -296,13 +318,18 @@ function register(router: Router, ctx: RouteContext): void {
     }
   );
 
-  router.get("/plugin-schema", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
-    const bundle = getFirstBundle();
-    res.json({
-      schema: pluginRef.schema,
-      currentMode: bundle ? (bundle.state.isServerMode ? "server" : "client") : "unknown"
-    });
-  });
+  router.get(
+    "/plugin-schema",
+    rateLimitMiddleware,
+    managementAuthMiddleware("plugin-schema.read"),
+    (req: RouteRequest, res: RouteResponse) => {
+      const bundle = getFirstBundle();
+      res.json({
+        schema: pluginRef.schema,
+        currentMode: bundle ? (bundle.state.isServerMode ? "server" : "client") : "unknown"
+      });
+    }
+  );
 
   const clientModeMiddleware: RouteHandler = (req, res, next) => {
     const bundle = getFirstClientBundle();

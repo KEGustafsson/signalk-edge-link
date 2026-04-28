@@ -348,6 +348,7 @@ describe("PluginConfigurationPanel", () => {
     const body = JSON.parse(postCall[1].body);
     expect(body.connections).toHaveLength(1);
     expect(body.connections[0]).not.toHaveProperty("_id");
+    expect(body.connections[0].connectionId).toEqual(expect.any(String));
     expect(body.connections[0].name).toBe("shore-server");
   });
 
