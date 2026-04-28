@@ -27,6 +27,7 @@ jest.mock("ping-monitor", () =>
 );
 
 const { createInstance, slugify } = require("../lib/instance");
+const path = require("path");
 
 // ── slugify ───────────────────────────────────────────────────────────────
 
@@ -63,7 +64,14 @@ function makeMockApp() {
     getSelfPath: jest.fn(() => "123456789"),
     handleMessage: jest.fn(),
     reportOutputMessages: jest.fn(),
-    getDataDirPath: jest.fn(() => "/tmp/test-instance-" + Math.random().toString(36).slice(2)),
+    getDataDirPath: jest.fn(() =>
+      path.join(
+        process.cwd(),
+        "__tests__",
+        "temp",
+        "test-instance-" + Math.random().toString(36).slice(2)
+      )
+    ),
     subscriptionmanager: {
       subscribe: jest.fn((_sub, unsubs, _onError, onDelta) => {
         app.__onDelta = onDelta;

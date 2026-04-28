@@ -61,9 +61,11 @@ import {
   resolveSelfContext
 } from "./metadata";
 import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "./delta-sanitizer";
+import { collectSourceSnapshot } from "./source-snapshot";
 
 const DELTA_SEND_MAX_RETRIES = 1;
 const DELTA_SEND_RETRY_BACKOFF_MS = 100;
+const SOURCE_SNAPSHOT_INTERVAL_MS = 60_000;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -152,6 +154,7 @@ function createInstance(
     processDelta: null,
     metaConfig: null,
     metaTimer: null,
+    sourceSnapshotTimer: null,
     metaDiffBuffer: [],
     metaDiffFlushTimer: null,
     metaSnapshotTimers: [],
@@ -477,6 +480,50 @@ function createInstance(
       const msg = err instanceof Error ? err.message : String(err);
       app.debug(`[${instanceId}] META_REQUEST snapshot failed: ${msg}`);
     });
+  }
+
+  async function sendSourceSnapshot(): Promise<void> {
+    if (
+      state.stopped ||
+      !state.readyToSend ||
+      !state.pipeline ||
+      typeof state.pipeline.sendSourceSnapshot !== "function" ||
+      !options.secretKey ||
+      !options.udpAddress
+    ) {
+      return;
+    }
+
+    const sources = collectSourceSnapshot(appProxy);
+    if (!sources || Object.keys(sources).length === 0) {
+      return;
+    }
+
+    try {
+      await state.pipeline.sendSourceSnapshot(
+        sources,
+        options.secretKey,
+        options.udpAddress,
+        options.udpPort
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      app.debug(`[${instanceId}] source snapshot send failed: ${msg}`);
+    }
+  }
+
+  function restartSourceSnapshotTimer(): void {
+    clearInterval(state.sourceSnapshotTimer ?? undefined);
+    state.sourceSnapshotTimer = null;
+    if ((options.protocolVersion ?? 0) < 2) {
+      return;
+    }
+    state.sourceSnapshotTimer = setInterval(() => {
+      sendSourceSnapshot().catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        app.debug(`[${instanceId}] periodic source snapshot failed: ${msg}`);
+      });
+    }, SOURCE_SNAPSHOT_INTERVAL_MS);
   }
 
   /** Thin wrapper around the parser in `metadata.ts` so the instance log
@@ -1162,6 +1209,10 @@ function createInstance(
               state.readyToSend = true;
               _setStatus("UDP socket recovered", true);
               app.debug(`[${instanceId}] UDP socket recovered`);
+              sendSourceSnapshot().catch((err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                app.debug(`[${instanceId}] recovery source snapshot failed: ${msg}`);
+              });
               // A socket-level recovery is the strongest local signal that the
               // remote receiver may have restarted. Re-prime its meta cache
               // with a full snapshot so it doesn't have to wait a full
@@ -1256,6 +1307,11 @@ function createInstance(
             heartbeatInterval: options.heartbeatInterval
           }
         );
+        restartSourceSnapshotTimer();
+        sendSourceSnapshot().catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          app.debug(`[${instanceId}] initial source snapshot failed: ${msg}`);
+        });
 
         state.socketUdp.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
           v2Pipeline.handleControlPacket(msg, rinfo).catch((err: unknown) => {
@@ -1348,6 +1404,8 @@ function createInstance(
     state.helloMessageSender = null;
     clearInterval(state.metaTimer ?? undefined);
     state.metaTimer = null;
+    clearInterval(state.sourceSnapshotTimer ?? undefined);
+    state.sourceSnapshotTimer = null;
     clearTimeout(state.metaDiffFlushTimer ?? undefined);
     state.metaDiffFlushTimer = null;
     for (const handle of state.metaSnapshotTimers) {

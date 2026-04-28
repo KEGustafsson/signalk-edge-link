@@ -138,6 +138,7 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
 
       // Verify delta delivered to SignalK
       expect(mockApp.handleMessage).toHaveBeenCalledTimes(1);
+      expect(mockApp.handleMessage.mock.calls[0][0]).toBe("N2K");
       const delivered = mockApp.handleMessage.mock.calls[0][1];
 
       expect(delivered.context).toBe("vessels.urn:mrn:imo:mmsi:230035780");
@@ -150,6 +151,12 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       expect(delivered.updates[0].values[1].value).toBe(5.14);
       expect(delivered.updates[0].timestamp).toBe("2024-06-15T12:00:00.000Z");
       expect(delivered.updates[0].$source).toBe("n2k-gateway.3");
+      expect(delivered.updates[0].source).toEqual({
+        label: "N2K",
+        type: "NMEA2000",
+        pgn: 129029,
+        src: "3"
+      });
     });
 
     test("multiple deltas batch: all delivered in order", async () => {

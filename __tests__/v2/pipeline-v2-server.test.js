@@ -172,6 +172,54 @@ describe("pipeline-v2-server", () => {
     });
   });
 
+  test("dispatches remote updates under their original source labels", async () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      handleMessage: jest.fn()
+    };
+    const state = {
+      options: { reliability: { nakTimeout: 10 } },
+      socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
+      instanceId: "test",
+      sourceRegistry: createSourceRegistry(app)
+    };
+    const metricsApi = makeMetricsApi();
+    const pipeline = createPipelineV2Server(app, state, metricsApi);
+
+    const packet = buildDataPacket(
+      3,
+      {
+        context: "vessels.self",
+        updates: [
+          {
+            $source: "signalk-edge-link.HC",
+            source: { label: "Arabella Compass", type: "NMEA0183", talker: "HC", sentence: "HDM" },
+            values: [{ path: "navigation.headingMagnetic", value: 1.23 }]
+          },
+          {
+            $source: "signalk-edge-link.AI",
+            source: { label: "Arabella AIS", type: "NMEA0183", talker: "AI", sentence: "VDM" },
+            values: [{ path: "navigation.position", value: { latitude: 60, longitude: 25 } }]
+          }
+        ]
+      },
+      secretKey
+    );
+
+    await pipeline.receivePacket(packet, secretKey, { address: "127.0.0.1", port: 12007 });
+
+    expect(app.handleMessage).toHaveBeenCalledTimes(2);
+    expect(app.handleMessage.mock.calls.map((call) => call[0])).toEqual([
+      "Arabella Compass",
+      "Arabella AIS"
+    ]);
+    expect(app.handleMessage.mock.calls[0][1].updates).toHaveLength(1);
+    expect(app.handleMessage.mock.calls[1][1].updates).toHaveLength(1);
+    expect(app.handleMessage.mock.calls[0][1].updates[0].$source).toBeUndefined();
+    expect(app.handleMessage.mock.calls[1][1].updates[0].$source).toBeUndefined();
+  });
+
   test("marks duplicate DATA packets", async () => {
     const app = {
       debug: jest.fn(),

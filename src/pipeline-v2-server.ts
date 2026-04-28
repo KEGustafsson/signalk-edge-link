@@ -20,6 +20,8 @@ import * as msgpack from "@msgpack/msgpack";
 import { decryptBinary } from "./crypto";
 import { decodeDelta, decodeMetaEntry } from "./pathDictionary";
 import { sanitizeDeltaForSignalK } from "./delta-sanitizer";
+import { handleMessageBySource, normalizeDeltaSourceRefs } from "./source-dispatch";
+import { mergeSourceSnapshot } from "./source-snapshot";
 import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "./packet";
 import * as dgram from "dgram";
 import { SequenceTracker } from "./sequence";
@@ -75,6 +77,11 @@ interface ClientSession {
    *  rejecting other chunks (different idx, same seq) of the same multi-
    *  chunk batch. Cleared when `lastMetaEnvSeq` advances. */
   seenMetaChunkIdx: Set<number>;
+  /** Last observed source snapshot envelope seq; kept separate from metadata
+   *  seq so source resends cannot make in-flight metadata chunks look stale. */
+  lastSourceEnvSeq: number | null;
+  /** Chunk indexes already applied for `lastSourceEnvSeq`. */
+  seenSourceChunkIdx: Set<number>;
 }
 
 function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
@@ -204,7 +211,9 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         rateLimitWindowStart: Date.now(),
         metaRequested: false,
         lastMetaEnvSeq: null,
-        seenMetaChunkIdx: new Set<number>()
+        seenMetaChunkIdx: new Set<number>(),
+        lastSourceEnvSeq: null,
+        seenSourceChunkIdx: new Set<number>()
       };
     }
 
@@ -238,7 +247,9 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       metaRequested: false,
       // Stale-envelope rejection for METADATA packets
       lastMetaEnvSeq: null,
-      seenMetaChunkIdx: new Set<number>()
+      seenMetaChunkIdx: new Set<number>(),
+      lastSourceEnvSeq: null,
+      seenSourceChunkIdx: new Set<number>()
     };
     clientSessions.set(key, session);
     app.debug(`[v2-server] new client session: ${key}`);
@@ -518,6 +529,73 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
     }
   }
 
+  function shouldDropEnvelopeBySeq(
+    session: ClientSession | null | undefined,
+    env: { seq?: number; idx?: number },
+    channel: "META" | "source snapshot"
+  ): boolean {
+    if (!session || typeof env.seq !== "number" || !Number.isFinite(env.seq)) {
+      return false;
+    }
+
+    const envSeq = env.seq >>> 0;
+    const envIdx = typeof env.idx === "number" && Number.isFinite(env.idx) ? env.idx >>> 0 : 0;
+    const isSource = channel === "source snapshot";
+    const seenChunkIdx = isSource ? session.seenSourceChunkIdx : session.seenMetaChunkIdx;
+    let lastEnvSeq = isSource ? session.lastSourceEnvSeq : session.lastMetaEnvSeq;
+    const setLastEnvSeq = (value: number | null): void => {
+      if (isSource) {
+        session.lastSourceEnvSeq = value;
+      } else {
+        session.lastMetaEnvSeq = value;
+      }
+      lastEnvSeq = value;
+    };
+
+    // Sender-restart detection: the client's envelope sequence counter is
+    // initialised to 0 at process start, so an incoming envSeq of 0 with a
+    // sufficiently-advanced previous seq is a strong signal that the peer
+    // restarted. The threshold guards against first-packet replays.
+    if (lastEnvSeq !== null && envSeq === 0 && lastEnvSeq >= META_RESTART_THRESHOLD) {
+      app.debug(
+        `[v2-server] ${channel} sender restart detected for ${session.key} ` +
+          `(last seq was ${lastEnvSeq}); resetting ${channel} state`
+      );
+      setLastEnvSeq(null);
+      seenChunkIdx.clear();
+      if (!isSource) {
+        session.metaRequested = false;
+      }
+    }
+
+    if (lastEnvSeq !== null) {
+      const distance = (envSeq - lastEnvSeq) >>> 0;
+      if (distance !== 0 && distance >= 0x80000000) {
+        metrics.duplicatePackets = (metrics.duplicatePackets || 0) + 1;
+        app.debug(
+          `[v2-server] stale ${channel} envelope seq=${envSeq} from ${session.key} (last=${lastEnvSeq}), dropping`
+        );
+        return true;
+      }
+      if (distance !== 0) {
+        setLastEnvSeq(envSeq);
+        seenChunkIdx.clear();
+      } else if (seenChunkIdx.has(envIdx)) {
+        metrics.duplicatePackets = (metrics.duplicatePackets || 0) + 1;
+        app.debug(
+          `[v2-server] duplicate ${channel} chunk seq=${envSeq} idx=${envIdx} from ${session.key}, dropping`
+        );
+        return true;
+      }
+    } else {
+      setLastEnvSeq(envSeq);
+      seenChunkIdx.clear();
+    }
+
+    seenChunkIdx.add(envIdx);
+    return false;
+  }
+
   /**
    * Decrypt and dispatch a METADATA (0x06) packet.
    *
@@ -580,16 +658,27 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         seq?: number;
         idx?: number;
         total?: number;
+        sources?: Record<string, unknown>;
         entries?: Array<{
           context?: string;
           path?: string | number;
           meta?: Record<string, unknown>;
         }>;
       };
-      if (!Array.isArray(env.entries) || env.entries.length === 0) {
+      const hasSourceSnapshot =
+        env.kind === "sources" &&
+        env.sources !== null &&
+        typeof env.sources === "object" &&
+        !Array.isArray(env.sources);
+      const entries = Array.isArray(env.entries) ? env.entries : [];
+      if (!hasSourceSnapshot && entries.length === 0) {
         metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
         app.debug("v2 META envelope has no entries, dropping");
         recordError("general", "v2 META envelope has no entries");
+        return;
+      }
+
+      if (hasSourceSnapshot && shouldDropEnvelopeBySeq(session, env, "source snapshot")) {
         return;
       }
 
@@ -601,7 +690,12 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       //   - within the current batch, reject any (seq, idx) pair already
       //     processed ("exact replay"); other idx values for the same seq
       //     remain accepted so multi-chunk batches still apply in full.
-      if (session && typeof env.seq === "number" && Number.isFinite(env.seq)) {
+      if (
+        !hasSourceSnapshot &&
+        session &&
+        typeof env.seq === "number" &&
+        Number.isFinite(env.seq)
+      ) {
         const envSeq = env.seq >>> 0;
         const envIdx = typeof env.idx === "number" && Number.isFinite(env.idx) ? env.idx >>> 0 : 0;
         // Sender-restart detection: the client's meta sequence counter is
@@ -656,12 +750,20 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         session.seenMetaChunkIdx.add(envIdx);
       }
 
+      if (hasSourceSnapshot) {
+        const added = mergeSourceSnapshot(app, env.sources);
+        app.debug(
+          `v2 source snapshot received: sources=${Object.keys(env.sources || {}).length}, added=${added}, envSeq=${env.seq ?? "?"}`
+        );
+        return;
+      }
+
       // Group entries by context so the local Signal K server sees one delta
       // per context rather than one per path. Reduces app.handleMessage
       // overhead on big snapshots without changing semantics.
       const nowIso = new Date().toISOString();
       const byContext = new Map<string, Array<{ path: string; value: Record<string, unknown> }>>();
-      for (const rawEntry of env.entries) {
+      for (const rawEntry of entries) {
         if (!rawEntry || typeof rawEntry.meta !== "object" || !rawEntry.meta) {
           continue;
         }
@@ -705,7 +807,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       app.debug(
-        `v2 meta received: kind=${env.kind ?? "?"}, entries=${env.entries.length}, contexts=${byContext.size}, envSeq=${env.v ?? "?"}`
+        `v2 meta received: kind=${env.kind ?? "?"}, entries=${entries.length}, contexts=${byContext.size}, envSeq=${env.seq ?? "?"}`
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1040,6 +1142,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
           continue;
         }
         deltaMessage = sanitizedDelta;
+        deltaMessage = normalizeDeltaSourceRefs(deltaMessage);
 
         _ingestRemoteTelemetry(deltaMessage);
         if (!Array.isArray(deltaMessage.updates) || deltaMessage.updates.length === 0) {
@@ -1062,7 +1165,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
 
         trackPathStats(deltaMessage, decompressed.length / deltas.length);
 
-        app.handleMessage("", deltaMessage);
+        handleMessageBySource(app, deltaMessage);
         metrics.deltasReceived++;
       }
 

@@ -62,6 +62,7 @@ function makeCtx(overrides = {}) {
   };
   return {
     rateLimitMiddleware: (req, res, next) => next(),
+    managementAuthMiddleware: () => (req, res, next) => next(),
     instanceRegistry: { getAll: () => [] },
     getFirstBundle: () => null,
     getEffectiveNetworkQuality: () => ({

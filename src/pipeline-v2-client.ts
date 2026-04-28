@@ -34,7 +34,8 @@ import type {
   InstanceState,
   Delta,
   MonitoringState,
-  MetaEntry
+  MetaEntry,
+  SourceSnapshotEnvelope
 } from "./types";
 import * as dgram from "dgram";
 import {
@@ -134,6 +135,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   // layer that knows how to build a snapshot from `app.signalk.retrieve()`.
   let metaRequestHandler: (() => void) | null = null;
   let metaEnvelopeSeq = 0;
+  let sourceEnvelopeSeq = 0;
   // Seed all four meta bandwidth counters so downstream consumers (metrics
   // publishers, prometheus exporter, tests) always see numeric zeros rather
   // than undefined on a fresh pipeline. Uses || 0 at write sites elsewhere as
@@ -484,6 +486,174 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
     }
   }
 
+  function isSourceRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function mergeSourcePatch(target: Record<string, unknown>, patch: Record<string, unknown>): void {
+    for (const [key, value] of Object.entries(patch)) {
+      const current = target[key];
+      if (isSourceRecord(current) && isSourceRecord(value)) {
+        mergeSourcePatch(current, value);
+      } else {
+        target[key] = value;
+      }
+    }
+  }
+
+  function buildSourcePatch(path: string[], value: unknown): Record<string, unknown> {
+    let patch: unknown = value;
+    for (let i = path.length - 1; i >= 0; i--) {
+      patch = { [path[i]]: patch };
+    }
+    return patch as Record<string, unknown>;
+  }
+
+  function flattenSourcePatches(
+    value: unknown,
+    path: string[] = []
+  ): Array<Record<string, unknown>> {
+    if (!isSourceRecord(value)) {
+      return path.length > 0 ? [buildSourcePatch(path, value)] : [];
+    }
+
+    const entries = Object.entries(value);
+    if (path.length > 0 && entries.length === 0) {
+      return [buildSourcePatch(path, {})];
+    }
+
+    const patches: Array<Record<string, unknown>> = [];
+    for (const [key, entry] of entries) {
+      patches.push(...flattenSourcePatches(entry, path.concat(key)));
+    }
+    return patches;
+  }
+
+  function buildSourceChunk(patches: Array<Record<string, unknown>>): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const patch of patches) {
+      mergeSourcePatch(out, patch);
+    }
+    return out;
+  }
+
+  async function buildSourceSnapshotPacket(
+    sources: Record<string, unknown>,
+    envelopeSeq: number,
+    idx: number,
+    total: number,
+    useMsgpack: boolean,
+    secretKey: string
+  ): Promise<Buffer> {
+    const envelope: SourceSnapshotEnvelope = {
+      v: 1,
+      kind: "sources",
+      seq: envelopeSeq >>> 0,
+      idx,
+      total,
+      sources
+    };
+    const serialized = deltaBuffer(envelope, useMsgpack);
+    const compressed = await compressPayload(serialized, useMsgpack);
+    const encrypted = encryptBinary(compressed, secretKey, { stretchAsciiKey });
+    return packetBuilder.buildMetadataPacket(encrypted, {
+      compressed: true,
+      encrypted: true,
+      messagepack: useMsgpack,
+      pathDictionary: false
+    });
+  }
+
+  async function chunkSourceSnapshot(
+    sources: Record<string, unknown>,
+    envelopeSeq: number,
+    useMsgpack: boolean,
+    secretKey: string
+  ): Promise<Array<{ sources: Record<string, unknown>; packet: Buffer }>> {
+    const sourcePatches = flattenSourcePatches(sources);
+    const chunks: Array<Array<Record<string, unknown>>> = [];
+    let currentPatches: Array<Record<string, unknown>> = [];
+
+    for (const patch of sourcePatches) {
+      const candidatePatches = currentPatches.concat([patch]);
+      const candidate = buildSourceChunk(candidatePatches);
+      const candidatePacket = await buildSourceSnapshotPacket(
+        candidate,
+        envelopeSeq,
+        sourcePatches.length,
+        sourcePatches.length,
+        useMsgpack,
+        secretKey
+      );
+
+      if (currentPatches.length > 0 && candidatePacket.length > MAX_SAFE_UDP_PAYLOAD) {
+        chunks.push(currentPatches);
+        currentPatches = [patch];
+      } else {
+        currentPatches = candidatePatches;
+      }
+    }
+
+    if (currentPatches.length > 0) {
+      chunks.push(currentPatches);
+    }
+
+    let finalChunks = chunks;
+    while (true) {
+      const packets: Array<{ sources: Record<string, unknown>; packet: Buffer }> = [];
+      let splitIndex = -1;
+
+      for (let i = 0; i < finalChunks.length; i++) {
+        const patchChunk = finalChunks[i];
+        const sourceChunk = buildSourceChunk(patchChunk);
+        const packet = await buildSourceSnapshotPacket(
+          sourceChunk,
+          envelopeSeq,
+          i,
+          finalChunks.length,
+          useMsgpack,
+          secretKey
+        );
+        packets.push({ sources: sourceChunk, packet });
+
+        if (packet.length > MAX_SAFE_UDP_PAYLOAD && patchChunk.length > 1) {
+          splitIndex = i;
+          break;
+        }
+      }
+
+      if (splitIndex === -1) {
+        return packets;
+      }
+
+      const patchesToSplit = finalChunks[splitIndex];
+      const midpoint = Math.ceil(patchesToSplit.length / 2);
+      finalChunks = [
+        ...finalChunks.slice(0, splitIndex),
+        patchesToSplit.slice(0, midpoint),
+        patchesToSplit.slice(midpoint),
+        ...finalChunks.slice(splitIndex + 1)
+      ];
+    }
+  }
+
+  function recordSentMetadataPacket(packet: Buffer, udpAddress: string, udpPort: number): void {
+    if (monitoringHooks) {
+      const rinfo = { address: udpAddress, port: udpPort };
+      if (monitoringHooks.packetCapture) {
+        monitoringHooks.packetCapture.capture(packet, "send", rinfo);
+      }
+      if (monitoringHooks.packetInspector) {
+        monitoringHooks.packetInspector.inspect(packet, "send", rinfo);
+      }
+    }
+
+    metrics.bandwidth.metaBytesOut = (metrics.bandwidth.metaBytesOut || 0) + packet.length;
+    metrics.bandwidth.metaPacketsOut = (metrics.bandwidth.metaPacketsOut || 0) + 1;
+    metrics.bandwidth.bytesOut += packet.length;
+    metrics.bandwidth.packetsOut++;
+  }
+
   /**
    * Send a batch of Signal K metadata entries to the receiver as one or more
    * METADATA (0x06) packets. Mirrors the compress → encrypt → packet-build
@@ -546,21 +716,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         }
 
         await udpSendAsync(packet, udpAddress, udpPort);
-
-        if (monitoringHooks) {
-          const rinfo = { address: udpAddress, port: udpPort };
-          if (monitoringHooks.packetCapture) {
-            monitoringHooks.packetCapture.capture(packet, "send", rinfo);
-          }
-          if (monitoringHooks.packetInspector) {
-            monitoringHooks.packetInspector.inspect(packet, "send", rinfo);
-          }
-        }
-
-        metrics.bandwidth.metaBytesOut = (metrics.bandwidth.metaBytesOut || 0) + packet.length;
-        metrics.bandwidth.metaPacketsOut = (metrics.bandwidth.metaPacketsOut || 0) + 1;
-        metrics.bandwidth.bytesOut += packet.length;
-        metrics.bandwidth.packetsOut++;
+        recordSentMetadataPacket(packet, udpAddress, udpPort);
       }
 
       // Count one envelope per call (a multi-chunk envelope is logically one
@@ -583,6 +739,48 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       // rethrow the caller would commit the MetaCache despite nothing
       // reaching the wire, silently suppressing the next diff.
       throw error instanceof Error ? error : new Error(msg);
+    }
+  }
+
+  async function sendSourceSnapshot(
+    sources: Record<string, unknown>,
+    secretKey: string,
+    udpAddress: string,
+    udpPort: number
+  ): Promise<void> {
+    try {
+      if (!state.options) {
+        app.debug("sendSourceSnapshot called but plugin is stopped, ignoring");
+        return;
+      }
+      if (!sources || Object.keys(sources).length === 0) {
+        return;
+      }
+
+      const useMsgpack = !!state.options.useMsgpack;
+      const envelopeSeq = sourceEnvelopeSeq++ >>> 0;
+      const chunks = await chunkSourceSnapshot(sources, envelopeSeq, useMsgpack, secretKey);
+
+      for (const { packet } of chunks) {
+        if (packet.length > MAX_SAFE_UDP_PAYLOAD) {
+          app.debug(
+            `Warning: v2 source snapshot packet size ${packet.length} bytes exceeds safe MTU (${MAX_SAFE_UDP_PAYLOAD}), may fragment.`
+          );
+          metrics.smartBatching.oversizedPackets++;
+        }
+
+        await udpSendAsync(packet, udpAddress, udpPort);
+        recordSentMetadataPacket(packet, udpAddress, udpPort);
+      }
+
+      app.debug(
+        `v2 source snapshot sent: sources=${Object.keys(sources).length}, chunks=${chunks.length}, envSeq=${envelopeSeq}`
+      );
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      app.error(`v2 sendSourceSnapshot error: ${msg}`);
+      recordError("general", `v2 sendSourceSnapshot error: ${msg}`);
+      throw error;
     }
   }
 
@@ -1154,6 +1352,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   return {
     sendDelta,
     sendMetadata,
+    sendSourceSnapshot,
     setMetaRequestHandler,
     getPacketBuilder,
     getRetransmitQueue,

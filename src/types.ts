@@ -59,6 +59,16 @@ export interface MetaEnvelope {
   entries: MetaEntry[];
 }
 
+/** Envelope carrying a chunk of the Signal K `/sources` tree over METADATA. */
+export interface SourceSnapshotEnvelope {
+  v: 1;
+  kind: "sources";
+  seq: number;
+  idx: number;
+  total: number;
+  sources: Record<string, unknown>;
+}
+
 /** A Signal K delta message. */
 export interface Delta {
   context: string;
@@ -518,8 +528,18 @@ export interface InstanceState {
   processDelta: ((delta: Delta) => void) | null;
   /** Active metadata-streaming configuration from subscription.json; null when disabled. */
   metaConfig: MetaConfig | null;
-  /** Periodic metadata snapshot resend timer handle; null when not active. */
+  /**
+   * Periodic full metadata resend owned by instance.ts. Created only while
+   * metadata streaming is enabled, cleared and reset to null on stop/restart,
+   * and its async callback must tolerate the connection disappearing mid-send.
+   */
   metaTimer: ReturnType<typeof setInterval> | null;
+  /**
+   * Periodic `/sources` resend owned by instance.ts. Created for active v2/v3
+   * client pipelines, cleared and reset to null when the pipeline stops or is
+   * replaced, and its async callback must re-check current state before send.
+   */
+  sourceSnapshotTimer: ReturnType<typeof setInterval> | null;
   /** Coalescing buffer for live meta diff entries collected from delta stream. */
   metaDiffBuffer: MetaEntry[];
   /** Debounce timer for the live meta diff flush; null when not armed. */
@@ -745,6 +765,17 @@ export interface ClientPipelineApi {
   sendMetadata?(
     entries: MetaEntry[],
     kind: "snapshot" | "diff",
+    secretKey: string,
+    address: string,
+    port: number
+  ): Promise<void>;
+  /**
+   * Transmit the current Signal K `/sources` tree to the receiver. The client
+   * pipeline owns packetization and best-effort UDP sending; callers provide a
+   * point-in-time snapshot and may omit the call when no sources are available.
+   */
+  sendSourceSnapshot?(
+    sources: Record<string, unknown>,
     secretKey: string,
     address: string,
     port: number
