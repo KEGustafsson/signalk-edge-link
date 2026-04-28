@@ -14,8 +14,10 @@
  * dedup all have to agree across the wire boundary or the test fails.
  */
 
+const crypto = require("node:crypto");
 const { createPipelineV2Client } = require("../../lib/pipeline-v2-client");
 const { createPipelineV2Server } = require("../../lib/pipeline-v2-server");
+const { MAX_SAFE_UDP_PAYLOAD } = require("../../lib/constants");
 
 function makeMetricsApi() {
   const metrics = {
@@ -125,6 +127,14 @@ describe("v2 metadata end-to-end (client → server)", () => {
     }
   }
 
+  function uniquePayload(seed) {
+    let out = "";
+    for (let i = 0; i < 5; i++) {
+      out += crypto.createHash("sha256").update(`${seed}:${i}`).digest("hex");
+    }
+    return out;
+  }
+
   test("snapshot entries arrive intact at app.handleMessage", async () => {
     const { wire, client, server, serverApp } = makeWiredPair();
 
@@ -182,6 +192,34 @@ describe("v2 metadata end-to-end (client → server)", () => {
     expect(serverApp.handleMessage).not.toHaveBeenCalled();
     expect(root.sources["Arabella GNSS"]).toEqual(sources["Arabella GNSS"]);
     expect(root.sources.bedroom).toEqual({});
+  });
+
+  test("large source snapshots are split into safe UDP chunks", async () => {
+    const { wire, client, server, serverApp } = makeWiredPair();
+    const root = { sources: {} };
+    serverApp.signalk = { retrieve: jest.fn(() => root) };
+
+    const sources = {};
+    for (let i = 0; i < 80; i++) {
+      sources[`source-${i}`] = {
+        label: `source-${i}`,
+        type: "test",
+        nested: {
+          timestamp: `2026-04-28T14:${String(i).padStart(2, "0")}:00.000Z`,
+          payload: uniquePayload(i)
+        }
+      };
+    }
+
+    await client.sendSourceSnapshot(sources, secretKey, "127.0.0.1", 9100);
+
+    expect(wire.length).toBeGreaterThan(1);
+    expect(wire.every((packet) => packet.length <= MAX_SAFE_UDP_PAYLOAD)).toBe(true);
+
+    await deliverWire(server, wire);
+    expect(Object.keys(root.sources)).toHaveLength(80);
+    expect(root.sources["source-0"]).toEqual(sources["source-0"]);
+    expect(root.sources["source-79"]).toEqual(sources["source-79"]);
   });
 
   test("survives MessagePack serialization end-to-end", async () => {

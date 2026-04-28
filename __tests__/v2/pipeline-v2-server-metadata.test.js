@@ -169,6 +169,58 @@ describe("pipeline-v2-server METADATA handling", () => {
     expect(root.sources.kip).toEqual({});
     expect(root.sources.local).toEqual({ label: "local" });
   });
+
+  test("source snapshot seq does not make in-flight metadata chunks stale", async () => {
+    const { app, pipeline } = makeHarness();
+    const root = { sources: {} };
+    app.signalk = { retrieve: jest.fn(() => root) };
+    const rinfo = { address: "127.0.0.1", port: 13005 };
+
+    const firstMetaChunk = buildMetaPacket(
+      {
+        v: 1,
+        kind: "snapshot",
+        seq: 10,
+        idx: 0,
+        total: 2,
+        entries: [{ context: "vessels.self", path: "a", meta: { units: "m" } }]
+      },
+      secretKey
+    );
+    const sourceSnapshot = buildMetaPacket(
+      {
+        v: 1,
+        kind: "sources",
+        seq: 11,
+        idx: 0,
+        total: 1,
+        sources: { remote: { label: "remote" } }
+      },
+      secretKey
+    );
+    const secondMetaChunk = buildMetaPacket(
+      {
+        v: 1,
+        kind: "snapshot",
+        seq: 10,
+        idx: 1,
+        total: 2,
+        entries: [{ context: "vessels.self", path: "b", meta: { units: "rad" } }]
+      },
+      secretKey
+    );
+
+    await pipeline.receivePacket(firstMetaChunk, secretKey, rinfo);
+    await pipeline.receivePacket(sourceSnapshot, secretKey, rinfo);
+    await pipeline.receivePacket(secondMetaChunk, secretKey, rinfo);
+
+    expect(root.sources.remote).toEqual({ label: "remote" });
+    expect(app.handleMessage).toHaveBeenCalledTimes(2);
+    expect(app.handleMessage.mock.calls.map((call) => call[1].updates[0].meta[0].path)).toEqual([
+      "a",
+      "b"
+    ]);
+  });
 });
 
 describe("pipeline-v2-server META_REQUEST emission", () => {
