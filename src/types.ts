@@ -65,6 +65,50 @@ export interface Delta {
   updates: DeltaUpdate[];
 }
 
+export interface SourceReplicationRecord {
+  schemaVersion: number;
+  key: string;
+  identity: {
+    label: string;
+    type: string;
+    src?: string;
+    instance?: string;
+    pgn?: number;
+    deviceId?: string;
+  };
+  metadata: Record<string, unknown>;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastUpdatedAt: string;
+  provenance: {
+    lastUpdatedBy: "source" | "$source" | "merge";
+    sourceClientInstanceId: string;
+    updateTimestamp?: string;
+  };
+  raw: {
+    source?: Record<string, unknown>;
+    $source?: string;
+  };
+  mergeHash: string;
+}
+
+export interface SourceRegistrySnapshot {
+  schemaVersion: number;
+  size: number;
+  sources: SourceReplicationRecord[];
+  legacy: {
+    byLabel: Record<string, string>;
+    bySourceRef: Record<string, string>;
+  };
+}
+
+export interface SourceRegistryMetrics {
+  upserts: number;
+  noops: number;
+  missingIdentity: number;
+  conflicts: number;
+}
+
 // ── Protocol Types ──────────────────────────────────────────────────────────
 
 /** Packet flag bits. */
@@ -485,6 +529,12 @@ export interface InstanceState {
   metaSnapshotTimers: Array<ReturnType<typeof setTimeout>>;
   /** Timestamp (ms) of the last receiver-requested snapshot; used for rate limiting. */
   lastMetaRequestAt: number;
+  /** Replicated and normalized server-side source registry snapshot state. */
+  sourceRegistry: {
+    upsertFromDelta(delta: Delta, sourceClientInstanceId: string): void;
+    snapshot(): SourceRegistrySnapshot;
+    getMetrics(): SourceRegistryMetrics;
+  };
   /** MetaConfig that was parsed from a new subscription.json but whose
    *  subscribe() call threw. Stashed here so the scheduled
    *  `subscriptionRetryTimer` callback can promote it into

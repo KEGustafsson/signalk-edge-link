@@ -18,6 +18,7 @@ import dgram from "dgram";
 import { validateSecretKey } from "./crypto";
 import Monitor from "ping-monitor";
 import createMetrics from "./metrics";
+import { createSourceRegistry } from "./source-replication";
 import createPipeline from "./pipeline";
 import { createPipelineV2Client } from "./pipeline-v2-client";
 import { createPipelineV2Server } from "./pipeline-v2-server";
@@ -154,7 +155,8 @@ function createInstance(
     metaDiffBuffer: [],
     metaDiffFlushTimer: null,
     metaSnapshotTimers: [],
-    lastMetaRequestAt: 0
+    lastMetaRequestAt: 0,
+    sourceRegistry: createSourceRegistry(app)
   };
 
   const metricsApi = createMetrics();

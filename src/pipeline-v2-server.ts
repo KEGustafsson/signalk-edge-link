@@ -47,6 +47,8 @@ const brotliDecompressAsync = promisify(zlib.brotliDecompress);
  */
 interface ClientSession {
   key: string;
+  sourceClientInstanceId: string | null;
+  clientId: string | null;
   address: string;
   port: number;
   sequenceTracker: SequenceTracker;
@@ -179,6 +181,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       // packet can still be processed for this request without polluting state.
       return {
         key,
+        sourceClientInstanceId: null,
+        clientId: null,
         address: rinfo.address,
         port: rinfo.port,
         sequenceTracker: new SequenceTracker({
@@ -206,6 +210,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
 
     const session = {
       key,
+      sourceClientInstanceId: null,
+      clientId: null,
       address: rinfo.address,
       port: rinfo.port,
       sequenceTracker: new SequenceTracker({
@@ -282,6 +288,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   let lastMetricsTime = Date.now();
   let lastBytesReceived = 0;
   let lastPacketsReceived = 0;
+  let previousSourceMissingIdentity = 0;
+  let previousSourceConflicts = 0;
 
   // Rate-limit operator-visible warnings for protocol-version mismatches so a
   // persistently misconfigured peer is noticeable in logs without flooding them.
@@ -822,6 +830,18 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         try {
           const info = JSON.parse(parsed.payload.toString());
           app.debug(`v2 hello from client: ${JSON.stringify(info)}`);
+          if (session && info && typeof info === "object") {
+            const helloClientId =
+              typeof info.clientId === "string" && info.clientId.trim()
+                ? info.clientId.trim()
+                : null;
+            const helloInstanceId =
+              typeof info.instanceId === "string" && info.instanceId.trim()
+                ? info.instanceId.trim()
+                : null;
+            session.clientId = helloClientId;
+            session.sourceClientInstanceId = helloInstanceId || helloClientId;
+          }
         } catch (parseErr: unknown) {
           app.error(
             `v2 failed to parse HELLO payload: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
@@ -1025,6 +1045,20 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         if (!Array.isArray(deltaMessage.updates) || deltaMessage.updates.length === 0) {
           continue;
         }
+        if (state.sourceRegistry && typeof state.sourceRegistry.upsertFromDelta === "function") {
+          const deltaRecord = deltaMessage as unknown as Record<string, unknown>;
+          const deltaSourceInstanceId =
+            deltaMessage &&
+            typeof deltaMessage === "object" &&
+            typeof deltaRecord.sourceClientInstanceId === "string"
+              ? (deltaRecord.sourceClientInstanceId as string) || null
+              : null;
+          const stableSourceClientId =
+            (session && (session.sourceClientInstanceId || session.clientId)) ||
+            deltaSourceInstanceId ||
+            "unknown";
+          state.sourceRegistry.upsertFromDelta(deltaMessage, stableSourceClientId);
+        }
 
         trackPathStats(deltaMessage, decompressed.length / deltas.length);
 
@@ -1088,7 +1122,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       sessions,
       totalSessions: clientSessions.size,
       acksSent: metrics.acksSent,
-      naksSent: metrics.naksSent
+      naksSent: metrics.naksSent,
+      sourceReplication: state.sourceRegistry ? state.sourceRegistry.getMetrics() : null
     };
   }
 
@@ -1183,6 +1218,18 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
     const effectiveQueueDepth = hasRemoteTelemetry ? remote.queueDepth || 0 : 0;
     const effectiveRetransmitRate = hasRemoteTelemetry ? remote.retransmitRate || 0 : 0;
     const effectiveActiveLink = hasRemoteTelemetry ? remote.activeLink || "primary" : "primary";
+    const sourceReplicationMetrics = state.sourceRegistry
+      ? state.sourceRegistry.getMetrics()
+      : { upserts: 0, noops: 0, missingIdentity: 0, conflicts: 0 };
+    const deltaMissing = sourceReplicationMetrics.missingIdentity - previousSourceMissingIdentity;
+    const deltaConflicts = sourceReplicationMetrics.conflicts - previousSourceConflicts;
+    if (deltaMissing > 0 || deltaConflicts > 0) {
+      app.debug(
+        `[source-replication] +missingIdentity=${deltaMissing} +conflicts=${deltaConflicts} totalMissingIdentity=${sourceReplicationMetrics.missingIdentity} totalConflicts=${sourceReplicationMetrics.conflicts} size=${state.sourceRegistry.snapshot().size}`
+      );
+    }
+    previousSourceMissingIdentity = sourceReplicationMetrics.missingIdentity;
+    previousSourceConflicts = sourceReplicationMetrics.conflicts;
 
     // Publish to Signal K
     metricsPublisher.publish({

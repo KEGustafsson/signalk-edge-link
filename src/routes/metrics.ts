@@ -14,7 +14,8 @@ function register(router: Router, ctx: RouteContext): void {
     getFirstBundle,
     getEffectiveNetworkQuality,
     getActiveMetricsPublisher,
-    buildFullMetricsResponse
+    buildFullMetricsResponse,
+    managementAuthMiddleware
   } = ctx;
 
   router.get("/metrics", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
@@ -139,6 +140,38 @@ function register(router: Router, ctx: RouteContext): void {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
+
+  router.get(
+    "/sources",
+    rateLimitMiddleware,
+    managementAuthMiddleware("sources.read"),
+    (req: RouteRequest, res: RouteResponse) => {
+      try {
+        const serverBundle =
+          instanceRegistry
+            .getAll()
+            .find(
+              (bundle) => bundle.state && bundle.state.isServerMode && bundle.state.sourceRegistry
+            ) || null;
+        const bundle = serverBundle || getFirstBundle();
+        if (!bundle) {
+          return res.status(503).json({ error: "Plugin not started" });
+        }
+        const { state } = bundle;
+        if (!state.sourceRegistry) {
+          return res.json({
+            schemaVersion: 1,
+            size: 0,
+            sources: [],
+            legacy: { byLabel: {}, bySourceRef: {} }
+          });
+        }
+        return res.json(state.sourceRegistry.snapshot());
+      } catch (err: unknown) {
+        return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  );
 }
 
 export { register };
