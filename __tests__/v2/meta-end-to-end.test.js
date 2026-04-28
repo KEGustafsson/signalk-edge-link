@@ -161,6 +161,29 @@ describe("v2 metadata end-to-end (client → server)", () => {
     );
   });
 
+  test("source snapshot arrives in the server Signal K source tree", async () => {
+    const { wire, client, server, serverApp } = makeWiredPair();
+    const root = { sources: { defaults: {} } };
+    serverApp.signalk = { retrieve: jest.fn(() => root) };
+
+    const sources = {
+      "Arabella GNSS": {
+        label: "Arabella GNSS",
+        type: "NMEA0183",
+        GN: { talker: "GN", sentences: { RMC: "2026-04-28T14:09:55.000Z" } }
+      },
+      bedroom: {}
+    };
+
+    await client.sendSourceSnapshot(sources, secretKey, "127.0.0.1", 9100);
+    expect(wire).toHaveLength(1);
+    await server.receivePacket(wire[0], secretKey, { address: "127.0.0.1", port: 9200 });
+
+    expect(serverApp.handleMessage).not.toHaveBeenCalled();
+    expect(root.sources["Arabella GNSS"]).toEqual(sources["Arabella GNSS"]);
+    expect(root.sources.bedroom).toEqual({});
+  });
+
   test("survives MessagePack serialization end-to-end", async () => {
     const { wire, client, server, serverApp } = makeWiredPair({ useMsgpack: true });
     await client.sendMetadata(

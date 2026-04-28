@@ -4,6 +4,7 @@ import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary, decryptBinary } from "./crypto";
 import { encodeDelta, decodeDelta, encodeMetaEntry, decodeMetaEntry } from "./pathDictionary";
 import { sanitizeDeltaForSignalK } from "./delta-sanitizer";
+import { handleMessageBySource, normalizeDeltaSourceRefs } from "./source-dispatch";
 import {
   deltaBuffer,
   compressPayload,
@@ -359,11 +360,12 @@ function createPipeline(
           app.debug(`Skipping delta with no valid Signal K values at index ${i}`);
           continue;
         }
+        deltaMessage = normalizeDeltaSourceRefs(deltaMessage);
 
         // Track path stats for server-side analytics
         trackPathStats(deltaMessage, decompressed.length / deltas.length);
 
-        app.handleMessage("", deltaMessage);
+        handleMessageBySource(app, deltaMessage);
         // Log a compact summary only — never log full delta values which may
         // contain sensitive data (position, fuel, MMSI) in plaintext logs.
         app.debug(

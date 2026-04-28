@@ -20,6 +20,8 @@ import * as msgpack from "@msgpack/msgpack";
 import { decryptBinary } from "./crypto";
 import { decodeDelta, decodeMetaEntry } from "./pathDictionary";
 import { sanitizeDeltaForSignalK } from "./delta-sanitizer";
+import { handleMessageBySource, normalizeDeltaSourceRefs } from "./source-dispatch";
+import { mergeSourceSnapshot } from "./source-snapshot";
 import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "./packet";
 import * as dgram from "dgram";
 import { SequenceTracker } from "./sequence";
@@ -580,13 +582,20 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         seq?: number;
         idx?: number;
         total?: number;
+        sources?: Record<string, unknown>;
         entries?: Array<{
           context?: string;
           path?: string | number;
           meta?: Record<string, unknown>;
         }>;
       };
-      if (!Array.isArray(env.entries) || env.entries.length === 0) {
+      const hasSourceSnapshot =
+        env.kind === "sources" &&
+        env.sources !== null &&
+        typeof env.sources === "object" &&
+        !Array.isArray(env.sources);
+      const entries = Array.isArray(env.entries) ? env.entries : [];
+      if (!hasSourceSnapshot && entries.length === 0) {
         metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
         app.debug("v2 META envelope has no entries, dropping");
         recordError("general", "v2 META envelope has no entries");
@@ -656,12 +665,20 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         session.seenMetaChunkIdx.add(envIdx);
       }
 
+      if (hasSourceSnapshot) {
+        const added = mergeSourceSnapshot(app, env.sources);
+        app.debug(
+          `v2 source snapshot received: sources=${Object.keys(env.sources || {}).length}, added=${added}, envSeq=${env.seq ?? "?"}`
+        );
+        return;
+      }
+
       // Group entries by context so the local Signal K server sees one delta
       // per context rather than one per path. Reduces app.handleMessage
       // overhead on big snapshots without changing semantics.
       const nowIso = new Date().toISOString();
       const byContext = new Map<string, Array<{ path: string; value: Record<string, unknown> }>>();
-      for (const rawEntry of env.entries) {
+      for (const rawEntry of entries) {
         if (!rawEntry || typeof rawEntry.meta !== "object" || !rawEntry.meta) {
           continue;
         }
@@ -705,7 +722,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       app.debug(
-        `v2 meta received: kind=${env.kind ?? "?"}, entries=${env.entries.length}, contexts=${byContext.size}, envSeq=${env.v ?? "?"}`
+        `v2 meta received: kind=${env.kind ?? "?"}, entries=${entries.length}, contexts=${byContext.size}, envSeq=${env.v ?? "?"}`
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1040,6 +1057,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
           continue;
         }
         deltaMessage = sanitizedDelta;
+        deltaMessage = normalizeDeltaSourceRefs(deltaMessage);
 
         _ingestRemoteTelemetry(deltaMessage);
         if (!Array.isArray(deltaMessage.updates) || deltaMessage.updates.length === 0) {
@@ -1062,7 +1080,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
 
         trackPathStats(deltaMessage, decompressed.length / deltas.length);
 
-        app.handleMessage("", deltaMessage);
+        handleMessageBySource(app, deltaMessage);
         metrics.deltasReceived++;
       }
 

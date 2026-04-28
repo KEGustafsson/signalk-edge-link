@@ -140,6 +140,35 @@ describe("pipeline-v2-server METADATA handling", () => {
     await pipeline.receivePacket(packet, secretKey, { address: "127.0.0.1", port: 13003 });
     expect(app.handleMessage).toHaveBeenCalledTimes(1);
   });
+
+  test("merges source snapshot envelopes into the Signal K source tree", async () => {
+    const { app, pipeline } = makeHarness();
+    const root = { sources: { local: { label: "local" } } };
+    app.signalk = { retrieve: jest.fn(() => root) };
+
+    const envelope = {
+      v: 1,
+      kind: "sources",
+      seq: 2,
+      idx: 0,
+      total: 1,
+      sources: {
+        "Arabella Compass": {
+          label: "Arabella Compass",
+          type: "NMEA0183",
+          HC: { talker: "HC", sentences: { HDM: "2026-04-28T14:10:13.121Z" } }
+        },
+        kip: {}
+      }
+    };
+    const packet = buildMetaPacket(envelope, secretKey);
+    await pipeline.receivePacket(packet, secretKey, { address: "127.0.0.1", port: 13004 });
+
+    expect(app.handleMessage).not.toHaveBeenCalled();
+    expect(root.sources["Arabella Compass"]).toEqual(envelope.sources["Arabella Compass"]);
+    expect(root.sources.kip).toEqual({});
+    expect(root.sources.local).toEqual({ label: "local" });
+  });
 });
 
 describe("pipeline-v2-server META_REQUEST emission", () => {

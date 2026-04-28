@@ -520,6 +520,8 @@ export interface InstanceState {
   metaConfig: MetaConfig | null;
   /** Periodic metadata snapshot resend timer handle; null when not active. */
   metaTimer: ReturnType<typeof setInterval> | null;
+  /** Periodic source-tree snapshot resend timer handle; null when not active. */
+  sourceSnapshotTimer: ReturnType<typeof setInterval> | null;
   /** Coalescing buffer for live meta diff entries collected from delta stream. */
   metaDiffBuffer: MetaEntry[];
   /** Debounce timer for the live meta diff flush; null when not armed. */
@@ -745,6 +747,13 @@ export interface ClientPipelineApi {
   sendMetadata?(
     entries: MetaEntry[],
     kind: "snapshot" | "diff",
+    secretKey: string,
+    address: string,
+    port: number
+  ): Promise<void>;
+  /** Send the current Signal K sources tree to the receiver. */
+  sendSourceSnapshot?(
+    sources: Record<string, unknown>,
     secretKey: string,
     address: string,
     port: number
