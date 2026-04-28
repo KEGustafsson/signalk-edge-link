@@ -99,4 +99,63 @@ describe("source replication registry", () => {
     expect(metrics.upserts).toBe(1);
     expect(metrics.noops).toBe(1);
   });
+
+  test("uses source update timestamp precedence when merging identity upgrades", () => {
+    const registry = createSourceRegistry({ debug: jest.fn() });
+    registry.upsertFromDelta(
+      {
+        context: "vessels.self",
+        updates: [
+          {
+            timestamp: "2026-04-27T00:00:00.000Z",
+            $source: "legacy.1",
+            source: { label: "legacy:legacy.1", type: "legacy" },
+            values: [{ path: "navigation.speedOverGround", value: 1 }]
+          }
+        ]
+      },
+      "client-a"
+    );
+
+    registry.upsertFromDelta(
+      {
+        context: "vessels.self",
+        updates: [
+          {
+            timestamp: "2026-04-27T00:00:01.000Z",
+            $source: "legacy.1",
+            source: { label: "Upgraded Source", type: "NMEA2000" },
+            values: [{ path: "navigation.speedOverGround", value: 2 }]
+          }
+        ]
+      },
+      "client-a"
+    );
+
+    const snap = registry.snapshot();
+    const source = snap.sources.find((s) => s.raw.$source === "legacy.1");
+    expect(source.identity.label).toBe("Upgraded Source");
+    expect(source.identity.type).toBe("NMEA2000");
+  });
+
+  test("accepts identity when label is missing but other identity fields are present", () => {
+    const registry = createSourceRegistry({ debug: jest.fn() });
+    registry.upsertFromDelta(
+      {
+        context: "vessels.self",
+        updates: [
+          {
+            source: { src: "n2k", instance: "5", pgn: 127250 },
+            values: [{ path: "navigation.headingTrue", value: 1.1 }]
+          }
+        ]
+      },
+      "client-a"
+    );
+
+    const snap = registry.snapshot();
+    expect(snap.size).toBe(1);
+    expect(snap.sources[0].identity.src).toBe("n2k");
+    expect(snap.sources[0].identity.instance).toBe("5");
+  });
 });

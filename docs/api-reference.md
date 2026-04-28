@@ -103,7 +103,7 @@ Returns current network quality metrics including link quality score.
 
 ### GET /sources
 
-Returns the server source-replication registry (schema v1), including full normalized metadata and legacy compatibility maps.
+Returns server source-replication entries (schema v1) with identity, timing, and provenance fields.
 
 **Available in:** Client and Server mode (typically meaningful in server mode)
 
@@ -115,42 +115,26 @@ Returns the server source-replication registry (schema v1), including full norma
   "size": 2,
   "sources": [
     {
-      "schemaVersion": 1,
-      "key": "nmea2000|n2k-depth|n2k|204|client-a",
       "identity": {
         "label": "N2K depth",
-        "type": "NMEA2000",
-        "src": "n2k",
-        "instance": "204",
-        "pgn": 128267
+        "type": "NMEA2000"
       },
-      "metadata": {},
       "firstSeenAt": "2026-04-27T00:00:00.000Z",
       "lastSeenAt": "2026-04-27T00:00:01.000Z",
-      "lastUpdatedAt": "2026-04-27T00:00:01.000Z",
       "provenance": {
-        "lastUpdatedBy": "source",
-        "sourceClientInstanceId": "127.0.0.1:12005",
-        "updateTimestamp": "2026-04-27T00:00:01.000Z"
+        "lastUpdatedBy": "source"
       },
-      "raw": {
-        "$source": "n2k.204.5"
-      },
-      "mergeHash": "..."
+      "metadata": {
+        "sentence": "RMC"
+      }
     }
-  ],
-  "legacy": {
-    "byLabel": {
-      "N2K depth": "nmea2000|n2k-depth|n2k|204|client-a"
-    },
-    "bySourceRef": {
-      "n2k.204.5": "nmea2000|n2k-depth|n2k|204|client-a"
-    }
-  }
+  ]
 }
 ```
 
-`GET /metrics` also includes this information under `sourceReplication.registry`, with `sourceReplication.metrics` counters (`upserts`, `noops`, `missingIdentity`, `conflicts`).
+`GET /metrics` includes only `sourceReplication.metrics` counters (`upserts`, `noops`, `missingIdentity`, `conflicts`).
+
+For full field definitions and compatibility shapes, see `docs/source-replication-schema.md`.
 
 Source replication in this endpoint is driven by normal DATA delta ingest (`update.source`/`$source`) and does not depend on optional metadata packet streaming being enabled.
 

@@ -488,7 +488,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       sourceReplication: state.sourceRegistry
         ? {
             metrics: state.sourceRegistry.getMetrics(),
-            registry: state.sourceRegistry.snapshot()
+            registry: null
           }
         : null
     };

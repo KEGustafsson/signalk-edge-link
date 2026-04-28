@@ -1,59 +1,20 @@
 "use strict";
 
 import crypto from "node:crypto";
-import type { Delta, DeltaUpdate } from "./types";
+import type {
+  Delta,
+  DeltaUpdate,
+  SourceReplicationRecord,
+  SourceRegistryMetrics,
+  SourceRegistrySnapshot
+} from "./types";
 
 export const SOURCE_REPLICATION_SCHEMA_VERSION = 1;
-
-export interface SourceReplicationRecord {
-  schemaVersion: number;
-  key: string;
-  identity: {
-    label: string;
-    type: string;
-    src?: string;
-    instance?: string;
-    pgn?: number;
-    deviceId?: string;
-  };
-  metadata: {
-    talker?: string;
-    sentence?: string;
-    network?: string;
-    [key: string]: unknown;
-  };
-  firstSeenAt: string;
-  lastSeenAt: string;
-  lastUpdatedAt: string;
-  provenance: {
-    lastUpdatedBy: "source" | "$source" | "merge";
-    sourceClientInstanceId: string;
-    updateTimestamp?: string;
-  };
-  raw: {
-    source?: Record<string, unknown>;
-    $source?: string;
-  };
-  mergeHash: string;
-}
-
-export interface SourceRegistryMetrics {
-  upserts: number;
-  noops: number;
-  missingIdentity: number;
-  conflicts: number;
-}
-
-export interface SourceRegistrySnapshot {
-  schemaVersion: number;
-  size: number;
-  sources: SourceReplicationRecord[];
-  // Legacy compatibility used by existing UI/source label readers.
-  legacy: {
-    byLabel: Record<string, string>;
-    bySourceRef: Record<string, string>;
-  };
-}
+export type {
+  SourceReplicationRecord,
+  SourceRegistryMetrics,
+  SourceRegistrySnapshot
+} from "./types";
 
 function normalizeText(value: unknown): string | undefined {
   if (typeof value !== "string") {
@@ -89,7 +50,15 @@ function toCanonicalIdentity(
   const pgn = Number.isFinite(Number(source?.pgn)) ? Number(source?.pgn) : undefined;
   const parsedDeviceId = normalizeText(source?.deviceId);
 
-  if (!label && !sourceRef) {
+  if (
+    !label &&
+    !sourceRef &&
+    src === undefined &&
+    instance === undefined &&
+    pgn === undefined &&
+    parsedDeviceId === undefined &&
+    !sourceClientInstanceId
+  ) {
     return null;
   }
 
@@ -113,15 +82,46 @@ function createSourceKey(
   if (sourceRef) {
     return `source-ref:${sanitizeKeyPart(sourceRef)}`;
   }
-  if (update.source && typeof update.source === "object") {
-    const canonical = JSON.stringify(update.source);
-    return `source-obj:${sanitizeKeyPart(canonical)}`;
+  if (identity) {
+    const canonicalIdentity = JSON.stringify({
+      type: identity.type || "",
+      label: identity.label || "",
+      src: identity.src || "",
+      instance: identity.instance || "",
+      pgn: identity.pgn ?? "",
+      deviceId: identity.deviceId || ""
+    });
+    return `source-identity:${sanitizeKeyPart(canonicalIdentity)}`;
   }
-  return `source-label:${sanitizeKeyPart(`${identity.type}:${identity.label}`)}`;
+  return "source-identity:unknown";
+}
+
+function canonicalizeForHash(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => canonicalizeForHash(entry));
+  }
+  if (value && typeof value === "object") {
+    const input = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(input).sort()) {
+      out[key] = canonicalizeForHash(input[key]);
+    }
+    return out;
+  }
+  return value;
 }
 
 function toMergeHash(record: Omit<SourceReplicationRecord, "mergeHash">): string {
-  return crypto.createHash("sha1").update(JSON.stringify(record)).digest("hex");
+  const stablePayload = {
+    schemaVersion: record.schemaVersion,
+    key: record.key,
+    identity: record.identity,
+    metadata: record.metadata,
+    provenance: record.provenance,
+    raw: record.raw
+  };
+  const canonical = canonicalizeForHash(stablePayload);
+  return crypto.createHash("sha1").update(JSON.stringify(canonical)).digest("hex");
 }
 
 function chooseValue(
@@ -173,7 +173,8 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
 
       const nowIso = new Date().toISOString();
       const updateTs = normalizeText(update.timestamp);
-      const updateTsMs = updateTs ? Date.parse(updateTs) : Date.now();
+      const parsedIncomingTs = updateTs ? Date.parse(updateTs) : NaN;
+      const updateTsMs = Number.isFinite(parsedIncomingTs) ? parsedIncomingTs : Date.now();
 
       const sourceObj =
         update.source && typeof update.source === "object"
@@ -194,8 +195,8 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
         },
         metadata: sourceObj ? { ...sourceObj } : {},
         firstSeenAt: existing ? existing.firstSeenAt : nowIso,
-        lastSeenAt: nowIso,
-        lastUpdatedAt: nowIso,
+        lastSeenAt: existing ? existing.lastSeenAt : nowIso,
+        lastUpdatedAt: existing ? existing.lastUpdatedAt : nowIso,
         provenance: {
           lastUpdatedBy: sourceObj ? "source" : update.$source ? "$source" : "merge",
           sourceClientInstanceId,
@@ -209,7 +210,14 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
 
       if (existing) {
         const conflictCounter = { count: 0 };
-        const currentTs = Date.parse(existing.lastUpdatedAt) || 0;
+        const existingUpdateTs = normalizeText(existing.provenance?.updateTimestamp);
+        const parsedExistingTs = existingUpdateTs ? Date.parse(existingUpdateTs) : NaN;
+        const parsedExistingUpdatedAt = Date.parse(existing.lastUpdatedAt);
+        const currentTs = Number.isFinite(parsedExistingTs)
+          ? parsedExistingTs
+          : Number.isFinite(parsedExistingUpdatedAt)
+            ? parsedExistingUpdatedAt
+            : Date.now();
         mergedBase.identity.label = chooseValue(
           existing.identity.label,
           mergedBase.identity.label,
@@ -269,10 +277,13 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
 
       const mergeHash = toMergeHash(mergedBase);
       if (existing && existing.mergeHash === mergeHash) {
+        existing.lastSeenAt = nowIso;
         metrics.noops++;
         continue;
       }
 
+      mergedBase.lastSeenAt = nowIso;
+      mergedBase.lastUpdatedAt = nowIso;
       records.set(key, { ...mergedBase, mergeHash });
       metrics.upserts++;
     }

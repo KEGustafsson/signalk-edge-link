@@ -35,7 +35,7 @@ The server maintains a normalized source-registry replica of client-provided upd
 
 - Field-level merge is deterministic.
 - Empty/undefined incoming fields never clear non-empty existing fields.
-- Conflicting values are resolved by latest update timestamp (`update.timestamp` fallback now).
+- Conflicting values are resolved by latest update timestamp (`update.timestamp`, fallback to the current time when absent).
 - Identical post-merge state is deduped via `mergeHash` and counted as no-op.
 
 ## Backward compatibility
@@ -49,5 +49,5 @@ The server maintains a normalized source-registry replica of client-provided upd
 ## API exposure
 
 - `GET /sources` returns the full registry snapshot.
-- `GET /metrics` includes `sourceReplication.metrics` and `sourceReplication.registry`.
+- `GET /metrics` includes `sourceReplication.metrics` only (full registry remains on `GET /sources`).
 - Source replication is populated from normal DATA delta ingest (`update.source` / `$source`) and is independent of optional metadata packet streaming (`updates[].meta` snapshot/diff flow).

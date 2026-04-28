@@ -282,6 +282,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   let lastMetricsTime = Date.now();
   let lastBytesReceived = 0;
   let lastPacketsReceived = 0;
+  let previousSourceMissingIdentity = 0;
+  let previousSourceConflicts = 0;
 
   // Rate-limit operator-visible warnings for protocol-version mismatches so a
   // persistently misconfigured peer is noticeable in logs without flooding them.
@@ -1190,11 +1192,15 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
     const sourceReplicationMetrics = state.sourceRegistry
       ? state.sourceRegistry.getMetrics()
       : { upserts: 0, noops: 0, missingIdentity: 0, conflicts: 0 };
-    if (sourceReplicationMetrics.missingIdentity > 0 || sourceReplicationMetrics.conflicts > 0) {
+    const deltaMissing = sourceReplicationMetrics.missingIdentity - previousSourceMissingIdentity;
+    const deltaConflicts = sourceReplicationMetrics.conflicts - previousSourceConflicts;
+    if (deltaMissing > 0 || deltaConflicts > 0) {
       app.debug(
-        `[source-replication] missingIdentity=${sourceReplicationMetrics.missingIdentity} conflicts=${sourceReplicationMetrics.conflicts} size=${state.sourceRegistry.snapshot().size}`
+        `[source-replication] +missingIdentity=${deltaMissing} +conflicts=${deltaConflicts} totalMissingIdentity=${sourceReplicationMetrics.missingIdentity} totalConflicts=${sourceReplicationMetrics.conflicts} size=${state.sourceRegistry.snapshot().size}`
       );
     }
+    previousSourceMissingIdentity = sourceReplicationMetrics.missingIdentity;
+    previousSourceConflicts = sourceReplicationMetrics.conflicts;
 
     // Publish to Signal K
     metricsPublisher.publish({
