@@ -1025,6 +1025,9 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         if (!Array.isArray(deltaMessage.updates) || deltaMessage.updates.length === 0) {
           continue;
         }
+        if (state.sourceRegistry && typeof state.sourceRegistry.upsertFromDelta === "function") {
+          state.sourceRegistry.upsertFromDelta(deltaMessage, session ? session.key : "unknown");
+        }
 
         trackPathStats(deltaMessage, decompressed.length / deltas.length);
 
@@ -1088,7 +1091,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       sessions,
       totalSessions: clientSessions.size,
       acksSent: metrics.acksSent,
-      naksSent: metrics.naksSent
+      naksSent: metrics.naksSent,
+      sourceReplication: state.sourceRegistry ? state.sourceRegistry.getMetrics() : null
     };
   }
 
@@ -1183,6 +1187,14 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
     const effectiveQueueDepth = hasRemoteTelemetry ? remote.queueDepth || 0 : 0;
     const effectiveRetransmitRate = hasRemoteTelemetry ? remote.retransmitRate || 0 : 0;
     const effectiveActiveLink = hasRemoteTelemetry ? remote.activeLink || "primary" : "primary";
+    const sourceReplicationMetrics = state.sourceRegistry
+      ? state.sourceRegistry.getMetrics()
+      : { upserts: 0, noops: 0, missingIdentity: 0, conflicts: 0 };
+    if (sourceReplicationMetrics.missingIdentity > 0 || sourceReplicationMetrics.conflicts > 0) {
+      app.debug(
+        `[source-replication] missingIdentity=${sourceReplicationMetrics.missingIdentity} conflicts=${sourceReplicationMetrics.conflicts} size=${state.sourceRegistry.snapshot().size}`
+      );
+    }
 
     // Publish to Signal K
     metricsPublisher.publish({

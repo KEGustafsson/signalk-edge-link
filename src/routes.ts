@@ -484,6 +484,12 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
             timestamp: metrics.lastErrorTime,
             timeAgo: metrics.lastErrorTime ? Date.now() - metrics.lastErrorTime : null
           }
+        : null,
+      sourceReplication: state.sourceRegistry
+        ? {
+            metrics: state.sourceRegistry.getMetrics(),
+            registry: state.sourceRegistry.snapshot()
+          }
         : null
     };
 

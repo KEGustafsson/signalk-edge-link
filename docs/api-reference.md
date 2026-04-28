@@ -101,6 +101,61 @@ Returns current network quality metrics including link quality score.
 
 ---
 
+### GET /sources
+
+Returns the server source-replication registry (schema v1), including full normalized metadata and legacy compatibility maps.
+
+**Available in:** Client and Server mode (typically meaningful in server mode)
+
+**Response:**
+
+```json
+{
+  "schemaVersion": 1,
+  "size": 2,
+  "sources": [
+    {
+      "schemaVersion": 1,
+      "key": "nmea2000|n2k-depth|n2k|204|client-a",
+      "identity": {
+        "label": "N2K depth",
+        "type": "NMEA2000",
+        "src": "n2k",
+        "instance": "204",
+        "pgn": 128267
+      },
+      "metadata": {},
+      "firstSeenAt": "2026-04-27T00:00:00.000Z",
+      "lastSeenAt": "2026-04-27T00:00:01.000Z",
+      "lastUpdatedAt": "2026-04-27T00:00:01.000Z",
+      "provenance": {
+        "lastUpdatedBy": "source",
+        "sourceClientInstanceId": "127.0.0.1:12005",
+        "updateTimestamp": "2026-04-27T00:00:01.000Z"
+      },
+      "raw": {
+        "$source": "n2k.204.5"
+      },
+      "mergeHash": "..."
+    }
+  ],
+  "legacy": {
+    "byLabel": {
+      "N2K depth": "nmea2000|n2k-depth|n2k|204|client-a"
+    },
+    "bySourceRef": {
+      "n2k.204.5": "nmea2000|n2k-depth|n2k|204|client-a"
+    }
+  }
+}
+```
+
+`GET /metrics` also includes this information under `sourceReplication.registry`, with `sourceReplication.metrics` counters (`upserts`, `noops`, `missingIdentity`, `conflicts`).
+
+Source replication in this endpoint is driven by normal DATA delta ingest (`update.source`/`$source`) and does not depend on optional metadata packet streaming being enabled.
+
+---
+
 ### GET /paths
 
 Returns the Signal K path dictionary with categorized paths.

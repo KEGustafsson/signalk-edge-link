@@ -4,6 +4,7 @@ const zlib = require("node:zlib");
 const { createPipelineV2Server } = require("../../lib/pipeline-v2-server");
 const { PacketBuilder, PacketParser, PacketType } = require("../../lib/packet");
 const { encryptBinary } = require("../../lib/crypto");
+const { createSourceRegistry } = require("../../lib/source-replication");
 
 function makeMetricsApi() {
   const metrics = {
@@ -65,7 +66,8 @@ describe("pipeline-v2-server", () => {
     const state = {
       options: { reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
-      instanceId: "test"
+      instanceId: "test",
+      sourceRegistry: createSourceRegistry(app)
     };
     const metricsApi = makeMetricsApi();
 
@@ -85,6 +87,89 @@ describe("pipeline-v2-server", () => {
     expect(app.handleMessage).toHaveBeenCalledTimes(1);
     expect(metricsApi.metrics.deltasReceived).toBe(1);
     expect(metricsApi.metrics.dataPacketsReceived).toBe(1);
+  });
+
+  test("replicates mixed source metadata into server registry", async () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      handleMessage: jest.fn()
+    };
+    const state = {
+      options: { reliability: { nakTimeout: 10 } },
+      socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
+      instanceId: "test",
+      sourceRegistry: createSourceRegistry(app)
+    };
+    const metricsApi = makeMetricsApi();
+    const pipeline = createPipelineV2Server(app, state, metricsApi);
+
+    const packet = buildDataPacket(
+      1,
+      {
+        context: "vessels.self",
+        updates: [
+          {
+            timestamp: "2026-04-27T00:00:00.000Z",
+            source: { label: "ws.dev77.stream", type: "ws", sentence: "MWV" },
+            values: [{ path: "environment.wind.speedApparent", value: 5.3 }]
+          },
+          {
+            timestamp: "2026-04-27T00:00:01.000Z",
+            $source: "n2k.204.5",
+            source: { label: "N2K depth", type: "NMEA2000", pgn: 128267 },
+            values: [{ path: "environment.depth.belowTransducer", value: 7.1 }]
+          }
+        ]
+      },
+      secretKey
+    );
+
+    await pipeline.receivePacket(packet, secretKey, { address: "127.0.0.1", port: 12005 });
+    const snapshot = state.sourceRegistry.snapshot();
+    expect(snapshot.size).toBe(2);
+    expect(snapshot.legacy.byLabel["ws.dev77.stream"]).toBeDefined();
+    expect(snapshot.legacy.bySourceRef["n2k.204.5"]).toBeDefined();
+  });
+
+  test("replicates source fields from DATA packets without requiring METADATA packets", async () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      handleMessage: jest.fn()
+    };
+    const state = {
+      options: { reliability: { nakTimeout: 10 } },
+      socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
+      instanceId: "test",
+      sourceRegistry: createSourceRegistry(app)
+    };
+    const metricsApi = makeMetricsApi();
+    const pipeline = createPipelineV2Server(app, state, metricsApi);
+
+    const packet = buildDataPacket(
+      2,
+      {
+        context: "vessels.self",
+        updates: [
+          {
+            source: { label: "raw-client-source", type: "NMEA0183", sentence: "RMC" },
+            values: [{ path: "navigation.courseOverGroundTrue", value: 1.23 }]
+          }
+        ]
+      },
+      secretKey
+    );
+
+    await pipeline.receivePacket(packet, secretKey, { address: "127.0.0.1", port: 12006 });
+
+    const snapshot = state.sourceRegistry.snapshot();
+    expect(snapshot.size).toBe(1);
+    expect(snapshot.sources[0].raw.source).toEqual({
+      label: "raw-client-source",
+      type: "NMEA0183",
+      sentence: "RMC"
+    });
   });
 
   test("marks duplicate DATA packets", async () => {
