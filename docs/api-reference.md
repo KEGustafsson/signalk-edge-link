@@ -134,9 +134,7 @@ Returns server source-replication entries (schema v1) with identity, timing, and
       "provenance": {
         "lastUpdatedBy": "source"
       },
-      "metadata": {
-        "sentence": "RMC"
-      }
+      "metadata": {}
     }
   ]
 }

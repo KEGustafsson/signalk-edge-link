@@ -36,7 +36,7 @@ describe("source replication registry", () => {
     });
     expect(snap.sources[0].identity.deviceId).toBe("client-a");
     expect(snap.sources[0].identity.type).toBe("WS");
-    expect(snap.sources[0].metadata.sentence).toBe("MWV");
+    expect(snap.sources[0].metadata).toEqual({});
   });
 
   test("merges partial legacy and structured source metadata", () => {

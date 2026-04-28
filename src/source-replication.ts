@@ -200,7 +200,7 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
           pgn: identity.pgn,
           deviceId: identity.deviceId
         },
-        metadata: sourceObj ? { ...sourceObj } : {},
+        metadata: {},
         firstSeenAt: existing ? existing.firstSeenAt : nowIso,
         lastSeenAt: existing ? existing.lastSeenAt : nowIso,
         lastUpdatedAt: existing ? existing.lastUpdatedAt : nowIso,

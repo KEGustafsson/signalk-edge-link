@@ -11,7 +11,7 @@ The server maintains a normalized source-registry replica of client-provided upd
 - Optional identity fields:
   - `identity.src`, `identity.instance`, `identity.pgn`, `identity.deviceId`
 - Optional metadata fields:
-  - `metadata.*` (copied from `update.source` payload)
+  - `metadata.*` (reserved for future extension; currently stored as an empty object)
 - Timestamps:
   - `firstSeenAt`, `lastSeenAt`, `lastUpdatedAt`
 - Provenance:
