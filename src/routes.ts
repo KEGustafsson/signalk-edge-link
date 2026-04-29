@@ -41,7 +41,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     return instanceRegistry.getFirst() || null;
   }
 
-  function getFirstHeaderValue(value: string | string[] | undefined): string | null {
+  function getFirstHeaderValue(value: string | string[] | null | undefined): string | null {
     if (Array.isArray(value)) {
       return (
         value.find((entry: unknown) => typeof entry === "string" && (entry as string).trim()) ||
@@ -52,6 +52,14 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       return value;
     }
     return null;
+  }
+
+  function hasJsonContentType(value: string | string[] | null | undefined): boolean {
+    const headerValue = getFirstHeaderValue(value);
+    if (!headerValue) {
+      return false;
+    }
+    return headerValue.toLowerCase().includes("application/json");
   }
 
   function getManagementToken(): string | null {
@@ -504,8 +512,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
      * Content-Type validation middleware for JSON POST endpoints
      */
     const requireJson: RouteHandler = (req, res, next) => {
-      const contentType = req.headers["content-type"];
-      if (!contentType || !contentType.includes("application/json")) {
+      if (!hasJsonContentType(req.headers["content-type"])) {
         return res.status(415).json({ error: "Content-Type must be application/json" });
       }
       if (next) next();
@@ -519,7 +526,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       const trustProxy =
         req.app && typeof req.app.get === "function" && !!req.app.get("trust proxy");
       const forwarded = trustProxy ? headers["x-forwarded-for"] : null;
-      const forwardedIp = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : null;
+      const forwardedValue = getFirstHeaderValue(forwarded);
+      const forwardedIp = forwardedValue ? forwardedValue.split(",")[0].trim() : null;
       const remoteAddress =
         req.socket && typeof req.socket.remoteAddress === "string"
           ? req.socket.remoteAddress
