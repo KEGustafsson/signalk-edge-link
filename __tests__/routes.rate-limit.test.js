@@ -1360,6 +1360,35 @@ describe("requireJson middleware", () => {
     expect(next).toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
   });
+
+  test("accepts array-valued content-type headers when later entry is application/json", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const pluginConfigPost = router.routes.find(
+      (r) => r.method === "post" && r.path === "/plugin-config"
+    );
+    const requireJson = pluginConfigPost.handlers[2];
+
+    const req = {
+      headers: { "content-type": ["text/plain", "application/json; charset=utf-8"] }
+    };
+    const res = { status: jest.fn(() => ({ json: jest.fn() })) };
+    const next = jest.fn();
+
+    requireJson(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
 });
 
 describe("status and error summary routes", () => {
