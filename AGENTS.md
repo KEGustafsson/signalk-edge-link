@@ -1,4 +1,4 @@
-# codex.md
+# AGENTS.md
 
 ## Repository profile
 
