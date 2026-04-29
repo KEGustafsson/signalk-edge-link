@@ -1,50 +1,52 @@
 # AGENTS.md
 
-## Repository profile
+## Purpose
 
-Signal K Edge Link is a multi-instance Signal K plugin for secure UDP transport of deltas with optional reliable protocol features (v2/v3).
+This file provides **generic, reusable contributor guidance** for repositories maintained with AI/code agents.
 
-## Architecture snapshot
+## Core workflow
 
-- Entry point and plugin schema: `src/index.ts`
-- Per-connection runtime orchestration: `src/instance.ts`
-- Protocol modules:
-  - v1: `src/pipeline.ts`
-  - v2/v3 client: `src/pipeline-v2-client.ts`
-  - v2/v3 server: `src/pipeline-v2-server.ts`
-- Support subsystems:
-  - crypto/key handling: `src/crypto.ts`
-  - packet format/parsing: `src/packet.ts`
-  - monitoring/alerts: `src/monitoring.ts`
-  - API routes: `src/routes.ts`, `src/routes/*`
-  - web UI: `src/webapp/*`
+1. Understand the task and identify impacted files.
+2. Make the smallest change that fully solves the problem.
+3. Run relevant validation commands before finalizing.
+4. Document what changed, how it was verified, and any known limitations.
 
-## Golden workflow
+## Change principles
 
-1. Make minimal, localized changes.
-2. Run the narrowest meaningful tests first.
-3. Run broader checks before finalizing.
-4. Update docs for external behavior changes.
+- Prefer clarity over cleverness.
+- Keep changes localized and easy to review.
+- Avoid unrelated refactors in the same commit.
+- Preserve backward compatibility unless a breaking change is intentional and documented.
+- Treat security, reliability, and operability as first-class concerns.
 
-## Build and validation commands
+## Validation strategy
 
-- `npm run build`
-- `npm run check:ts`
-- `npm run lint`
-- `npm test`
-- `npm run test:v2`
-- `npm run test:integration`
+- Run the narrowest tests for touched areas first.
+- Run broader checks before merge when change scope is medium/large.
+- If a full suite cannot be run, clearly state what was run and why.
 
-## Production-grade change policy
+## Documentation expectations
 
-- Preserve backward compatibility unless migration is explicit.
-- Keep connection startup robust (no partial apply on invalid connection arrays).
-- Keep auth and security controls strict (management token behavior, encryption integrity).
-- Ensure operational observability remains intact (metrics/alerts/routes).
+Update docs when changes affect:
+
+- configuration,
+- public APIs,
+- operational behavior,
+- deployment/release steps,
+- troubleshooting paths.
+
+## Pull request expectations
+
+Each PR should include:
+
+- concise motivation,
+- what changed,
+- validation performed,
+- risks/rollback notes when applicable.
 
 ## Definition of done
 
-- Code compiles and build passes.
-- Type-check and lint pass.
-- Relevant tests pass (including v2/integration when transport logic is touched).
-- Documentation updated when behavior/config/API is changed.
+- Code and docs are consistent.
+- Relevant checks pass.
+- Any follow-up work is explicitly listed.
+- Final diff is focused, reviewable, and production-appropriate.
