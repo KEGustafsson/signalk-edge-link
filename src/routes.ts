@@ -20,6 +20,29 @@ import type {
 } from "./types";
 import type { RouteRequest, RouteResponse, NextFn, RouteHandler, Router } from "./routes/types";
 
+type ManagementAuthDecision = "allowed" | "denied";
+type ManagementAuthReason =
+  | "open_access"
+  | "valid_token"
+  | "missing_token"
+  | "invalid_token"
+  | "token_required_unconfigured";
+
+interface ManagementAuthActionCounters {
+  total: number;
+  allowed: number;
+  denied: number;
+  reasons: Record<string, number>;
+}
+
+interface ManagementAuthSnapshot {
+  total: number;
+  allowed: number;
+  denied: number;
+  byReason: Record<string, number>;
+  byAction: Record<string, ManagementAuthActionCounters>;
+}
+
 // Route sub-modules
 import * as metricsRoutes from "./routes/metrics";
 import * as monitoringRoutes from "./routes/monitoring";
@@ -36,6 +59,13 @@ import * as connectionsRoutes from "./routes/connections";
  */
 function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, pluginRef: PluginRef) {
   const REMOTE_TELEMETRY_TTL_MS = 15000;
+  const managementAuthTelemetry = {
+    total: 0,
+    allowed: 0,
+    denied: 0,
+    byReason: new Map<ManagementAuthReason, number>(),
+    byAction: new Map<string, ManagementAuthActionCounters>()
+  };
 
   function getFirstBundle() {
     return instanceRegistry.getFirst() || null;
@@ -95,6 +125,65 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     return fromEnv === "true" || fromEnv === "1";
   }
 
+  function normalizeManagementAuthAction(action?: string): string {
+    if (typeof action !== "string" || !action.trim()) {
+      return "unknown";
+    }
+
+    const trimmed = action.trim();
+    return /^[a-z0-9._:-]+$/i.test(trimmed) && trimmed.length <= 64 ? trimmed : "unknown";
+  }
+
+  function recordManagementAuthDecision(
+    decision: ManagementAuthDecision,
+    reason: ManagementAuthReason,
+    action?: string
+  ): void {
+    const normalizedAction = normalizeManagementAuthAction(action);
+    managementAuthTelemetry.total++;
+    managementAuthTelemetry[decision]++;
+    managementAuthTelemetry.byReason.set(
+      reason,
+      (managementAuthTelemetry.byReason.get(reason) || 0) + 1
+    );
+
+    const actionCounters = managementAuthTelemetry.byAction.get(normalizedAction) || {
+      total: 0,
+      allowed: 0,
+      denied: 0,
+      reasons: {}
+    };
+    actionCounters.total++;
+    actionCounters[decision]++;
+    actionCounters.reasons[reason] = (actionCounters.reasons[reason] || 0) + 1;
+    managementAuthTelemetry.byAction.set(normalizedAction, actionCounters);
+  }
+
+  function getManagementAuthSnapshot(): ManagementAuthSnapshot {
+    const byReason: Record<string, number> = {};
+    for (const [reason, count] of managementAuthTelemetry.byReason.entries()) {
+      byReason[reason] = count;
+    }
+
+    const byAction: Record<string, ManagementAuthActionCounters> = {};
+    for (const [action, counters] of managementAuthTelemetry.byAction.entries()) {
+      byAction[action] = {
+        total: counters.total,
+        allowed: counters.allowed,
+        denied: counters.denied,
+        reasons: { ...counters.reasons }
+      };
+    }
+
+    return {
+      total: managementAuthTelemetry.total,
+      allowed: managementAuthTelemetry.allowed,
+      denied: managementAuthTelemetry.denied,
+      byReason,
+      byAction
+    };
+  }
+
   function authorizeManagement(req: RouteRequest, res: RouteResponse, action?: string): boolean {
     const expectedToken = getManagementToken();
     if (!expectedToken) {
@@ -103,13 +192,14 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       // existing deployments.  A startup warning is logged to encourage
       // operators to configure a token (see registerWithRouter below).
       if (!isTokenRequired()) {
+        recordManagementAuthDecision("allowed", "open_access", action);
         return true;
       }
       // Token required but not yet configured → deny with a helpful message.
+      recordManagementAuthDecision("denied", "token_required_unconfigured", action);
       if (app && typeof app.error === "function") {
-        const ip = req.ip || (req.socket && req.socket.remoteAddress) || "unknown";
         app.error(
-          `[management-api] blocked unauthenticated request action=${action || "unknown"} ip=${ip} — ` +
+          `[management-api] blocked unauthenticated request action=${normalizeManagementAuthAction(action)} — ` +
             "requireManagementApiToken is set but no token is configured. " +
             "Set managementApiToken or SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN."
         );
@@ -142,17 +232,20 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
 
     const isValid = providedCandidates.some((token) => safeTokenEquals(expectedToken, token));
     if (!isValid) {
+      const reason = providedCandidates.length === 0 ? "missing_token" : "invalid_token";
+      recordManagementAuthDecision("denied", reason, action);
       if (app && typeof app.debug === "function") {
-        const ip = req.ip || (req.socket && req.socket.remoteAddress) || "unknown";
-        app.debug(`[management-api] denied action=${action || "unknown"} ip=${ip}`);
+        app.debug(
+          `[management-api] denied action=${normalizeManagementAuthAction(action)} reason=${reason}`
+        );
       }
       res.status(401).json({ error: "Unauthorized management API request" });
       return false;
     }
 
+    recordManagementAuthDecision("allowed", "valid_token", action);
     if (app && typeof app.debug === "function") {
-      const ip = req.ip || (req.socket && req.socket.remoteAddress) || "unknown";
-      app.debug(`[management-api] authorized action=${action || "unknown"} ip=${ip}`);
+      app.debug(`[management-api] authorized action=${normalizeManagementAuthAction(action)}`);
     }
 
     return true;
@@ -504,7 +597,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
             metrics: state.sourceRegistry.getMetrics(),
             registry: null
           }
-        : null
+        : null,
+      managementAuth: getManagementAuthSnapshot()
     };
 
     return metricsData;
@@ -575,6 +669,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       getActiveMetricsPublisher,
       getEffectiveNetworkQuality,
       buildFullMetricsResponse,
+      getManagementAuthSnapshot,
       authorizeManagement,
       managementAuthMiddleware
     };
@@ -612,7 +707,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       res.json({
         healthyInstances,
         totalInstances: statusInstances.length,
-        instances: statusInstances
+        instances: statusInstances,
+        managementAuth: getManagementAuthSnapshot()
       });
     });
 

@@ -52,6 +52,23 @@ export type NextFn = () => void;
 /** A route handler or middleware function. */
 export type RouteHandler = (req: RouteRequest, res: RouteResponse, next?: NextFn) => void;
 
+/** Aggregate management auth telemetry exposed by route-level status/metrics endpoints. */
+export interface ManagementAuthSnapshot {
+  total: number;
+  allowed: number;
+  denied: number;
+  byReason: Record<string, number>;
+  byAction: Record<
+    string,
+    {
+      total: number;
+      allowed: number;
+      denied: number;
+      reasons: Record<string, number>;
+    }
+  >;
+}
+
 /** Minimal Express router interface used by route sub-modules. */
 export interface Router {
   get(path: string, ...handlers: RouteHandler[]): void;
@@ -90,9 +107,7 @@ export interface RouteContext {
   getConfigFilePath(state: InstanceState, filename: string): string | null;
   loadConfigFile(filePath: string): Promise<unknown>;
   saveConfigFile(filePath: string, data: unknown): Promise<boolean>;
-  getActiveMetricsPublisher(
-    state: InstanceState
-  ): {
+  getActiveMetricsPublisher(state: InstanceState): {
     calculateLinkQuality(params: {
       rtt: number;
       jitter: number;
@@ -106,6 +121,7 @@ export interface RouteContext {
     now?: number
   ): EffectiveNetworkQuality;
   buildFullMetricsResponse(bundle: InstanceBundle): Record<string, unknown>;
+  getManagementAuthSnapshot(): ManagementAuthSnapshot;
   authorizeManagement(req: RouteRequest, res: RouteResponse, action?: string): boolean;
   managementAuthMiddleware(action: string): RouteHandler;
 }
