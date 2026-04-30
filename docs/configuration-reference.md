@@ -229,6 +229,8 @@ Common sentences to filter:
 
 Alert thresholds are configured via the REST API at `POST /plugins/signalk-edge-link/monitoring/alerts`.
 
+The REST response and active in-memory alert threshold update immediately. Persistent plugin options are coalesced per connection and saved at most once per second for repeated updates; updates to different metrics are merged, and the latest value for the same metric wins.
+
 ### Default Thresholds
 
 | Metric                  | Warning | Critical |

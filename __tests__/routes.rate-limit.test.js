@@ -1590,7 +1590,12 @@ describe("status and error summary routes", () => {
 });
 
 describe("monitoring alert persistence", () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   test("persists alert thresholds into the matching connection entry", () => {
+    jest.useFakeTimers();
     const thresholds = {};
     const app = {
       get: jest.fn(() => false),
@@ -1689,7 +1694,14 @@ describe("monitoring alert persistence", () => {
 
     route.handlers[3](req, res);
 
-    expect(app.savePluginOptions).toHaveBeenCalled();
+    expect(app.savePluginOptions).not.toHaveBeenCalled();
+    expect(pluginRef._currentOptions.connections[1].alertThresholds).toEqual({
+      rtt: { warning: 250 }
+    });
+
+    jest.advanceTimersByTime(1000);
+
+    expect(app.savePluginOptions).toHaveBeenCalledTimes(1);
     const savedConfig = app.savePluginOptions.mock.calls[0][0];
     expect(savedConfig.alertThresholds).toBeUndefined();
     expect(savedConfig.connections[0].alertThresholds).toEqual({

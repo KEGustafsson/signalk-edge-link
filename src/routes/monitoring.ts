@@ -20,6 +20,14 @@ function register(router: Router, ctx: RouteContext): void {
     managementAuthMiddleware,
     pluginRef
   } = ctx;
+  const pendingAlertThresholdSaves = new Map<
+    string,
+    {
+      bundle: InstanceBundle;
+      thresholds: Record<string, unknown>;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
 
   function getPersistedConfigConnections(
     configuration: Record<string, unknown>,
@@ -62,7 +70,7 @@ function register(router: Router, ctx: RouteContext): void {
       const pluginOptions = (app.readPluginOptions() || {}) as Record<string, unknown>;
       const currentConfig = (pluginOptions.configuration || {}) as Record<string, unknown>;
       const persisted = getPersistedConfigConnections(currentConfig, bundle);
-      let nextConfig = null;
+      let nextConfig: Record<string, unknown> | null = null;
 
       if (persisted.connections.length > 0) {
         let index = findConnectionIndexByInstanceId(persisted.connections, bundle.id);
@@ -103,13 +111,7 @@ function register(router: Router, ctx: RouteContext): void {
       }
 
       if (!nextConfig) {
-        nextConfig = {
-          ...currentConfig,
-          alertThresholds: {
-            ...(currentConfig.alertThresholds || {}),
-            ...thresholds
-          }
-        };
+        return;
       }
 
       app.savePluginOptions(nextConfig, (saveErr: unknown) => {
@@ -124,6 +126,90 @@ function register(router: Router, ctx: RouteContext): void {
         `Failed to persist alert thresholds: ${persistErr instanceof Error ? persistErr.message : String(persistErr)}`
       );
     }
+  }
+
+  function updateCurrentOptionsAlertThresholds(
+    bundle: InstanceBundle,
+    thresholds: Record<string, unknown>
+  ): void {
+    if (!pluginRef || !pluginRef._currentOptions) {
+      return;
+    }
+
+    const currentOptions = pluginRef._currentOptions as Record<string, unknown>;
+    if (Array.isArray(currentOptions.connections)) {
+      const nextConnections: Record<string, unknown>[] = currentOptions.connections.map(
+        (connection: unknown) => ({
+          ...(connection as Record<string, unknown>)
+        })
+      );
+      let index = findConnectionIndexByInstanceId(nextConnections, bundle.id);
+      if (index === -1 && nextConnections.length === 1) {
+        index = 0;
+      }
+      if (index === -1) {
+        return;
+      }
+
+      nextConnections[index] = {
+        ...nextConnections[index],
+        alertThresholds: {
+          ...(nextConnections[index].alertThresholds || {}),
+          ...thresholds
+        }
+      };
+      pluginRef._currentOptions = {
+        ...pluginRef._currentOptions,
+        connections: nextConnections as unknown as ConnectionConfig[]
+      };
+      return;
+    }
+
+    if (currentOptions.serverType) {
+      pluginRef._currentOptions = {
+        ...pluginRef._currentOptions,
+        alertThresholds: {
+          ...(currentOptions.alertThresholds || {}),
+          ...thresholds
+        }
+      };
+    }
+  }
+
+  function scheduleAlertThresholdPersistence(
+    bundle: InstanceBundle,
+    thresholds: Record<string, unknown>
+  ): void {
+    updateCurrentOptionsAlertThresholds(bundle, thresholds);
+
+    const key = String(bundle.id || bundle.name || "default");
+    const pending = pendingAlertThresholdSaves.get(key);
+    if (pending) {
+      pending.bundle = bundle;
+      pending.thresholds = {
+        ...pending.thresholds,
+        ...thresholds
+      };
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const latest = pendingAlertThresholdSaves.get(key);
+      if (!latest) {
+        return;
+      }
+      pendingAlertThresholdSaves.delete(key);
+      persistAlertThresholds(latest.bundle, latest.thresholds);
+    }, 1000);
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
+
+    pendingAlertThresholdSaves.set(key, {
+      bundle,
+      thresholds: { ...thresholds },
+      timer
+    });
   }
 
   router.get(
@@ -305,7 +391,7 @@ function register(router: Router, ctx: RouteContext): void {
           };
         }
 
-        persistAlertThresholds(
+        scheduleAlertThresholdPersistence(
           bundle,
           ((state.options && state.options.alertThresholds) || {}) as Record<string, unknown>
         );

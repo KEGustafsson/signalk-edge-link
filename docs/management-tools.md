@@ -128,6 +128,10 @@ curl -s -X POST \
   http://localhost:3000/plugins/signalk-edge-link/bonding
 ```
 
+### Update monitoring alert thresholds
+
+`POST /monitoring/alerts` updates the active threshold immediately and returns the new threshold state. Persistent plugin option writes are coalesced per connection, so repeated updates within one second produce one merged save and the latest value for each metric wins.
+
 ## Status and error summaries
 
 ### Aggregated status

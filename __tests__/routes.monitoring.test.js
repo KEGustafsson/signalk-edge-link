@@ -333,6 +333,10 @@ describe("GET /monitoring/alerts", () => {
 // ── POST /monitoring/alerts ──────────────────────────────────────────────────
 
 describe("POST /monitoring/alerts", () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   function makePostHandler(ctxOverrides = {}) {
     const router = makeRouterCollector();
     monitoringRoutes.register(
@@ -430,6 +434,117 @@ describe("POST /monitoring/alerts", () => {
     h({ body: { metric: "jitter", warning: 50, critical: 100 } }, res);
     expect(res.statusCode).toBe(200);
     expect(res.body.success).toBe(true);
+  });
+
+  test("coalesces alert threshold persistence per connection with merged latest values", () => {
+    jest.useFakeTimers();
+    const thresholds = {};
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      readPluginOptions: jest.fn(() => ({
+        configuration: {
+          connections: [
+            {
+              name: "alpha",
+              serverType: "client",
+              udpPort: 4446,
+              alertThresholds: { jitter: { warning: 100 } }
+            },
+            {
+              name: "beta",
+              serverType: "client",
+              udpPort: 4447,
+              alertThresholds: {}
+            }
+          ]
+        }
+      })),
+      savePluginOptions: jest.fn((_config, cb) => cb(null))
+    };
+    const pluginRef = {
+      _currentOptions: {
+        connections: [
+          { name: "alpha", serverType: "client", udpPort: 4446 },
+          { name: "beta", serverType: "client", udpPort: 4447 }
+        ]
+      }
+    };
+    const bundle = makeMonitoringBundle({
+      alertManager: {
+        thresholds,
+        setThreshold: jest.fn((metric, update) => {
+          thresholds[metric] = { ...(thresholds[metric] || {}), ...update };
+        }),
+        getState: jest.fn(() => ({ thresholds, activeAlerts: {} }))
+      }
+    });
+    bundle.id = "beta";
+    bundle.name = "beta";
+
+    const h = makePostHandler({ app, pluginRef, getFirstBundle: () => bundle });
+
+    const first = makeResponse();
+    h({ body: { metric: "rtt", warning: 250 } }, first);
+    expect(first.body.thresholds.rtt).toEqual({ warning: 250 });
+
+    const second = makeResponse();
+    h({ body: { metric: "packetLoss", critical: 0.2 } }, second);
+    const third = makeResponse();
+    h({ body: { metric: "rtt", warning: 300 } }, third);
+
+    expect(third.body.thresholds).toEqual({
+      rtt: { warning: 300 },
+      packetLoss: { critical: 0.2 }
+    });
+    expect(pluginRef._currentOptions.connections[1].alertThresholds).toEqual({
+      rtt: { warning: 300 },
+      packetLoss: { critical: 0.2 }
+    });
+    expect(app.savePluginOptions).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(999);
+    expect(app.savePluginOptions).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+
+    expect(app.savePluginOptions).toHaveBeenCalledTimes(1);
+    const savedConfig = app.savePluginOptions.mock.calls[0][0];
+    expect(savedConfig.alertThresholds).toBeUndefined();
+    expect(savedConfig.connections[0].alertThresholds).toEqual({ jitter: { warning: 100 } });
+    expect(savedConfig.connections[1].alertThresholds).toEqual({
+      rtt: { warning: 300 },
+      packetLoss: { critical: 0.2 }
+    });
+  });
+
+  test("logs coalesced alert threshold persistence failures without secret values", () => {
+    jest.useFakeTimers();
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      readPluginOptions: jest.fn(() => ({
+        configuration: {
+          connections: [
+            {
+              name: "test",
+              serverType: "client",
+              udpPort: 4446,
+              secretKey: "12345678901234567890123456789012"
+            }
+          ]
+        }
+      })),
+      savePluginOptions: jest.fn((_config, cb) => cb(new Error("disk full")))
+    };
+    const bundle = makeMonitoringBundle();
+    const h = makePostHandler({ app, getFirstBundle: () => bundle });
+
+    h({ body: { metric: "rtt", warning: 150 } }, makeResponse());
+    jest.advanceTimersByTime(1000);
+
+    expect(app.error).toHaveBeenCalledWith(expect.stringContaining("disk full"));
+    expect(app.error.mock.calls[0][0]).not.toContain("12345678901234567890123456789012");
   });
 });
 

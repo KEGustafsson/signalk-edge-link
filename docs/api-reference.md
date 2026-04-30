@@ -584,6 +584,8 @@ Update alert thresholds for a specific metric.
 
 **Content-Type:** `application/json`
 
+Threshold changes take effect in memory and in the response immediately. Persistent plugin option writes are coalesced per connection, so repeated updates within one second are saved as a single merged write with the latest value for each metric.
+
 **Body:**
 
 ```json
