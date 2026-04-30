@@ -12,7 +12,7 @@ Reduce release, documentation, security-observability, and regression risk in th
 
 | Phase | Name                                             | Status  | Requirements                                               |
 | ----- | ------------------------------------------------ | ------- | ---------------------------------------------------------- |
-| 1     | Documentation and Release Truth                  | Pending | V1-DOC-001, V1-DOC-002, V1-REL-001                         |
+| 1     | Documentation and Release Truth                  | Ready   | V1-DOC-001, V1-DOC-002, V1-REL-001                         |
 | 2     | Management API Hardening and Observability       | Pending | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
 | 3     | Lifecycle and Reliable Transport Coverage        | Pending | V1-TEST-001, V1-TEST-002                                   |
 | 4     | Schema, UI Type Safety, and Configuration Parity | Pending | V1-UI-001, V1-UI-002                                       |
@@ -37,6 +37,22 @@ Reduce release, documentation, security-observability, and regression risk in th
 - API docs no longer claim a version older than `package.json`.
 - Release checklist or automated check explicitly covers doc/package drift.
 - Validation is documented in the phase verification report.
+
+**Plan breakdown:**
+
+Wave 1:
+
+- `01-01` - Correct architecture and API documentation truth.
+
+Wave 2 (blocked on Wave 1 completion):
+
+- `01-02` - Add release documentation/package truth guard and CI wiring.
+
+Cross-cutting constraints:
+
+- `package.json` remains the version source of truth.
+- Runtime behavior, public API shape, and protocol compatibility are unchanged.
+- Release checks must be dependency-free, local-command friendly, and CI-compatible.
 
 ## Phase 2: Management API Hardening and Observability
 
@@ -116,14 +132,14 @@ Reduce release, documentation, security-observability, and regression risk in th
 
 ## Next Action
 
-Start with:
+Phase 1 is planned. Start execution with:
 
 ```text
-$gsd-discuss-phase 1
+$gsd-execute-phase 1
 ```
 
-or, if the phase scope is already acceptable:
+Alternative planning/review commands:
 
 ```text
-$gsd-plan-phase 1
+$gsd-review --phase 1 --all
 ```
