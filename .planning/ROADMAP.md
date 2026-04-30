@@ -13,7 +13,7 @@ Reduce release, documentation, security-observability, and regression risk in th
 | Phase | Name                                             | Status   | Requirements                                               |
 | ----- | ------------------------------------------------ | -------- | ---------------------------------------------------------- |
 | 1     | Documentation and Release Truth                  | Complete | V1-DOC-001, V1-DOC-002, V1-REL-001                         |
-| 2     | Management API Hardening and Observability       | Ready    | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
+| 2     | Management API Hardening and Observability       | Complete | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
 | 3     | Lifecycle and Reliable Transport Coverage        | Pending  | V1-TEST-001, V1-TEST-002                                   |
 | 4     | Schema, UI Type Safety, and Configuration Parity | Pending  | V1-UI-001, V1-UI-002                                       |
 | 5     | Security Roadmap and Future Protocol Planning    | Pending  | V1-PLAN-001                                                |
@@ -60,7 +60,7 @@ Cross-cutting constraints:
 
 **Goal:** Improve management API security signals and alert persistence behavior while preserving backward-compatible defaults.
 
-**Status:** Ready to execute
+**Status:** Complete (2026-04-30)
 
 **Why now:** The project already supports management auth and rate limiting, but operators need clearer counters and safer persistence behavior.
 
@@ -84,14 +84,17 @@ Cross-cutting constraints:
 Wave 1:
 
 - `02-01` - Add management auth telemetry core and JSON surfaces.
+- Complete in `c356ed6`; summary in `12b74b0`.
 
 Wave 2 (blocked on Wave 1 completion):
 
 - `02-02` - Export management auth telemetry to Prometheus and operator docs.
+- Complete in `3da05bf`; summary in `91f88c2`.
 
 Wave 3 (blocked on Wave 2 completion):
 
 - `02-03` - Coalesce alert threshold persistence and document operator-visible behavior.
+- Complete in `322db1e`; summary in `302e999`.
 
 Cross-cutting constraints:
 
@@ -156,14 +159,14 @@ Cross-cutting constraints:
 
 ## Next Action
 
-Phase 2 is planned and ready to execute:
+Phase 2 is complete. Next, gather implementation context for Phase 3:
 
 ```text
-$gsd-execute-phase 2
+$gsd-discuss-phase 3 --auto
 ```
 
-Alternative review command:
+Alternative direct planning command after context is gathered:
 
 ```text
-$gsd-review --phase 2 --all
+$gsd-plan-phase 3 --auto
 ```
