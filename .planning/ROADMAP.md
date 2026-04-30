@@ -14,7 +14,7 @@ Reduce release, documentation, security-observability, and regression risk in th
 | ----- | ------------------------------------------------ | -------- | ---------------------------------------------------------- |
 | 1     | Documentation and Release Truth                  | Complete | V1-DOC-001, V1-DOC-002, V1-REL-001                         |
 | 2     | Management API Hardening and Observability       | Complete | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
-| 3     | Lifecycle and Reliable Transport Coverage        | Pending  | V1-TEST-001, V1-TEST-002                                   |
+| 3     | Lifecycle and Reliable Transport Coverage        | Ready    | V1-TEST-001, V1-TEST-002                                   |
 | 4     | Schema, UI Type Safety, and Configuration Parity | Pending  | V1-UI-001, V1-UI-002                                       |
 | 5     | Security Roadmap and Future Protocol Planning    | Pending  | V1-PLAN-001                                                |
 
@@ -120,6 +120,27 @@ Cross-cutting constraints:
 - Relevant Jest suites pass.
 - Any lifecycle or pipeline refactor remains behaviorally small and well covered.
 
+**Plan breakdown:**
+
+Wave 1:
+
+- `03-01` - Add lifecycle cleanup regression coverage.
+
+Wave 2 (blocked on Wave 1 completion):
+
+- `03-02` - Add ACK/NAK, retransmit, sequence, duplicate, and stale-session coverage.
+
+Wave 3 (blocked on Wave 2 completion):
+
+- `03-03` - Add metadata/source recovery coverage and run phase-level validation.
+
+Cross-cutting constraints:
+
+- Tests are the primary deliverable; source edits stay narrow and behavior-driven.
+- No protocol redesign, configuration shape change, UI dashboard, management API behavior change, or future security work belongs in Phase 3.
+- Use fake timers, mocked sockets/watchers, packet builders/parsers, and existing Jest harnesses before real network integration.
+- Preserve v3 authenticated control packet behavior and protocol-version pinning.
+
 ## Phase 4: Schema, UI Type Safety, and Configuration Parity
 
 **Goal:** Tighten webapp type safety and preserve configuration parity across all user-facing and runtime surfaces.
@@ -159,14 +180,14 @@ Cross-cutting constraints:
 
 ## Next Action
 
-Phase 2 is complete. Next, gather implementation context for Phase 3:
+Phase 3 is planned and ready to execute:
 
 ```text
-$gsd-discuss-phase 3 --auto
+$gsd-execute-phase 3
 ```
 
-Alternative direct planning command after context is gathered:
+Alternative review command:
 
 ```text
-$gsd-plan-phase 3 --auto
+$gsd-review --phase 3 --all
 ```
