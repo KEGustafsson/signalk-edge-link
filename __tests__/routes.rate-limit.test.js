@@ -186,6 +186,46 @@ describe("rate limit middleware client identity", () => {
     expect(nextB).toHaveBeenCalled();
   });
 
+  test("supports array-valued x-forwarded-for headers from upstream frameworks", () => {
+    const app = { get: jest.fn(() => false) };
+    const instanceRegistry = {
+      get: jest.fn(() => makeBundle()),
+      getFirst: jest.fn(() => makeBundle()),
+      getAll: jest.fn(() => [makeBundle()])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const metricsRoute = router.routes.find((r) => r.method === "get" && r.path === "/metrics");
+    const rateLimitMiddleware = metricsRoute.handlers[0];
+
+    const reqA = {
+      headers: { "x-forwarded-for": ["198.51.100.20, 10.0.0.5"] },
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
+      app: { get: (name) => name === "trust proxy" }
+    };
+    const reqB = {
+      headers: { "x-forwarded-for": ["198.51.100.21, 10.0.0.5"] },
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
+      app: { get: (name) => name === "trust proxy" }
+    };
+
+    const res = { status: jest.fn(() => ({ json: jest.fn() })) };
+    const nextA = jest.fn();
+    const nextB = jest.fn();
+
+    for (let i = 0; i < RATE_LIMIT_MAX_REQUESTS; i++) {
+      rateLimitMiddleware(reqA, res, nextA);
+    }
+    rateLimitMiddleware(reqB, res, nextB);
+
+    expect(nextB).toHaveBeenCalled();
+  });
+
   test("separates unknown-client buckets using stable header traits", () => {
     const app = { get: jest.fn(() => false) };
     const instanceRegistry = {
@@ -1290,6 +1330,93 @@ describe("instances management route", () => {
 
     expect(res.status).toHaveBeenCalledWith(503);
     expect(json).toHaveBeenCalledWith({ error: "Runtime restart handler unavailable" });
+  });
+});
+
+describe("requireJson middleware", () => {
+  test("accepts array-valued content-type headers when one entry is application/json", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const pluginConfigPost = router.routes.find(
+      (r) => r.method === "post" && r.path === "/plugin-config"
+    );
+    const requireJson = pluginConfigPost.handlers[2];
+
+    const req = { headers: { "content-type": ["application/json; charset=utf-8"] } };
+    const res = { status: jest.fn(() => ({ json: jest.fn() })) };
+    const next = jest.fn();
+
+    requireJson(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  test("accepts array-valued content-type headers when later entry is application/json", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const pluginConfigPost = router.routes.find(
+      (r) => r.method === "post" && r.path === "/plugin-config"
+    );
+    const requireJson = pluginConfigPost.handlers[2];
+
+    const req = {
+      headers: { "content-type": ["text/plain", "application/json; charset=utf-8"] }
+    };
+    const res = { status: jest.fn(() => ({ json: jest.fn() })) };
+    const next = jest.fn();
+
+    requireJson(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  test("rejects non-json subtypes like application/jsonp", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const pluginConfigPost = router.routes.find(
+      (r) => r.method === "post" && r.path === "/plugin-config"
+    );
+    const requireJson = pluginConfigPost.handlers[2];
+
+    const json = jest.fn();
+    const req = { headers: { "content-type": "application/jsonp" } };
+    const res = { status: jest.fn(() => ({ json })) };
+    const next = jest.fn();
+
+    requireJson(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(415);
+    expect(json).toHaveBeenCalledWith({ error: "Content-Type must be application/json" });
   });
 });
 
