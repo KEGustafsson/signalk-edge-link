@@ -13,7 +13,7 @@ Reduce release, documentation, security-observability, and regression risk in th
 | Phase | Name                                             | Status   | Requirements                                               |
 | ----- | ------------------------------------------------ | -------- | ---------------------------------------------------------- |
 | 1     | Documentation and Release Truth                  | Complete | V1-DOC-001, V1-DOC-002, V1-REL-001                         |
-| 2     | Management API Hardening and Observability       | Pending  | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
+| 2     | Management API Hardening and Observability       | Ready    | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
 | 3     | Lifecycle and Reliable Transport Coverage        | Pending  | V1-TEST-001, V1-TEST-002                                   |
 | 4     | Schema, UI Type Safety, and Configuration Parity | Pending  | V1-UI-001, V1-UI-002                                       |
 | 5     | Security Roadmap and Future Protocol Planning    | Pending  | V1-PLAN-001                                                |
@@ -60,6 +60,8 @@ Cross-cutting constraints:
 
 **Goal:** Improve management API security signals and alert persistence behavior while preserving backward-compatible defaults.
 
+**Status:** Ready to execute
+
 **Why now:** The project already supports management auth and rate limiting, but operators need clearer counters and safer persistence behavior.
 
 **Likely work:**
@@ -76,6 +78,26 @@ Cross-cutting constraints:
 - Metrics/Prometheus docs match any new counter fields.
 - Redaction tests or review cover changed surfaces.
 - Alert persistence behavior is covered by ordering/failure tests if changed.
+
+**Plan breakdown:**
+
+Wave 1:
+
+- `02-01` - Add management auth telemetry core and JSON surfaces.
+
+Wave 2 (blocked on Wave 1 completion):
+
+- `02-02` - Export management auth telemetry to Prometheus and operator docs.
+
+Wave 3 (blocked on Wave 2 completion):
+
+- `02-03` - Coalesce alert threshold persistence and document operator-visible behavior.
+
+Cross-cutting constraints:
+
+- Management API behavior remains backward compatible and preserves fail-closed behavior when auth is explicitly required but no token is configured.
+- Telemetry labels and docs never include tokens, transport secrets, IP addresses, user agents, request parameters, or raw paths.
+- Metrics, monitoring, and security docs must be updated with any implemented JSON, Prometheus, or persistence behavior changes.
 
 ## Phase 3: Lifecycle and Reliable Transport Coverage
 
@@ -134,14 +156,14 @@ Cross-cutting constraints:
 
 ## Next Action
 
-Phase 1 is complete. Continue with Phase 2:
+Phase 2 is planned and ready to execute:
 
 ```text
-$gsd-discuss-phase 2 --auto
+$gsd-execute-phase 2
 ```
 
-Alternative planning command:
+Alternative review command:
 
 ```text
-$gsd-plan-phase 2
+$gsd-review --phase 2 --all
 ```
