@@ -15,6 +15,15 @@ interface PrometheusOpts {
   sharedMeta?: Set<string>;
 }
 
+interface ManagementAuthSnapshot {
+  byAction?: Record<
+    string,
+    {
+      reasons?: Record<string, number>;
+    }
+  >;
+}
+
 interface PrometheusExtra {
   packetLoss?: number;
   linkQuality?: number;
@@ -276,6 +285,35 @@ export function formatPrometheusMetrics(
   return lines.join("\n");
 }
 
+export function formatManagementAuthPrometheusMetrics(
+  snapshot: ManagementAuthSnapshot,
+  opts: PrometheusOpts = {}
+): string {
+  const lines: string[] = [];
+  const fullName = "signalk_edge_link_management_auth_requests_total";
+  const metricMeta = opts.sharedMeta instanceof Set ? opts.sharedMeta : new Set<string>();
+
+  if (!metricMeta.has(fullName)) {
+    lines.push(`# HELP ${fullName} Total management API auth decisions`);
+    lines.push(`# TYPE ${fullName} counter`);
+    metricMeta.add(fullName);
+  }
+
+  for (const [action, counters] of Object.entries(snapshot.byAction || {})) {
+    for (const [reason, value] of Object.entries(counters.reasons || {})) {
+      const labels = {
+        decision: managementAuthDecisionForReason(reason),
+        reason: sanitizeManagementAuthLabel(reason),
+        action: sanitizeManagementAuthLabel(action)
+      };
+      lines.push(`${fullName}${formatLabels(labels)} ${value || 0}`);
+    }
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
 /**
  * Format Prometheus label set
  * @param labels - Label key-value pairs
@@ -297,6 +335,17 @@ export function escapeLabelValue(value: unknown): string {
 export function sanitizeMetricNameComponent(name: unknown): string {
   const replaced = String(name).replace(/[^a-zA-Z0-9_]/g, "_");
   return replaced.length > 0 ? replaced : "unknown";
+}
+
+function sanitizeManagementAuthLabel(value: unknown): string {
+  const replaced = String(value)
+    .replace(/[^a-zA-Z0-9_.:-]/g, "_")
+    .slice(0, 64);
+  return replaced.length > 0 ? replaced : "unknown";
+}
+
+function managementAuthDecisionForReason(reason: string): "allowed" | "denied" {
+  return reason === "open_access" || reason === "valid_token" ? "allowed" : "denied";
 }
 
 interface PrometheusValidationResult {

@@ -18,6 +18,8 @@ without a valid token. This includes `/instances`, `/bonding`, `/status`,
 `/plugin-config`, `/config/*`, `/connections/:id/config/*`, `/monitoring/alerts`,
 `/capture/*`, and `/delta-timer`.
 
+If `requireManagementApiToken` or `SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN` requires token auth but no token is configured, protected management routes return `403` with configuration guidance.
+
 CLI note: `--token` sends both `X-Edge-Link-Token` and `Authorization: Bearer <token>` for compatibility with reverse proxies.
 
 ### Web UI token entry
@@ -138,6 +140,18 @@ curl -s \
 
 Returns per-instance health, status text, error counters, and recent error entries.
 
+The response also includes `managementAuth`, a route-level aggregate of allowed and denied management auth decisions. Use the `byReason` and `byAction` counts to spot missing tokens, invalid tokens, or open-access deployments without exposing token values or client identity details.
+
+### Auth telemetry in Prometheus
+
+Prometheus scrapes include:
+
+```text
+signalk_edge_link_management_auth_requests_total{decision="allowed",reason="valid_token",action="status.read"} 1
+```
+
+The counter is global for the management API and is emitted once per scrape. Labels are bounded to `decision`, `reason`, and route action strings.
+
 ## CLI workflows
 
 Use the packaged CLI (or `npm run cli -- ...`). You can pass `--token=<token>` or set `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`. `instances list` additionally supports `--state`, `--limit`, and `--page`.
@@ -158,3 +172,4 @@ edge-link-cli status --baseUrl=http://localhost:3000/plugins/signalk-edge-link -
 - Place the management API behind Signal K authentication.
 - Restrict access to trusted operator networks.
 - Audit management route usage in your reverse proxy / API gateway logs.
+- Monitor `managementAuth` or `signalk_edge_link_management_auth_requests_total` for denied management access attempts.

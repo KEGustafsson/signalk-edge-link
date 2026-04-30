@@ -81,7 +81,27 @@ Returns comprehensive real-time statistics and performance data.
     },
     "registry": null
   },
-  "lastError": null
+  "lastError": null,
+  "managementAuth": {
+    "total": 42,
+    "allowed": 40,
+    "denied": 2,
+    "byReason": {
+      "open_access": 10,
+      "valid_token": 30,
+      "invalid_token": 2
+    },
+    "byAction": {
+      "metrics.read": {
+        "total": 12,
+        "allowed": 12,
+        "denied": 0,
+        "reasons": {
+          "valid_token": 12
+        }
+      }
+    }
+  }
 }
 ```
 
@@ -676,6 +696,7 @@ Authentication behavior for all endpoints in this section:
   - `Authorization: Bearer <token>`
   - `X-Management-Token: <token>` (backward-compatible alias)
 - **Auth error:** `401 Unauthorized` with `{ "error": "Unauthorized management API request" }`.
+- **Required but unconfigured token:** `403 Forbidden` with guidance to configure `managementApiToken` or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`.
 
 For CLI-focused operational examples, see `docs/management-tools.md` (`Status and error summaries`, `Instance management`, and `CLI workflows`).
 
@@ -711,9 +732,31 @@ Aggregated health summary across all currently running instances.
       },
       "recentErrors": []
     }
-  ]
+  ],
+  "managementAuth": {
+    "total": 42,
+    "allowed": 40,
+    "denied": 2,
+    "byReason": {
+      "open_access": 10,
+      "valid_token": 30,
+      "invalid_token": 2
+    },
+    "byAction": {
+      "status.read": {
+        "total": 8,
+        "allowed": 8,
+        "denied": 0,
+        "reasons": {
+          "valid_token": 8
+        }
+      }
+    }
+  }
 }
 ```
+
+`managementAuth` is route-level aggregate telemetry. It counts management auth decisions by bounded `decision`, `reason`, and action strings such as `status.read` or `metrics.read`; it does not include token values, client addresses, user agents, or raw request paths.
 
 **Representative errors:**
 
@@ -1143,32 +1186,33 @@ Returns metrics in Prometheus text exposition format for scraping.
 
 **Exported metrics (30+):**
 
-| Metric                                            | Type    | Description               |
-| ------------------------------------------------- | ------- | ------------------------- |
-| `signalk_edge_link_uptime_seconds`                | gauge   | Plugin uptime             |
-| `signalk_edge_link_deltas_sent_total`             | counter | Total deltas sent         |
-| `signalk_edge_link_deltas_received_total`         | counter | Total deltas received     |
-| `signalk_edge_link_udp_send_errors_total`         | counter | UDP send errors           |
-| `signalk_edge_link_bytes_out_total`               | counter | Compressed bytes sent     |
-| `signalk_edge_link_bytes_in_total`                | counter | Compressed bytes received |
-| `signalk_edge_link_bytes_out_raw_total`           | counter | Raw bytes sent            |
-| `signalk_edge_link_packets_out_total`             | counter | Packets sent              |
-| `signalk_edge_link_packets_in_total`              | counter | Packets received          |
-| `signalk_edge_link_bandwidth_rate_out_bytes`      | gauge   | Outbound bytes/s          |
-| `signalk_edge_link_bandwidth_rate_in_bytes`       | gauge   | Inbound bytes/s           |
-| `signalk_edge_link_compression_ratio_percent`     | gauge   | Compression ratio         |
-| `signalk_edge_link_rtt_milliseconds`              | gauge   | Round-trip time           |
-| `signalk_edge_link_jitter_milliseconds`           | gauge   | Jitter                    |
-| `signalk_edge_link_retransmissions_total`         | counter | Retransmissions           |
-| `signalk_edge_link_queue_depth`                   | gauge   | Retransmit queue depth    |
-| `signalk_edge_link_packet_loss_rate`              | gauge   | Packet loss ratio         |
-| `signalk_edge_link_link_quality_score`            | gauge   | Link quality (0-100)      |
-| `signalk_edge_link_bonding_active_link`           | gauge   | Active link (1/2)         |
-| `signalk_edge_link_bonding_link_rtt_milliseconds` | gauge   | Per-link RTT              |
-| `signalk_edge_link_bonding_link_loss_rate`        | gauge   | Per-link loss             |
-| `signalk_edge_link_bonding_link_quality`          | gauge   | Per-link quality          |
+| Metric                                             | Type    | Description               |
+| -------------------------------------------------- | ------- | ------------------------- |
+| `signalk_edge_link_uptime_seconds`                 | gauge   | Plugin uptime             |
+| `signalk_edge_link_deltas_sent_total`              | counter | Total deltas sent         |
+| `signalk_edge_link_deltas_received_total`          | counter | Total deltas received     |
+| `signalk_edge_link_udp_send_errors_total`          | counter | UDP send errors           |
+| `signalk_edge_link_bytes_out_total`                | counter | Compressed bytes sent     |
+| `signalk_edge_link_bytes_in_total`                 | counter | Compressed bytes received |
+| `signalk_edge_link_bytes_out_raw_total`            | counter | Raw bytes sent            |
+| `signalk_edge_link_packets_out_total`              | counter | Packets sent              |
+| `signalk_edge_link_packets_in_total`               | counter | Packets received          |
+| `signalk_edge_link_bandwidth_rate_out_bytes`       | gauge   | Outbound bytes/s          |
+| `signalk_edge_link_bandwidth_rate_in_bytes`        | gauge   | Inbound bytes/s           |
+| `signalk_edge_link_compression_ratio_percent`      | gauge   | Compression ratio         |
+| `signalk_edge_link_rtt_milliseconds`               | gauge   | Round-trip time           |
+| `signalk_edge_link_jitter_milliseconds`            | gauge   | Jitter                    |
+| `signalk_edge_link_retransmissions_total`          | counter | Retransmissions           |
+| `signalk_edge_link_queue_depth`                    | gauge   | Retransmit queue depth    |
+| `signalk_edge_link_packet_loss_rate`               | gauge   | Packet loss ratio         |
+| `signalk_edge_link_link_quality_score`             | gauge   | Link quality (0-100)      |
+| `signalk_edge_link_bonding_active_link`            | gauge   | Active link (1/2)         |
+| `signalk_edge_link_bonding_link_rtt_milliseconds`  | gauge   | Per-link RTT              |
+| `signalk_edge_link_bonding_link_loss_rate`         | gauge   | Per-link loss             |
+| `signalk_edge_link_bonding_link_quality`           | gauge   | Per-link quality          |
+| `signalk_edge_link_management_auth_requests_total` | counter | Management auth decisions |
 
-All metrics include a `mode` label (`"client"` or `"server"`). Bonding metrics include a `link` label (`"primary"` or `"backup"`).
+Per-instance transport metrics include a `mode` label (`"client"` or `"server"`). Bonding metrics include a `link` label (`"primary"` or `"backup"`). `signalk_edge_link_management_auth_requests_total` is emitted once per scrape as a global management API counter with bounded `decision`, `reason`, and `action` labels.
 
 **Prometheus configuration example:**
 

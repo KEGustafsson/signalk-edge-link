@@ -17,6 +17,10 @@ This document captures operational security practices and implementation notes f
   - `X-Edge-Link-Token`
   - `X-Management-Token` (legacy)
   - `Authorization: Bearer <token>`
+- For backward compatibility, deployments with no configured management token remain open unless `requireManagementApiToken` or `SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN` requires token auth.
+- When token auth is required but no token is configured, management routes fail closed with a `403` response and setup guidance.
+- Management auth decisions are exposed through the `managementAuth` JSON block and the Prometheus counter `signalk_edge_link_management_auth_requests_total{decision,reason,action}`.
+- These telemetry surfaces use bounded labels only and do not include token values, transport secrets, client addresses, user agents, or raw request paths.
 - Prefer a reverse proxy with TLS and an allowlist for management endpoints.
 
 ## Secret-key handling recommendations
