@@ -5,12 +5,12 @@
 **Initialized:** 2026-04-30
 **Current Milestone:** v1 Maintenance and Hardening
 **Current Phase:** 3 - Lifecycle and Reliable Transport Coverage
-**Phase Status:** Pending discussion and planning
+**Phase Status:** Context gathered; ready to plan
 **Plan Count:** 0
 
 ## Current Focus
 
-Prepare Phase 3 by gathering context for lifecycle cleanup and reliable transport regression coverage.
+Plan Phase 3 from the gathered context, focusing on lifecycle cleanup and reliable transport regression coverage.
 
 ## Phase Status
 
@@ -40,6 +40,8 @@ Prepare Phase 3 by gathering context for lifecycle cleanup and reliable transpor
 - `.planning/phases/02-management-api-hardening-and-observability/02-02-SUMMARY.md` captures Prometheus auth telemetry implementation results.
 - `.planning/phases/02-management-api-hardening-and-observability/02-03-SUMMARY.md` captures alert persistence coalescing implementation results.
 - `.planning/phases/02-management-api-hardening-and-observability/02-VERIFICATION.md` verifies Phase 2 completion.
+- `.planning/phases/03-lifecycle-and-reliable-transport-coverage/03-CONTEXT.md` captures Phase 3 implementation decisions for lifecycle and reliable transport coverage.
+- `.planning/phases/03-lifecycle-and-reliable-transport-coverage/03-DISCUSSION-LOG.md` records the Phase 3 auto-discussion audit trail.
 
 ## Recent Events
 
@@ -50,11 +52,12 @@ Prepare Phase 3 by gathering context for lifecycle cleanup and reliable transpor
 - 2026-04-30: Phase 2 context gathered in auto mode; auth telemetry, metrics surfacing, and alert persistence defaults selected.
 - 2026-04-30: Phase 2 planned with 3 execution plans in 3 waves.
 - 2026-04-30: Phase 2 completed in commits `c356ed6`, `3da05bf`, and `322db1e`; validation passed.
+- 2026-04-30: Phase 3 context gathered in auto mode; targeted lifecycle and reliable transport coverage defaults selected.
 
 ## Recommended Next Command
 
 ```text
-$gsd-discuss-phase 3 --auto
+$gsd-plan-phase 3 --auto
 ```
 
-Use `$gsd-plan-phase 3 --auto` after Phase 3 context exists.
+Use `$gsd-review --phase 3 --all` first if you want a manual review step before execution.
