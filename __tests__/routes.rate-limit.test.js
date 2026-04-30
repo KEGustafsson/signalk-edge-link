@@ -1389,6 +1389,35 @@ describe("requireJson middleware", () => {
     expect(next).toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
   });
+
+  test("rejects non-json subtypes like application/jsonp", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const pluginConfigPost = router.routes.find(
+      (r) => r.method === "post" && r.path === "/plugin-config"
+    );
+    const requireJson = pluginConfigPost.handlers[2];
+
+    const json = jest.fn();
+    const req = { headers: { "content-type": "application/jsonp" } };
+    const res = { status: jest.fn(() => ({ json })) };
+    const next = jest.fn();
+
+    requireJson(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(415);
+    expect(json).toHaveBeenCalledWith({ error: "Content-Type must be application/json" });
+  });
 });
 
 describe("status and error summary routes", () => {

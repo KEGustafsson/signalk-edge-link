@@ -55,13 +55,17 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
   }
 
   function hasJsonContentType(value: string | string[] | null | undefined): boolean {
+    const isApplicationJsonMediaType = (headerValue: string): boolean => {
+      const mediaType = headerValue.split(";")[0].trim().toLowerCase();
+      return mediaType === "application/json";
+    };
+
     if (Array.isArray(value)) {
       return value.some(
-        (entry: unknown) =>
-          typeof entry === "string" && entry.toLowerCase().includes("application/json")
+        (entry: unknown) => typeof entry === "string" && isApplicationJsonMediaType(entry)
       );
     }
-    return typeof value === "string" && value.toLowerCase().includes("application/json");
+    return typeof value === "string" && isApplicationJsonMediaType(value);
   }
 
   function getManagementToken(): string | null {

@@ -31,5 +31,4 @@ No blocking correctness or security defects were identified in the reviewed code
 
 ## Validation
 
-- `npm run check:ts`
-- `npm test -- --runInBand __tests__/routes.auth-guard.test.js __tests__/routes.rate-limit.test.js`
+Validation commands and execution status are tracked in the corresponding PR description and CI job logs for this review cycle.
