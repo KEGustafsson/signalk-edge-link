@@ -10,17 +10,19 @@ Reduce release, documentation, security-observability, and regression risk in th
 
 ## Phases
 
-| Phase | Name                                             | Status  | Requirements                                               |
-| ----- | ------------------------------------------------ | ------- | ---------------------------------------------------------- |
-| 1     | Documentation and Release Truth                  | Ready   | V1-DOC-001, V1-DOC-002, V1-REL-001                         |
-| 2     | Management API Hardening and Observability       | Pending | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
-| 3     | Lifecycle and Reliable Transport Coverage        | Pending | V1-TEST-001, V1-TEST-002                                   |
-| 4     | Schema, UI Type Safety, and Configuration Parity | Pending | V1-UI-001, V1-UI-002                                       |
-| 5     | Security Roadmap and Future Protocol Planning    | Pending | V1-PLAN-001                                                |
+| Phase | Name                                             | Status   | Requirements                                               |
+| ----- | ------------------------------------------------ | -------- | ---------------------------------------------------------- |
+| 1     | Documentation and Release Truth                  | Complete | V1-DOC-001, V1-DOC-002, V1-REL-001                         |
+| 2     | Management API Hardening and Observability       | Pending  | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
+| 3     | Lifecycle and Reliable Transport Coverage        | Pending  | V1-TEST-001, V1-TEST-002                                   |
+| 4     | Schema, UI Type Safety, and Configuration Parity | Pending  | V1-UI-001, V1-UI-002                                       |
+| 5     | Security Roadmap and Future Protocol Planning    | Pending  | V1-PLAN-001                                                |
 
 ## Phase 1: Documentation and Release Truth
 
 **Goal:** Bring public docs, architecture docs, API docs, package metadata, and release guidance back into agreement.
+
+**Status:** Complete (2026-04-30)
 
 **Why now:** The codebase map found stale file names and a stale API documentation version. This is a low-risk first phase that improves contributor and operator confidence before code hardening work.
 
@@ -42,11 +44,11 @@ Reduce release, documentation, security-observability, and regression risk in th
 
 Wave 1:
 
-- `01-01` - Correct architecture and API documentation truth.
+- `01-01` - Correct architecture and API documentation truth. Complete in `46f6fab`.
 
 Wave 2 (blocked on Wave 1 completion):
 
-- `01-02` - Add release documentation/package truth guard and CI wiring.
+- `01-02` - Add release documentation/package truth guard and CI wiring. Complete in `b9f06bf`.
 
 Cross-cutting constraints:
 
@@ -132,14 +134,14 @@ Cross-cutting constraints:
 
 ## Next Action
 
-Phase 1 is planned. Start execution with:
+Phase 1 is complete. Continue with Phase 2:
 
 ```text
-$gsd-execute-phase 1
+$gsd-discuss-phase 2 --auto
 ```
 
-Alternative planning/review commands:
+Alternative planning command:
 
 ```text
-$gsd-review --phase 1 --all
+$gsd-plan-phase 2
 ```

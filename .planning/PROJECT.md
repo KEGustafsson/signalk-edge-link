@@ -74,6 +74,10 @@ The near-term direction is therefore:
 
 The project is in good shape when operators can trust the docs and package metadata, production deployments have clear management hardening signals, contributors have test coverage around the highest-risk lifecycle and transport paths, and future protocol/security work is explicitly bounded instead of mixed into maintenance changes.
 
+## Validated Phase Outcomes
+
+- 2026-04-30: Phase 1 completed. Public API current-version markers and architecture source references now match `package.json` and current source files, and release truth is guarded by `npm run check:release-docs`, the publish workflow, and `docs/release-checklist.md`.
+
 ## Planning Artifacts
 
 - `.planning/codebase/` - Existing codebase map.

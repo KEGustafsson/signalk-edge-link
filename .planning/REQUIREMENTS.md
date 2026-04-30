@@ -42,6 +42,14 @@
 | V1-UI-002   | Preserve schema/config parity across shared schema, backend validation, REST routes, UI, docs, and samples.                       | Any config field change updates all required surfaces and compatibility tests.                                                    | 4     |
 | V1-PLAN-001 | Capture larger security and scaling work as explicit future protocol or architecture decisions.                                   | Future work such as key rotation, online key agreement, and distributed limits is documented with tradeoffs and scope boundaries. | 5     |
 
+## Completed Requirement Evidence
+
+| ID         | Completed  | Evidence                                                                                                                        |
+| ---------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| V1-DOC-001 | 2026-04-30 | `docs/architecture-overview.md` and `docs/api-reference.md` corrected; `npm run check:release-docs` enforces current truth.     |
+| V1-DOC-002 | 2026-04-30 | `scripts/check-release-truth.js`, `check:release-docs`, `docs/release-checklist.md`, and publish workflow CI guard added.       |
+| V1-REL-001 | 2026-04-30 | `npm run build` and `npm pack --ignore-scripts` passed; package payload includes generated `lib/` and `public/` artifact trees. |
+
 ## Deferred Requirements
 
 | ID            | Requirement                                      | Reason Deferred                                                                                       |
