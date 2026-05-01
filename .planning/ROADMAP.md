@@ -211,13 +211,7 @@ Cross-cutting constraints:
 
 ## Next Action
 
-Phase 4 is complete. Phase 5 is ready for discussion:
-
-```text
-$gsd-discuss-phase 5 --auto
-```
-
-Alternative planning command after discussion:
+Phase 5 discussion is complete. Phase 5 is ready for planning:
 
 ```text
 $gsd-plan-phase 5 --auto

@@ -5,12 +5,12 @@
 **Initialized:** 2026-04-30
 **Current Milestone:** v1 Maintenance and Hardening
 **Current Phase:** 5 - Security Roadmap and Future Protocol Planning
-**Phase Status:** Pending discussion
+**Phase Status:** Ready to plan
 **Plan Count:** 0
 
 ## Current Focus
 
-Prepare Phase 5 discussion for deferred security, scaling, and future protocol planning.
+Plan Phase 5 security roadmap and future protocol planning from the captured discussion context.
 
 ## Phase Status
 
@@ -65,6 +65,8 @@ Prepare Phase 5 discussion for deferred security, scaling, and future protocol p
 - `.planning/phases/04-schema-ui-type-safety-and-configuration-parity/04-02-SUMMARY.md` captures schema/runtime/route parity execution results.
 - `.planning/phases/04-schema-ui-type-safety-and-configuration-parity/04-03-SUMMARY.md` captures docs/sample parity and broad validation results.
 - `.planning/phases/04-schema-ui-type-safety-and-configuration-parity/04-VERIFICATION.md` verifies Phase 4 completion.
+- `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-CONTEXT.md` captures Phase 5 implementation decisions for future security, protocol compatibility, scaling boundaries, and follow-up parking.
+- `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-DISCUSSION-LOG.md` records the Phase 5 auto-discussion audit trail.
 
 ## Recent Events
 
@@ -81,11 +83,12 @@ Prepare Phase 5 discussion for deferred security, scaling, and future protocol p
 - 2026-05-01: Phase 4 context gathered in auto mode; incremental webapp type-safety, schema/runtime parity, UI configuration coverage, and docs/sample parity defaults selected.
 - 2026-05-01: Phase 4 planned with 3 execution plans in 3 waves.
 - 2026-05-01: Phase 4 completed in commits `051a5ae`, `51dcf1e`, and `7935924`; validation passed.
+- 2026-05-01: Phase 5 context gathered in auto mode; documentation-first security roadmap, version-gated protocol migration, external scaling controls, and follow-up parking defaults selected.
 
 ## Recommended Next Command
 
 ```text
-$gsd-discuss-phase 5 --auto
+$gsd-plan-phase 5 --auto
 ```
 
-Use `$gsd-plan-phase 5 --auto` after discussion to create the Phase 5 plan.
+Use the captured Phase 5 context to create the implementation plan.
