@@ -310,8 +310,6 @@ export interface ConnectionConfig {
   bonding?: BondingConfig;
   /** Alert threshold overrides for the monitoring subsystem. */
   alertThresholds?: AlertThresholds;
-  /** Bearer token required to call the management API for this connection. */
-  managementApiToken?: string;
 }
 
 // ── Metrics Types ───────────────────────────────────────────────────────────

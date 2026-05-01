@@ -14,6 +14,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "name",
   "serverType",
   "udpPort",
+  "udpMetaPort",
   "secretKey",
   "stretchAsciiKey",
   "useMsgpack",
@@ -100,6 +101,9 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
 
   if (!isValidPort(conn.udpPort, 1024)) {
     return `${p}udpPort must be an integer between 1024 and 65535`;
+  }
+  if (conn.udpMetaPort !== undefined && !isValidPort(conn.udpMetaPort, 1024)) {
+    return `${p}udpMetaPort must be an integer between 1024 and 65535`;
   }
 
   try {

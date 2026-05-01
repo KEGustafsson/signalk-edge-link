@@ -3,7 +3,7 @@ const {
   validateConnectionConfig,
   sanitizeConnectionConfig,
   normalizeServerType
-} = require("../lib/connection-config");
+} = require("../src/connection-config");
 
 /**
  * Minimal valid client config for building test cases.
@@ -99,6 +99,16 @@ describe("validateConnectionConfig", () => {
     test("rejects invalid port", () => {
       const error = validateConnectionConfig(makeValidClient({ udpPort: 100 }));
       expect(error).toMatch(/udpPort/);
+    });
+
+    test("accepts optional udpMetaPort on client and server configs", () => {
+      expect(validateConnectionConfig(makeValidClient({ udpMetaPort: 5001 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidServer({ udpMetaPort: 5001 }))).toBeNull();
+    });
+
+    test("rejects invalid udpMetaPort with exact error", () => {
+      const error = validateConnectionConfig(makeValidClient({ udpMetaPort: 100 }));
+      expect(error).toBe("udpMetaPort must be an integer between 1024 and 65535");
     });
 
     test("rejects invalid protocol version", () => {
@@ -378,6 +388,18 @@ describe("sanitizeConnectionConfig", () => {
     expect(result.udpAddress).toBe("192.168.1.1");
     expect(result.useMsgpack).toBe(true);
     expect(result.reliability).toEqual({ retransmitQueueSize: 500 });
+  });
+
+  test("preserves udpMetaPort when sanitizing connection config", () => {
+    const result = sanitizeConnectionConfig(makeValidClient({ udpMetaPort: 5001 }));
+    expect(result.udpMetaPort).toBe(5001);
+  });
+
+  test("drops per-connection managementApiToken when sanitizing connection config", () => {
+    const result = sanitizeConnectionConfig(
+      makeValidClient({ managementApiToken: "per-connection-secret" })
+    );
+    expect(result.managementApiToken).toBeUndefined();
   });
 
   test("trims connectionId in sanitized config", () => {
