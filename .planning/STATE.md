@@ -5,12 +5,12 @@
 **Initialized:** 2026-04-30
 **Current Milestone:** v1 Maintenance and Hardening
 **Current Phase:** 5 - Security Roadmap and Future Protocol Planning
-**Phase Status:** Ready to execute
+**Phase Status:** Complete
 **Plan Count:** 2
 
 ## Current Focus
 
-Execute Phase 5 security roadmap and future protocol planning from the generated plans.
+Complete the v1 Maintenance and Hardening milestone after Phase 5 verification.
 
 ## Phase Status
 
@@ -20,7 +20,7 @@ Execute Phase 5 security roadmap and future protocol planning from the generated
 | 2     | Management API Hardening and Observability       | Complete |
 | 3     | Lifecycle and Reliable Transport Coverage        | Complete |
 | 4     | Schema, UI Type Safety, and Configuration Parity | Complete |
-| 5     | Security Roadmap and Future Protocol Planning    | Planned  |
+| 5     | Security Roadmap and Future Protocol Planning    | Complete |
 
 ## Available Context
 
@@ -72,6 +72,9 @@ Execute Phase 5 security roadmap and future protocol planning from the generated
 - `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-PATTERNS.md` maps Phase 5 docs/planning files to existing patterns.
 - `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-01-PLAN.md` plans future security/protocol roadmap documentation.
 - `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-02-PLAN.md` plans backlog parking, requirement traceability, and validation.
+- `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-01-SUMMARY.md` captures future security/protocol roadmap documentation results.
+- `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-02-SUMMARY.md` captures backlog parking, requirement traceability, and validation results.
+- `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-VERIFICATION.md` verifies Phase 5 completion.
 
 ## Recent Events
 
@@ -90,11 +93,12 @@ Execute Phase 5 security roadmap and future protocol planning from the generated
 - 2026-05-01: Phase 4 completed in commits `051a5ae`, `51dcf1e`, and `7935924`; validation passed.
 - 2026-05-01: Phase 5 context gathered in auto mode; documentation-first security roadmap, version-gated protocol migration, external scaling controls, and follow-up parking defaults selected.
 - 2026-05-01: Phase 5 planned with 2 execution plans in 2 waves.
+- 2026-05-01: Phase 5 completed in commits `d368eac` and `010666e`; validation passed.
 
 ## Recommended Next Command
 
 ```text
-$gsd-execute-phase 5
+$gsd-complete-milestone
 ```
 
-Run the generated Phase 5 plans.
+Review and archive the completed v1 Maintenance and Hardening milestone.

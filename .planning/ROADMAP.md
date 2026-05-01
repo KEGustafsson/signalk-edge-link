@@ -16,7 +16,7 @@ Reduce release, documentation, security-observability, and regression risk in th
 | 2     | Management API Hardening and Observability       | Complete | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
 | 3     | Lifecycle and Reliable Transport Coverage        | Complete | V1-TEST-001, V1-TEST-002                                   |
 | 4     | Schema, UI Type Safety, and Configuration Parity | Complete | V1-UI-001, V1-UI-002                                       |
-| 5     | Security Roadmap and Future Protocol Planning    | Planned  | V1-PLAN-001                                                |
+| 5     | Security Roadmap and Future Protocol Planning    | Complete | V1-PLAN-001                                                |
 
 ## Phase 1: Documentation and Release Truth
 
@@ -194,7 +194,7 @@ Cross-cutting constraints:
 
 **Goal:** Document the future security and scaling work that should not be mixed into the first maintenance phases.
 
-**Status:** Planned (2026-05-01)
+**Status:** Complete (2026-05-01)
 
 **Why now:** Online key rotation, key agreement, distributed rate limits, and metrics history are real concerns but require design work before implementation.
 
@@ -216,10 +216,12 @@ Cross-cutting constraints:
 Wave 1:
 
 - `05-01` - Create future security/protocol roadmap documentation.
+- Complete in `d368eac`; summary in `42d9d89`.
 
 Wave 2 (blocked on Wave 1 completion):
 
 - `05-02` - Park future backlog candidates and run planning validation.
+- Complete in `010666e`; summary in `a9d1322`.
 
 Cross-cutting constraints:
 
@@ -272,8 +274,8 @@ Plans:
 
 ## Next Action
 
-Phase 5 is planned. Phase 5 is ready for execution:
+Phase 5 is complete. The v1 Maintenance and Hardening milestone is ready for completion review:
 
 ```text
-$gsd-execute-phase 5
+$gsd-complete-milestone
 ```
