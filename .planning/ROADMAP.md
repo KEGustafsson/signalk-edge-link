@@ -15,7 +15,7 @@ Reduce release, documentation, security-observability, and regression risk in th
 | 1     | Documentation and Release Truth                  | Complete | V1-DOC-001, V1-DOC-002, V1-REL-001                         |
 | 2     | Management API Hardening and Observability       | Complete | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
 | 3     | Lifecycle and Reliable Transport Coverage        | Complete | V1-TEST-001, V1-TEST-002                                   |
-| 4     | Schema, UI Type Safety, and Configuration Parity | Pending  | V1-UI-001, V1-UI-002                                       |
+| 4     | Schema, UI Type Safety, and Configuration Parity | Context  | V1-UI-001, V1-UI-002                                       |
 | 5     | Security Roadmap and Future Protocol Planning    | Pending  | V1-PLAN-001                                                |
 
 ## Phase 1: Documentation and Release Truth
@@ -150,6 +150,8 @@ Cross-cutting constraints:
 
 **Goal:** Tighten webapp type safety and preserve configuration parity across all user-facing and runtime surfaces.
 
+**Status:** Context gathered (2026-05-01)
+
 **Why now:** Backend TypeScript is strict while the webapp config surface is looser. Config drift would be especially expensive for operators.
 
 **Likely work:**
@@ -185,14 +187,14 @@ Cross-cutting constraints:
 
 ## Next Action
 
-Phase 4 is ready for context gathering:
-
-```text
-$gsd-discuss-phase 4 --auto
-```
-
-Alternative direct planning command:
+Phase 4 is ready for planning:
 
 ```text
 $gsd-plan-phase 4 --auto
+```
+
+Alternative review command after plans are created:
+
+```text
+$gsd-review --phase 4 --all
 ```

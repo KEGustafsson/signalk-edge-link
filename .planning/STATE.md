@@ -5,12 +5,12 @@
 **Initialized:** 2026-04-30
 **Current Milestone:** v1 Maintenance and Hardening
 **Current Phase:** 4 - Schema, UI Type Safety, and Configuration Parity
-**Phase Status:** Pending discussion
+**Phase Status:** Context gathered; ready for planning
 **Plan Count:** 0
 
 ## Current Focus
 
-Gather Phase 4 context before planning schema, UI type safety, and configuration parity work.
+Plan Phase 4 from the captured context for schema, UI type safety, and configuration parity work.
 
 ## Phase Status
 
@@ -19,7 +19,7 @@ Gather Phase 4 context before planning schema, UI type safety, and configuration
 | 1     | Documentation and Release Truth                  | Complete |
 | 2     | Management API Hardening and Observability       | Complete |
 | 3     | Lifecycle and Reliable Transport Coverage        | Complete |
-| 4     | Schema, UI Type Safety, and Configuration Parity | Pending  |
+| 4     | Schema, UI Type Safety, and Configuration Parity | Context  |
 | 5     | Security Roadmap and Future Protocol Planning    | Pending  |
 
 ## Available Context
@@ -52,6 +52,8 @@ Gather Phase 4 context before planning schema, UI type safety, and configuration
 - `.planning/phases/03-lifecycle-and-reliable-transport-coverage/03-02-SUMMARY.md` captures reliable transport recovery coverage results.
 - `.planning/phases/03-lifecycle-and-reliable-transport-coverage/03-03-SUMMARY.md` captures metadata/source recovery coverage results.
 - `.planning/phases/03-lifecycle-and-reliable-transport-coverage/03-VERIFICATION.md` verifies Phase 3 completion.
+- `.planning/phases/04-schema-ui-type-safety-and-configuration-parity/04-CONTEXT.md` captures Phase 4 implementation decisions for schema parity, webapp type safety, UI config coverage, docs/samples, and validation.
+- `.planning/phases/04-schema-ui-type-safety-and-configuration-parity/04-DISCUSSION-LOG.md` records the Phase 4 auto-discussion audit trail.
 
 ## Recent Events
 
@@ -65,11 +67,12 @@ Gather Phase 4 context before planning schema, UI type safety, and configuration
 - 2026-04-30: Phase 3 context gathered in auto mode; targeted lifecycle and reliable transport coverage defaults selected.
 - 2026-04-30: Phase 3 planned with 3 execution plans in 3 waves.
 - 2026-05-01: Phase 3 completed in commits `f63a32f`, `8f4fda6`, and `5cdd7d1`; validation passed.
+- 2026-05-01: Phase 4 context gathered in auto mode; incremental webapp type-safety, schema/runtime parity, UI configuration coverage, and docs/sample parity defaults selected.
 
 ## Recommended Next Command
 
 ```text
-$gsd-discuss-phase 4 --auto
+$gsd-plan-phase 4 --auto
 ```
 
-Use `$gsd-plan-phase 4 --auto` after context gathering if you want to continue directly into planning.
+Use `$gsd-execute-phase 4` after Phase 4 plans are created and reviewed.
