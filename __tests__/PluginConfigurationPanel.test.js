@@ -17,12 +17,18 @@ jest.mock("../src/webapp/utils/apiFetch", () => ({
 
 // Lightweight RJSF mock – keeps tests fast and focused on panel logic,
 // not on RJSF form rendering internals.
+const mockRjsfForms = [];
 jest.mock("@rjsf/core", () => {
   const ReactMock = require("react");
-  function MockForm({ children, formData }) {
+  function MockForm({ children, formData, schema, onChange }) {
+    mockRjsfForms.push({ formData, schema, onChange });
     return ReactMock.createElement(
       "div",
-      { "data-testid": "rjsf-form", "data-formdata": JSON.stringify(formData) },
+      {
+        "data-testid": "rjsf-form",
+        "data-formdata": JSON.stringify(formData),
+        "data-schema": JSON.stringify(schema)
+      },
       children
     );
   }
@@ -61,6 +67,14 @@ function makeErr(status, errorMsg) {
     statusText: errorMsg,
     json: () => Promise.resolve({ error: errorMsg })
   });
+}
+
+function latestRjsfForm() {
+  return mockRjsfForms[mockRjsfForms.length - 1];
+}
+
+function currentRjsfFormData() {
+  return JSON.parse(screen.getByTestId("rjsf-form").getAttribute("data-formdata") || "{}");
 }
 
 const ONE_SERVER = {
@@ -103,6 +117,7 @@ const TWO_CONNECTIONS = {
 describe("PluginConfigurationPanel", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRjsfForms.length = 0;
   });
 
   // ── Loading & error states ─────────────────────────────────────────────────
@@ -251,6 +266,18 @@ describe("PluginConfigurationPanel", () => {
     expect(screen.queryByText("You have unsaved changes.")).not.toBeInTheDocument();
   });
 
+  test("does not mark dirty when RJSF emits unchanged form data", async () => {
+    apiFetch.mockResolvedValueOnce(makeOk(ONE_SERVER));
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+
+    await act(async () => {
+      latestRjsfForm().onChange({ formData: currentRjsfFormData() });
+    });
+
+    expect(screen.queryByText("You have unsaved changes.")).not.toBeInTheDocument();
+  });
+
   test("dirty banner appears after adding a connection", async () => {
     apiFetch.mockResolvedValueOnce(makeOk(ONE_SERVER));
     render(React.createElement(PluginConfigurationPanel));
@@ -350,6 +377,50 @@ describe("PluginConfigurationPanel", () => {
     expect(body.connections[0]).not.toHaveProperty("_id");
     expect(body.connections[0].connectionId).toEqual(expect.any(String));
     expect(body.connections[0].name).toBe("shore-server");
+  });
+
+  test("preserves connection identity when switching mode through RJSF", async () => {
+    apiFetch
+      .mockResolvedValueOnce(makeOk(ONE_SERVER))
+      .mockResolvedValueOnce(makeOk({ success: true, message: "Saved." }));
+
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+    const initialFormData = currentRjsfFormData();
+
+    await act(async () => {
+      latestRjsfForm().onChange({
+        formData: {
+          ...initialFormData,
+          serverType: "client",
+          stretchAsciiKey: true,
+          useMsgpack: true,
+          usePathDictionary: true,
+          protocolVersion: 3
+        }
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("Client")).toBeInTheDocument());
+    expect(screen.getByText("You have unsaved changes.")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Save Changes"));
+    });
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    const body = JSON.parse(apiFetch.mock.calls[1][1].body);
+    const saved = body.connections[0];
+    expect(saved).not.toHaveProperty("_id");
+    expect(saved.connectionId).toBe(initialFormData.connectionId);
+    expect(saved.name).toBe("shore-server");
+    expect(saved.serverType).toBe("client");
+    expect(saved.udpPort).toBe(4446);
+    expect(saved.secretKey).toBe("a".repeat(32));
+    expect(saved.stretchAsciiKey).toBe(true);
+    expect(saved.useMsgpack).toBe(true);
+    expect(saved.usePathDictionary).toBe(true);
+    expect(saved.protocolVersion).toBe(3);
   });
 
   test("Save includes managementApiToken in POST body", async () => {

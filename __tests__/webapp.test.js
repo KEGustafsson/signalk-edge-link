@@ -7,6 +7,19 @@
 // Test the web UI helper functions and utilities
 // These tests use JSDOM to simulate browser environment
 
+const { buildWebappConnectionSchema } = require("../src/shared/connection-schema");
+
+describe("Webapp connection schema", () => {
+  test("v2 client schema exposes reliable transport groups", () => {
+    const schema = buildWebappConnectionSchema(true, 2);
+
+    expect(schema.properties).toHaveProperty("reliability");
+    expect(schema.properties).toHaveProperty("congestionControl");
+    expect(schema.properties).toHaveProperty("bonding");
+    expect(schema.properties).toHaveProperty("alertThresholds");
+  });
+});
+
 describe("Web UI Helper Functions", () => {
   // Re-implement helper functions for testing (same logic as in index.js)
   const formatBytes = (bytes) => {
