@@ -14,7 +14,7 @@ Reduce release, documentation, security-observability, and regression risk in th
 | ----- | ------------------------------------------------ | -------- | ---------------------------------------------------------- |
 | 1     | Documentation and Release Truth                  | Complete | V1-DOC-001, V1-DOC-002, V1-REL-001                         |
 | 2     | Management API Hardening and Observability       | Complete | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
-| 3     | Lifecycle and Reliable Transport Coverage        | Ready    | V1-TEST-001, V1-TEST-002                                   |
+| 3     | Lifecycle and Reliable Transport Coverage        | Complete | V1-TEST-001, V1-TEST-002                                   |
 | 4     | Schema, UI Type Safety, and Configuration Parity | Pending  | V1-UI-001, V1-UI-002                                       |
 | 5     | Security Roadmap and Future Protocol Planning    | Pending  | V1-PLAN-001                                                |
 
@@ -106,6 +106,8 @@ Cross-cutting constraints:
 
 **Goal:** Add targeted regression coverage around the highest-risk lifecycle and reliable transport paths before further refactoring.
 
+**Status:** Complete (2026-05-01)
+
 **Why now:** The map identified large lifecycle and v2/v3 pipeline modules where rare recovery behavior is easy to regress.
 
 **Likely work:**
@@ -125,14 +127,17 @@ Cross-cutting constraints:
 Wave 1:
 
 - `03-01` - Add lifecycle cleanup regression coverage.
+- Complete in `f63a32f`; summary in `70f8452`.
 
 Wave 2 (blocked on Wave 1 completion):
 
 - `03-02` - Add ACK/NAK, retransmit, sequence, duplicate, and stale-session coverage.
+- Complete in `8f4fda6`; summary in `d83c9b2`.
 
 Wave 3 (blocked on Wave 2 completion):
 
 - `03-03` - Add metadata/source recovery coverage and run phase-level validation.
+- Complete in `5cdd7d1`; summary in `4bef8c9`.
 
 Cross-cutting constraints:
 
@@ -180,14 +185,14 @@ Cross-cutting constraints:
 
 ## Next Action
 
-Phase 3 is planned and ready to execute:
+Phase 4 is ready for context gathering:
 
 ```text
-$gsd-execute-phase 3
+$gsd-discuss-phase 4 --auto
 ```
 
-Alternative review command:
+Alternative direct planning command:
 
 ```text
-$gsd-review --phase 3 --all
+$gsd-plan-phase 4 --auto
 ```

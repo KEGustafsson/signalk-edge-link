@@ -44,16 +44,18 @@
 
 ## Completed Requirement Evidence
 
-| ID         | Completed  | Evidence                                                                                                                                |
-| ---------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| V1-DOC-001 | 2026-04-30 | `docs/architecture-overview.md` and `docs/api-reference.md` corrected; `npm run check:release-docs` enforces current truth.             |
-| V1-DOC-002 | 2026-04-30 | `scripts/check-release-truth.js`, `check:release-docs`, `docs/release-checklist.md`, and publish workflow CI guard added.               |
-| V1-REL-001 | 2026-04-30 | `npm run build` and `npm pack --ignore-scripts` passed; package payload includes generated `lib/` and `public/` artifact trees.         |
-| V1-SEC-001 | 2026-04-30 | Management token optional and fail-closed paths covered in auth tests and documented, including required-but-unconfigured 403 behavior. |
-| V1-SEC-002 | 2026-04-30 | `managementAuth` JSON telemetry and `signalk_edge_link_management_auth_requests_total` Prometheus counter added with focused tests.     |
-| V1-SEC-003 | 2026-04-30 | Auth telemetry and alert persistence tests verify token, secret, IP, and user-agent values are not exposed by changed surfaces.         |
-| V1-OPS-001 | 2026-04-30 | `POST /monitoring/alerts` persistence is coalesced per connection with fake-timer ordering, merge, last-write-wins, and failure tests.  |
-| V1-OPS-002 | 2026-04-30 | API, metrics, management tools, security, and configuration docs align with the new telemetry and alert persistence behavior.           |
+| ID          | Completed  | Evidence                                                                                                                                 |
+| ----------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| V1-DOC-001  | 2026-04-30 | `docs/architecture-overview.md` and `docs/api-reference.md` corrected; `npm run check:release-docs` enforces current truth.              |
+| V1-DOC-002  | 2026-04-30 | `scripts/check-release-truth.js`, `check:release-docs`, `docs/release-checklist.md`, and publish workflow CI guard added.                |
+| V1-REL-001  | 2026-04-30 | `npm run build` and `npm pack --ignore-scripts` passed; package payload includes generated `lib/` and `public/` artifact trees.          |
+| V1-SEC-001  | 2026-04-30 | Management token optional and fail-closed paths covered in auth tests and documented, including required-but-unconfigured 403 behavior.  |
+| V1-SEC-002  | 2026-04-30 | `managementAuth` JSON telemetry and `signalk_edge_link_management_auth_requests_total` Prometheus counter added with focused tests.      |
+| V1-SEC-003  | 2026-04-30 | Auth telemetry and alert persistence tests verify token, secret, IP, and user-agent values are not exposed by changed surfaces.          |
+| V1-OPS-001  | 2026-04-30 | `POST /monitoring/alerts` persistence is coalesced per connection with fake-timer ordering, merge, last-write-wins, and failure tests.   |
+| V1-OPS-002  | 2026-04-30 | API, metrics, management tools, security, and configuration docs align with the new telemetry and alert persistence behavior.            |
+| V1-TEST-001 | 2026-05-01 | Lifecycle tests cover watcher recovery cancellation, socket recovery cancellation, stop cleanup fields, and v3 recovery re-prime timers. |
+| V1-TEST-002 | 2026-05-01 | Reliable transport tests cover ACK/NAK, retransmit queues, sequence gaps, stale ACKs, duplicate DATA ACKs, and metadata/source recovery. |
 
 ## Deferred Requirements
 
