@@ -44,20 +44,21 @@
 
 ## Completed Requirement Evidence
 
-| ID          | Completed  | Evidence                                                                                                                                 |
-| ----------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| V1-DOC-001  | 2026-04-30 | `docs/architecture-overview.md` and `docs/api-reference.md` corrected; `npm run check:release-docs` enforces current truth.              |
-| V1-DOC-002  | 2026-04-30 | `scripts/check-release-truth.js`, `check:release-docs`, `docs/release-checklist.md`, and publish workflow CI guard added.                |
-| V1-REL-001  | 2026-04-30 | `npm run build` and `npm pack --ignore-scripts` passed; package payload includes generated `lib/` and `public/` artifact trees.          |
-| V1-SEC-001  | 2026-04-30 | Management token optional and fail-closed paths covered in auth tests and documented, including required-but-unconfigured 403 behavior.  |
-| V1-SEC-002  | 2026-04-30 | `managementAuth` JSON telemetry and `signalk_edge_link_management_auth_requests_total` Prometheus counter added with focused tests.      |
-| V1-SEC-003  | 2026-04-30 | Auth telemetry and alert persistence tests verify token, secret, IP, and user-agent values are not exposed by changed surfaces.          |
-| V1-OPS-001  | 2026-04-30 | `POST /monitoring/alerts` persistence is coalesced per connection with fake-timer ordering, merge, last-write-wins, and failure tests.   |
-| V1-OPS-002  | 2026-04-30 | API, metrics, management tools, security, and configuration docs align with the new telemetry and alert persistence behavior.            |
-| V1-TEST-001 | 2026-05-01 | Lifecycle tests cover watcher recovery cancellation, socket recovery cancellation, stop cleanup fields, and v3 recovery re-prime timers. |
-| V1-TEST-002 | 2026-05-01 | Reliable transport tests cover ACK/NAK, retransmit queues, sequence gaps, stale ACKs, duplicate DATA ACKs, and metadata/source recovery. |
-| V1-UI-001   | 2026-05-01 | Webapp config typecheck now enforces `noImplicitAny`; configuration panel RJSF event handling is typed and covered by component tests.   |
-| V1-UI-002   | 2026-05-01 | `udpMetaPort` parity spans shared schema, runtime validation, REST routes, docs schema, docs, samples, and focused parity tests.         |
+| ID          | Completed  | Evidence                                                                                                                                                                                                   |
+| ----------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V1-DOC-001  | 2026-04-30 | `docs/architecture-overview.md` and `docs/api-reference.md` corrected; `npm run check:release-docs` enforces current truth.                                                                                |
+| V1-DOC-002  | 2026-04-30 | `scripts/check-release-truth.js`, `check:release-docs`, `docs/release-checklist.md`, and publish workflow CI guard added.                                                                                  |
+| V1-REL-001  | 2026-04-30 | `npm run build` and `npm pack --ignore-scripts` passed; package payload includes generated `lib/` and `public/` artifact trees.                                                                            |
+| V1-SEC-001  | 2026-04-30 | Management token optional and fail-closed paths covered in auth tests and documented, including required-but-unconfigured 403 behavior.                                                                    |
+| V1-SEC-002  | 2026-04-30 | `managementAuth` JSON telemetry and `signalk_edge_link_management_auth_requests_total` Prometheus counter added with focused tests.                                                                        |
+| V1-SEC-003  | 2026-04-30 | Auth telemetry and alert persistence tests verify token, secret, IP, and user-agent values are not exposed by changed surfaces.                                                                            |
+| V1-OPS-001  | 2026-04-30 | `POST /monitoring/alerts` persistence is coalesced per connection with fake-timer ordering, merge, last-write-wins, and failure tests.                                                                     |
+| V1-OPS-002  | 2026-04-30 | API, metrics, management tools, security, and configuration docs align with the new telemetry and alert persistence behavior.                                                                              |
+| V1-TEST-001 | 2026-05-01 | Lifecycle tests cover watcher recovery cancellation, socket recovery cancellation, stop cleanup fields, and v3 recovery re-prime timers.                                                                   |
+| V1-TEST-002 | 2026-05-01 | Reliable transport tests cover ACK/NAK, retransmit queues, sequence gaps, stale ACKs, duplicate DATA ACKs, and metadata/source recovery.                                                                   |
+| V1-UI-001   | 2026-05-01 | Webapp config typecheck now enforces `noImplicitAny`; configuration panel RJSF event handling is typed and covered by component tests.                                                                     |
+| V1-UI-002   | 2026-05-01 | `udpMetaPort` parity spans shared schema, runtime validation, REST routes, docs schema, docs, samples, and focused parity tests.                                                                           |
+| V1-PLAN-001 | 2026-05-01 | Future security/protocol roadmap and 999.x backlog candidates document key rotation, key agreement, distributed limits, metrics history, and protocol migration tradeoffs without starting implementation. |
 
 ## Deferred Requirements
 
@@ -67,6 +68,15 @@
 | FUT-OPS-001   | Database-backed metrics or history.              | Not needed for the first maintenance milestone and would add a new persistence surface.               |
 | FUT-SCALE-001 | Cluster-wide rate-limit state inside the plugin. | Current process-local rate limiting is acceptable with reverse-proxy controls for larger deployments. |
 | FUT-PROTO-001 | Major protocol redesign.                         | Needs a dedicated design phase separate from maintenance hardening.                                   |
+
+## Deferred Requirement Promotion Candidates
+
+| Deferred ID   | Backlog Phase                                      | Promotion Trigger                                                                                        |
+| ------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| FUT-SEC-001   | 999.1 Online Key Rotation and Key Agreement Design | Promote when online rotation, key agreement, or forward secrecy is selected for design.                  |
+| FUT-PROTO-001 | 999.2 Protocol-v4 Compatibility and Migration Plan | Promote before any major wire-format, negotiation, or protocol-version behavior change.                  |
+| FUT-SCALE-001 | 999.3 Distributed Management Controls Architecture | Promote when deployments need global management rate limits or cross-process auth telemetry aggregation. |
+| FUT-OPS-001   | 999.4 Metrics History Storage Architecture         | Promote when the plugin needs built-in history beyond Prometheus/Grafana or external storage.            |
 
 ## Coverage Check
 

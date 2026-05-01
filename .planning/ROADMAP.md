@@ -228,6 +228,48 @@ Cross-cutting constraints:
 - All future-work examples must remain placeholder-only and avoid real management tokens, transport keys, public IPs, user agents, or local environment values.
 - Backlog candidates use 999.x numbering and remain unsequenced until promoted by a later backlog review.
 
+## Backlog
+
+### Phase 999.1: Online Key Rotation and Key Agreement Design (BACKLOG)
+
+**Goal:** Design an opt-in future key rotation/key agreement path without changing current v1/v2/v3 behavior.
+**Requirements:** FUT-SEC-001, FUT-PROTO-001
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (promote with $gsd-review-backlog when ready)
+
+### Phase 999.2: Protocol-v4 Compatibility and Migration Plan (BACKLOG)
+
+**Goal:** Define version-gated protocol migration, mixed-version behavior, rollback, and downgrade resistance before any major wire-format change.
+**Requirements:** FUT-PROTO-001
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (promote with $gsd-review-backlog when ready)
+
+### Phase 999.3: Distributed Management Controls Architecture (BACKLOG)
+
+**Goal:** Evaluate external and optional in-plugin approaches for global management rate limits and auth telemetry aggregation.
+**Requirements:** FUT-SCALE-001
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (promote with $gsd-review-backlog when ready)
+
+### Phase 999.4: Metrics History Storage Architecture (BACKLOG)
+
+**Goal:** Evaluate Prometheus-first and database-backed metrics-history options with retention, cardinality, privacy, and failure-mode boundaries.
+**Requirements:** FUT-OPS-001
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (promote with $gsd-review-backlog when ready)
+
 ## Next Action
 
 Phase 5 is planned. Phase 5 is ready for execution:
