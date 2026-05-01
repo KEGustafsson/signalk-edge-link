@@ -1,5 +1,5 @@
-import React from 'react';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import { RJSFSchema, UiSchema, getDefaultFormState } from "@rjsf/utils";
@@ -13,7 +13,9 @@ const API_BASE = "/plugins/signalk-edge-link";
 // `connectionId` is persisted so redacted secrets can survive identity edits.
 
 let _idSeq = 0;
-function makeId(): string { return `skel-${Date.now()}-${++_idSeq}`; }
+function makeId(): string {
+  return `skel-${Date.now()}-${++_idSeq}`;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,6 +38,12 @@ interface ConnectionData {
   testPort?: number;
   pingIntervalTime?: number;
   [key: string]: unknown;
+}
+
+type ConnectionFormData = Partial<ConnectionData> & Record<string, unknown>;
+
+interface ConnectionFormChangeEvent {
+  formData?: ConnectionFormData;
 }
 
 interface SaveStatus {
@@ -114,7 +122,9 @@ function withSchemaDefaults(conn: ConnectionData): ConnectionData {
 // JSON.stringify). Used to decide whether an RJSF onChange carries a real
 // field-level difference.
 function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") { return JSON.stringify(value); }
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
   if (Array.isArray(value)) {
     return "[" + value.map(stableStringify).join(",") + "]";
   }
@@ -126,14 +136,22 @@ function stableStringify(value: unknown): string {
 function connectionsEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const aKeys = Object.keys(a);
   const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) { return false; }
+  if (aKeys.length !== bKeys.length) {
+    return false;
+  }
   for (const k of aKeys) {
-    if (!Object.prototype.hasOwnProperty.call(b, k)) { return false; }
+    if (!Object.prototype.hasOwnProperty.call(b, k)) {
+      return false;
+    }
     const av = a[k];
     const bv = b[k];
-    if (av === bv) { continue; }
+    if (av === bv) {
+      continue;
+    }
     if (av !== null && bv !== null && typeof av === "object" && typeof bv === "object") {
-      if (stableStringify(av) !== stableStringify(bv)) { return false; }
+      if (stableStringify(av) !== stableStringify(bv)) {
+        return false;
+      }
       continue;
     }
     return false;
@@ -147,11 +165,31 @@ function connectionsEqual(a: Record<string, unknown>, b: Record<string, unknown>
 
 const uiSchemaClient: UiSchema = {
   "ui:order": [
-    "name", "serverType", "udpAddress", "udpPort", "secretKey", "stretchAsciiKey", "protocolVersion",
-    "useMsgpack", "usePathDictionary", "testAddress", "testPort", "pingIntervalTime",
-    "helloMessageSender", "heartbeatInterval", "reliability", "congestionControl", "bonding", "skipOwnData", "enableNotifications", "alertThresholds"
+    "name",
+    "serverType",
+    "udpAddress",
+    "udpPort",
+    "secretKey",
+    "stretchAsciiKey",
+    "protocolVersion",
+    "useMsgpack",
+    "usePathDictionary",
+    "testAddress",
+    "testPort",
+    "pingIntervalTime",
+    "helloMessageSender",
+    "heartbeatInterval",
+    "reliability",
+    "congestionControl",
+    "bonding",
+    "skipOwnData",
+    "enableNotifications",
+    "alertThresholds"
   ],
-  secretKey: { "ui:widget": "password", "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64" },
+  secretKey: {
+    "ui:widget": "password",
+    "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64"
+  },
   stretchAsciiKey: { "ui:help": "Only applies to 32-char ASCII keys. Must match on both peers." },
   serverType: { "ui:widget": "select" },
   reliability: {
@@ -170,16 +208,34 @@ const uiSchemaClient: UiSchema = {
 
 const uiSchemaServer: UiSchema = {
   "ui:order": [
-    "name", "serverType", "udpPort", "secretKey", "stretchAsciiKey", "useMsgpack", "usePathDictionary",
-    "protocolVersion", "reliability"
+    "name",
+    "serverType",
+    "udpPort",
+    "secretKey",
+    "stretchAsciiKey",
+    "useMsgpack",
+    "usePathDictionary",
+    "protocolVersion",
+    "reliability"
   ],
-  secretKey: { "ui:widget": "password", "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64" },
+  secretKey: {
+    "ui:widget": "password",
+    "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64"
+  },
   stretchAsciiKey: { "ui:help": "Only applies to 32-char ASCII keys. Must match on both peers." },
   serverType: { "ui:widget": "select" }
 };
 
 // Shared fields preserved when the user toggles server <-> client mode
-const SHARED_FIELDS = ["name", "udpPort", "secretKey", "stretchAsciiKey", "useMsgpack", "usePathDictionary", "protocolVersion"];
+const SHARED_FIELDS = [
+  "name",
+  "udpPort",
+  "secretKey",
+  "stretchAsciiKey",
+  "useMsgpack",
+  "usePathDictionary",
+  "protocolVersion"
+];
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 // Using `skel-` prefix (Signal K Edge Link) to avoid collisions with other
@@ -351,26 +407,40 @@ interface ConnectionCardProps {
   onRemove: () => void;
 }
 
-function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange, onRemove }: ConnectionCardProps) {
+function ConnectionCard({
+  conn,
+  index,
+  totalCount,
+  expanded,
+  onToggle,
+  onChange,
+  onRemove
+}: ConnectionCardProps) {
   const isClient = conn.serverType !== "server";
   const schema = buildWebappConnectionSchema(isClient, conn.protocolVersion) as RJSFSchema;
   const uiSchema = isClient ? uiSchemaClient : uiSchemaServer;
   const modeLabel = isClient ? "Client" : "Server";
   const displayName = (conn.name || `Connection ${index + 1}`).trim();
 
-  function handleFormChange(e: any) {
-    const next: ConnectionData = e.formData;
-    if (next.serverType !== conn.serverType) {
-      const base = next.serverType === "server"
-        ? defaultServerConnection(next.name)
-        : defaultClientConnection(next.name);
+  function handleFormChange(e: ConnectionFormChangeEvent) {
+    const next = e.formData;
+    if (!next) {
+      return;
+    }
+    if (next.serverType && next.serverType !== conn.serverType) {
+      const base =
+        next.serverType === "server"
+          ? defaultServerConnection(next.name)
+          : defaultClientConnection(next.name);
       const merged: ConnectionData = {
         ...base,
         _id: conn._id,
         connectionId: conn.connectionId || conn._id
       };
       for (const k of SHARED_FIELDS) {
-        if (next[k] !== undefined) { (merged as Record<string, unknown>)[k] = next[k]; }
+        if (next[k] !== undefined) {
+          (merged as Record<string, unknown>)[k] = next[k];
+        }
       }
       merged.serverType = next.serverType;
       onChange(merged);
@@ -382,13 +452,15 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
     // Order-insensitive compare so a reshuffled-but-equivalent formData does
     // not look like a real edit.
     const proposed: ConnectionData = {
-      ...next,
+      ...(next as Omit<ConnectionData, "_id">),
       _id: conn._id,
       connectionId: next.connectionId || conn.connectionId || conn._id
     };
     const { _id: _aId, ...a } = proposed;
     const { _id: _bId, ...b } = conn;
-    if (connectionsEqual(a, b)) { return; }
+    if (connectionsEqual(a, b)) {
+      return;
+    }
     onChange(proposed);
   }
 
@@ -406,7 +478,10 @@ function ConnectionCard({ conn, index, totalCount, expanded, onToggle, onChange,
         <button
           className="skel-btn-remove"
           disabled={totalCount <= 1}
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
           title={totalCount <= 1 ? "Cannot remove the only connection" : "Remove this connection"}
         >
           Remove
@@ -454,21 +529,29 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
         if (res.status === 401) {
           throw new Error(MANAGEMENT_TOKEN_ERROR_MESSAGE);
         }
-        if (!res.ok) { throw new Error(`HTTP ${res.status}: ${res.statusText}`); }
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
         const body = await res.json();
-        if (!body.success) { throw new Error(body.error || "Failed to load configuration"); }
+        if (!body.success) {
+          throw new Error(body.error || "Failed to load configuration");
+        }
 
         const cfg = body.configuration || {};
         let list: ConnectionData[];
         if (Array.isArray(cfg.connections) && cfg.connections.length > 0) {
-          list = cfg.connections.map((c: Omit<ConnectionData, "_id">) => withSchemaDefaults(withId(c)));
+          list = cfg.connections.map((c: Omit<ConnectionData, "_id">) =>
+            withSchemaDefaults(withId(c))
+          );
         } else if (cfg.serverType) {
           list = [withSchemaDefaults(withId(cfg))];
         } else {
           list = [defaultClientConnection()];
         }
         setConnections(list);
-        setManagementApiToken(typeof cfg.managementApiToken === "string" ? cfg.managementApiToken : "");
+        setManagementApiToken(
+          typeof cfg.managementApiToken === "string" ? cfg.managementApiToken : ""
+        );
         setRequireManagementApiToken(cfg.requireManagementApiToken === true);
         setExpandedIndex(0);
         setIsDirty(false);
@@ -482,12 +565,8 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
   }, []);
 
   // ── Duplicate server-port detection ─────────────────────────────────────────
-  const serverPorts = connections
-    .filter((c) => c.serverType === "server")
-    .map((c) => c.udpPort);
-  const duplicatePortSet = new Set(
-    serverPorts.filter((p, i) => serverPorts.indexOf(p) !== i)
-  );
+  const serverPorts = connections.filter((c) => c.serverType === "server").map((c) => c.udpPort);
+  const duplicatePortSet = new Set(serverPorts.filter((p, i) => serverPorts.indexOf(p) !== i));
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   function markDirty() {
@@ -523,7 +602,11 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
     setConnections((prev) => {
       if (prev.length <= 1) return prev;
       const next = prev.filter((_, i) => i !== idx);
-      setExpandedIndex((prevExpanded) => (prevExpanded !== null && prevExpanded >= idx && prevExpanded > 0 ? prevExpanded - 1 : prevExpanded));
+      setExpandedIndex((prevExpanded) =>
+        prevExpanded !== null && prevExpanded >= idx && prevExpanded > 0
+          ? prevExpanded - 1
+          : prevExpanded
+      );
       return next;
     });
     markDirty();
@@ -534,7 +617,9 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
   }
 
   const handleSave = useCallback(async () => {
-    if (savingRef.current) { return; }
+    if (savingRef.current) {
+      return;
+    }
     if (connections.length === 0) {
       setInlineValidationMessage("At least one connection is required before saving.");
       setSaveStatus({
@@ -577,7 +662,10 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
       }
       const body = await res.json();
       if (res.ok && body.success) {
-        setSaveStatus({ type: "success", message: body.message || "Configuration saved. Plugin restarting..." });
+        setSaveStatus({
+          type: "success",
+          message: body.message || "Configuration saved. Plugin restarting..."
+        });
         setIsDirty(false);
       } else {
         throw new Error(body.error || "Failed to save");
@@ -616,7 +704,9 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
       )}
 
       {saveStatus && (
-        <div className={`skel-alert skel-alert-${saveStatus.type === "saving" ? "saving" : saveStatus.type === "success" ? "success" : "error"}`}>
+        <div
+          className={`skel-alert skel-alert-${saveStatus.type === "saving" ? "saving" : saveStatus.type === "success" ? "success" : "error"}`}
+        >
           {saveStatus.message}
         </div>
       )}
@@ -631,14 +721,16 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
             type="password"
             value={managementApiToken}
             placeholder="Leave empty for open access"
-            onChange={(e) => { setManagementApiToken(e.target.value); markDirty(); }}
+            onChange={(e) => {
+              setManagementApiToken(e.target.value);
+              markDirty();
+            }}
             autoComplete="new-password"
           />
           <div className="skel-field-desc">
             Shared secret to protect the management API endpoints. Strongly recommended for
-            production. Can also be set via the{" "}
-            <code>SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN</code> environment variable (env var takes
-            priority). Leave empty to allow open access.
+            production. Can also be set via the <code>SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN</code>{" "}
+            environment variable (env var takes priority). Leave empty to allow open access.
           </div>
         </div>
         <div className="skel-field-group">
@@ -646,7 +738,10 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
             <input
               type="checkbox"
               checked={requireManagementApiToken}
-              onChange={(e) => { setRequireManagementApiToken(e.target.checked); markDirty(); }}
+              onChange={(e) => {
+                setRequireManagementApiToken(e.target.checked);
+                markDirty();
+              }}
             />
             Require Management API Token
           </label>
@@ -670,7 +765,8 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
           />
           {conn.serverType === "server" && duplicatePortSet.has(conn.udpPort) && (
             <div className="skel-dup-warn">
-              Port {conn.udpPort} is used by multiple server connections. Each server requires a unique port.
+              Port {conn.udpPort} is used by multiple server connections. Each server requires a
+              unique port.
             </div>
           )}
         </div>
