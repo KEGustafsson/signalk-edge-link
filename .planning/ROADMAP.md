@@ -15,7 +15,7 @@ Reduce release, documentation, security-observability, and regression risk in th
 | 1     | Documentation and Release Truth                  | Complete | V1-DOC-001, V1-DOC-002, V1-REL-001                         |
 | 2     | Management API Hardening and Observability       | Complete | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
 | 3     | Lifecycle and Reliable Transport Coverage        | Complete | V1-TEST-001, V1-TEST-002                                   |
-| 4     | Schema, UI Type Safety, and Configuration Parity | Context  | V1-UI-001, V1-UI-002                                       |
+| 4     | Schema, UI Type Safety, and Configuration Parity | Planned  | V1-UI-001, V1-UI-002                                       |
 | 5     | Security Roadmap and Future Protocol Planning    | Pending  | V1-PLAN-001                                                |
 
 ## Phase 1: Documentation and Release Truth
@@ -150,7 +150,7 @@ Cross-cutting constraints:
 
 **Goal:** Tighten webapp type safety and preserve configuration parity across all user-facing and runtime surfaces.
 
-**Status:** Context gathered (2026-05-01)
+**Status:** Planned (2026-05-01)
 
 **Why now:** Backend TypeScript is strict while the webapp config surface is looser. Config drift would be especially expensive for operators.
 
@@ -165,6 +165,27 @@ Cross-cutting constraints:
 - Webapp type checks are stricter or targeted type gaps are closed.
 - Component and schema compatibility tests pass.
 - No operator workflow regression is introduced.
+
+**Plan breakdown:**
+
+Wave 1:
+
+- `04-01` - Tighten webapp configuration-panel type safety and UI flow coverage.
+
+Wave 2 (blocked on Wave 1 completion):
+
+- `04-02` - Reconcile shared schema, runtime validation, and route parity.
+
+Wave 3 (blocked on Wave 2 completion):
+
+- `04-03` - Update docs/sample parity and run phase-level validation.
+
+Cross-cutting constraints:
+
+- Preserve current operator workflows, visible copy, management token behavior, add/remove flows, dirty-state behavior, and save semantics.
+- Keep `src/shared/connection-schema.ts` as the shared schema source of truth for backend and webapp schemas.
+- Treat `managementApiToken` as plugin-level secret configuration, not a per-connection field.
+- Use focused webapp/schema/config/route/docs tests before running the broad lint, typecheck, build, and Jest gate.
 
 ## Phase 5: Security Roadmap and Future Protocol Planning
 
@@ -187,13 +208,13 @@ Cross-cutting constraints:
 
 ## Next Action
 
-Phase 4 is ready for planning:
+Phase 4 is ready for execution:
 
 ```text
-$gsd-plan-phase 4 --auto
+$gsd-execute-phase 4
 ```
 
-Alternative review command after plans are created:
+Alternative review command:
 
 ```text
 $gsd-review --phase 4 --all
