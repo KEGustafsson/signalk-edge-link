@@ -1,8 +1,8 @@
 "use strict";
 
-const { validateRuntimeConfigBody } = require("../lib/routes/config-validation");
-const configRoutes = require("../lib/routes/config");
-const connectionsRoutes = require("../lib/routes/connections");
+const { validateRuntimeConfigBody } = require("../src/routes/config-validation");
+const configRoutes = require("../src/routes/config");
+const connectionsRoutes = require("../src/routes/connections");
 
 function makeRouterCollector() {
   const routes = [];
@@ -80,6 +80,69 @@ function registerLegacyConfigPostHandler() {
     .handlers.at(-1);
 }
 
+function makeValidClient(overrides = {}) {
+  return {
+    name: "alpha",
+    serverType: "client",
+    udpPort: 4567,
+    udpAddress: "192.168.1.1",
+    secretKey: "aB3$dEf7gH9!jKlMnO1pQrStUvWxYz0#",
+    testAddress: "192.168.1.1",
+    testPort: 80,
+    protocolVersion: 2,
+    ...overrides
+  };
+}
+
+function registerPluginConfigPostHandler() {
+  const router = makeRouterCollector();
+  const pluginRef = {
+    _currentOptions: {},
+    _restartPlugin: jest.fn()
+  };
+  const app = {
+    readPluginOptions: jest.fn(() => ({ configuration: {} })),
+    savePluginOptions: jest.fn(),
+    error: jest.fn()
+  };
+  const clientBundle = {
+    state: {
+      isServerMode: false,
+      deltaTimerFile: "/tmp/delta_timer.json",
+      subscriptionFile: "/tmp/subscription.json",
+      sentenceFilterFile: "/tmp/sentence_filter.json"
+    }
+  };
+
+  configRoutes.register(router, {
+    app,
+    rateLimitMiddleware: (req, res, next) => next(),
+    requireJson: (req, res, next) => next(),
+    pluginRef,
+    getFirstBundle: () => clientBundle,
+    getFirstClientBundle: () => clientBundle,
+    getConfigFilePath: (state, filename) =>
+      state &&
+      state[
+        {
+          "delta_timer.json": "deltaTimerFile",
+          "subscription.json": "subscriptionFile",
+          "sentence_filter.json": "sentenceFilterFile"
+        }[filename]
+      ],
+    loadConfigFile: () => Promise.resolve({}),
+    saveConfigFile: () => Promise.resolve(true),
+    managementAuthMiddleware: () => (req, res, next) => next()
+  });
+
+  return {
+    handler: router.routes
+      .find((route) => route.method === "post" && route.path === "/plugin-config")
+      .handlers.at(-1),
+    pluginRef
+  };
+}
+
 function registerConnectionConfigPostHandler() {
   const router = makeRouterCollector();
   const bundle = {
@@ -117,6 +180,54 @@ function registerConnectionConfigPostHandler() {
   return router.routes
     .find((route) => route.method === "post" && route.path === "/connections/:id/config/:filename")
     .handlers.at(-1);
+}
+
+function registerInstancePutHandler() {
+  const router = makeRouterCollector();
+  const bundle = {
+    id: "alpha",
+    name: "alpha",
+    state: {
+      options: makeValidClient(),
+      isServerMode: false
+    }
+  };
+  const pluginRef = {
+    _currentOptions: {
+      connections: [makeValidClient()]
+    },
+    _restartPlugin: jest.fn()
+  };
+
+  connectionsRoutes.register(router, {
+    rateLimitMiddleware: (req, res, next) => next(),
+    requireJson: (req, res, next) => next(),
+    instanceRegistry: { getAll: () => [bundle] },
+    getBundleById: (id) => (id === "alpha" ? bundle : null),
+    getEffectiveNetworkQuality: () => ({}),
+    getConfigFilePath: (state, filename) =>
+      state &&
+      state[
+        {
+          "delta_timer.json": "deltaTimerFile",
+          "subscription.json": "subscriptionFile",
+          "sentence_filter.json": "sentenceFilterFile"
+        }[filename]
+      ],
+    loadConfigFile: () => Promise.resolve({}),
+    saveConfigFile: () => Promise.resolve(true),
+    buildFullMetricsResponse: () => ({}),
+    pluginRef,
+    authorizeManagement: () => true,
+    managementAuthMiddleware: () => (req, res, next) => next()
+  });
+
+  return {
+    handler: router.routes
+      .find((route) => route.method === "put" && route.path === "/instances/:id")
+      .handlers.at(-1),
+    pluginRef
+  };
 }
 
 describe("validateRuntimeConfigBody", () => {
@@ -302,5 +413,80 @@ describe("runtime config route validation parity", () => {
     expect(legacyRes.statusCode).toBe(400);
     expect(connectionRes.statusCode).toBe(400);
     expect(connectionRes.body).toEqual(legacyRes.body);
+  });
+});
+
+describe("connection udpMetaPort route validation", () => {
+  test("legacy plugin-config save accepts udpMetaPort", async () => {
+    const { handler, pluginRef } = registerPluginConfigPostHandler();
+    const req = {
+      body: {
+        serverType: "server",
+        udpPort: 4567,
+        udpMetaPort: 5001,
+        secretKey: "aB3$dEf7gH9!jKlMnO1pQrStUvWxYz0#"
+      }
+    };
+    const res = makeResponse();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ success: true });
+    expect(pluginRef._restartPlugin).toHaveBeenCalledWith({
+      connections: [expect.objectContaining({ udpMetaPort: 5001 })]
+    });
+  });
+
+  test("legacy plugin-config save rejects invalid udpMetaPort", async () => {
+    const { handler } = registerPluginConfigPostHandler();
+    const req = {
+      body: {
+        serverType: "server",
+        udpPort: 4567,
+        udpMetaPort: 100,
+        secretKey: "aB3$dEf7gH9!jKlMnO1pQrStUvWxYz0#"
+      }
+    };
+    const res = makeResponse();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      success: false,
+      error: "udpMetaPort must be an integer between 1024 and 65535"
+    });
+  });
+
+  test("per-connection PATCH accepts udpMetaPort", async () => {
+    const { handler, pluginRef } = registerInstancePutHandler();
+    const req = {
+      params: { id: "alpha" },
+      body: { udpMetaPort: 5001 }
+    };
+    const res = makeResponse();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(pluginRef._currentOptions.connections[0].udpMetaPort).toBe(5001);
+  });
+
+  test("per-connection PATCH rejects invalid udpMetaPort", async () => {
+    const { handler } = registerInstancePutHandler();
+    const req = {
+      params: { id: "alpha" },
+      body: { udpMetaPort: 100 }
+    };
+    const res = makeResponse();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      error: "udpMetaPort must be an integer between 1024 and 65535"
+    });
   });
 });
