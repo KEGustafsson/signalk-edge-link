@@ -4,6 +4,7 @@ const {
   createSourceRegistry,
   SOURCE_REPLICATION_SCHEMA_VERSION
 } = require("../../lib/source-replication");
+const { mergeSourceSnapshot } = require("../../lib/source-snapshot");
 
 describe("source replication registry", () => {
   test("preserves client source payload without label parsing side-effects", () => {
@@ -177,5 +178,49 @@ describe("source replication registry", () => {
     const metrics = registry.getMetrics();
     expect(snap.size).toBe(0);
     expect(metrics.missingIdentity).toBe(1);
+  });
+});
+
+describe("source snapshot merge", () => {
+  test("merges snapshot sources without replacing existing source tree entries", () => {
+    const root = {
+      sources: {
+        local: {
+          label: "local",
+          nested: { keep: true }
+        }
+      }
+    };
+    const app = { debug: jest.fn(), signalk: { retrieve: jest.fn(() => root) } };
+
+    const added = mergeSourceSnapshot(app, {
+      local: { nested: { added: true } },
+      remote: { label: "remote", type: "NMEA0183" }
+    });
+
+    expect(added).toBe(1);
+    expect(root.sources).toEqual({
+      local: {
+        label: "local",
+        nested: { keep: true, added: true }
+      },
+      remote: { label: "remote", type: "NMEA0183" }
+    });
+  });
+
+  test("rejects malformed source snapshots without mutating source tree", () => {
+    const root = {
+      sources: {
+        local: { label: "local", type: "test" }
+      }
+    };
+    const app = { debug: jest.fn(), signalk: { retrieve: jest.fn(() => root) } };
+
+    const added = mergeSourceSnapshot(app, ["not", "a", "source", "tree"]);
+
+    expect(added).toBe(0);
+    expect(root.sources).toEqual({
+      local: { label: "local", type: "test" }
+    });
   });
 });

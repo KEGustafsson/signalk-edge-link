@@ -54,6 +54,17 @@ function buildDataPacket(sequence, payloadObj, key, protocolVersion = 2) {
   });
 }
 
+function buildMetadataPacket(envelope, key, protocolVersion = 2) {
+  const builder = new PacketBuilder({ protocolVersion });
+  const json = Buffer.from(JSON.stringify(envelope));
+  const compressed = zlib.brotliCompressSync(json);
+  const encrypted = encryptBinary(compressed, key);
+  return builder.buildMetadataPacket(encrypted, {
+    compressed: true,
+    encrypted: true
+  });
+}
+
 describe("pipeline-v2-server", () => {
   const secretKey = "12345678901234567890123456789012";
 
@@ -170,6 +181,88 @@ describe("pipeline-v2-server", () => {
       type: "NMEA0183",
       sentence: "RMC"
     });
+  });
+
+  test("HELLO sends exactly one META_REQUEST per client session", async () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      handleMessage: jest.fn()
+    };
+    const send = jest.fn((_pkt, _port, _addr, cb) => cb && cb(null));
+    const state = {
+      options: { reliability: { nakTimeout: 10 } },
+      socketUdp: { send },
+      instanceId: "test",
+      sourceRegistry: createSourceRegistry(app)
+    };
+    const metricsApi = makeMetricsApi();
+    const pipeline = createPipelineV2Server(app, state, metricsApi);
+    const builder = new PacketBuilder({ protocolVersion: 2 });
+    const parser = new PacketParser();
+    const hello = builder.buildHelloPacket({
+      clientId: "edge-a",
+      capabilities: ["compression", "encryption", "reliability"]
+    });
+    const rinfo = { address: "127.0.0.1", port: 12008 };
+
+    await pipeline.receivePacket(hello, secretKey, rinfo);
+    await Promise.resolve();
+    await Promise.resolve();
+    await pipeline.receivePacket(hello, secretKey, rinfo);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const metaRequests = send.mock.calls
+      .map((call) => call[0])
+      .filter((packet) => parser.parseHeader(packet).type === PacketType.META_REQUEST);
+
+    expect(metaRequests).toHaveLength(1);
+    expect(send).toHaveBeenCalledWith(expect.any(Buffer), 12008, "127.0.0.1", expect.any(Function));
+  });
+
+  test("rejects malformed source snapshot envelopes without mutating source tree", async () => {
+    const root = {
+      sources: {
+        existing: { label: "existing", type: "test" }
+      }
+    };
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      handleMessage: jest.fn(),
+      signalk: { retrieve: jest.fn(() => root) }
+    };
+    const state = {
+      options: { reliability: { nakTimeout: 10 } },
+      socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
+      instanceId: "test",
+      sourceRegistry: createSourceRegistry(app)
+    };
+    const metricsApi = makeMetricsApi();
+    const pipeline = createPipelineV2Server(app, state, metricsApi);
+    const malformedSources = buildMetadataPacket(
+      {
+        v: 1,
+        kind: "sources",
+        seq: 0,
+        idx: 0,
+        total: 1,
+        sources: ["not", "a", "source", "tree"]
+      },
+      secretKey
+    );
+
+    await pipeline.receivePacket(malformedSources, secretKey, {
+      address: "127.0.0.1",
+      port: 12009
+    });
+
+    expect(root.sources).toEqual({
+      existing: { label: "existing", type: "test" }
+    });
+    expect(app.handleMessage).not.toHaveBeenCalled();
+    expect(metricsApi.metrics.malformedPackets).toBe(1);
   });
 
   test("dispatches remote updates under their original source labels", async () => {

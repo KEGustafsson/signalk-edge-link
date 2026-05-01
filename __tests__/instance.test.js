@@ -672,6 +672,66 @@ describe("createInstance", () => {
     jest.useRealTimers();
   });
 
+  test("re-primes source and metadata snapshots after v3 socket recovery", async () => {
+    jest.useFakeTimers();
+    const initialSocket = makeMockUdpSocket();
+    const recoveredSocket = makeMockUdpSocket();
+    mockDgramSockets([initialSocket, recoveredSocket]);
+    const app = makeMockApp();
+    app.signalk = {
+      retrieve: jest.fn(() => ({
+        sources: {
+          "edge.gnss": { label: "edge.gnss", type: "NMEA0183" }
+        }
+      }))
+    };
+    const inst = createInstance(
+      app,
+      makeClientOptions({
+        protocolVersion: 3,
+        congestionControl: { enabled: false }
+      }),
+      "socket-recovery-reprime",
+      "plugin",
+      jest.fn()
+    );
+
+    try {
+      await inst.start();
+      const state = inst.getState();
+      const sendSourceSnapshot = jest.fn().mockResolvedValue(undefined);
+      state.pipeline.sendSourceSnapshot = sendSourceSnapshot;
+      state.metaConfig = { enabled: true, intervalSec: 30 };
+      for (const timer of state.metaSnapshotTimers) {
+        clearTimeout(timer);
+      }
+      state.metaSnapshotTimers = [];
+
+      initialSocket.emit(
+        "error",
+        Object.assign(new Error("forced socket failure"), { code: "EIO" })
+      );
+
+      expect(state.socketRecoveryTimer).not.toBeNull();
+      await jest.advanceTimersByTimeAsync(5000);
+      await Promise.resolve();
+
+      expect(state.socketRecoveryTimer).toBeNull();
+      expect(state.socketRecoveryInProgress).toBe(false);
+      expect(state.readyToSend).toBe(true);
+      expect(sendSourceSnapshot).toHaveBeenCalledWith(
+        { "edge.gnss": { label: "edge.gnss", type: "NMEA0183" } },
+        state.options.secretKey,
+        "127.0.0.1",
+        14446
+      );
+      expect(state.metaSnapshotTimers).toHaveLength(1);
+    } finally {
+      inst.stop();
+      jest.useRealTimers();
+    }
+  });
+
   test("stop cancels timers, workers, and heartbeat handle cleanup fields", () => {
     jest.useFakeTimers();
     const inst = createInstance(

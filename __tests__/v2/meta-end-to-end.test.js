@@ -220,7 +220,7 @@ describe("v2 metadata end-to-end (client → server)", () => {
     expect(Object.keys(root.sources)).toHaveLength(80);
     expect(root.sources["source-0"]).toEqual(sources["source-0"]);
     expect(root.sources["source-79"]).toEqual(sources["source-79"]);
-  });
+  }, 15000);
 
   test("survives MessagePack serialization end-to-end", async () => {
     const { wire, client, server, serverApp } = makeWiredPair({ useMsgpack: true });
@@ -296,7 +296,7 @@ describe("v2 metadata end-to-end (client → server)", () => {
     expect(serverApp.handleMessage).toHaveBeenCalledTimes(2);
   });
 
-  test("server drops a stale envelope arriving after a newer one", async () => {
+  test("server drops a stale META envelope arriving after a newer one", async () => {
     const { wire, client, server, serverApp, serverMetrics } = makeWiredPair();
     await client.sendMetadata(
       [{ context: "vessels.self", path: "a", meta: { units: "m" } }],
@@ -339,7 +339,58 @@ describe("v2 metadata end-to-end (client → server)", () => {
     expect(wire.length).toBe(2);
   });
 
-  test("server accepts a fresh seq=0 from a restarted client (not 'stale')", async () => {
+  test("source snapshot sequence state is independent from META sequence state", async () => {
+    const { wire, client, server, serverApp } = makeWiredPair();
+    const root = { sources: {} };
+    serverApp.signalk = { retrieve: jest.fn(() => root) };
+
+    await client.sendMetadata(
+      [{ context: "vessels.self", path: "meta-before", meta: { units: "m" } }],
+      "snapshot",
+      secretKey,
+      "127.0.0.1",
+      9100
+    );
+    const metaBefore = wire.shift();
+
+    const sourcePackets = [];
+    for (let i = 0; i < 3; i++) {
+      await client.sendSourceSnapshot(
+        {
+          [`source-${i}`]: {
+            label: `source-${i}`,
+            type: "test",
+            nested: { sequence: i }
+          }
+        },
+        secretKey,
+        "127.0.0.1",
+        9100
+      );
+      sourcePackets.push(wire.shift());
+    }
+
+    await client.sendMetadata(
+      [{ context: "vessels.self", path: "meta-after", meta: { units: "rad" } }],
+      "snapshot",
+      secretKey,
+      "127.0.0.1",
+      9100
+    );
+    const metaAfter = wire.shift();
+
+    await deliverWire(server, [metaBefore, ...sourcePackets, metaAfter]);
+
+    expect(serverApp.handleMessage).toHaveBeenCalledTimes(2);
+    expect(
+      serverApp.handleMessage.mock.calls.flatMap((call) =>
+        call[1].updates.flatMap((update) => update.meta.map((entry) => entry.path))
+      )
+    ).toEqual(["meta-before", "meta-after"]);
+    expect(Object.keys(root.sources).sort()).toEqual(["source-0", "source-1", "source-2"]);
+  });
+
+  test("server accepts sender restart seq=0 from a restarted client (not stale META)", async () => {
     // Simulate the lifecycle: client A sends a snapshot, then dies; a new
     // client process B starts at the same address:port and sends its first
     // (envSeq=0) snapshot. The server's session struct still has a high

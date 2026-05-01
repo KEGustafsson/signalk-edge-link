@@ -10,6 +10,7 @@
 const { createPipeline } = require("../../lib/pipeline-factory");
 const createMetrics = require("../../lib/metrics");
 const { PacketBuilder, PacketType } = require("../../lib/packet");
+const { MAX_SAFE_UDP_PAYLOAD } = require("../../lib/constants");
 
 const SECRET_KEY = "12345678901234567890123456789012";
 
@@ -60,6 +61,15 @@ const rinfo = { address: "127.0.0.1", port: 12345, family: "IPv4", size: 0 };
 
 function simpleDelta() {
   return { context: "vessels.self", updates: [{ values: [{ path: "a", value: 1 }] }] };
+}
+
+function sourcePayload(seed) {
+  const crypto = require("crypto");
+  let out = "";
+  for (let i = 0; i < 5; i++) {
+    out += crypto.createHash("sha256").update(`${seed}:${i}`).digest("hex");
+  }
+  return out;
 }
 
 // ── 1. sendDelta compression error ──────────────────────────────────────────
@@ -175,11 +185,11 @@ describe("receiveACK – Karn's algorithm", () => {
     pipeline.receiveACK(
       require("../../lib/packet").PacketParser
         ? new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY }).parseHeader(
-          ack0
-        )
+            ack0
+          )
         : (() => {
-          throw new Error("no parser");
-        })(),
+            throw new Error("no parser");
+          })(),
       rinfo
     );
 
@@ -443,6 +453,49 @@ describe("recovery burst guards", () => {
 });
 
 // ── 10. Force drain after ACK idle ──────────────────────────────────────────
+
+describe("source snapshot sender", () => {
+  test("does not send a source snapshot when the pipeline is stopped", async () => {
+    const { pipeline, state, app } = makeClient();
+    state.options = null;
+
+    await expect(
+      pipeline.sendSourceSnapshot(
+        { "source-a": { label: "source-a", type: "test" } },
+        SECRET_KEY,
+        "127.0.0.1",
+        12345
+      )
+    ).resolves.toBeUndefined();
+
+    expect(state.socketUdp.send).not.toHaveBeenCalled();
+    expect(app.debug).toHaveBeenCalledWith(
+      "sendSourceSnapshot called but plugin is stopped, ignoring"
+    );
+  });
+
+  test("splits source snapshots into safe UDP chunks", async () => {
+    const { pipeline, state } = makeClient();
+    const sources = {};
+
+    for (let i = 0; i < 80; i++) {
+      sources[`source-${i}`] = {
+        label: `source-${i}`,
+        type: "test",
+        nested: {
+          timestamp: `2026-04-28T14:${String(i).padStart(2, "0")}:00.000Z`,
+          payload: sourcePayload(i)
+        }
+      };
+    }
+
+    await pipeline.sendSourceSnapshot(sources, SECRET_KEY, "127.0.0.1", 12345);
+
+    const packets = state.socketUdp.send.mock.calls.map((call) => call[0]);
+    expect(packets.length).toBeGreaterThan(1);
+    expect(packets.every((packet) => packet.length <= MAX_SAFE_UDP_PAYLOAD)).toBe(true);
+  });
+});
 
 describe("force drain after ACK idle", () => {
   afterEach(() => jest.useRealTimers());
