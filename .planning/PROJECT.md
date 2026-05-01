@@ -77,6 +77,10 @@ The project is in good shape when operators can trust the docs and package metad
 ## Validated Phase Outcomes
 
 - 2026-04-30: Phase 1 completed. Public API current-version markers and architecture source references now match `package.json` and current source files, and release truth is guarded by `npm run check:release-docs`, the publish workflow, and `docs/release-checklist.md`.
+- 2026-04-30: Phase 2 completed. Management auth telemetry is exposed through JSON and Prometheus surfaces with bounded labels, and alert threshold persistence is coalesced while preserving backward-compatible management API behavior.
+- 2026-05-01: Phase 3 completed. Focused lifecycle and reliable transport tests cover socket/watcher cleanup, ACK/NAK, retransmit, sequence recovery, stale ACKs, duplicate DATA ACKs, and metadata/source recovery.
+- 2026-05-01: Phase 4 completed. Webapp configuration type safety is tightened with `noImplicitAny`, and `udpMetaPort` parity spans shared schema, runtime validation, REST routes, docs, samples, and focused tests.
+- 2026-05-01: Phase 5 completed. Future key rotation, key agreement, protocol migration, distributed controls, and metrics-history work are documented in `docs/future-security-and-protocol-roadmap.md` and parked as promotable 999.x backlog candidates.
 
 ## Planning Artifacts
 
