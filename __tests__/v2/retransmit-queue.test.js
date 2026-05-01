@@ -131,6 +131,22 @@ describe("RetransmitQueue", () => {
       expect(removed).toBe(0);
       expect(queue.getSize()).toBe(2);
     });
+
+    test("stale ACK below the oldest outstanding packet does not drain queue", () => {
+      const queue = new RetransmitQueue();
+
+      queue.add(10, Buffer.from("p10"));
+      queue.add(11, Buffer.from("p11"));
+      queue.add(12, Buffer.from("p12"));
+
+      const removed = queue.acknowledge(9);
+
+      expect(removed).toBe(0);
+      expect(queue.getSize()).toBe(3);
+      expect(queue.get(10)).toBeDefined();
+      expect(queue.get(11)).toBeDefined();
+      expect(queue.get(12)).toBeDefined();
+    });
   });
 
   describe("Wraparound Acknowledgment", () => {
@@ -260,6 +276,22 @@ describe("RetransmitQueue", () => {
       expect(retransmits).toHaveLength(1);
       expect(retransmits[0].sequence).toBe(50);
       expect(retransmits[0].packet.toString()).toBe("packet 50");
+    });
+
+    test("getOldestSequences respects minRetransmitAge after retransmit", () => {
+      jest.useFakeTimers();
+      const queue = new RetransmitQueue();
+
+      queue.add(0, Buffer.from("p0"));
+      queue.add(1, Buffer.from("p1"));
+      queue.retransmit([0]);
+
+      expect(queue.getOldestSequences(10, 1000)).toEqual([1]);
+
+      jest.advanceTimersByTime(1000);
+
+      expect(queue.getOldestSequences(10, 1000)).toEqual([0, 1]);
+      jest.useRealTimers();
     });
   });
 

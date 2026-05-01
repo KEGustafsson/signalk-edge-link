@@ -228,6 +228,24 @@ describe("receiveACK – out-of-order ACK", () => {
     const recent = metricsApi.metrics.recentErrors || [];
     expect(recent.length).toBe(0);
   });
+
+  test("stale out-of-order ACK does not drain newer queue entries", async () => {
+    const { pipeline } = makeClient();
+    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
+
+    await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
+    await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
+    await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
+
+    pipeline.receiveACK(parser.parseHeader(builder.buildACKPacket(1)), rinfo);
+    expect(pipeline.getRetransmitQueue().get(2)).toBeDefined();
+
+    pipeline.receiveACK(parser.parseHeader(builder.buildACKPacket(0)), rinfo);
+
+    expect(pipeline.getRetransmitQueue().getSize()).toBe(1);
+    expect(pipeline.getRetransmitQueue().get(2)).toBeDefined();
+  });
 });
 
 // ── 6. ACK parse error ──────────────────────────────────────────────────────
@@ -277,6 +295,10 @@ describe("receiveNAK – retransmission", () => {
     // Should have sent 2 retransmissions
     const sendCountAfter = state.socketUdp.send.mock.calls.length;
     expect(sendCountAfter - sendCountBefore).toBe(2);
+    const retransmittedSeqs = state.socketUdp.send.mock.calls
+      .slice(sendCountBefore)
+      .map((call) => parser.parseHeader(call[0]).sequence);
+    expect(retransmittedSeqs).toEqual([0, 2]);
     expect(metricsApi.metrics.retransmissions).toBeGreaterThanOrEqual(2);
   });
 });
@@ -379,6 +401,44 @@ describe("recovery burst guards", () => {
     jest.advanceTimersByTime(1000);
     const sendsAfter = state.socketUdp.send.mock.calls.length;
     expect(sendsAfter).toBe(sendsBefore);
+  });
+
+  test("recovery burst stops when the socket becomes unavailable", async () => {
+    jest.useFakeTimers();
+    const { pipeline, state, app } = makeClient({
+      options: {
+        secretKey: SECRET_KEY,
+        udpAddress: "127.0.0.1",
+        udpPort: 12345,
+        protocolVersion: 2,
+        useMsgpack: false,
+        usePathDictionary: false,
+        reliability: {
+          recoveryAckGapMs: 1000,
+          recoveryBurstIntervalMs: 100
+        },
+        congestionControl: {}
+      }
+    });
+    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
+
+    await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
+    await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
+    const sendsBeforeRecovery = state.socketUdp.send.mock.calls.length;
+
+    jest.advanceTimersByTime(5000);
+    state.socketUdp = null;
+    pipeline.receiveACK(parser.parseHeader(builder.buildACKPacket(0)), rinfo);
+
+    await Promise.resolve();
+    jest.advanceTimersByTime(500);
+
+    expect(state.socketUdp).toBeNull();
+    expect(app.debug).toHaveBeenCalledWith(
+      expect.stringContaining("Recovery burst stopped: UDP socket unavailable")
+    );
+    expect(sendsBeforeRecovery).toBe(2);
   });
 });
 

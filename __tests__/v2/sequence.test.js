@@ -186,7 +186,7 @@ describe("SequenceTracker", () => {
       t.processSequence(2); // Gap at 1
 
       // Wait for NAK timeout
-      await new Promise(resolve => setTimeout(resolve, 70));
+      await new Promise((resolve) => setTimeout(resolve, 70));
 
       expect(onLoss).toHaveBeenCalledWith([1]);
       t.reset();
@@ -203,11 +203,11 @@ describe("SequenceTracker", () => {
       t.processSequence(2); // Gap at 1
 
       // Packet 1 arrives before timeout
-      await new Promise(resolve => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 20));
       t.processSequence(1);
 
       // Wait past timeout
-      await new Promise(resolve => setTimeout(resolve, 80));
+      await new Promise((resolve) => setTimeout(resolve, 80));
 
       expect(onLoss).not.toHaveBeenCalled();
       t.reset();
@@ -232,7 +232,7 @@ describe("SequenceTracker", () => {
       t.processSequence(0);
       t.processSequence(3); // Missing 1, 2
 
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       expect(losses).toContain(1);
       expect(losses).toContain(2);
@@ -250,14 +250,37 @@ describe("SequenceTracker", () => {
       t.processSequence(3); // Gap at 1, 2
 
       // Fill in the gap - contiguous advancement cancels timers
-      await new Promise(resolve => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 20));
       t.processSequence(1);
       t.processSequence(2);
 
-      await new Promise(resolve => setTimeout(resolve, 80));
+      await new Promise((resolve) => setTimeout(resolve, 80));
 
       expect(onLoss).not.toHaveBeenCalled();
       t.reset();
+    });
+
+    test("reset clears NAK timers scheduled by a near-limit gap", () => {
+      jest.useFakeTimers();
+      const onLoss = jest.fn();
+      const t = new SequenceTracker({
+        maxGapTracking: 6,
+        nakTimeout: 50,
+        onLossDetected: onLoss
+      });
+
+      t.processSequence(0);
+      const result = t.processSequence(6);
+
+      expect(result.missing).toEqual([1, 2, 3, 4, 5]);
+      expect(t.nakTimers.size).toBe(5);
+
+      t.reset();
+      jest.advanceTimersByTime(60);
+
+      expect(t.nakTimers.size).toBe(0);
+      expect(onLoss).not.toHaveBeenCalled();
+      jest.useRealTimers();
     });
   });
 
@@ -504,11 +527,14 @@ describe("SequenceTracker", () => {
         t.processSequence(i);
       }
       // Manually add a pending NAK timer for sequence 3 to simulate edge case
-      t.nakTimers.set(3, setTimeout(() => onLoss([3]), 100));
+      t.nakTimers.set(
+        3,
+        setTimeout(() => onLoss([3]), 100)
+      );
       // Late arrival of seq 3 should cancel the timer
       t.processSequence(3);
       expect(t.nakTimers.has(3)).toBe(false);
-      await new Promise(resolve => setTimeout(resolve, 120));
+      await new Promise((resolve) => setTimeout(resolve, 120));
       expect(onLoss).not.toHaveBeenCalled();
       t.reset();
     });
@@ -535,6 +561,18 @@ describe("SequenceTracker", () => {
       expect(t.expectedSeq).toBe(11);
       t.reset();
     });
+
+    test("duplicate arrival after a gap does not advance expected sequence", () => {
+      tracker.processSequence(0);
+      tracker.processSequence(3);
+
+      const duplicate = tracker.processSequence(3);
+
+      expect(duplicate.duplicate).toBe(true);
+      expect(duplicate.inOrder).toBe(false);
+      expect(tracker.expectedSeq).toBe(1);
+      expect(tracker.nakTimers.size).toBe(2);
+    });
   });
 
   describe("getMissingSequences edge cases", () => {
@@ -542,7 +580,9 @@ describe("SequenceTracker", () => {
       // Directly set up state to simulate lost packets
       tracker.expectedSeq = 10;
       for (let i = 0; i < 10; i++) {
-        if (i !== 3 && i !== 7) {tracker.receivedSeqs.add(i);}
+        if (i !== 3 && i !== 7) {
+          tracker.receivedSeqs.add(i);
+        }
       }
       const missing = tracker.getMissingSequences();
       expect(missing).toContain(3);
