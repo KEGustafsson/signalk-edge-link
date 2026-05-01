@@ -5,12 +5,12 @@
 **Initialized:** 2026-04-30
 **Current Milestone:** v1 Maintenance and Hardening
 **Current Phase:** 5 - Security Roadmap and Future Protocol Planning
-**Phase Status:** Ready to plan
-**Plan Count:** 0
+**Phase Status:** Ready to execute
+**Plan Count:** 2
 
 ## Current Focus
 
-Plan Phase 5 security roadmap and future protocol planning from the captured discussion context.
+Execute Phase 5 security roadmap and future protocol planning from the generated plans.
 
 ## Phase Status
 
@@ -20,7 +20,7 @@ Plan Phase 5 security roadmap and future protocol planning from the captured dis
 | 2     | Management API Hardening and Observability       | Complete |
 | 3     | Lifecycle and Reliable Transport Coverage        | Complete |
 | 4     | Schema, UI Type Safety, and Configuration Parity | Complete |
-| 5     | Security Roadmap and Future Protocol Planning    | Pending  |
+| 5     | Security Roadmap and Future Protocol Planning    | Planned  |
 
 ## Available Context
 
@@ -67,6 +67,11 @@ Plan Phase 5 security roadmap and future protocol planning from the captured dis
 - `.planning/phases/04-schema-ui-type-safety-and-configuration-parity/04-VERIFICATION.md` verifies Phase 4 completion.
 - `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-CONTEXT.md` captures Phase 5 implementation decisions for future security, protocol compatibility, scaling boundaries, and follow-up parking.
 - `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-DISCUSSION-LOG.md` records the Phase 5 auto-discussion audit trail.
+- `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-RESEARCH.md` captures Phase 5 technical planning research.
+- `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-VALIDATION.md` defines Phase 5 validation sampling.
+- `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-PATTERNS.md` maps Phase 5 docs/planning files to existing patterns.
+- `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-01-PLAN.md` plans future security/protocol roadmap documentation.
+- `.planning/phases/05-security-roadmap-and-future-protocol-planning/05-02-PLAN.md` plans backlog parking, requirement traceability, and validation.
 
 ## Recent Events
 
@@ -84,11 +89,12 @@ Plan Phase 5 security roadmap and future protocol planning from the captured dis
 - 2026-05-01: Phase 4 planned with 3 execution plans in 3 waves.
 - 2026-05-01: Phase 4 completed in commits `051a5ae`, `51dcf1e`, and `7935924`; validation passed.
 - 2026-05-01: Phase 5 context gathered in auto mode; documentation-first security roadmap, version-gated protocol migration, external scaling controls, and follow-up parking defaults selected.
+- 2026-05-01: Phase 5 planned with 2 execution plans in 2 waves.
 
 ## Recommended Next Command
 
 ```text
-$gsd-plan-phase 5 --auto
+$gsd-execute-phase 5
 ```
 
-Use the captured Phase 5 context to create the implementation plan.
+Run the generated Phase 5 plans.

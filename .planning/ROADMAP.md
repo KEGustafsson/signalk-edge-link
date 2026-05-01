@@ -16,7 +16,7 @@ Reduce release, documentation, security-observability, and regression risk in th
 | 2     | Management API Hardening and Observability       | Complete | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
 | 3     | Lifecycle and Reliable Transport Coverage        | Complete | V1-TEST-001, V1-TEST-002                                   |
 | 4     | Schema, UI Type Safety, and Configuration Parity | Complete | V1-UI-001, V1-UI-002                                       |
-| 5     | Security Roadmap and Future Protocol Planning    | Pending  | V1-PLAN-001                                                |
+| 5     | Security Roadmap and Future Protocol Planning    | Planned  | V1-PLAN-001                                                |
 
 ## Phase 1: Documentation and Release Truth
 
@@ -194,6 +194,8 @@ Cross-cutting constraints:
 
 **Goal:** Document the future security and scaling work that should not be mixed into the first maintenance phases.
 
+**Status:** Planned (2026-05-01)
+
 **Why now:** Online key rotation, key agreement, distributed rate limits, and metrics history are real concerns but require design work before implementation.
 
 **Likely work:**
@@ -209,10 +211,27 @@ Cross-cutting constraints:
 - No major protocol change is started without a design.
 - Next milestone candidates are ready to promote when desired.
 
+**Plan breakdown:**
+
+Wave 1:
+
+- `05-01` - Create future security/protocol roadmap documentation.
+
+Wave 2 (blocked on Wave 1 completion):
+
+- `05-02` - Park future backlog candidates and run planning validation.
+
+Cross-cutting constraints:
+
+- Phase 5 is documentation and planning only; no protocol, crypto, route, metrics, UI, package, database, or runtime behavior changes belong in this phase.
+- Future protocol/security docs must not imply online key rotation, key agreement, protocol-v4 negotiation, distributed rate limits, or metrics-history storage exist today.
+- All future-work examples must remain placeholder-only and avoid real management tokens, transport keys, public IPs, user agents, or local environment values.
+- Backlog candidates use 999.x numbering and remain unsequenced until promoted by a later backlog review.
+
 ## Next Action
 
-Phase 5 discussion is complete. Phase 5 is ready for planning:
+Phase 5 is planned. Phase 5 is ready for execution:
 
 ```text
-$gsd-plan-phase 5 --auto
+$gsd-execute-phase 5
 ```
