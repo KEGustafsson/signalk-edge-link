@@ -14,7 +14,9 @@
       "serverType": "client",
       "udpAddress": "127.0.0.1",
       "udpPort": 4446,
-      "secretKey": "0123456789abcdef0123456789abcdef",
+      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
+      "testAddress": "127.0.0.1",
+      "testPort": 80,
       "protocolVersion": 2
     }
   ]
