@@ -185,11 +185,11 @@ describe("receiveACK – Karn's algorithm", () => {
     pipeline.receiveACK(
       require("../../lib/packet").PacketParser
         ? new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY }).parseHeader(
-            ack0
-          )
+          ack0
+        )
         : (() => {
-            throw new Error("no parser");
-          })(),
+          throw new Error("no parser");
+        })(),
       rinfo
     );
 
