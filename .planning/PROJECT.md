@@ -3,7 +3,7 @@
 **Initialized:** 2026-04-30
 **Project Code:** SKEL
 **Type:** Brownfield Signal K plugin
-**Current Status:** Active maintenance and hardening
+**Current Status:** v1 Maintenance and Hardening shipped; ready for next milestone planning
 
 ## What This Is
 
@@ -74,6 +74,16 @@ The near-term direction is therefore:
 
 The project is in good shape when operators can trust the docs and package metadata, production deployments have clear management hardening signals, contributors have test coverage around the highest-risk lifecycle and transport paths, and future protocol/security work is explicitly bounded instead of mixed into maintenance changes.
 
+## Current State
+
+The v1 Maintenance and Hardening milestone shipped on 2026-05-01. Public docs, package/release checks, management auth observability, alert persistence behavior, lifecycle/reliable-transport regression coverage, webapp configuration type safety, and configuration parity have all been validated.
+
+Future security and scaling work remains deliberately unimplemented and documented for later promotion. The 999.x backlog now contains candidates for online key rotation/key agreement, protocol-v4 compatibility and migration, distributed management controls, and metrics-history storage architecture.
+
+## Next Milestone Goals
+
+The next milestone should start with fresh requirements. Good candidates include promoting one 999.x backlog item, tightening remaining operational validation, or preparing a package/release cycle around the completed hardening work.
+
 ## Validated Phase Outcomes
 
 - 2026-04-30: Phase 1 completed. Public API current-version markers and architecture source references now match `package.json` and current source files, and release truth is guarded by `npm run check:release-docs`, the publish workflow, and `docs/release-checklist.md`.
@@ -86,6 +96,11 @@ The project is in good shape when operators can trust the docs and package metad
 
 - `.planning/codebase/` - Existing codebase map.
 - `.planning/research/` - Local brownfield research synthesis.
-- `.planning/REQUIREMENTS.md` - Validated and active requirements.
-- `.planning/ROADMAP.md` - Initial GSD milestone plan.
+- `.planning/milestones/v1-maintenance-hardening-REQUIREMENTS.md` - Archived v1 milestone requirements.
+- `.planning/milestones/v1-maintenance-hardening-ROADMAP.md` - Archived v1 milestone roadmap.
+- `.planning/ROADMAP.md` - Current compact roadmap and backlog.
 - `.planning/STATE.md` - Current workflow state and next action.
+
+---
+
+_Last updated: 2026-05-01 after v1-maintenance-hardening milestone_

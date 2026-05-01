@@ -3,14 +3,14 @@
 **Project:** Signal K Edge Link
 **Project Code:** SKEL
 **Initialized:** 2026-04-30
-**Current Milestone:** v1 Maintenance and Hardening
-**Current Phase:** 5 - Security Roadmap and Future Protocol Planning
-**Phase Status:** Complete
-**Plan Count:** 2
+**Current Milestone:** v1 Maintenance and Hardening (archived)
+**Current Phase:** Milestone complete
+**Phase Status:** Archived
+**Plan Count:** 13
 
 ## Current Focus
 
-Complete the v1 Maintenance and Hardening milestone after Phase 5 verification.
+Start the next milestone with fresh requirements.
 
 ## Phase Status
 
@@ -27,8 +27,11 @@ Complete the v1 Maintenance and Hardening milestone after Phase 5 verification.
 - `.planning/codebase/` contains the committed codebase map.
 - `.planning/research/` contains local brownfield research synthesis.
 - `.planning/PROJECT.md` defines the product context and project direction.
-- `.planning/REQUIREMENTS.md` defines validated, active, and deferred requirements.
-- `.planning/ROADMAP.md` defines the initial milestone phases.
+- `.planning/MILESTONES.md` summarizes shipped milestones.
+- `.planning/RETROSPECTIVE.md` captures milestone lessons and process trends.
+- `.planning/milestones/v1-maintenance-hardening-REQUIREMENTS.md` archives validated, active, and deferred v1 requirements.
+- `.planning/milestones/v1-maintenance-hardening-ROADMAP.md` archives the full v1 milestone roadmap.
+- `.planning/ROADMAP.md` contains the compact current roadmap and preserved 999.x backlog.
 - `.planning/phases/01-documentation-and-release-truth/` contains completed Phase 1 research, validation, plans, summaries, and verification.
 - `.planning/phases/02-management-api-hardening-and-observability/02-CONTEXT.md` captures Phase 2 implementation decisions.
 - `.planning/phases/02-management-api-hardening-and-observability/02-RESEARCH.md` captures Phase 2 research and planning rationale.
@@ -94,11 +97,12 @@ Complete the v1 Maintenance and Hardening milestone after Phase 5 verification.
 - 2026-05-01: Phase 5 context gathered in auto mode; documentation-first security roadmap, version-gated protocol migration, external scaling controls, and follow-up parking defaults selected.
 - 2026-05-01: Phase 5 planned with 2 execution plans in 2 waves.
 - 2026-05-01: Phase 5 completed in commits `d368eac` and `010666e`; validation passed.
+- 2026-05-01: v1 Maintenance and Hardening archived as `v1-maintenance-hardening`.
 
 ## Recommended Next Command
 
 ```text
-$gsd-complete-milestone
+$gsd-new-milestone
 ```
 
-Review and archive the completed v1 Maintenance and Hardening milestone.
+Define fresh requirements and roadmap for the next milestone.
