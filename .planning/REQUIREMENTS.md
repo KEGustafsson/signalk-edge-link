@@ -56,6 +56,8 @@
 | V1-OPS-002  | 2026-04-30 | API, metrics, management tools, security, and configuration docs align with the new telemetry and alert persistence behavior.            |
 | V1-TEST-001 | 2026-05-01 | Lifecycle tests cover watcher recovery cancellation, socket recovery cancellation, stop cleanup fields, and v3 recovery re-prime timers. |
 | V1-TEST-002 | 2026-05-01 | Reliable transport tests cover ACK/NAK, retransmit queues, sequence gaps, stale ACKs, duplicate DATA ACKs, and metadata/source recovery. |
+| V1-UI-001   | 2026-05-01 | Webapp config typecheck now enforces `noImplicitAny`; configuration panel RJSF event handling is typed and covered by component tests.   |
+| V1-UI-002   | 2026-05-01 | `udpMetaPort` parity spans shared schema, runtime validation, REST routes, docs schema, docs, samples, and focused parity tests.         |
 
 ## Deferred Requirements
 

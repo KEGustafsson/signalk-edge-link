@@ -15,7 +15,7 @@ Reduce release, documentation, security-observability, and regression risk in th
 | 1     | Documentation and Release Truth                  | Complete | V1-DOC-001, V1-DOC-002, V1-REL-001                         |
 | 2     | Management API Hardening and Observability       | Complete | V1-SEC-001, V1-SEC-002, V1-SEC-003, V1-OPS-001, V1-OPS-002 |
 | 3     | Lifecycle and Reliable Transport Coverage        | Complete | V1-TEST-001, V1-TEST-002                                   |
-| 4     | Schema, UI Type Safety, and Configuration Parity | Planned  | V1-UI-001, V1-UI-002                                       |
+| 4     | Schema, UI Type Safety, and Configuration Parity | Complete | V1-UI-001, V1-UI-002                                       |
 | 5     | Security Roadmap and Future Protocol Planning    | Pending  | V1-PLAN-001                                                |
 
 ## Phase 1: Documentation and Release Truth
@@ -150,7 +150,7 @@ Cross-cutting constraints:
 
 **Goal:** Tighten webapp type safety and preserve configuration parity across all user-facing and runtime surfaces.
 
-**Status:** Planned (2026-05-01)
+**Status:** Complete (2026-05-01)
 
 **Why now:** Backend TypeScript is strict while the webapp config surface is looser. Config drift would be especially expensive for operators.
 
@@ -171,14 +171,17 @@ Cross-cutting constraints:
 Wave 1:
 
 - `04-01` - Tighten webapp configuration-panel type safety and UI flow coverage.
+- Complete in `051a5ae`; summary in `ad1058b`.
 
 Wave 2 (blocked on Wave 1 completion):
 
 - `04-02` - Reconcile shared schema, runtime validation, and route parity.
+- Complete in `51dcf1e`; summary in `659d81c`.
 
 Wave 3 (blocked on Wave 2 completion):
 
 - `04-03` - Update docs/sample parity and run phase-level validation.
+- Complete in `7935924`; summary in `51c5c54`.
 
 Cross-cutting constraints:
 
@@ -208,14 +211,14 @@ Cross-cutting constraints:
 
 ## Next Action
 
-Phase 4 is ready for execution:
+Phase 4 is complete. Phase 5 is ready for discussion:
 
 ```text
-$gsd-execute-phase 4
+$gsd-discuss-phase 5 --auto
 ```
 
-Alternative review command:
+Alternative planning command after discussion:
 
 ```text
-$gsd-review --phase 4 --all
+$gsd-plan-phase 5 --auto
 ```
