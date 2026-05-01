@@ -28,6 +28,8 @@ jest.mock("ping-monitor", () =>
 
 const { createInstance, slugify } = require("../lib/instance");
 const path = require("path");
+const EventEmitter = require("events");
+const dgram = require("dgram");
 
 // ── slugify ───────────────────────────────────────────────────────────────
 
@@ -96,6 +98,60 @@ function makeClientOptions(overrides = {}) {
     helloMessageSender: 60,
     ...overrides
   };
+}
+
+function makeMockUdpSocket() {
+  const emitter = new EventEmitter();
+  const socket = {
+    on: jest.fn((event, handler) => {
+      emitter.on(event, handler);
+      return socket;
+    }),
+    once: jest.fn((event, handler) => {
+      emitter.once(event, handler);
+      return socket;
+    }),
+    removeListener: jest.fn((event, handler) => {
+      emitter.removeListener(event, handler);
+      return socket;
+    }),
+    removeAllListeners: jest.fn((event) => {
+      emitter.removeAllListeners(event);
+      return socket;
+    }),
+    emit: (event, ...args) => emitter.emit(event, ...args),
+    listenerCount: (event) => emitter.listenerCount(event),
+    close: jest.fn(),
+    bind: jest.fn(() => {
+      setImmediate(() => emitter.emit("listening"));
+      return socket;
+    }),
+    send: jest.fn((message, portOrCallback, hostOrCallback, maybeCallback) => {
+      const callback =
+        typeof portOrCallback === "function"
+          ? portOrCallback
+          : typeof hostOrCallback === "function"
+            ? hostOrCallback
+            : maybeCallback;
+      if (typeof callback === "function") {
+        callback(null, Buffer.isBuffer(message) ? message.length : 0);
+      }
+      return true;
+    })
+  };
+  return socket;
+}
+
+function mockDgramSockets(sequence) {
+  const created = [];
+  let index = 0;
+  jest.spyOn(dgram, "createSocket").mockImplementation(() => {
+    const next = sequence && index < sequence.length ? sequence[index] : makeMockUdpSocket();
+    index++;
+    created.push(next);
+    return next;
+  });
+  return created;
 }
 
 describe("createInstance", () => {
@@ -551,5 +607,134 @@ describe("createInstance", () => {
       inst.stop();
       jest.useRealTimers();
     }
+  });
+
+  test("cancels pending socket recovery on stop", async () => {
+    jest.useFakeTimers();
+    const createdSockets = mockDgramSockets();
+    const app = makeMockApp();
+    const inst = createInstance(
+      app,
+      makeClientOptions({ protocolVersion: 2 }),
+      "socket-recovery-stop",
+      "plugin",
+      jest.fn()
+    );
+
+    await inst.start();
+    const state = inst.getState();
+    const initialSocket = createdSockets[0];
+
+    initialSocket.emit("error", Object.assign(new Error("forced socket failure"), { code: "EIO" }));
+
+    expect(state.socketRecoveryTimer).not.toBeNull();
+    expect(state.socketRecoveryInProgress).toBe(true);
+    expect(state.socketUdp).toBeNull();
+
+    inst.stop();
+    expect(state.socketRecoveryTimer).toBeNull();
+    expect(state.socketRecoveryInProgress).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(5000);
+
+    expect(dgram.createSocket).toHaveBeenCalledTimes(1);
+    expect(state.socketUdp).toBeNull();
+    jest.useRealTimers();
+  });
+
+  test("does not duplicate control packet listeners after recovery", async () => {
+    jest.useFakeTimers();
+    const initialSocket = makeMockUdpSocket();
+    const recoveredSocket = makeMockUdpSocket();
+    mockDgramSockets([initialSocket, recoveredSocket, recoveredSocket]);
+    const app = makeMockApp();
+    const inst = createInstance(
+      app,
+      makeClientOptions({ protocolVersion: 2 }),
+      "socket-recovery-listeners",
+      "plugin",
+      jest.fn()
+    );
+
+    await inst.start();
+    initialSocket.emit("error", Object.assign(new Error("first failure"), { code: "EIO" }));
+    await jest.advanceTimersByTimeAsync(5000);
+
+    expect(recoveredSocket.listenerCount("message")).toBe(1);
+
+    recoveredSocket.emit("error", Object.assign(new Error("second failure"), { code: "EIO" }));
+    await jest.advanceTimersByTimeAsync(5000);
+
+    expect(recoveredSocket.removeAllListeners).toHaveBeenCalledWith("message");
+    expect(recoveredSocket.listenerCount("message")).toBe(1);
+
+    inst.stop();
+    jest.useRealTimers();
+  });
+
+  test("stop cancels timers, workers, and heartbeat handle cleanup fields", () => {
+    jest.useFakeTimers();
+    const inst = createInstance(
+      makeMockApp(),
+      makeClientOptions({ protocolVersion: 2 }),
+      "cleanup-fields",
+      "plugin",
+      jest.fn()
+    );
+    const state = inst.getState();
+    const heartbeatStop = jest.fn();
+    const watcherClose = jest.fn();
+    const pipelineStopMetrics = jest.fn();
+    const pipelineStopCongestion = jest.fn();
+    const pipelineStopBonding = jest.fn();
+    const serverStopAck = jest.fn();
+    const serverStopMetrics = jest.fn();
+    const sequenceReset = jest.fn();
+
+    state.stopped = false;
+    state.subscriptionRetryTimer = setTimeout(jest.fn(), 1000);
+    state.socketRecoveryTimer = setTimeout(jest.fn(), 1000);
+    state.pendingRetry = setTimeout(jest.fn(), 1000);
+    state.sourceSnapshotTimer = setInterval(jest.fn(), 1000);
+    state.metaTimer = setInterval(jest.fn(), 1000);
+    state.metaDiffFlushTimer = setTimeout(jest.fn(), 1000);
+    state.metaSnapshotTimers = [setTimeout(jest.fn(), 1000)];
+    state.configDebounceTimers = {
+      subscriptionRetryTimer: setTimeout(jest.fn(), 1000),
+      sentenceFilter: setTimeout(jest.fn(), 1000)
+    };
+    state.configContentHashes = { Subscription: "abc" };
+    state.configWatcherObjects = [{ close: watcherClose }];
+    state.heartbeatHandle = { stop: heartbeatStop };
+    state.pipeline = {
+      stopBonding: pipelineStopBonding,
+      stopMetricsPublishing: pipelineStopMetrics,
+      stopCongestionControl: pipelineStopCongestion
+    };
+    state.pipelineServer = {
+      stopACKTimer: serverStopAck,
+      stopMetricsPublishing: serverStopMetrics,
+      getSequenceTracker: () => ({ reset: sequenceReset })
+    };
+
+    inst.stop();
+
+    expect(state.subscriptionRetryTimer).toBeNull();
+    expect(state.socketRecoveryTimer).toBeNull();
+    expect(state.pendingRetry).toBeNull();
+    expect(state.sourceSnapshotTimer).toBeNull();
+    expect(state.metaTimer).toBeNull();
+    expect(state.metaSnapshotTimers).toEqual([]);
+    expect(state.configDebounceTimers).toEqual({});
+    expect(heartbeatStop).toHaveBeenCalledTimes(1);
+    expect(watcherClose).toHaveBeenCalledTimes(1);
+    expect(pipelineStopMetrics).toHaveBeenCalledTimes(1);
+    expect(pipelineStopCongestion).toHaveBeenCalledTimes(1);
+    expect(pipelineStopBonding).toHaveBeenCalledTimes(1);
+    expect(serverStopAck).toHaveBeenCalledTimes(1);
+    expect(serverStopMetrics).toHaveBeenCalledTimes(1);
+    expect(sequenceReset).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+    jest.useRealTimers();
   });
 });
