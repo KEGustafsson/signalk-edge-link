@@ -118,3 +118,7 @@ Each connection's configuration is grouped into:
 - **Runtime files (hot-reload):** `delta_timer.json`, `subscription.json`, `sentence_filter.json`
 
 For full definitions and defaults, see `docs/configuration-reference.md`.
+
+## Future planning
+
+Future protocol-version migration constraints are tracked in docs/future-security-and-protocol-roadmap.md.

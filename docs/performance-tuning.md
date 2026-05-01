@@ -12,16 +12,16 @@ Use the existing benchmark reports as a starting point:
 
 ## Key knobs
 
-| Setting                           | Effect                                                                                                       | Typical range        |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------- |
-| `deltaTimer` interval             | Lower values reduce latency, raise CPU/network overhead                                                      | 100–1000 ms          |
-| Batch size                        | Larger batches improve compression ratio, can increase tail latency                                          | 10–100 deltas        |
-| `protocolVersion`                 | v2/v3 add reliability/flow control overhead with better loss handling; v3 also authenticates control packets | `1`, `2`, or `3`     |
-| `congestionControl.minDeltaTimer` | Lower bound for automatic timer adjustment — faster updates, higher baseline throughput                      | 50–500 ms            |
-| `congestionControl.maxDeltaTimer` | Upper bound — slower updates, less network pressure under congestion                                         | 1000–10000 ms        |
-| `usePathDictionary`               | Replaces long path strings with short integers — 10–20% size savings, must match both ends                  | `true` / `false`     |
-| `useMsgpack`                      | Binary-encodes delta payloads — 15–25% size savings, must match both ends                                   | `true` / `false`     |
-| `bonding.failover.rttThreshold`   | Lower values react faster but can flap on unstable links                                                     | 300–1000 ms          |
+| Setting                           | Effect                                                                                                       | Typical range    |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------- |
+| `deltaTimer` interval             | Lower values reduce latency, raise CPU/network overhead                                                      | 100–1000 ms      |
+| Batch size                        | Larger batches improve compression ratio, can increase tail latency                                          | 10–100 deltas    |
+| `protocolVersion`                 | v2/v3 add reliability/flow control overhead with better loss handling; v3 also authenticates control packets | `1`, `2`, or `3` |
+| `congestionControl.minDeltaTimer` | Lower bound for automatic timer adjustment — faster updates, higher baseline throughput                      | 50–500 ms        |
+| `congestionControl.maxDeltaTimer` | Upper bound — slower updates, less network pressure under congestion                                         | 1000–10000 ms    |
+| `usePathDictionary`               | Replaces long path strings with short integers — 10–20% size savings, must match both ends                   | `true` / `false` |
+| `useMsgpack`                      | Binary-encodes delta payloads — 15–25% size savings, must match both ends                                    | `true` / `false` |
+| `bonding.failover.rttThreshold`   | Lower values react faster but can flap on unstable links                                                     | 300–1000 ms      |
 
 ## Profiling workflow
 
@@ -66,3 +66,7 @@ After any change, verify:
 - retransmissions do not trend up unexpectedly,
 - sequence/duplicate counters stay stable,
 - CPU and memory remain within hardware budgets.
+
+## Future planning
+
+Future distributed controls and external scaling guidance are tracked in docs/future-security-and-protocol-roadmap.md.

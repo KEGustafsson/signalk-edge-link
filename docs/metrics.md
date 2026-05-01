@@ -177,3 +177,5 @@ For the full exported metric list, see `docs/api-reference.md` → **Prometheus 
 - `docs/bonding.md` — bonding metric interpretation
 - `docs/congestion-control.md` — congestion state metrics
 - `grafana/dashboards/edge-link.json` — starter Grafana dashboard
+
+Future metrics-history and distributed-scaling options are tracked in docs/future-security-and-protocol-roadmap.md.

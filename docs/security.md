@@ -64,6 +64,10 @@ This document captures operational security practices and implementation notes f
   the plugin. During the transition, packets encrypted with the old key will fail
   authentication and be dropped.
 
+## Future planning
+
+Future online key rotation, key agreement, and protocol migration options are tracked in docs/future-security-and-protocol-roadmap.md.
+
 ## Input validation checklist
 
 - Validate configuration against the runtime `plugin.schema` in `src/index.ts`
