@@ -21,14 +21,22 @@ Configuration is stored as an array of connections. A single Signal K node can r
 
 ## Common Settings (Per Connection)
 
-| Setting             | JSON Key            | Type    | Default        | Range                  | Description                                                                               |
-| ------------------- | ------------------- | ------- | -------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
-| Connection Name     | `name`              | string  | `"connection"` | max 40 chars           | Label used as instance ID and Signal K metrics namespace                                  |
-| Operation Mode      | `serverType`        | string  | `"client"`     | `"server"`, `"client"` | Server receives data, Client sends data                                                   |
-| UDP Port            | `udpPort`           | number  | `4446`         | 1024 - 65535           | Must match on both ends; each server connection needs a unique port                       |
-| Encryption Key      | `secretKey`         | string  | -              | 32-byte secret         | Use 32-character ASCII, 64-character hex, or 44-character base64; must match on both ends |
-| Use MessagePack     | `useMsgpack`        | boolean | `false`        | -                      | Binary serialization (must match both ends)                                               |
-| Use Path Dictionary | `usePathDictionary` | boolean | `false`        | -                      | Path encoding (must match both ends)                                                      |
+| Setting              | JSON Key            | Type    | Default        | Range                  | Description                                                                               |
+| -------------------- | ------------------- | ------- | -------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
+| Connection Name      | `name`              | string  | `"connection"` | max 40 chars           | Label used as instance ID and Signal K metrics namespace                                  |
+| Operation Mode       | `serverType`        | string  | `"client"`     | `"server"`, `"client"` | Server receives data, Client sends data                                                   |
+| UDP Port             | `udpPort`           | number  | `4446`         | 1024 - 65535           | Must match on both ends; each server connection needs a unique port                       |
+| v1 Metadata UDP Port | `udpMetaPort`       | number  | -              | 1024 - 65535           | Optional separate UDP port for v1 metadata packets; ignored by v2/v3                      |
+| Encryption Key       | `secretKey`         | string  | -              | 32-byte secret         | Use 32-character ASCII, 64-character hex, or 44-character base64; must match on both ends |
+| Use MessagePack      | `useMsgpack`        | boolean | `false`        | -                      | Binary serialization (must match both ends)                                               |
+| Use Path Dictionary  | `usePathDictionary` | boolean | `false`        | -                      | Path encoding (must match both ends)                                                      |
+
+## Top-Level Management Settings
+
+| Setting                      | JSON Key                    | Type    | Default | Description                                                     |
+| ---------------------------- | --------------------------- | ------- | ------- | --------------------------------------------------------------- |
+| Management API Token         | `managementApiToken`        | string  | -       | Optional shared secret for management API requests              |
+| Require Management API Token | `requireManagementApiToken` | boolean | `false` | Require token auth even when no environment token is configured |
 
 ## Client Mode Settings
 

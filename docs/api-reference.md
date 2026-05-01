@@ -302,6 +302,15 @@ stored secret for an existing connection slot unchanged.
 
 **Additional required (client mode):** `udpAddress`, `testAddress`, `testPort`
 
+**Optional per connection:** `udpMetaPort` (integer, 1024-65535; optional
+separate UDP port for v1 metadata packets, ignored by v2/v3), `protocolVersion`,
+`useMsgpack`, `usePathDictionary`, `reliability`, `bonding`,
+`congestionControl`, `alertThresholds`.
+
+**Optional top-level management fields:** `managementApiToken` and
+`requireManagementApiToken`. Do not place management tokens inside connection
+objects.
+
 **Response:**
 
 ```json
@@ -932,7 +941,7 @@ Creates a new instance entry and restarts plugin runtime with the updated `conne
   - `udpAddress` (string)
   - `testAddress` (string)
   - `testPort` (integer, 1-65535)
-- Optional mutable config fields are the same family used in plugin config (for example `protocolVersion`, `useMsgpack`, `reliability`, `bonding`, `congestionControl`, `alertThresholds`).
+- Optional mutable config fields are the same family used in plugin config (for example `protocolVersion`, `udpMetaPort`, `useMsgpack`, `reliability`, `bonding`, `congestionControl`, `alertThresholds`).
 
 **Success response (`201 Created`):**
 
@@ -971,7 +980,7 @@ Patches one existing instance configuration and restarts plugin runtime.
 
 - Updatable keys:
   - `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`
-  - `udpAddress`, `helloMessageSender`, `testAddress`, `testPort`, `pingIntervalTime`
+  - `udpMetaPort`, `udpAddress`, `helloMessageSender`, `testAddress`, `testPort`, `pingIntervalTime`
   - `reliability`, `congestionControl`, `bonding`, `alertThresholds`
 - Not updatable via this endpoint: `serverType`, `udpPort`, `secretKey`
 
