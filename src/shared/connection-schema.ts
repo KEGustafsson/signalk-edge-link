@@ -47,6 +47,13 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     minimum: 1024,
     maximum: 65535
   },
+  udpMetaPort: {
+    type: "integer",
+    title: "v1 Metadata UDP Port",
+    description: "Optional separate UDP port for v1 metadata packets; ignored by v2/v3.",
+    minimum: 1024,
+    maximum: 65535
+  },
   secretKey: {
     type: "string",
     title: "Encryption Key",
