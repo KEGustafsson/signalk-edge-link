@@ -435,9 +435,11 @@ describe("recovery burst guards", () => {
 
     await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
     await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
-    const sendsBeforeRecovery = state.socketUdp.send.mock.calls.length;
 
     jest.advanceTimersByTime(5000);
+
+    const sendMock = state.socketUdp.send;
+    const sendsBeforeNull = sendMock.mock.calls.length;
     state.socketUdp = null;
     pipeline.receiveACK(parser.parseHeader(builder.buildACKPacket(0)), rinfo);
 
@@ -448,7 +450,7 @@ describe("recovery burst guards", () => {
     expect(app.debug).toHaveBeenCalledWith(
       expect.stringContaining("Recovery burst stopped: UDP socket unavailable")
     );
-    expect(sendsBeforeRecovery).toBe(2);
+    expect(sendMock).toHaveBeenCalledTimes(sendsBeforeNull);
   });
 });
 

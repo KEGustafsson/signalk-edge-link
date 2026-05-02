@@ -262,25 +262,28 @@ describe("SequenceTracker", () => {
 
     test("reset clears NAK timers scheduled by a near-limit gap", () => {
       jest.useFakeTimers();
-      const onLoss = jest.fn();
-      const t = new SequenceTracker({
-        maxGapTracking: 6,
-        nakTimeout: 50,
-        onLossDetected: onLoss
-      });
+      try {
+        const onLoss = jest.fn();
+        const t = new SequenceTracker({
+          maxGapTracking: 6,
+          nakTimeout: 50,
+          onLossDetected: onLoss
+        });
 
-      t.processSequence(0);
-      const result = t.processSequence(6);
+        t.processSequence(0);
+        const result = t.processSequence(6);
 
-      expect(result.missing).toEqual([1, 2, 3, 4, 5]);
-      expect(t.nakTimers.size).toBe(5);
+        expect(result.missing).toEqual([1, 2, 3, 4, 5]);
+        expect(t.nakTimers.size).toBe(5);
 
-      t.reset();
-      jest.advanceTimersByTime(60);
+        t.reset();
+        jest.advanceTimersByTime(60);
 
-      expect(t.nakTimers.size).toBe(0);
-      expect(onLoss).not.toHaveBeenCalled();
-      jest.useRealTimers();
+        expect(t.nakTimers.size).toBe(0);
+        expect(onLoss).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 

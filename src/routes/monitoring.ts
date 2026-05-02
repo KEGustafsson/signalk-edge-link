@@ -111,7 +111,15 @@ function register(router: Router, ctx: RouteContext): void {
       }
 
       if (!nextConfig) {
-        return;
+        // Fallback for fresh or partially-migrated configs that lack connections/serverType:
+        // persist thresholds at the top level of configuration so they survive restart.
+        nextConfig = {
+          ...currentConfig,
+          alertThresholds: {
+            ...((currentConfig.alertThresholds as Record<string, unknown>) || {}),
+            ...thresholds
+          }
+        };
       }
 
       app.savePluginOptions(nextConfig, (saveErr: unknown) => {
