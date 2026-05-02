@@ -38,7 +38,7 @@ requireIncludes(apiReference, currentMarker, "docs/api-reference.md");
 requireIncludes(docsReadme, currentMarker, "docs/README.md");
 
 function requireNoStaleVersionMarker(content, relativePath) {
-  const stalePattern = /current:\s*(\d+\.\d+\.\d+)/g;
+  const stalePattern = /current:\s*(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?)/g;
   let match;
   while ((match = stalePattern.exec(content)) !== null) {
     if (match[1] !== packageJson.version) {
