@@ -352,6 +352,7 @@ describe("v2 metadata end-to-end (client → server)", () => {
       9100
     );
     const metaBefore = wire.shift();
+    expect(metaBefore).toBeDefined();
 
     const sourcePackets = [];
     for (let i = 0; i < 3; i++) {
@@ -367,7 +368,9 @@ describe("v2 metadata end-to-end (client → server)", () => {
         "127.0.0.1",
         9100
       );
-      sourcePackets.push(wire.shift());
+      const sourcePacket = wire.shift();
+      expect(sourcePacket).toBeDefined();
+      sourcePackets.push(sourcePacket);
     }
 
     await client.sendMetadata(
@@ -378,6 +381,7 @@ describe("v2 metadata end-to-end (client → server)", () => {
       9100
     );
     const metaAfter = wire.shift();
+    expect(metaAfter).toBeDefined();
 
     await deliverWire(server, [metaBefore, ...sourcePackets, metaAfter]);
 

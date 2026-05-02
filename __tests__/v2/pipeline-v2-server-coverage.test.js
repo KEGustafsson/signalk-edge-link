@@ -206,13 +206,15 @@ describe("Duplicate DATA immediate ACK", () => {
     );
 
     await pipeline.receivePacket(packet, SECRET_KEY, rinfo);
+    const sendsAfterFirst = state.socketUdp.send.mock.calls.length;
     await pipeline.receivePacket(packet, SECRET_KEY, rinfo);
 
     expect(app.handleMessage).toHaveBeenCalledTimes(1);
     expect(metricsApi.metrics.duplicatePackets).toBe(1);
-    expect(state.socketUdp.send).toHaveBeenCalledTimes(1);
+    expect(state.socketUdp.send).toHaveBeenCalledTimes(sendsAfterFirst + 1);
 
-    const ack = parser.parseHeader(state.socketUdp.send.mock.calls[0][0]);
+    const lastCall = state.socketUdp.send.mock.calls[state.socketUdp.send.mock.calls.length - 1];
+    const ack = parser.parseHeader(lastCall[0]);
     expect(ack.type).toBe(PacketType.ACK);
     expect(parser.parseACKPayload(ack.payload)).toBe(0);
   });

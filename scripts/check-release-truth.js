@@ -36,8 +36,21 @@ const currentMarker = `current: ${packageJson.version}`;
 
 requireIncludes(apiReference, currentMarker, "docs/api-reference.md");
 requireIncludes(docsReadme, currentMarker, "docs/README.md");
-requireExcludes(apiReference, "current: 2.1.1", "docs/api-reference.md");
-requireExcludes(docsReadme, "current: 2.1.1", "docs/README.md");
+
+function requireNoStaleVersionMarker(content, relativePath) {
+  const stalePattern = /current:\s*(\d+\.\d+\.\d+)/g;
+  let match;
+  while ((match = stalePattern.exec(content)) !== null) {
+    if (match[1] !== packageJson.version) {
+      fail(
+        `${relativePath} must not contain stale version marker "current: ${match[1]}" (expected "current: ${packageJson.version}").`
+      );
+    }
+  }
+}
+
+requireNoStaleVersionMarker(apiReference, "docs/api-reference.md");
+requireNoStaleVersionMarker(docsReadme, "docs/README.md");
 
 for (const staleName of [
   "bonding-manager.ts",
