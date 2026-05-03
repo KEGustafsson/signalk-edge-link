@@ -5,12 +5,11 @@ const path = require("path");
 const { validateConnectionConfig } = require("../src/connection-config");
 
 const repoRoot = path.join(__dirname, "..");
-const sampleFiles = [
-  "samples/minimal-config.json",
-  "samples/development.json",
-  "samples/v2-with-bonding.json",
-  "samples/v3-authenticated-control.json"
-];
+const samplesDir = path.join(repoRoot, "samples");
+const sampleFiles = fs
+  .readdirSync(samplesDir)
+  .filter((f) => f.endsWith(".json"))
+  .map((f) => path.join("samples", f));
 
 function readJson(relativePath) {
   return JSON.parse(fs.readFileSync(path.join(repoRoot, relativePath), "utf8"));

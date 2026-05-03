@@ -466,7 +466,7 @@ describe("connection udpMetaPort route validation", () => {
     });
   });
 
-  test("per-connection PATCH accepts udpMetaPort", async () => {
+  test("per-connection PUT accepts udpMetaPort", async () => {
     const { handler, pluginRef } = registerInstancePutHandler();
     const req = {
       params: { id: "alpha" },
@@ -481,7 +481,7 @@ describe("connection udpMetaPort route validation", () => {
     expect(pluginRef._currentOptions.connections[0].udpMetaPort).toBe(5001);
   });
 
-  test("per-connection PATCH rejects invalid udpMetaPort", async () => {
+  test("per-connection PUT rejects invalid udpMetaPort", async () => {
     const { handler } = registerInstancePutHandler();
     const req = {
       params: { id: "alpha" },
