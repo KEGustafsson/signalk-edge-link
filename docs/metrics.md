@@ -6,27 +6,27 @@ For JSON response structures, see `docs/api-reference.md`. For Prometheus scrapi
 
 ## Core transport metrics
 
-These counters and gauges appear in `GET /metrics` under `stats` and `bandwidth`.
+These counters and gauges appear in the `GET /metrics` JSON response. Paths use dot notation to show the actual nested key (e.g. `bandwidth.bytesOut` means `response.bandwidth.bytesOut`).
 
-| Metric               | Unit    | Description                                                      |
-| -------------------- | ------- | ---------------------------------------------------------------- |
-| `deltasSent`         | count   | Total Signal K delta batches sent (client mode)                  |
-| `deltasReceived`     | count   | Total delta batches received and injected into Signal K (server) |
-| `packetsSent`        | count   | Total UDP packets sent                                           |
-| `packetsReceived`    | count   | Total UDP packets received                                       |
-| `bytesOut`           | bytes   | Compressed + encrypted bytes sent                                |
-| `bytesIn`            | bytes   | Compressed + encrypted bytes received                            |
-| `bytesOutRaw`        | bytes   | Uncompressed payload bytes (before Brotli)                       |
-| `compressionRatio`   | percent | `(1 - bytesOut / bytesOutRaw) × 100` — higher is better          |
-| `rateOut`            | B/s     | Current outbound byte rate (smoothed)                            |
-| `rateIn`             | B/s     | Current inbound byte rate (smoothed)                             |
-| `avgPacketSize`      | bytes   | Mean UDP payload size after compression                          |
-| `compressionErrors`  | count   | Brotli compress/decompress failures                              |
-| `encryptionErrors`   | count   | AES-GCM encrypt/decrypt failures (mismatched key shows up here)  |
-| `udpSendErrors`      | count   | UDP socket send failures                                         |
-| `udpRetries`         | count   | Packets that required at least one UDP retry                     |
-| `subscriptionErrors` | count   | Signal K subscription setup failures                             |
-| `malformedPackets`   | count   | Packets dropped due to invalid format or CRC mismatch            |
+| JSON path                   | Unit  | Description                                                      |
+| --------------------------- | ----- | ---------------------------------------------------------------- |
+| `stats.deltasSent`          | count | Total Signal K delta batches sent (client mode)                  |
+| `stats.deltasReceived`      | count | Total delta batches received and injected into Signal K (server) |
+| `bandwidth.packetsOut`      | count | Total UDP packets sent                                           |
+| `bandwidth.packetsIn`       | count | Total UDP packets received                                       |
+| `bandwidth.bytesOut`        | bytes | Compressed + encrypted bytes sent                                |
+| `bandwidth.bytesIn`         | bytes | Compressed + encrypted bytes received                            |
+| `bandwidth.bytesOutRaw`     | bytes | Uncompressed payload bytes (before Brotli)                       |
+| `bandwidth.rateOut`         | B/s   | Current outbound byte rate (smoothed)                            |
+| `bandwidth.rateIn`          | B/s   | Current inbound byte rate (smoothed)                             |
+| `stats.compressionErrors`   | count | Brotli compress/decompress failures                              |
+| `stats.encryptionErrors`    | count | AES-GCM encrypt/decrypt failures (mismatched key shows up here)  |
+| `stats.udpSendErrors`       | count | UDP socket send failures                                         |
+| `stats.udpRetries`          | count | Packets that required at least one UDP retry                     |
+| `stats.subscriptionErrors`  | count | Signal K subscription setup failures                             |
+| `stats.malformedPackets`    | count | Packets dropped due to invalid format or CRC mismatch            |
+| `stats.duplicatePackets`    | count | Packets dropped because their sequence number was already seen   |
+| `stats.dataPacketsReceived` | count | Total data packets accepted (excludes duplicates)                |
 
 ### Interpretation
 
@@ -38,19 +38,19 @@ These counters and gauges appear in `GET /metrics` under `stats` and `bandwidth`
 
 These counters appear in `GET /metrics` under `networkQuality` (v2/v3 only).
 
-| Metric                | Unit  | Description                                                            |
-| --------------------- | ----- | ---------------------------------------------------------------------- |
-| `acksSent`            | count | ACK packets sent by the server to acknowledge received data            |
-| `naksSent`            | count | NAK packets sent to request retransmission of missing sequence numbers |
-| `retransmissions`     | count | Data packets retransmitted after a NAK or timeout                      |
-| `duplicatePackets`    | count | Packets received with a sequence number already seen (dropped)         |
-| `dataPacketsReceived` | count | Total data packets accepted (excludes duplicates)                      |
+| JSON path                        | Unit  | Description                                                            |
+| -------------------------------- | ----- | ---------------------------------------------------------------------- |
+| `networkQuality.acksSent`        | count | ACK packets sent by the server to acknowledge received data            |
+| `networkQuality.naksSent`        | count | NAK packets sent to request retransmission of missing sequence numbers |
+| `networkQuality.retransmissions` | count | Data packets retransmitted after a NAK or timeout                      |
+| `networkQuality.retransmitRate`  | ratio | Retransmitted fraction of sent packets                                 |
+| `networkQuality.queueDepth`      | count | Current retransmit queue depth                                         |
 
 ### Interpretation
 
-- A low `retransmissions / dataPacketsReceived` ratio (< 1%) is healthy.
-- Rising `naksSent` with low `acksSent` indicates the client is sending but the server rarely ACKs — check bidirectional UDP reachability.
-- `duplicatePackets > 0` is normal on unreliable links where both original and retransmit arrive; the duplicate is safely discarded.
+- A low `networkQuality.retransmitRate` (< 1%) is healthy. Compare against `stats.dataPacketsReceived` for context.
+- Rising `networkQuality.naksSent` with low `networkQuality.acksSent` indicates the client is sending but the server rarely ACKs — check bidirectional UDP reachability.
+- `stats.duplicatePackets > 0` is normal on unreliable links where both original and retransmit arrive; the duplicate is safely discarded.
 
 ## Link quality metrics
 

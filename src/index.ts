@@ -168,9 +168,12 @@ module.exports = function createPlugin(app: SignalKApp) {
     // now-forbidden fields like testAddress on v2/v3 clients) are cleaned up
     // before validation, avoiding spurious upgrade-time failures.
     connectionList = connectionList.map((c) => sanitizeConnectionConfig(c) as ConnectionConfig);
-    // Keep _currentOptions in sync so route handlers that merge patches always
-    // operate against the cleaned connection objects.
-    (plugin._currentOptions as Record<string, unknown>).connections = connectionList;
+    // Sync sanitized connections back — only for new-format configs. Legacy flat
+    // configs use the serverType fallback and must not gain a connections key that
+    // would shadow the legacy path in getCurrentConnectionsConfig().
+    if (Array.isArray(options.connections) && options.connections.length > 0) {
+      (plugin._currentOptions as Record<string, unknown>).connections = connectionList;
+    }
     for (let i = 0; i < connectionList.length; i++) {
       const validationError = validateConnectionConfig(connectionList[i], `connections[${i}].`);
       if (validationError) {

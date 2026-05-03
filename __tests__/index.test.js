@@ -143,13 +143,15 @@ describe("SignalK Data Connector Plugin", () => {
       );
       expect(clientDep).toBeDefined();
       expect(clientDep.properties.udpAddress).toBeDefined();
-      expect(clientDep.properties.testAddress).toBeDefined();
-      expect(clientDep.properties.testPort).toBeDefined();
-      expect(clientDep.properties.pingIntervalTime).toBeDefined();
       expect(clientDep.properties.helloMessageSender).toBeDefined();
       expect(clientDep.required).toContain("udpAddress");
-      expect(clientDep.required).toContain("testAddress");
-      expect(clientDep.required).toContain("testPort");
+      // v1-only ping fields are gated behind if/then keyed on protocolVersion: 1
+      expect(clientDep.then).toBeDefined();
+      expect(clientDep.then.properties.testAddress).toBeDefined();
+      expect(clientDep.then.properties.testPort).toBeDefined();
+      expect(clientDep.then.properties.pingIntervalTime).toBeDefined();
+      expect(clientDep.then.required).toContain("testAddress");
+      expect(clientDep.then.required).toContain("testPort");
     });
 
     test("should expose advanced client reliability parameters in schema", () => {

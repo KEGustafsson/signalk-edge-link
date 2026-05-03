@@ -27,15 +27,25 @@ function requireExcludes(content, needle, relativePath) {
   }
 }
 
-const packageJson = JSON.parse(readText("package.json"));
+let packageJson = {};
+try {
+  packageJson = JSON.parse(readText("package.json"));
+} catch (err) {
+  fail(`Cannot parse package.json: ${err.message}`);
+}
+
 const apiReference = readText("docs/api-reference.md");
 const docsReadme = readText("docs/README.md");
 const architectureOverview = readText("docs/architecture-overview.md");
 const publishWorkflow = readText(".github/workflows/publish-packages.yml");
-const currentMarker = `current: ${packageJson.version}`;
 
-requireIncludes(apiReference, currentMarker, "docs/api-reference.md");
-requireIncludes(docsReadme, currentMarker, "docs/README.md");
+if (packageJson.version) {
+  const currentMarker = `current: ${packageJson.version}`;
+  requireIncludes(apiReference, currentMarker, "docs/api-reference.md");
+  requireIncludes(docsReadme, currentMarker, "docs/README.md");
+} else {
+  fail('package.json must have a valid "version" field');
+}
 requireExcludes(apiReference, "current: 2.1.1", "docs/api-reference.md");
 requireExcludes(docsReadme, "current: 2.1.1", "docs/README.md");
 
@@ -45,9 +55,7 @@ for (const staleName of [
   "alert-manager.ts",
   "sequence-tracker.ts"
 ]) {
-  if (architectureOverview.includes(staleName)) {
-    fail(`docs/architecture-overview.md must not reference ${staleName}.`);
-  }
+  requireExcludes(architectureOverview, staleName, "docs/architecture-overview.md");
 }
 
 for (const currentName of ["bonding.ts", "congestion.ts", "monitoring.ts", "sequence.ts"]) {

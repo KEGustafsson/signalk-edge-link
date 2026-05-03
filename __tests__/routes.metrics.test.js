@@ -134,19 +134,21 @@ describe("GET /metrics", () => {
 
   test("returns 200 with metrics payload on success", () => {
     const payload = { deltasSent: 42, rtt: 15 };
+    const authSnapshot = { total: 0, allowed: 0, denied: 0, byReason: {}, byAction: {} };
     const router = makeRouterCollector();
     metricsRoutes.register(
       router,
       makeCtx({
         getFirstBundle: () => ({ state: {} }),
-        buildFullMetricsResponse: () => payload
+        buildFullMetricsResponse: () => payload,
+        getManagementAuthSnapshot: () => authSnapshot
       })
     );
     const handler = findHandler(router, "get", "/metrics");
     const res = makeResponse();
     handler({}, res);
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual(payload);
+    expect(res.body).toEqual({ ...payload, managementAuth: authSnapshot });
   });
 });
 

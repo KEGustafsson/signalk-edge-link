@@ -10,12 +10,15 @@ import {
 } from "../connection-config";
 
 function validateLegacyConfig(config: any): void {
-  const connection = {
+  const raw = {
     ...config,
     name: config.name || "default",
     protocolVersion: config.protocolVersion || 1
   };
-  const validationError = validateConnectionConfig(connection);
+  // Sanitize first so legacy v2/v3 configs with v1-only fields are cleaned
+  // before validation — mirrors the startup sanitize-before-validate pattern.
+  const sanitized = sanitizeConnectionConfig(raw);
+  const validationError = validateConnectionConfig(sanitized as any);
   if (validationError) {
     throw new Error(`Legacy config ${validationError}`);
   }

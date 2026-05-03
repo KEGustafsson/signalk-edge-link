@@ -33,10 +33,10 @@ Configuration is stored as an array of connections. A single Signal K node can r
 
 ## Top-Level Management Settings
 
-| Setting                      | JSON Key                    | Type    | Default | Description                                                     |
-| ---------------------------- | --------------------------- | ------- | ------- | --------------------------------------------------------------- |
-| Management API Token         | `managementApiToken`        | string  | -       | Optional shared secret for management API requests              |
-| Require Management API Token | `requireManagementApiToken` | boolean | `false` | Require token auth even when no environment token is configured |
+| Setting                      | JSON Key                    | Type    | Default | Description                                                                                                                                |
+| ---------------------------- | --------------------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Management API Token         | `managementApiToken`        | string  | -       | Optional shared secret for management API requests; can also be supplied via the `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` environment variable |
+| Require Management API Token | `requireManagementApiToken` | boolean | `false` | Fail-closed: rejects all management requests when no token is configured (prevents open access on misconfigured installs)                  |
 
 ## Client Mode Settings
 

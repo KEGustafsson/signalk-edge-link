@@ -125,13 +125,50 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     return fromEnv === "true" || fromEnv === "1";
   }
 
+  const ALLOWED_MANAGEMENT_ACTIONS = new Set([
+    "bonding.failover",
+    "bonding.read",
+    "bonding.update",
+    "capture.export",
+    "capture.read",
+    "capture.update",
+    "config-file.read",
+    "config-file.update",
+    "config.read",
+    "config.update",
+    "congestion.read",
+    "connection-bonding.failover",
+    "connection-bonding.read",
+    "connection-config.read",
+    "connection-config.update",
+    "connection-monitoring.read",
+    "connections.list",
+    "delta-timer.update",
+    "instances.create",
+    "instances.delete",
+    "instances.list",
+    "instances.show",
+    "instances.update",
+    "metrics.read",
+    "monitoring.alerts.read",
+    "monitoring.alerts.update",
+    "monitoring.inspector.read",
+    "monitoring.read",
+    "monitoring.simulation.read",
+    "network-metrics.read",
+    "paths.read",
+    "plugin-schema.read",
+    "prometheus.read",
+    "sources.read",
+    "status.read"
+  ]);
+
   function normalizeManagementAuthAction(action?: string): string {
     if (typeof action !== "string" || !action.trim()) {
       return "unknown";
     }
-
     const trimmed = action.trim();
-    return /^[a-z0-9._:-]+$/i.test(trimmed) && trimmed.length <= 64 ? trimmed : "unknown";
+    return ALLOWED_MANAGEMENT_ACTIONS.has(trimmed) ? trimmed : "unknown";
   }
 
   function recordManagementAuthDecision(
@@ -597,8 +634,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
             metrics: state.sourceRegistry.getMetrics(),
             registry: null
           }
-        : null,
-      managementAuth: getManagementAuthSnapshot()
+        : null
     };
 
     return metricsData;

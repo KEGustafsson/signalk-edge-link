@@ -339,12 +339,13 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         const mergedConnection = { ...connections[idx], ...patch };
-        const validationError = validateConnectionConfig(mergedConnection);
+        const sanitizedMerged = sanitizeConnectionConfig(mergedConnection) as ConnectionConfig;
+        const validationError = validateConnectionConfig(sanitizedMerged);
         if (validationError) {
           return res.status(400).json({ error: validationError });
         }
 
-        connections[idx] = sanitizeConnectionConfig(mergedConnection) as ConnectionConfig;
+        connections[idx] = sanitizedMerged;
 
         const portError = validateUniqueServerPorts(connections);
         if (portError) {

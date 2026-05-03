@@ -29,7 +29,10 @@ function register(router: Router, ctx: RouteContext): void {
         if (!bundle) {
           return res.status(503).json({ error: "Plugin not started" });
         }
-        res.json(buildFullMetricsResponse(bundle));
+        res.json({
+          ...buildFullMetricsResponse(bundle),
+          managementAuth: getManagementAuthSnapshot()
+        });
       } catch (err: unknown) {
         res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }

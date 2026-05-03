@@ -44,8 +44,7 @@ describe("migrate-config", () => {
           udpPort: 4447,
           secretKey: "12345678901234567890123456789012",
           udpAddress: "10.0.0.1",
-          testAddress: "8.8.8.8",
-          testPort: 53,
+          // testAddress/testPort are v1-only; sanitization strips them from v2
           useMsgpack: true,
           usePathDictionary: false,
           protocolVersion: 2
