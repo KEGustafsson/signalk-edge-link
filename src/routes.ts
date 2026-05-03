@@ -293,6 +293,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
   // Rate limiting state
   const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
   let rateLimitCleanupInterval: ReturnType<typeof setInterval> | null = null;
+  let stopMonitoringTimers: (() => void) | null = null;
 
   /**
    * Simple rate limiting check
@@ -345,6 +346,10 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     }
     rateLimitCleanupInterval = null;
     rateLimitMap.clear();
+    if (stopMonitoringTimers) {
+      stopMonitoringTimers();
+      stopMonitoringTimers = null;
+    }
   }
 
   /**
@@ -714,7 +719,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
 
     // Register route groups
     metricsRoutes.register(router, ctx);
-    monitoringRoutes.register(router, ctx);
+    stopMonitoringTimers = monitoringRoutes.register(router, ctx);
     controlRoutes.register(router, ctx);
     configRoutes.register(router, ctx);
     connectionsRoutes.register(router, ctx);

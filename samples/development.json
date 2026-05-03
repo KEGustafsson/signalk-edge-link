@@ -4,7 +4,7 @@
       "name": "lab-server",
       "serverType": "server",
       "udpPort": 4446,
-      "secretKey": "fedcba9876543210fedcba9876543210",
+      "secretKey": "YOUR_32_CHAR_SECRET_KEY_REPLACE_ME",
       "protocolVersion": 2,
       "useMsgpack": false,
       "usePathDictionary": true
@@ -14,7 +14,7 @@
       "serverType": "client",
       "udpAddress": "127.0.0.1",
       "udpPort": 4446,
-      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
+      "secretKey": "YOUR_32_CHAR_SECRET_KEY_REPLACE_ME",
       "protocolVersion": 2
     }
   ]

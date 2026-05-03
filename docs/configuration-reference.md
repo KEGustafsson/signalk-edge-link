@@ -277,14 +277,14 @@ These constants are defined in `src/constants.ts` and control internal behavior.
       "name": "shore-server",
       "serverType": "server",
       "udpPort": 4446,
-      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
+      "secretKey": "YOUR_32_CHAR_SECRET_KEY_REPLACE_ME",
       "protocolVersion": 3
     },
     {
       "name": "sat-client",
       "serverType": "client",
       "udpPort": 4447,
-      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
+      "secretKey": "YOUR_32_CHAR_SECRET_KEY_REPLACE_ME",
       "useMsgpack": true,
       "usePathDictionary": true,
       "udpAddress": "cloud-server.example.com",

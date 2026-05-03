@@ -8,7 +8,12 @@ const root = path.resolve(__dirname, "..");
 const failures = [];
 
 function readText(relativePath) {
-  return fs.readFileSync(path.join(root, relativePath), "utf8");
+  try {
+    return fs.readFileSync(path.join(root, relativePath), "utf8");
+  } catch (err) {
+    fail(`Cannot read ${relativePath}: ${err.message}`);
+    return "";
+  }
 }
 
 function fail(message) {
@@ -27,7 +32,13 @@ function requireExcludes(content, needle, relativePath) {
   }
 }
 
-const packageJson = JSON.parse(readText("package.json"));
+let packageJson;
+try {
+  packageJson = JSON.parse(readText("package.json"));
+} catch (err) {
+  fail(`Cannot parse package.json: ${err.message}`);
+  packageJson = {};
+}
 const apiReference = readText("docs/api-reference.md");
 const docsReadme = readText("docs/README.md");
 const architectureOverview = readText("docs/architecture-overview.md");
