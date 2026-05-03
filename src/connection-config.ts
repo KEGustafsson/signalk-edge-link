@@ -155,11 +155,25 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     if (!conn.udpAddress || typeof conn.udpAddress !== "string") {
       return `${p}udpAddress is required in client mode`;
     }
-    if (!conn.testAddress || typeof conn.testAddress !== "string") {
-      return `${p}testAddress is required in client mode`;
-    }
-    if (!isValidPort(conn.testPort, 1)) {
-      return `${p}testPort must be between 1 and 65535 in client mode`;
+    // testAddress / testPort feed the v1 ping monitor (RTT measurement). v2/v3
+    // pipelines use HEARTBEAT-derived RTT instead, so the fields are only
+    // required for v1 clients. When supplied for v2/v3 they are still validated
+    // for type/range correctness so legacy configs surface obvious typos.
+    const isLegacyV1Client = (conn.protocolVersion ?? 1) < 2;
+    if (isLegacyV1Client) {
+      if (!conn.testAddress || typeof conn.testAddress !== "string") {
+        return `${p}testAddress is required in v1 client mode`;
+      }
+      if (!isValidPort(conn.testPort, 1)) {
+        return `${p}testPort must be between 1 and 65535 in v1 client mode`;
+      }
+    } else {
+      if (conn.testAddress !== undefined && typeof conn.testAddress !== "string") {
+        return `${p}testAddress must be a string`;
+      }
+      if (conn.testPort !== undefined && !isValidPort(conn.testPort, 1)) {
+        return `${p}testPort must be between 1 and 65535`;
+      }
     }
   }
 

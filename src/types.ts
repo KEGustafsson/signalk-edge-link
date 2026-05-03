@@ -215,7 +215,7 @@ export interface FailoverConfig {
 export interface BondingConfig {
   /** Enable dual-link bonding with automatic failover. Default false. */
   enabled?: boolean;
-  /** Bonding mode. Currently only "failover" is supported. */
+  /** Bonding mode. Currently only "main-backup" is supported. */
   mode?: string;
   /** Primary link address and port. */
   primary?: LinkConfig;
@@ -292,7 +292,12 @@ export interface ConnectionConfig {
    * undefined (meta disabled on v1 unless operator sets this).
    */
   udpMetaPort?: number;
-  /** Number of HELLO retransmits sent on connection start. Default 3. */
+  /**
+   * Interval in seconds between HELLO keepalive packets sent while idle.
+   * The HELLO is suppressed if real data was sent within the same window,
+   * so this acts as a NAT/firewall keepalive ceiling rather than a fixed
+   * retry count. Default 60.
+   */
   helloMessageSender?: number;
   /** Override destination address used in automated tests. */
   testAddress?: string;

@@ -313,12 +313,24 @@ describe("validateConnectionConfig", () => {
       expect(error).toMatch(/udpAddress is required/);
     });
 
-    test("missing testAddress errors", () => {
-      const config = makeValidClient({ testAddress: undefined });
+    test("missing testAddress errors for v1 clients", () => {
+      const config = makeValidClient({ protocolVersion: 1, testAddress: undefined });
       delete config.testAddress;
       const error = validateConnectionConfig(config);
       expect(error).not.toBeNull();
       expect(error).toMatch(/testAddress is required/);
+    });
+
+    test("missing testAddress is allowed for v2/v3 clients", () => {
+      const v2Config = makeValidClient({ protocolVersion: 2, testAddress: undefined });
+      delete v2Config.testAddress;
+      delete v2Config.testPort;
+      expect(validateConnectionConfig(v2Config)).toBeNull();
+
+      const v3Config = makeValidClient({ protocolVersion: 3, testAddress: undefined });
+      delete v3Config.testAddress;
+      delete v3Config.testPort;
+      expect(validateConnectionConfig(v3Config)).toBeNull();
     });
 
     test("invalid testPort errors", () => {
