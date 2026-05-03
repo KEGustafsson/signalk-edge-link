@@ -26,12 +26,6 @@ function requireIncludes(content, needle, relativePath) {
   }
 }
 
-function requireExcludes(content, needle, relativePath) {
-  if (content.includes(needle)) {
-    fail(`${relativePath} must not contain stale reference "${needle}".`);
-  }
-}
-
 let packageJson;
 try {
   packageJson = JSON.parse(readText("package.json"));
