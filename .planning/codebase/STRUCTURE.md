@@ -6,8 +6,6 @@ scope: full repo
 
 # Codebase Structure
 
-**Analysis Date:** 2026-04-30
-
 ## Directory Layout
 
 ```text
@@ -44,95 +42,14 @@ signalk-edge-link/
 
 ## Directory Purposes
 
-**`src/`:**
-
-- Purpose: Source of truth for all runtime and buildable code.
-- Contains: plugin entry, instance runtime, protocol pipelines, crypto, metrics, monitoring, route handlers, shared schemas, CLI, scripts, and webapp.
-- Key files: `src/index.ts`, `src/instance.ts`, `src/pipeline-v2-client.ts`, `src/pipeline-v2-server.ts`, `src/routes.ts`, `src/types.ts`.
-- Subdirectories: `routes/`, `shared/`, `webapp/`, `bin/`, `scripts/`, and `icons/`.
-
-**`src/routes/`:**
-
-- Purpose: REST route modules behind the common route context.
-- Contains: `config.ts`, `connections.ts`, `control.ts`, `metrics.ts`, `monitoring.ts`, `config-validation.ts`, and route types.
-- Add new route groups here and register them from `src/routes.ts`.
-
-**`src/shared/`:**
-
-- Purpose: Code shared between backend plugin and webapp bundle.
-- Key files: `src/shared/connection-schema.ts` and `src/shared/crypto-constants.ts`.
-- Use this directory when a config/schema constant must stay identical across backend and frontend.
-
-**`src/webapp/`:**
-
-- Purpose: Browser UI for runtime management and plugin configuration.
-- Contains: `index.ts`, `index.html`, `styles.css`, `components/PluginConfigurationPanel.tsx`, and `utils/apiFetch.ts`.
-- Built by webpack into `public/`.
-
-**`__tests__/`:**
-
-- Purpose: Primary Jest test suites.
-- Contains: unit tests for routes, config, crypto, metrics, pipeline APIs, webapp helpers, source replication, and v2/v3 protocol behavior.
-- `__tests__/v2/` concentrates reliable protocol, bonding, congestion, metadata, monitoring, fuzz, and coverage tests.
-
-**`test/`:**
-
-- Purpose: Integration, simulation, and benchmark-style validation outside the main unit-test tree.
-- Contains: `test/integration/`, `test/benchmarks/`, and `test/network-simulator.js`.
-
-**`docs/`:**
-
-- Purpose: Human-readable product, protocol, security, API, and operational documentation.
-- Key files: `docs/api-reference.md`, `docs/architecture-overview.md`, `docs/configuration-reference.md`, `docs/security.md`, `docs/protocol-v2-spec.md`, `docs/protocol-v3-spec.md`.
-- Subdirectories capture planning notes, performance reports, PR records, and image assets.
-
-**`samples/`:**
-
-- Purpose: Example JSON configs for common deployment profiles.
-- Files include `minimal-config.json`, `development.json`, `v2-with-bonding.json`, and `v3-authenticated-control.json`.
-
-## Key File Locations
-
-**Entry Points:**
-
-- `src/index.ts` - Signal K plugin factory, lifecycle, schema, route registration, and instance registry.
-- `src/bin/edge-link-cli.ts` - Package CLI for migration and management API workflows.
-- `src/webapp/index.ts` - Runtime browser UI entry.
-- `src/webapp/components/PluginConfigurationPanel.tsx` - Admin configuration panel exposed through Module Federation.
-
-**Configuration:**
-
-- `package.json` - scripts, dependencies, package metadata, Jest config, npm bin.
-- `tsconfig.json` - backend TypeScript build.
-- `tsconfig.webapp.json` - webapp TypeScript build.
-- `webpack.config.js` - browser bundle, module federation, static asset copy.
-- `.eslintrc.js` - lint rules.
-- `.prettierrc.js` - formatting rules.
-- `.gitignore` - excludes generated outputs, local env files, and coverage.
-
-**Core Logic:**
-
-- `src/instance.ts` - per-connection runtime orchestration.
-- `src/pipeline.ts` - v1 transport.
-- `src/pipeline-v2-client.ts` and `src/pipeline-v2-server.ts` - reliable client/server transport.
-- `src/packet.ts` - v2/v3 binary packet format.
-- `src/crypto.ts` - AES-GCM, key normalization, and control packet HMAC helpers.
-- `src/connection-config.ts` - connection validation, sanitization, and identity derivation.
-
-**Testing:**
-
-- `__tests__/*.test.js` - broad unit and route tests.
-- `__tests__/v2/*.test.js` - v2/v3 focused unit and behavior tests.
-- `test/integration/*.test.js` - integration-level suites.
-- `test/benchmarks/*.js` - benchmarking, fuzzing, and profiling helpers.
-
-**Documentation:**
-
-- `README.md` - install, quick start, API summary, security notes, and doc map.
-- `docs/README.md` - documentation index.
-- `docs/security.md` - security guide.
-- `docs/management-tools.md` - operator and CLI examples.
-- `docs/planning/` - historical design and phase completion documents.
+- **`src/`** - Source of truth for runtime and buildable code: plugin entry, instance runtime, protocol pipelines, crypto, metrics, monitoring, route handlers, shared schemas, CLI, scripts, and webapp.
+- **`src/routes/`** - REST route modules behind the common route context. Add new route groups here and register them from `src/routes.ts`.
+- **`src/shared/`** - Code shared between backend plugin and webapp bundle. Use this directory when a config/schema constant must stay identical across backend and frontend.
+- **`src/webapp/`** - Browser UI for runtime management and plugin configuration. Built by webpack into `public/`.
+- **`__tests__/`** - Primary Jest test suites. `__tests__/v2/` concentrates v2/v3 protocol behavior, bonding, congestion, metadata, monitoring, fuzz, and coverage tests.
+- **`test/`** - Integration, simulation, and benchmark-style validation outside the main unit-test tree (`test/integration/`, `test/benchmarks/`).
+- **`docs/`** - Human-readable product, protocol, security, API, and operational documentation. Subdirectories capture planning notes, performance reports, PR records, and image assets.
+- **`samples/`** - Example JSON configs for common deployment profiles.
 
 ## Naming Conventions
 
@@ -220,5 +137,4 @@ signalk-edge-link/
 
 ---
 
-_Structure analysis: 2026-04-30_
-_Update when directory structure or ownership boundaries change_
+_Update when directory structure or ownership boundaries change._

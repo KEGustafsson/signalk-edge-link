@@ -6,8 +6,6 @@ scope: full repo
 
 # Coding Conventions
 
-**Analysis Date:** 2026-04-30
-
 ## Naming Patterns
 
 **Files:**
@@ -159,5 +157,4 @@ scope: full repo
 
 ---
 
-_Convention analysis: 2026-04-30_
-_Update when formatting, linting, export, schema, or lifecycle conventions change_
+_Update when formatting, linting, export, schema, or lifecycle conventions change._

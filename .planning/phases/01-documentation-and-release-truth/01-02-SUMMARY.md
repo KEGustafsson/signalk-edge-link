@@ -52,31 +52,13 @@ completed: 2026-04-30
 
 **Release documentation and package metadata now have a local and CI-enforced drift guard.**
 
-## Performance
-
-- **Duration:** 22 min
-- **Started:** 2026-04-30T18:56:00+03:00
-- **Completed:** 2026-04-30T19:18:00+03:00
-- **Tasks:** 2
-- **Files created:** 2
-- **Files modified:** 3
-
 ## Accomplishments
 
 - Added `scripts/check-release-truth.js`, a dependency-free CommonJS guard that checks version markers, stale architecture filenames, package `files`, and publish workflow build/pack ordering.
 - Added `check:release-docs` to `package.json`.
-- Updated `docs/README.md` current API markers from `2.1.1` to `2.5.0` and linked the release checklist for contributors.
+- Updated `docs/README.md` current API markers to match `package.json` and linked the release checklist for contributors.
 - Added `docs/release-checklist.md` with lint, type-check, webapp type-check, build, test, release-doc, and pack verification commands.
 - Added the `Release documentation and package truth` CI step before packing in `.github/workflows/publish-packages.yml`.
-
-## Task Commits
-
-Each task was committed in the plan execution commit:
-
-1. **Task 1: Add dependency-free release truth check** - `31a2244`
-2. **Task 2: Document and wire release verification** - `31a2244`
-
-**Plan metadata:** pending in the summary commit.
 
 ## Files Created/Modified
 
@@ -88,35 +70,16 @@ Each task was committed in the plan execution commit:
 
 ## Decisions Made
 
-- Used `package.json` version `2.5.0` as the only version source of truth.
-- Checked package payload configuration through `package.json.files` instead of committing generated `lib/` or `public/` output.
-- Kept workflow ordering checks text-based and dependency-free to avoid adding YAML parsing dependencies for this narrow guard.
+- `package.json` `version` is the single source of truth for release version markers.
+- Package payload is verified via `package.json.files` rather than committing generated `lib/` or `public/` output.
+- Workflow ordering checks stay text-based and dependency-free to avoid adding YAML parsing dependencies for this narrow guard.
 
-## Deviations from Plan
+## Verification Strategy
 
-None - plan executed exactly as written.
-
-**Total deviations:** 0 auto-fixed.
-**Impact on plan:** No scope change.
-
-## Issues Encountered
-
-- Prettier required mechanical formatting on the new script, `package.json`, and the workflow. Formatting was applied before validation and commit.
-
-## Verification
-
-- `npm run check:release-docs` passed.
-- `node scripts/check-release-truth.js` passed.
-- `rg -n "current: 2\\.1\\.1" docs/README.md docs/api-reference.md` returned no matches.
-- `rg -n "bonding-manager|congestion-control|alert-manager|sequence-tracker" docs/architecture-overview.md` returned no matches.
-- `npx prettier --check scripts/check-release-truth.js package.json .github/workflows/publish-packages.yml docs/README.md docs/release-checklist.md` passed.
-- `npx eslint scripts/check-release-truth.js` passed.
-- `npm run build` passed with the existing webpack asset-size warning for the vendor chunk.
-- `npm pack --ignore-scripts` produced `signalk-edge-link-2.5.0.tgz` with `lib/` and `public/` contents.
-
-## User Setup Required
-
-None - no external service configuration required.
+- `npm run check:release-docs` is the canonical local and CI command.
+- `node scripts/check-release-truth.js` invokes the guard directly.
+- Generalized version-marker regex (see `requireNoStaleVersionMarker`) flags any stale `current: x.y.z` against the live `package.json` version, so the guard does not depend on the version active at the time of plan execution.
+- `npm run build && npm pack --ignore-scripts` validates the published package payload contains `lib/` and `public/`.
 
 ## Next Phase Readiness
 
@@ -125,4 +88,3 @@ Phase 1 can now be verified as a whole. The next project phase can build on rele
 ---
 
 _Phase: 01-documentation-and-release-truth_
-_Completed: 2026-04-30_

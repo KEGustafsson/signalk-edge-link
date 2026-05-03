@@ -6,8 +6,6 @@ scope: full repo
 
 # Codebase Concerns
 
-**Analysis Date:** 2026-04-30
-
 ## Tech Debt
 
 **Large lifecycle orchestrator in `src/instance.ts`:**
@@ -148,12 +146,7 @@ scope: full repo
 - Blocks: Seamless rotation and short-lived session keys.
 - Implementation complexity: High; would need protocol design, compatibility handling, and migration docs.
 
-**Auth telemetry counters:**
-
-- Problem: `docs/code-review-2026-04-29.md` recommends lightweight counters for authorized/denied management requests.
-- Current workaround: Debug logs record some auth decisions.
-- Blocks: Easy dashboarding/alerting for unauthorized management access attempts.
-- Implementation complexity: Low to medium; add counters to metrics state and surface them through metrics/Prometheus docs.
+_No outstanding critical-feature gaps in this area at the time of last mapping pass._
 
 ## Test Coverage Gaps
 
@@ -173,5 +166,4 @@ scope: full repo
 
 ---
 
-_Concerns audit: 2026-04-30_
-_Update as risks are fixed, new edge cases are discovered, or docs drift is corrected_
+_Update as risks are fixed, new edge cases are discovered, or docs drift is corrected._
