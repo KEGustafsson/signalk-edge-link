@@ -167,6 +167,14 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
       if (!isValidPort(conn.testPort, 1)) {
         return `${p}testPort must be between 1 and 65535 in v1 client mode`;
       }
+      if (
+        conn.pingIntervalTime !== undefined &&
+        (!isFiniteNumber(conn.pingIntervalTime) ||
+          (conn.pingIntervalTime as number) < 0.1 ||
+          (conn.pingIntervalTime as number) > 60)
+      ) {
+        return `${p}pingIntervalTime must be a number between 0.1 and 60 in v1 client mode`;
+      }
     } else {
       if (conn.testAddress !== undefined) {
         return `${p}testAddress is only supported on v1 clients (protocolVersion 1)`;

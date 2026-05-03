@@ -230,6 +230,7 @@ const uiSchemaServer: UiSchema = {
 const SHARED_FIELDS = [
   "name",
   "udpPort",
+  "udpMetaPort",
   "secretKey",
   "stretchAsciiKey",
   "useMsgpack",

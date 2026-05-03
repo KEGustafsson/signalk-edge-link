@@ -545,7 +545,6 @@ export function buildConnectionItemSchema(): SchemaFragment {
             properties: {
               serverType: { enum: ["client"] },
               ...clientTransportProperties,
-              ...v1ClientPingProperties,
               reliability: clientReliabilityProperty,
               congestionControl: congestionControlProperty,
               bonding: bondingProperty,
@@ -553,11 +552,17 @@ export function buildConnectionItemSchema(): SchemaFragment {
               skipOwnData: skipOwnDataProperty,
               alertThresholds: alertThresholdsProperty
             },
-            // testAddress/testPort/pingIntervalTime are validated as v1-only by
-            // validateConnectionConfig — they are exposed in the schema so
-            // legacy v1 clients can still set them, but they are not required
-            // because v2/v3 clients omit them entirely.
-            required: ["udpAddress"]
+            required: ["udpAddress"],
+            // v1-only ping-monitor fields are gated behind if/then so the
+            // default Signal K admin UI only renders them for v1 clients.
+            if: {
+              properties: { protocolVersion: { enum: [1] } },
+              required: ["protocolVersion"]
+            },
+            then: {
+              properties: { ...v1ClientPingProperties },
+              required: ["testAddress", "testPort"]
+            }
           }
         ]
       }
