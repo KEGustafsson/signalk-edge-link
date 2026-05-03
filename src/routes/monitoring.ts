@@ -550,6 +550,8 @@ function register(router: Router, ctx: RouteContext): () => void {
   return function cleanup(): void {
     for (const entry of pendingAlertThresholdSaves.values()) {
       clearTimeout(entry.timer);
+      // Flush any buffered threshold updates so they aren't lost on shutdown.
+      persistAlertThresholds(entry.bundle, entry.thresholds);
     }
     pendingAlertThresholdSaves.clear();
   };

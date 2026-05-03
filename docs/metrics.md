@@ -12,8 +12,8 @@ These counters and gauges appear in `GET /metrics` under `stats` and `bandwidth`
 | -------------------- | ------- | ---------------------------------------------------------------- |
 | `deltasSent`         | count   | Total Signal K delta batches sent (client mode)                  |
 | `deltasReceived`     | count   | Total delta batches received and injected into Signal K (server) |
-| `packetsSent`        | count   | Total UDP packets sent                                           |
-| `packetsReceived`    | count   | Total UDP packets received                                       |
+| `bandwidth.packetsOut` | count | Total UDP packets sent                                           |
+| `bandwidth.packetsIn`  | count | Total UDP packets received                                       |
 | `bytesOut`           | bytes   | Compressed + encrypted bytes sent                                |
 | `bytesIn`            | bytes   | Compressed + encrypted bytes received                            |
 | `bytesOutRaw`        | bytes   | Uncompressed payload bytes (before Brotli)                       |

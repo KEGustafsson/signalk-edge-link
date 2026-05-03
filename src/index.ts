@@ -175,7 +175,10 @@ module.exports = function createPlugin(app: SignalKApp) {
     if (Array.isArray(options.connections)) {
       plugin._currentOptions = { ...options, connections: connectionList };
     } else if (options.serverType) {
-      plugin._currentOptions = { ...connectionList[0] };
+      // Merge sanitized connection fields over the original options so that
+      // top-level auth fields (managementApiToken, requireManagementApiToken)
+      // are preserved — sanitizeConnectionConfig only keeps connection-scoped keys.
+      plugin._currentOptions = { ...options, ...connectionList[0] };
     }
 
     for (let i = 0; i < connectionList.length; i++) {
