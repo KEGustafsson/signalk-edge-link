@@ -178,7 +178,12 @@ module.exports = function createPlugin(app: SignalKApp) {
       // Merge sanitized connection fields over the original options so that
       // top-level auth fields (managementApiToken, requireManagementApiToken)
       // are preserved — sanitizeConnectionConfig only keeps connection-scoped keys.
-      plugin._currentOptions = { ...options, ...connectionList[0] };
+      // Explicitly omit any stale `connections` key: getCurrentConnectionsConfig()
+      // checks Array.isArray(options.connections) first, so a leftover empty array
+      // would shadow the serverType fallback and break PUT/DELETE /instances/:id.
+      const { connections: _drop, ...optionsWithoutConnections } =
+        options as Record<string, unknown>;
+      plugin._currentOptions = { ...optionsWithoutConnections, ...connectionList[0] };
     }
 
     for (let i = 0; i < connectionList.length; i++) {
