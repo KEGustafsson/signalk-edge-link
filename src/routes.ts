@@ -86,7 +86,13 @@ const ALLOWED_MANAGEMENT_ACTIONS = new Set([
   "capture.update",
   "capture.export",
   "monitoring.inspector.read",
-  "monitoring.simulation.read"
+  "monitoring.simulation.read",
+  "status.read",
+  "instances.list",
+  "instances.show",
+  "instances.create",
+  "instances.update",
+  "instances.delete"
 ]);
 
 function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, pluginRef: PluginRef) {

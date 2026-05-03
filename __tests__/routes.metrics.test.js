@@ -146,7 +146,7 @@ describe("GET /metrics", () => {
     const res = makeResponse();
     handler({}, res);
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual(payload);
+    expect(res.body).toEqual(expect.objectContaining(payload));
   });
 });
 

@@ -1000,9 +1000,6 @@ describe("instances management route", () => {
             secretKey: "12345678901234567890123456789012",
             protocolVersion: 2,
             udpAddress: "127.0.0.1",
-            testAddress: "127.0.0.1",
-            testPort: 80,
-            pingIntervalTime: 10,
             helloMessageSender: 60
           }
         ]
