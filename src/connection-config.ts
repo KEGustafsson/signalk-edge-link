@@ -155,10 +155,10 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     if (!conn.udpAddress || typeof conn.udpAddress !== "string") {
       return `${p}udpAddress is required in client mode`;
     }
-    // testAddress / testPort feed the v1 ping monitor (RTT measurement). v2/v3
-    // pipelines use HEARTBEAT-derived RTT instead, so the fields are only
-    // required for v1 clients. When supplied for v2/v3 they are still validated
-    // for type/range correctness so legacy configs surface obvious typos.
+    // testAddress / testPort / pingIntervalTime feed the v1 ping monitor.
+    // v2/v3 pipelines derive RTT from HEARTBEAT exchanges and never construct
+    // a ping monitor, so the fields are required for v1 clients and must be
+    // absent for v2/v3 clients to keep configs unambiguous.
     const isLegacyV1Client = (conn.protocolVersion ?? 1) < 2;
     if (isLegacyV1Client) {
       if (!conn.testAddress || typeof conn.testAddress !== "string") {
@@ -168,11 +168,14 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
         return `${p}testPort must be between 1 and 65535 in v1 client mode`;
       }
     } else {
-      if (conn.testAddress !== undefined && typeof conn.testAddress !== "string") {
-        return `${p}testAddress must be a string`;
+      if (conn.testAddress !== undefined) {
+        return `${p}testAddress is only supported on v1 clients (protocolVersion 1)`;
       }
-      if (conn.testPort !== undefined && !isValidPort(conn.testPort, 1)) {
-        return `${p}testPort must be between 1 and 65535`;
+      if (conn.testPort !== undefined) {
+        return `${p}testPort is only supported on v1 clients (protocolVersion 1)`;
+      }
+      if (conn.pingIntervalTime !== undefined) {
+        return `${p}pingIntervalTime is only supported on v1 clients (protocolVersion 1)`;
       }
     }
   }
@@ -430,6 +433,15 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
     delete out.bonding;
     delete out.alertThresholds;
     delete out.skipOwnData;
+  } else if (serverType === "client") {
+    // v1 ping-monitor fields are not used by v2/v3 clients; strip them so
+    // upgrades from v1 don't carry unused config forward.
+    const protocolVersion = typeof out.protocolVersion === "number" ? out.protocolVersion : 1;
+    if (protocolVersion >= 2) {
+      delete out.testAddress;
+      delete out.testPort;
+      delete out.pingIntervalTime;
+    }
   }
 
   return out as Partial<ConnectionConfig>;

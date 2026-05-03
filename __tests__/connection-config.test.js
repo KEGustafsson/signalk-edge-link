@@ -9,16 +9,26 @@ const {
  * Minimal valid client config for building test cases.
  */
 function makeValidClient(overrides = {}) {
-  return {
+  const merged = {
     serverType: "client",
     udpPort: 4567,
     udpAddress: "192.168.1.1",
     secretKey: "aB3$dEf7gH9!jKlMnO1pQrStUvWxYz0#",
-    testAddress: "192.168.1.1",
-    testPort: 80,
     protocolVersion: 2,
     ...overrides
   };
+  // v1 clients require testAddress/testPort; v2/v3 clients reject them.
+  // Default to v2, but inject the v1 fields automatically if the test
+  // explicitly downgrades to protocolVersion 1.
+  if ((merged.protocolVersion ?? 1) < 2) {
+    if (merged.testAddress === undefined) {
+      merged.testAddress = "192.168.1.1";
+    }
+    if (merged.testPort === undefined) {
+      merged.testPort = 80;
+    }
+  }
+  return merged;
 }
 
 function makeValidServer(overrides = {}) {
@@ -333,11 +343,20 @@ describe("validateConnectionConfig", () => {
       expect(validateConnectionConfig(v3Config)).toBeNull();
     });
 
-    test("invalid testPort errors", () => {
-      const config = makeValidClient({ testPort: -1 });
+    test("invalid testPort errors on v1 client", () => {
+      const config = makeValidClient({ protocolVersion: 1, testPort: -1 });
       const error = validateConnectionConfig(config);
       expect(error).not.toBeNull();
       expect(error).toMatch(/testPort/);
+    });
+
+    test("v2/v3 client rejects testAddress/testPort/pingIntervalTime", () => {
+      const cfg = makeValidClient({ protocolVersion: 2, testAddress: "10.0.0.1" });
+      expect(validateConnectionConfig(cfg)).toMatch(/testAddress is only supported on v1/);
+      const cfg2 = makeValidClient({ protocolVersion: 3, testPort: 80 });
+      expect(validateConnectionConfig(cfg2)).toMatch(/testPort is only supported on v1/);
+      const cfg3 = makeValidClient({ protocolVersion: 2, pingIntervalTime: 1 });
+      expect(validateConnectionConfig(cfg3)).toMatch(/pingIntervalTime is only supported on v1/);
     });
   });
 });
