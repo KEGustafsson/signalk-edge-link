@@ -460,15 +460,15 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     const uptimeMinutes = Math.floor(uptimeSeconds / 60);
     const uptimeHours = Math.floor(uptimeMinutes / 60);
 
-    const pathStatsArray = getTopNPaths(50, uptimeSeconds);
+    const rawPathStats = getTopNPaths(50, uptimeSeconds);
 
-    const totalPathBytes = pathStatsArray.reduce(
-      (sum: number, p: PathStatEntry) => sum + p.bytes,
-      0
-    );
-    pathStatsArray.forEach((p: PathStatEntry) => {
-      p.percentage = totalPathBytes > 0 ? Math.round((p.bytes / totalPathBytes) * 100) : 0;
-    });
+    const totalPathBytes = rawPathStats.reduce((sum: number, p: PathStatEntry) => sum + p.bytes, 0);
+    // Build a fresh array rather than mutating entries returned by getTopNPaths
+    // — those objects are owned by the metrics layer and may be reused.
+    const pathStatsArray = rawPathStats.map((p: PathStatEntry) => ({
+      ...p,
+      percentage: totalPathBytes > 0 ? Math.round((p.bytes / totalPathBytes) * 100) : 0
+    }));
 
     const metricsData: Record<string, unknown> = {
       uptime: {

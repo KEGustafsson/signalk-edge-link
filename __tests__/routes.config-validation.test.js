@@ -81,17 +81,24 @@ function registerLegacyConfigPostHandler() {
 }
 
 function makeValidClient(overrides = {}) {
-  return {
+  const merged = {
     name: "alpha",
     serverType: "client",
     udpPort: 4567,
     udpAddress: "192.168.1.1",
     secretKey: "aB3$dEf7gH9!jKlMnO1pQrStUvWxYz0#",
-    testAddress: "192.168.1.1",
-    testPort: 80,
     protocolVersion: 2,
     ...overrides
   };
+  if ((merged.protocolVersion ?? 1) < 2) {
+    if (merged.testAddress === undefined) {
+      merged.testAddress = "192.168.1.1";
+    }
+    if (merged.testPort === undefined) {
+      merged.testPort = 80;
+    }
+  }
+  return merged;
 }
 
 function registerPluginConfigPostHandler() {

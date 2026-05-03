@@ -17,8 +17,6 @@
       "serverType": "client",
       "udpPort": 4447,
       "udpAddress": "shore.example.net",
-      "testAddress": "8.8.8.8",
-      "testPort": 443,
       "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
       "protocolVersion": 3,
       "reliability": {

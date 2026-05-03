@@ -456,6 +456,16 @@ function ConnectionCard({
       _id: conn._id,
       connectionId: next.connectionId || conn.connectionId || conn._id
     };
+    // v1-only ping monitor fields must be absent on v2/v3 clients (the
+    // backend validator rejects them). Drop them when the user toggles the
+    // protocol version up so a v1 → v2 upgrade doesn't leave stale fields
+    // attached to the form data.
+    const isClientNow = proposed.serverType !== "server";
+    if (isClientNow && (proposed.protocolVersion ?? 1) >= 2) {
+      delete proposed.testAddress;
+      delete proposed.testPort;
+      delete proposed.pingIntervalTime;
+    }
     const { _id: _aId, ...a } = proposed;
     const { _id: _bId, ...b } = conn;
     if (connectionsEqual(a, b)) {

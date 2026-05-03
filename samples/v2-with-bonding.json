@@ -6,8 +6,6 @@
       "udpAddress": "192.168.1.50",
       "udpPort": 4450,
       "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
-      "testAddress": "8.8.8.8",
-      "testPort": 443,
       "protocolVersion": 2,
       "useMsgpack": true,
       "usePathDictionary": true,

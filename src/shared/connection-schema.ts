@@ -97,6 +97,36 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
 
 // ── Client-only transport / reachability fields ───────────────────────────────
 
+/**
+ * v1-only ping monitor fields. v2/v3 derive RTT from HEARTBEAT/ACK exchanges
+ * inside the reliable pipeline, so the external ping monitor (and these
+ * fields) is not used for protocolVersion >= 2.
+ */
+export const v1ClientPingProperties: Record<string, SchemaFragment> = {
+  testAddress: {
+    type: "string",
+    title: "Connectivity Test Address (v1 only)",
+    description: "Host used for reachability checks (e.g. 8.8.8.8). v1 only.",
+    default: "127.0.0.1"
+  },
+  testPort: {
+    type: "number",
+    title: "Connectivity Test Port (v1 only)",
+    description: "Port used for reachability checks (e.g. 53, 80, or 443). v1 only.",
+    default: 80,
+    minimum: 1,
+    maximum: 65535
+  },
+  pingIntervalTime: {
+    type: "number",
+    title: "Check Interval (minutes, v1 only)",
+    description: "Frequency of network reachability checks. v1 only.",
+    default: 1,
+    minimum: 0.1,
+    maximum: 60
+  }
+};
+
 export const clientTransportProperties: Record<string, SchemaFragment> = {
   udpAddress: {
     type: "string",
@@ -111,28 +141,6 @@ export const clientTransportProperties: Record<string, SchemaFragment> = {
     default: 60,
     minimum: 10,
     maximum: 3600
-  },
-  testAddress: {
-    type: "string",
-    title: "Connectivity Test Address",
-    description: "Host used for reachability checks (e.g. 8.8.8.8).",
-    default: "127.0.0.1"
-  },
-  testPort: {
-    type: "number",
-    title: "Connectivity Test Port",
-    description: "Port used for reachability checks (e.g. 53, 80, or 443).",
-    default: 80,
-    minimum: 1,
-    maximum: 65535
-  },
-  pingIntervalTime: {
-    type: "number",
-    title: "Check Interval (minutes)",
-    description: "Frequency of network reachability checks.",
-    default: 1,
-    minimum: 0.1,
-    maximum: 60
   },
   heartbeatInterval: {
     type: "number",
@@ -537,6 +545,7 @@ export function buildConnectionItemSchema(): SchemaFragment {
             properties: {
               serverType: { enum: ["client"] },
               ...clientTransportProperties,
+              ...v1ClientPingProperties,
               reliability: clientReliabilityProperty,
               congestionControl: congestionControlProperty,
               bonding: bondingProperty,
@@ -544,7 +553,11 @@ export function buildConnectionItemSchema(): SchemaFragment {
               skipOwnData: skipOwnDataProperty,
               alertThresholds: alertThresholdsProperty
             },
-            required: ["udpAddress", "testAddress", "testPort"]
+            // testAddress/testPort/pingIntervalTime are validated as v1-only by
+            // validateConnectionConfig — they are exposed in the schema so
+            // legacy v1 clients can still set them, but they are not required
+            // because v2/v3 clients omit them entirely.
+            required: ["udpAddress"]
           }
         ]
       }
@@ -572,12 +585,17 @@ export function buildWebappConnectionSchema(
     Object.assign(props, clientTransportProperties);
     props.enableNotifications = enableNotificationsProperty;
     props.skipOwnData = skipOwnDataProperty;
-    required.push("udpAddress", "testAddress", "testPort");
+    required.push("udpAddress");
     if (isReliableProtocol) {
       props.reliability = clientReliabilityProperty;
       props.congestionControl = congestionControlProperty;
       props.bonding = bondingProperty;
       props.alertThresholds = alertThresholdsProperty;
+    } else {
+      // v1 client only: external ping monitor for RTT. v2/v3 measures RTT
+      // via HEARTBEAT, so these fields are removed entirely from the schema.
+      Object.assign(props, v1ClientPingProperties);
+      required.push("testAddress", "testPort");
     }
   } else if (isReliableProtocol) {
     props.reliability = serverReliabilityProperty;
