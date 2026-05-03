@@ -11,7 +11,7 @@ import type { ConnectionConfig } from "../types";
  * @param router - Express router
  * @param ctx - Shared route context
  */
-function register(router: Router, ctx: RouteContext): void {
+function register(router: Router, ctx: RouteContext): () => void {
   const {
     app,
     rateLimitMiddleware,
@@ -546,6 +546,13 @@ function register(router: Router, ctx: RouteContext): void {
       }
     }
   );
+
+  return function cleanup(): void {
+    for (const entry of pendingAlertThresholdSaves.values()) {
+      clearTimeout(entry.timer);
+    }
+    pendingAlertThresholdSaves.clear();
+  };
 }
 
 export { register };
