@@ -1,8 +1,5 @@
 # Phase 2: Management API Hardening and Observability - Context
 
-**Gathered:** 2026-04-30  
-**Status:** Ready for planning
-
 <domain>
 ## Phase Boundary
 

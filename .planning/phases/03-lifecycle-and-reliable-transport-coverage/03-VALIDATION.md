@@ -1,10 +1,8 @@
 ---
 phase: 3
 slug: lifecycle-and-reliable-transport-coverage
-status: complete
 nyquist_compliant: true
 wave_0_complete: true
-created: 2026-04-30
 ---
 
 # Phase 3 - Validation Strategy
@@ -37,14 +35,14 @@ created: 2026-04-30
 
 ## Per-Task Verification Map
 
-| Task ID | Plan | Wave | Requirement              | Threat Ref     | Secure Behavior                                                        | Test Type            | Automated Command                                                                                                                                   | File Exists | Status |
-| ------- | ---- | ---- | ------------------------ | -------------- | ---------------------------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| 3-01-01 | 01   | 1    | V1-TEST-001              | T-3-01, T-3-02 | Stopped instances do not leak watchers, timers, or callbacks           | Jest fake timers     | `npm test -- --runTestsByPath __tests__/config-watcher.test.js __tests__/instance.test.js`                                                          | yes         | passed |
-| 3-01-02 | 01   | 1    | V1-TEST-001              | T-3-03         | Client socket recovery can be cancelled safely by stop                 | Jest fake socket     | `npm test -- --runTestsByPath __tests__/instance.test.js`                                                                                           | yes         | passed |
-| 3-02-01 | 02   | 2    | V1-TEST-002              | T-3-04, T-3-05 | ACK/NAK and retransmit behavior remains bounded and authenticated      | Jest protocol tests  | `npm test -- --runTestsByPath __tests__/v2/pipeline-v2-client-coverage.test.js __tests__/v2/pipeline-v2-server-coverage.test.js`                    | yes         | passed |
-| 3-02-02 | 02   | 2    | V1-TEST-002              | T-3-06         | Sequence gaps and stale ACKs do not corrupt reliable state             | Jest primitive tests | `npm test -- --runTestsByPath __tests__/v2/sequence.test.js __tests__/v2/retransmit-queue.test.js`                                                  | yes         | passed |
-| 3-03-01 | 03   | 3    | V1-TEST-002              | T-3-07, T-3-08 | Metadata/source restart and stale-envelope behavior is covered         | Jest v2 tests        | `npm test -- --runTestsByPath __tests__/v2/pipeline-v2-server.test.js __tests__/v2/meta-end-to-end.test.js __tests__/v2/source-replication.test.js` | yes         | passed |
-| 3-03-02 | 03   | 3    | V1-TEST-001, V1-TEST-002 | T-3-09         | Socket recovery re-primes metadata/source state without leaking timers | Jest fake timers     | `npm test -- --runTestsByPath __tests__/instance.test.js __tests__/v2/pipeline-v2-client-coverage.test.js`                                          | yes         | passed |
+| Task ID | Plan | Wave | Requirement              | Threat Ref     | Secure Behavior                                                        | Test Type            | Automated Command                                                                                                                                   | File Exists |
+| ------- | ---- | ---- | ------------------------ | -------------- | ---------------------------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| 3-01-01 | 01   | 1    | V1-TEST-001              | T-3-01, T-3-02 | Stopped instances do not leak watchers, timers, or callbacks           | Jest fake timers     | `npm test -- --runTestsByPath __tests__/config-watcher.test.js __tests__/instance.test.js`                                                          | yes         |
+| 3-01-02 | 01   | 1    | V1-TEST-001              | T-3-03         | Client socket recovery can be cancelled safely by stop                 | Jest fake socket     | `npm test -- --runTestsByPath __tests__/instance.test.js`                                                                                           | yes         |
+| 3-02-01 | 02   | 2    | V1-TEST-002              | T-3-04, T-3-05 | ACK/NAK and retransmit behavior remains bounded and authenticated      | Jest protocol tests  | `npm test -- --runTestsByPath __tests__/v2/pipeline-v2-client-coverage.test.js __tests__/v2/pipeline-v2-server-coverage.test.js`                    | yes         |
+| 3-02-02 | 02   | 2    | V1-TEST-002              | T-3-06         | Sequence gaps and stale ACKs do not corrupt reliable state             | Jest primitive tests | `npm test -- --runTestsByPath __tests__/v2/sequence.test.js __tests__/v2/retransmit-queue.test.js`                                                  | yes         |
+| 3-03-01 | 03   | 3    | V1-TEST-002              | T-3-07, T-3-08 | Metadata/source restart and stale-envelope behavior is covered         | Jest v2 tests        | `npm test -- --runTestsByPath __tests__/v2/pipeline-v2-server.test.js __tests__/v2/meta-end-to-end.test.js __tests__/v2/source-replication.test.js` | yes         |
+| 3-03-02 | 03   | 3    | V1-TEST-001, V1-TEST-002 | T-3-09         | Socket recovery re-primes metadata/source state without leaking timers | Jest fake timers     | `npm test -- --runTestsByPath __tests__/instance.test.js __tests__/v2/pipeline-v2-client-coverage.test.js`                                          | yes         |
 
 ---
 
@@ -68,5 +66,3 @@ All Phase 3 behaviors have automated verification. Manual Signal K runtime smoke
 - [x] No watch-mode flags.
 - [x] Feedback latency target < 12 minutes.
 - [x] `nyquist_compliant: true` set in frontmatter.
-
-**Approval:** Phase 3 execution complete, verified 2026-05-01

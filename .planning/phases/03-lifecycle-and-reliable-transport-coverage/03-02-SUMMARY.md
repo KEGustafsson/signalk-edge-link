@@ -42,14 +42,6 @@ completed: 2026-05-01
 
 **Reliable transport regression tests for stale ACKs, requested retransmits, duplicate ACKs, and recovery burst cleanup**
 
-## Performance
-
-- **Duration:** 31 min
-- **Started:** 2026-05-01T10:09:19+03:00
-- **Completed:** 2026-05-01T10:40:26+03:00
-- **Tasks:** 4
-- **Files modified:** 5
-
 ## Accomplishments
 
 - Added primitive `SequenceTracker` tests for near-limit gaps, reset NAK cleanup, and duplicate arrival after a gap.
@@ -57,15 +49,6 @@ completed: 2026-05-01
 - Added client pipeline tests for stale/out-of-order ACKs, exact NAK retransmit sequences, and recovery burst shutdown when the socket disappears.
 - Added server pipeline coverage proving duplicate DATA packets trigger an immediate ACK without forwarding duplicate deltas.
 - Fixed recovery burst cleanup so the interval stops when the UDP socket is unavailable.
-
-## Task Commits
-
-1. **Task 1: Expand sequence and retransmit primitive edge coverage** - `8f4fda6` (test)
-2. **Task 2: Add client pipeline ACK/NAK and recovery burst coverage** - `8f4fda6` (test/fix)
-3. **Task 3: Add server pipeline session, duplicate, ACK, and NAK coverage** - `8f4fda6` (test)
-4. **Task 4: Run reliable transport validation** - `8f4fda6` (test)
-
-**Plan metadata:** this summary commit
 
 ## Files Created/Modified
 
@@ -97,24 +80,6 @@ completed: 2026-05-01
 
 **Total deviations:** 1 auto-fixed (1 bug).
 **Impact on plan:** The fix is narrow, behavior-driven, and covered by the new regression test.
-
-## Issues Encountered
-
-- `npm.cmd run test:v2` with Jest workers timed out once in the existing heavy metadata chunking test. `npm.cmd run test:v2 -- --runInBand` passed all 25 v2 suites and 773 tests.
-- The UDP rate-limit test depended on wall-clock runtime staying under the one-second rate-limit window. Pinning fake timers made the branch deterministic.
-
-## Verification
-
-- `npm.cmd test -- --runTestsByPath __tests__\v2\sequence.test.js __tests__\v2\retransmit-queue.test.js` passed.
-- `npm.cmd test -- --runTestsByPath __tests__\v2\pipeline-v2-client-coverage.test.js` passed.
-- `npm.cmd test -- --runTestsByPath __tests__\v2\pipeline-v2-server-coverage.test.js __tests__\v2\pipeline-v2-server.test.js` passed.
-- `npm.cmd test -- --runTestsByPath __tests__\v2\pipeline-v2-client-coverage.test.js __tests__\v2\pipeline-v2-server-coverage.test.js __tests__\v2\sequence.test.js __tests__\v2\retransmit-queue.test.js` passed.
-- `npm.cmd run test:v2 -- --runInBand` passed.
-- `npm.cmd run build:ts` passed.
-- `npm.cmd run check:ts` passed.
-- `npx.cmd prettier --check __tests__\v2\pipeline-v2-client-coverage.test.js __tests__\v2\pipeline-v2-server-coverage.test.js __tests__\v2\sequence.test.js __tests__\v2\retransmit-queue.test.js src\pipeline-v2-client.ts src\pipeline-v2-server.ts src\sequence.ts src\retransmit-queue.ts` passed.
-- `rg -n "stale ACK|immediate ACK|sequence gap|gap|receiveNAK|idle session|Recovery burst stopped|minRetransmitAge|reset" __tests__\v2\pipeline-v2-client-coverage.test.js __tests__\v2\pipeline-v2-server-coverage.test.js __tests__\v2\sequence.test.js __tests__\v2\retransmit-queue.test.js src\pipeline-v2-client.ts` showed the required coverage terms.
-- `git diff --check -- __tests__\v2\pipeline-v2-client-coverage.test.js __tests__\v2\pipeline-v2-server-coverage.test.js __tests__\v2\sequence.test.js __tests__\v2\retransmit-queue.test.js src\pipeline-v2-client.ts src\pipeline-v2-server.ts src\sequence.ts src\retransmit-queue.ts` passed.
 
 ## User Setup Required
 

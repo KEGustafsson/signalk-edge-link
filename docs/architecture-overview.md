@@ -10,21 +10,21 @@ graph LR
     A["Plugin bootstrap\n(index.ts)"] --> B["Instance factory\n(createInstance)"]
     B --> C{Mode + protocolVersion}
 
-    C -->|"client v1"| D["pipeline.ts\n(v1 client)"]
-    C -->|"client v2/v3"| E["pipeline-v2-client.ts"]
-    C -->|"server v1"| F["pipeline.ts\n(v1 server)"]
-    C -->|"server v2/v3"| G["pipeline-v2-server.ts"]
+    C -->|"client v1"| D["v1 client pipeline"]
+    C -->|"client v2/v3"| E["v2/v3 client pipeline"]
+    C -->|"server v1"| F["v1 server pipeline"]
+    C -->|"server v2/v3"| G["v2/v3 server pipeline"]
 
-    E --> H["Congestion control\n(congestion.ts)"]
-    E --> I["Bonding manager\n(bonding.ts)"]
-    E --> J["Retransmit queue\n(retransmit-queue.ts)"]
+    E --> H["Congestion control"]
+    E --> I["Bonding manager"]
+    E --> J["Retransmit queue"]
 
-    G --> K["Sequence tracker\n(sequence.ts)"]
+    G --> K["Sequence tracker"]
     G --> L["ACK/NAK handling"]
     G --> M["Session manager\n(per remote client)"]
 
-    B --> N["Monitoring\n(monitoring.ts)"]
-    N --> O["Alert manager\n(monitoring.ts)"]
+    B --> N["Monitoring"]
+    N --> O["Alert manager"]
     N --> P["Metrics publisher"]
     P --> Q["REST metrics routes\n(/metrics, /prometheus, ...)"]
   end

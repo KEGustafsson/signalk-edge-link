@@ -13,6 +13,8 @@ Phase 4 tightens the webapp configuration surface and proves that user-facing sc
 <decisions>
 ## Implementation Decisions
 
+The following decisions capture the approach and constraints chosen during context gathering for Phase 4.
+
 ### Webapp Type Safety Tightening
 
 - **D-01:** Use an incremental tightening strategy. Start with the configuration UI and schema-facing helpers instead of enabling full webapp `strict` mode in one step.

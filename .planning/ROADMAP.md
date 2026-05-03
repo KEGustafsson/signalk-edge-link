@@ -39,7 +39,7 @@ Full milestone details are archived in `.planning/milestones/v1-maintenance-hard
 
 Plans:
 
-- [ ] TBD (promote with $gsd-review-backlog when ready)
+- [ ] TBD (promote with gsd-review-backlog when ready)
 
 ### Phase 999.2: Protocol-v4 Compatibility and Migration Plan (BACKLOG)
 
@@ -49,7 +49,7 @@ Plans:
 
 Plans:
 
-- [ ] TBD (promote with $gsd-review-backlog when ready)
+- [ ] TBD (promote with gsd-review-backlog when ready)
 
 ### Phase 999.3: Distributed Management Controls Architecture (BACKLOG)
 
@@ -59,7 +59,7 @@ Plans:
 
 Plans:
 
-- [ ] TBD (promote with $gsd-review-backlog when ready)
+- [ ] TBD (promote with gsd-review-backlog when ready)
 
 ### Phase 999.4: Metrics History Storage Architecture (BACKLOG)
 
@@ -69,12 +69,8 @@ Plans:
 
 Plans:
 
-- [ ] TBD (promote with $gsd-review-backlog when ready)
+- [ ] TBD (promote with gsd-review-backlog when ready)
 
 ## Next Action
 
-Start the next milestone with fresh requirements:
-
-```text
-$gsd-new-milestone
-```
+Start the next milestone with fresh requirements by running `gsd-new-milestone`.

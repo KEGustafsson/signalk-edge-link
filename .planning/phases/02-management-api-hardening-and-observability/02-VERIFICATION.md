@@ -39,10 +39,8 @@
 
 ## Notes
 
-- `npm run build` completed with the existing webpack asset-size warning for the vendor chunk (`277...js`, 302 KiB). This is not introduced by Phase 2 and does not affect the management API hardening requirements.
-- The full Jest suite passed: 64 test suites, 1668 tests.
-- The working tree still contains the pre-existing unrelated `package-lock.json` modification. It was not staged or committed as part of Phase 2.
-- The generated package tarball remains untracked and was not committed.
+- `npm run build` completed with the pre-existing webpack asset-size warning for the vendor chunk. This is not introduced by Phase 2 and does not affect the management API hardening requirements.
+- The full Jest suite passed.
 
 ## Verdict
 

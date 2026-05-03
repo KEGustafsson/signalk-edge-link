@@ -14,13 +14,13 @@ Start the next milestone with fresh requirements.
 
 ## Phase Status
 
-| Phase | Name                                             | Status   |
-| ----- | ------------------------------------------------ | -------- |
-| 1     | Documentation and Release Truth                  | Complete |
-| 2     | Management API Hardening and Observability       | Complete |
-| 3     | Lifecycle and Reliable Transport Coverage        | Complete |
-| 4     | Schema, UI Type Safety, and Configuration Parity | Complete |
-| 5     | Security Roadmap and Future Protocol Planning    | Complete |
+All five phases of the v1 Maintenance and Hardening milestone are complete:
+
+- Phase 1: Documentation and Release Truth — Complete
+- Phase 2: Management API Hardening and Observability — Complete
+- Phase 3: Lifecycle and Reliable Transport Coverage — Complete
+- Phase 4: Schema, UI Type Safety, and Configuration Parity — Complete
+- Phase 5: Security Roadmap and Future Protocol Planning — Complete
 
 ## Available Context
 
@@ -99,10 +99,6 @@ Start the next milestone with fresh requirements.
 - 2026-05-01: Phase 5 completed in commits `d368eac` and `010666e`; validation passed.
 - 2026-05-01: v1 Maintenance and Hardening archived as `v1-maintenance-hardening`.
 
-## Recommended Next Command
+## Recommended Next Action
 
-```text
-$gsd-new-milestone
-```
-
-Define fresh requirements and roadmap for the next milestone.
+Run `gsd-new-milestone` to define fresh requirements and roadmap for the next milestone.

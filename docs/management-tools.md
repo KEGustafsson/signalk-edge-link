@@ -130,7 +130,7 @@ curl -s -X POST \
 
 ### Update monitoring alert thresholds
 
-`POST /monitoring/alerts` updates the active threshold immediately and returns the new threshold state. Persistent plugin option writes are coalesced per connection, so repeated updates within one second produce one merged save and the latest value for each metric wins.
+`POST /monitoring/alerts` updates the active threshold immediately and returns the new threshold state. Persistent plugin option writes are coalesced per connection, so rapid repeated updates produce one merged save and the latest value for each metric wins.
 
 ## Status and error summaries
 
@@ -154,7 +154,7 @@ Prometheus scrapes include:
 signalk_edge_link_management_auth_requests_total{decision="allowed",reason="valid_token",action="status.read"} 1
 ```
 
-The counter is global for the management API and is emitted once per scrape. Labels are bounded to `decision`, `reason`, and route action strings.
+The counter is global for the management API. Labels are bounded to `decision`, `reason`, and route action strings.
 
 ## CLI workflows
 

@@ -195,4 +195,4 @@ No manual-only verification is required for Phase 3. Real Signal K runtime smoke
 
 </sources>
 
-## RESEARCH COMPLETE
+_Research complete — see phase plan for implementation guidance._

@@ -10,18 +10,10 @@
  */
 
 import type { Metrics, InstanceState } from "./types";
+import type { ManagementAuthSnapshot } from "./routes/types";
 
 interface PrometheusOpts {
   sharedMeta?: Set<string>;
-}
-
-interface ManagementAuthSnapshot {
-  byAction?: Record<
-    string,
-    {
-      reasons?: Record<string, number>;
-    }
-  >;
 }
 
 interface PrometheusExtra {

@@ -10,9 +10,9 @@
 
 Phase 2 has a captured context file. The decisions in that file are binding for planning:
 
-- Preserve backward compatibility: management routes remain open when no token is configured and auth is not required.
-- Preserve fail-closed behavior when `requireManagementApiToken` or `SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN` requires a token and none is configured.
-- Preserve all existing token sources: `X-Edge-Link-Token`, `Authorization: Bearer <token>`, legacy `X-Management-Token`, and `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`.
+- Keep backward compatibility: management routes remain open when no token is configured and auth is not required.
+- Maintain fail-closed behavior when `requireManagementApiToken` or `SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN` requires a token and none is configured.
+- Support all existing token sources: `X-Edge-Link-Token`, `Authorization: Bearer <token>`, legacy `X-Management-Token`, and `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`.
 - Add management auth telemetry as route-level aggregate state owned by `src/routes.ts`.
 - Surface telemetry additively in JSON management responses and Prometheus output.
 - Keep telemetry labels and docs low-cardinality and secret-free.

@@ -3,7 +3,6 @@
 **Initialized:** 2026-04-30
 **Project Code:** SKEL
 **Type:** Brownfield Signal K plugin
-**Current Status:** v1 Maintenance and Hardening shipped; ready for next milestone planning
 
 ## What This Is
 
@@ -76,21 +75,13 @@ The project is in good shape when operators can trust the docs and package metad
 
 ## Current State
 
-The v1 Maintenance and Hardening milestone shipped on 2026-05-01. Public docs, package/release checks, management auth observability, alert persistence behavior, lifecycle/reliable-transport regression coverage, webapp configuration type safety, and configuration parity have all been validated.
+The v1 Maintenance and Hardening milestone is complete. Public docs, package/release checks, management auth observability, alert persistence behavior, lifecycle/reliable-transport regression coverage, webapp configuration type safety, and configuration parity have all been validated.
 
 Future security and scaling work remains deliberately unimplemented and documented for later promotion. The 999.x backlog now contains candidates for online key rotation/key agreement, protocol-v4 compatibility and migration, distributed management controls, and metrics-history storage architecture.
 
 ## Next Milestone Goals
 
 The next milestone should start with fresh requirements. Good candidates include promoting one 999.x backlog item, tightening remaining operational validation, or preparing a package/release cycle around the completed hardening work.
-
-## Validated Phase Outcomes
-
-- 2026-04-30: Phase 1 completed. Public API current-version markers and architecture source references now match `package.json` and current source files, and release truth is guarded by `npm run check:release-docs`, the publish workflow, and `docs/release-checklist.md`.
-- 2026-04-30: Phase 2 completed. Management auth telemetry is exposed through JSON and Prometheus surfaces with bounded labels, and alert threshold persistence is coalesced while preserving backward-compatible management API behavior.
-- 2026-05-01: Phase 3 completed. Focused lifecycle and reliable transport tests cover socket/watcher cleanup, ACK/NAK, retransmit, sequence recovery, stale ACKs, duplicate DATA ACKs, and metadata/source recovery.
-- 2026-05-01: Phase 4 completed. Webapp configuration type safety is tightened with `noImplicitAny`, and `udpMetaPort` parity spans shared schema, runtime validation, REST routes, docs, samples, and focused tests.
-- 2026-05-01: Phase 5 completed. Future key rotation, key agreement, protocol migration, distributed controls, and metrics-history work are documented in `docs/future-security-and-protocol-roadmap.md` and parked as promotable 999.x backlog candidates.
 
 ## Planning Artifacts
 

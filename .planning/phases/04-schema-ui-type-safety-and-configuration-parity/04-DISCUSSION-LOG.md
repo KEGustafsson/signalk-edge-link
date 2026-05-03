@@ -3,7 +3,6 @@
 > **Audit trail only.** Do not use as input to planning, research, or execution agents.
 > Decisions are captured in CONTEXT.md - this log preserves the alternatives considered.
 
-**Date:** 2026-05-01
 **Phase:** 4-schema-ui-type-safety-and-configuration-parity
 **Areas discussed:** Webapp type safety tightening, Schema and runtime validation parity, UI configuration flow coverage, Documentation and sample parity, Validation strategy
 
@@ -17,8 +16,7 @@
 | Full strict-mode migration      | Turn on full webapp `strict` mode and fix every resulting issue in the phase.                       |          |
 | Leave tsconfig unchanged        | Add tests only and avoid type-safety work.                                                          |          |
 
-**User's choice:** Auto-selected recommended default: Incremental config-surface pass.
-**Notes:** The phase should close meaningful type gaps without turning a focused parity phase into a broad frontend migration.
+**Selected:** Incremental config-surface pass — the phase should close meaningful type gaps without turning a focused parity phase into a broad frontend migration.
 
 ---
 
@@ -30,8 +28,7 @@
 | Schema-only update             | Update only generated schema and leave runtime validation/docs untouched.                                       |          |
 | Validator-only update          | Update only runtime validation and leave UI/schema/docs untouched.                                              |          |
 
-**User's choice:** Auto-selected recommended default: Reconcile schema and validator.
-**Notes:** Static scan found `udpMetaPort` in `ConnectionConfig` but not in shared schema or allowed runtime keys, so planning should make that contract explicit.
+**Selected:** Reconcile schema and validator — static scan found `udpMetaPort` in `ConnectionConfig` but not in shared schema or allowed runtime keys, so planning should make that contract explicit.
 
 ---
 
@@ -43,8 +40,7 @@
 | Replace RJSF in tests          | Move to a more complete form-rendering setup before adding coverage.                                           |          |
 | Manual UI verification only    | Rely on manual browser checks for config flow behavior.                                                        |          |
 
-**User's choice:** Auto-selected recommended default: Focused component/helper tests.
-**Notes:** Existing RJSF mocks are good enough for panel behavior; deeper form rendering is not needed unless a selected assertion requires it.
+**Selected:** Focused component/helper tests — existing RJSF mocks are good enough for panel behavior; deeper form rendering is not needed unless a selected assertion requires it.
 
 ---
 
@@ -56,8 +52,7 @@
 | Rewrite all config docs              | Broadly rewrite configuration docs regardless of detected drift.                                              |          |
 | Skip docs unless tests fail          | Leave docs and samples untouched unless automated tests directly fail.                                        |          |
 
-**User's choice:** Auto-selected recommended default: Treat docs/samples as parity targets.
-**Notes:** Samples should stay realistic; not every field needs to appear in every sample.
+**Selected:** Treat docs/samples as parity targets — samples should stay realistic; not every field needs to appear in every sample.
 
 ---
 
@@ -69,8 +64,7 @@
 | Broad gate only         | Run the full suite after all changes, without focused feedback loops.                                                     |          |
 | Typecheck only          | Treat Phase 4 as type-only and skip behavior tests.                                                                       |          |
 
-**User's choice:** Auto-selected recommended default: Focused then broad gate.
-**Notes:** Use `npm.cmd` and `npx.cmd` on Windows PowerShell.
+**Selected:** Focused then broad gate — run focused webapp/schema/config/route tests first, then the full lint/typecheck/build/Jest gate.
 
 ---
 

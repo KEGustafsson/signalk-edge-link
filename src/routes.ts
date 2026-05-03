@@ -57,6 +57,38 @@ import * as connectionsRoutes from "./routes/connections";
  * @param pluginRef - Reference to plugin object (for schema access)
  * @returns Routes API
  */
+const ALLOWED_MANAGEMENT_ACTIONS = new Set([
+  "paths.read",
+  "config.read",
+  "config.update",
+  "plugin-schema.read",
+  "config-file.read",
+  "config-file.update",
+  "connections.list",
+  "connection-monitoring.read",
+  "connection-bonding.read",
+  "connection-config.read",
+  "connection-config.update",
+  "connection-bonding.failover",
+  "congestion.read",
+  "delta-timer.update",
+  "bonding.read",
+  "bonding.update",
+  "bonding.failover",
+  "metrics.read",
+  "network-metrics.read",
+  "prometheus.read",
+  "sources.read",
+  "monitoring.read",
+  "monitoring.alerts.read",
+  "monitoring.alerts.update",
+  "capture.read",
+  "capture.update",
+  "capture.export",
+  "monitoring.inspector.read",
+  "monitoring.simulation.read"
+]);
+
 function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, pluginRef: PluginRef) {
   const REMOTE_TELEMETRY_TTL_MS = 15000;
   const managementAuthTelemetry = {
@@ -129,9 +161,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     if (typeof action !== "string" || !action.trim()) {
       return "unknown";
     }
-
     const trimmed = action.trim();
-    return /^[a-z0-9._:-]+$/i.test(trimmed) && trimmed.length <= 64 ? trimmed : "unknown";
+    return ALLOWED_MANAGEMENT_ACTIONS.has(trimmed) ? trimmed : "unknown";
   }
 
   function recordManagementAuthDecision(
@@ -602,8 +633,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
             metrics: state.sourceRegistry.getMetrics(),
             registry: null
           }
-        : null,
-      managementAuth: getManagementAuthSnapshot()
+        : null
     };
 
     return metricsData;

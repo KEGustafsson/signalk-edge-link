@@ -3,7 +3,6 @@
 > **Audit trail only.** Do not use as input to planning, research, or execution agents.
 > Decisions are captured in CONTEXT.md; this log preserves the alternatives considered.
 
-**Date:** 2026-04-30  
 **Phase:** 02-management-api-hardening-and-observability  
 **Areas discussed:** Management auth behavior, Auth telemetry counters, Metrics and Prometheus surfaces, Alert threshold persistence, Documentation and tests
 
@@ -17,8 +16,7 @@
 | Force fail-closed by default | Require tokens for all management routes.                              |          |
 | Redesign auth model          | Introduce a new auth/session/API-key model.                            |          |
 
-**User's choice:** `[auto] Preserve compatibility`  
-**Notes:** Recommended because Phase 2 is a hardening and observability phase, not a breaking security-policy phase.
+**Selected:** Preserve compatibility — recommended because Phase 2 is a hardening and observability phase, not a breaking security-policy phase.
 
 ---
 
@@ -30,8 +28,7 @@
 | Per-instance counters only     | Attach auth counters to each runtime connection's `Metrics`.             |          |
 | Log-only telemetry             | Keep auth visibility in debug/error logs only.                           |          |
 
-**User's choice:** `[auto] Route-owned aggregate counters`  
-**Notes:** Recommended because `/status`, `/metrics`, and `/prometheus` auth decisions do not naturally belong to one connection instance.
+**Selected:** Route-owned aggregate counters — recommended because `/status`, `/metrics`, and `/prometheus` auth decisions do not naturally belong to one connection instance.
 
 ---
 
@@ -43,8 +40,7 @@
 | JSON only                                     | Expose counters only through `/status` or `/metrics`.                     |          |
 | Prometheus only                               | Expose counters only through `/prometheus`.                               |          |
 
-**User's choice:** `[auto] Additive JSON plus global Prometheus counters`  
-**Notes:** Recommended because the requirement allows metrics or Prometheus, while operators benefit from both without breaking existing response fields.
+**Selected:** Additive JSON plus global Prometheus counters — recommended because the requirement allows metrics or Prometheus, while operators benefit from both without breaking existing response fields.
 
 ---
 
@@ -56,8 +52,7 @@
 | Keep synchronous save on every request        | Avoid behavior change but leave the documented churn concern open.  |          |
 | Delay all threshold updates until persisted   | Stronger durability feedback but changes operator-visible behavior. |          |
 
-**User's choice:** `[auto] Coalesce saves once per second per connection`  
-**Notes:** Recommended because `docs/code-quality-report.md` calls this out directly as low-impact, low-effort hardening.
+**Selected:** Coalesce saves once per second per connection — recommended because `docs/code-quality-report.md` calls this out directly as low-impact, low-effort hardening.
 
 ---
 
@@ -69,8 +64,7 @@
 | Broad integration-only validation   | Rely mainly on full Jest integration coverage.                |          |
 | Docs-only update                    | Document intent without adding focused tests.                 |          |
 
-**User's choice:** `[auto] Focused route/Prometheus/docs tests`  
-**Notes:** Recommended because this phase changes management API surfaces and needs narrow, reviewable regression coverage.
+**Selected:** Focused route/Prometheus/docs tests — recommended because this phase changes management API surfaces and needs narrow, reviewable regression coverage.
 
 ---
 
