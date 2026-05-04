@@ -363,13 +363,21 @@ describe("GET /prometheus", () => {
             total: 2,
             allowed: 1,
             denied: 1,
-            reasons: { open_access: 1, invalid_token: 1 }
+            reasons: { open_access: 1, invalid_token: 1 },
+            byDecision: {
+              allowed: { open_access: 1 },
+              denied: { invalid_token: 1 }
+            }
           },
           "metrics.read": {
             total: 1,
             allowed: 1,
             denied: 0,
-            reasons: { valid_token: 1 }
+            reasons: { valid_token: 1 },
+            byDecision: {
+              allowed: { valid_token: 1 },
+              denied: {}
+            }
           }
         }
       }),
