@@ -29,9 +29,8 @@ describe("migrate-config", () => {
       udpAddress: "10.0.0.1",
       testAddress: "8.8.8.8",
       testPort: 53,
-      useMsgpack: true,
       usePathDictionary: false,
-      protocolVersion: 2,
+      protocolVersion: 1,
       monitoringEnabled: true
     };
 
@@ -46,9 +45,8 @@ describe("migrate-config", () => {
           udpAddress: "10.0.0.1",
           testAddress: "8.8.8.8",
           testPort: 53,
-          useMsgpack: true,
           usePathDictionary: false,
-          protocolVersion: 2
+          protocolVersion: 1
         }
       ]
     });

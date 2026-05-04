@@ -5,18 +5,30 @@
       "serverType": "client",
       "udpAddress": "192.168.1.50",
       "udpPort": 4450,
-      "secretKey": "abcdefghijklmnopqrstuvwxyzABCDEF",
+      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
       "protocolVersion": 2,
       "useMsgpack": true,
       "usePathDictionary": true,
       "bonding": {
         "enabled": true,
-        "mode": "active-backup",
-        "failoverThreshold": 400
+        "mode": "main-backup",
+        "primary": {
+          "address": "192.168.1.50",
+          "port": 4450
+        },
+        "backup": {
+          "address": "192.168.1.51",
+          "port": 4451
+        },
+        "failover": {
+          "rttThreshold": 400
+        }
       },
       "congestionControl": {
         "enabled": true,
-        "maxWindow": 24
+        "targetRTT": 200,
+        "minDeltaTimer": 100,
+        "maxDeltaTimer": 5000
       }
     }
   ]

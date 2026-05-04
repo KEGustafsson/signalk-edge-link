@@ -26,6 +26,7 @@
     "build:web": "npm run clean:public && webpack --mode production",
     "build:ts": "npm run clean:lib && tsc",
     "check:ts": "tsc --noEmit",
+    "check:release-docs": "node scripts/check-release-truth.js",
     "dev": "webpack --mode development --watch",
     "test": "jest --runInBand",
     "test:v2": "jest __tests__/v2/",

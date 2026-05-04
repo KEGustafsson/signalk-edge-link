@@ -2,6 +2,7 @@
 
 const {
   formatPrometheusMetrics,
+  formatManagementAuthPrometheusMetrics,
   formatLabels,
   validatePrometheusFormat,
   escapeLabelValue,
@@ -178,6 +179,78 @@ describe("Prometheus Metrics Exporter", () => {
       state.readyToSend = false;
       const text = formatPrometheusMetrics(metrics, state);
       expect(text).toMatch(/signalk_edge_link_ready_to_send\{[^}]*\}\s+0/);
+    });
+  });
+
+  describe("formatManagementAuthPrometheusMetrics", () => {
+    test("formats bounded management auth counter labels", () => {
+      const text = formatManagementAuthPrometheusMetrics({
+        byAction: {
+          "status.read": {
+            reasons: { open_access: 2, invalid_token: 1 },
+            byDecision: {
+              allowed: { open_access: 2 },
+              denied: { invalid_token: 1 }
+            }
+          }
+        }
+      });
+
+      expect(text).toContain("# HELP signalk_edge_link_management_auth_requests_total");
+      expect(text).toContain("# TYPE signalk_edge_link_management_auth_requests_total counter");
+      expect(text).toContain(
+        'signalk_edge_link_management_auth_requests_total{decision="allowed",reason="open_access",action="status.read"} 2'
+      );
+      expect(text).toContain(
+        'signalk_edge_link_management_auth_requests_total{decision="denied",reason="invalid_token",action="status.read"} 1'
+      );
+      expect(validatePrometheusFormat(text).valid).toBe(true);
+    });
+
+    test("sanitizes management auth label values", () => {
+      const text = formatManagementAuthPrometheusMetrics({
+        byAction: {
+          "bad action\nvalue": {
+            reasons: { "bad/reason": 1 },
+            byDecision: { allowed: {}, denied: { "bad/reason": 1 } }
+          }
+        }
+      });
+
+      expect(text).toContain('reason="bad_reason"');
+      expect(text).toContain('action="bad_action_value"');
+      expect(text).not.toContain("\nvalue");
+      expect(validatePrometheusFormat(text).valid).toBe(true);
+    });
+
+    test("does not duplicate HELP and TYPE when shared metadata is reused", () => {
+      const sharedMeta = new Set();
+      const snapshot = {
+        byAction: {
+          "metrics.read": {
+            reasons: { valid_token: 1 },
+            byDecision: { allowed: { valid_token: 1 }, denied: {} }
+          }
+        }
+      };
+
+      const text =
+        formatManagementAuthPrometheusMetrics(snapshot, { sharedMeta }) +
+        formatManagementAuthPrometheusMetrics(snapshot, { sharedMeta });
+
+      const helpLines = text
+        .split("\n")
+        .filter((line) =>
+          line.startsWith("# HELP signalk_edge_link_management_auth_requests_total")
+        );
+      const typeLines = text
+        .split("\n")
+        .filter((line) =>
+          line.startsWith("# TYPE signalk_edge_link_management_auth_requests_total")
+        );
+
+      expect(helpLines).toHaveLength(1);
+      expect(typeLines).toHaveLength(1);
     });
   });
 

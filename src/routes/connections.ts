@@ -310,6 +310,7 @@ function register(router: Router, ctx: RouteContext): void {
         const mutableAllowed = new Set([
           "name",
           "protocolVersion",
+          "udpMetaPort",
           "useMsgpack",
           "usePathDictionary",
           "enableNotifications",

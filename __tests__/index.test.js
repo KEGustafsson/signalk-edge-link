@@ -148,8 +148,6 @@ describe("SignalK Data Connector Plugin", () => {
       expect(clientDep.properties.pingIntervalTime).toBeDefined();
       expect(clientDep.properties.helloMessageSender).toBeDefined();
       expect(clientDep.required).toContain("udpAddress");
-      expect(clientDep.required).toContain("testAddress");
-      expect(clientDep.required).toContain("testPort");
     });
 
     test("should expose advanced client reliability parameters in schema", () => {

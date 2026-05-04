@@ -10,7 +10,7 @@ const {
   migrateLegacyConfigFiles,
   initializePersistentStorage
 } = require("../lib/config-watcher");
-const { FILE_WATCH_DEBOUNCE_DELAY } = require("../lib/constants");
+const { FILE_WATCH_DEBOUNCE_DELAY, WATCHER_RECOVERY_DELAY } = require("../lib/constants");
 
 async function waitForExpect(assertion, timeoutMs = FILE_WATCH_DEBOUNCE_DELAY + 1000) {
   const start = Date.now();
@@ -224,10 +224,33 @@ describe("createWatcherWithRecovery", () => {
   });
 
   afterEach(async () => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
     if (tmpDir) {
       await fs.promises.rm(tmpDir, { recursive: true, force: true });
     }
   });
+
+  function mockFsWatch() {
+    const watchers = [];
+    jest.spyOn(fs, "watch").mockImplementation((_filePath, callback) => {
+      const handlers = {};
+      const watcher = {
+        callback,
+        close: jest.fn(),
+        on: jest.fn((event, handler) => {
+          handlers[event] = handler;
+          return watcher;
+        }),
+        emitError(error) {
+          handlers.error(error);
+        }
+      };
+      watchers.push(watcher);
+      return watcher;
+    });
+    return watchers;
+  }
 
   test("returns a no-op handle when filePath is null", () => {
     const handle = createWatcherWithRecovery({
@@ -258,6 +281,73 @@ describe("createWatcherWithRecovery", () => {
     expect(handle.watcher).not.toBeNull();
     handle.close();
     expect(handle.watcher).toBeNull();
+  });
+
+  test("does not recreate watcher after close", () => {
+    jest.useFakeTimers();
+    const watchers = mockFsWatch();
+    const state = { stopped: false };
+    const handle = createWatcherWithRecovery({
+      filePath: path.join(tmpDir, "watch.json"),
+      onChange: jest.fn(),
+      name: "Watch",
+      instanceId: "default",
+      app: { debug: jest.fn(), error: jest.fn() },
+      state
+    });
+
+    watchers[0].callback("rename");
+    handle.close();
+    jest.advanceTimersByTime(WATCHER_RECOVERY_DELAY);
+
+    expect(fs.watch).toHaveBeenCalledTimes(1);
+    expect(watchers[0].close).toHaveBeenCalledTimes(1);
+    expect(handle.watcher).toBeNull();
+  });
+
+  test("does not recreate watcher when stopped", () => {
+    jest.useFakeTimers();
+    const watchers = mockFsWatch();
+    const state = { stopped: false };
+    const handle = createWatcherWithRecovery({
+      filePath: path.join(tmpDir, "watch.json"),
+      onChange: jest.fn(),
+      name: "Watch",
+      instanceId: "default",
+      app: { debug: jest.fn(), error: jest.fn() },
+      state
+    });
+
+    watchers[0].callback("rename");
+    state.stopped = true;
+    jest.advanceTimersByTime(WATCHER_RECOVERY_DELAY);
+
+    expect(fs.watch).toHaveBeenCalledTimes(1);
+    expect(handle.watcher).toBe(watchers[0]);
+    handle.close();
+  });
+
+  test("closes errored watcher and recreates it after recovery delay", () => {
+    jest.useFakeTimers();
+    const watchers = mockFsWatch();
+    const handle = createWatcherWithRecovery({
+      filePath: path.join(tmpDir, "watch.json"),
+      onChange: jest.fn(),
+      name: "Watch",
+      instanceId: "default",
+      app: { debug: jest.fn(), error: jest.fn() },
+      state: { stopped: false }
+    });
+
+    watchers[0].emitError(new Error("boom"));
+    expect(watchers[0].close).toHaveBeenCalledTimes(1);
+    expect(handle.watcher).toBeNull();
+
+    jest.advanceTimersByTime(WATCHER_RECOVERY_DELAY);
+
+    expect(fs.watch).toHaveBeenCalledTimes(2);
+    expect(handle.watcher).toBe(watchers[1]);
+    handle.close();
   });
 });
 

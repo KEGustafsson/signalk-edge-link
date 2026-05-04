@@ -10,7 +10,7 @@
 
 const { createPipeline } = require("../../lib/pipeline-factory");
 const createMetrics = require("../../lib/metrics");
-const { PacketBuilder, PacketType } = require("../../lib/packet");
+const { PacketBuilder, PacketParser, PacketType } = require("../../lib/packet");
 const { encryptBinary } = require("../../lib/crypto");
 const zlib = require("zlib");
 const { promisify } = require("util");
@@ -194,28 +194,61 @@ describe("Session idle expiration (SESSION_IDLE_TTL_MS = 300000)", () => {
 
 // ── 4. UDP rate limiting ─────────────────────────────────────────────────────
 
+describe("Duplicate DATA immediate ACK", () => {
+  test("duplicate DATA sends immediate ACK and does not forward duplicate delta", async () => {
+    const { pipeline, state, app, metricsApi } = makeServer();
+    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
+    const rinfo = { address: "10.0.0.2", port: 4100 };
+    const packet = await makeEncryptedPacket(
+      [{ context: "vessels.self", updates: [{ values: [{ path: "a", value: 1 }] }] }],
+      builder
+    );
+
+    await pipeline.receivePacket(packet, SECRET_KEY, rinfo);
+    const sendsAfterFirst = state.socketUdp.send.mock.calls.length;
+    await pipeline.receivePacket(packet, SECRET_KEY, rinfo);
+
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+    expect(metricsApi.metrics.duplicatePackets).toBe(1);
+    expect(state.socketUdp.send).toHaveBeenCalledTimes(sendsAfterFirst + 1);
+
+    const lastCall = state.socketUdp.send.mock.calls[state.socketUdp.send.mock.calls.length - 1];
+    const ack = parser.parseHeader(lastCall[0]);
+    expect(ack.type).toBe(PacketType.ACK);
+    expect(parser.parseACKPayload(ack.payload)).toBe(0);
+  });
+});
+
 describe("UDP rate limiting (UDP_RATE_LIMIT_MAX_PACKETS = 200)", () => {
   test("drops packets beyond the rate limit within one window", async () => {
+    jest.useFakeTimers();
     const { pipeline, metricsApi, app } = makeServer();
     const rinfo = { address: "10.0.0.5", port: 7000 };
 
-    // Send 201 packets from same client (all within one rate limit window)
-    for (let i = 0; i < 201; i++) {
-      const b = new PacketBuilder({
-        protocolVersion: 2,
-        secretKey: SECRET_KEY,
-        initialSequence: i
-      });
-      const pkt = await makeEncryptedPacket(
-        [{ context: "vessels.self", updates: [{ values: [{ path: "a", value: i }] }] }],
-        b
-      );
-      await pipeline.receivePacket(pkt, SECRET_KEY, rinfo);
-    }
+    try {
+      // Send 201 packets from same client without advancing Date.now().
+      // Keeping the clock pinned proves the per-window limiter, not wall-clock
+      // test runtime, controls this branch.
+      for (let i = 0; i < 201; i++) {
+        const b = new PacketBuilder({
+          protocolVersion: 2,
+          secretKey: SECRET_KEY,
+          initialSequence: i
+        });
+        const pkt = await makeEncryptedPacket(
+          [{ context: "vessels.self", updates: [{ values: [{ path: "a", value: i }] }] }],
+          b
+        );
+        await pipeline.receivePacket(pkt, SECRET_KEY, rinfo);
+      }
 
-    // The 201st packet should be rate-limited
-    expect(metricsApi.metrics.rateLimitedPackets).toBeGreaterThanOrEqual(1);
-    expect(app.debug).toHaveBeenCalledWith(expect.stringContaining("rate limited"));
+      // The 201st packet should be rate-limited
+      expect(metricsApi.metrics.rateLimitedPackets).toBeGreaterThanOrEqual(1);
+      expect(app.debug).toHaveBeenCalledWith(expect.stringContaining("rate limited"));
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

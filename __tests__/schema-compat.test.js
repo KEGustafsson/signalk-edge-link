@@ -11,12 +11,46 @@
  * - Instance ID collision disambiguation works
  */
 
-jest.mock("ping-monitor", () => jest.fn().mockImplementation(() => ({
-  on: jest.fn(),
-  stop: jest.fn()
-})), { virtual: true });
+jest.mock(
+  "ping-monitor",
+  () =>
+    jest.fn().mockImplementation(() => ({
+      on: jest.fn(),
+      stop: jest.fn()
+    })),
+  { virtual: true }
+);
 
 const { slugify } = require("../lib/instance");
+const {
+  buildConnectionItemSchema,
+  buildWebappConnectionSchema
+} = require("../src/shared/connection-schema");
+
+describe("shared connection schema", () => {
+  function expectUdpMetaPortProperty(properties) {
+    expect(properties.udpMetaPort).toMatchObject({
+      type: "integer",
+      title: "v1 Metadata UDP Port",
+      minimum: 1024,
+      maximum: 65535
+    });
+  }
+
+  test("backend item schema exposes optional udpMetaPort", () => {
+    const schema = buildConnectionItemSchema();
+
+    expectUdpMetaPortProperty(schema.properties);
+    expect(schema.required).not.toContain("udpMetaPort");
+  });
+
+  test("webapp connection schema exposes optional udpMetaPort", () => {
+    const schema = buildWebappConnectionSchema(true, 1);
+
+    expectUdpMetaPortProperty(schema.properties);
+    expect(schema.required).not.toContain("udpMetaPort");
+  });
+});
 
 // ── slugify ───────────────────────────────────────────────────────────────
 
@@ -43,9 +77,13 @@ describe("generateInstanceId collision disambiguation", () => {
   // importing the full plugin.
   function generateInstanceId(name, usedIds) {
     const base = slugify(name || "connection");
-    if (!usedIds.has(base)) { return base; }
+    if (!usedIds.has(base)) {
+      return base;
+    }
     let n = 1;
-    while (usedIds.has(`${base}-${n}`)) { n++; }
+    while (usedIds.has(`${base}-${n}`)) {
+      n++;
+    }
     return `${base}-${n}`;
   }
 

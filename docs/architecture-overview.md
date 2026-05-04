@@ -10,21 +10,21 @@ graph LR
     A["Plugin bootstrap\n(index.ts)"] --> B["Instance factory\n(createInstance)"]
     B --> C{Mode + protocolVersion}
 
-    C -->|"client v1"| D["pipeline.ts\n(v1 client)"]
-    C -->|"client v2/v3"| E["pipeline-v2-client.ts"]
-    C -->|"server v1"| F["pipeline.ts\n(v1 server)"]
-    C -->|"server v2/v3"| G["pipeline-v2-server.ts"]
+    C -->|"client v1"| D["v1 client pipeline"]
+    C -->|"client v2/v3"| E["v2/v3 client pipeline"]
+    C -->|"server v1"| F["v1 server pipeline"]
+    C -->|"server v2/v3"| G["v2/v3 server pipeline"]
 
-    E --> H["Congestion control\n(congestion-control.ts)"]
-    E --> I["Bonding manager\n(bonding-manager.ts)"]
-    E --> J["Retransmit queue\n(retransmit-queue.ts)"]
+    E --> H["Congestion control"]
+    E --> I["Bonding manager"]
+    E --> J["Retransmit queue"]
 
-    G --> K["Sequence tracker\n(sequence-tracker.ts)"]
+    G --> K["Sequence tracker"]
     G --> L["ACK/NAK handling"]
     G --> M["Session manager\n(per remote client)"]
 
-    B --> N["Monitoring\n(monitoring.ts)"]
-    N --> O["Alert manager\n(alert-manager.ts)"]
+    B --> N["Monitoring"]
+    N --> O["Alert manager"]
     N --> P["Metrics publisher"]
     P --> Q["REST metrics routes\n(/metrics, /prometheus, ...)"]
   end
@@ -96,10 +96,10 @@ v3 is the same as v2 with the addition of authenticated control packets — it d
 | `src/crypto.ts`                  | AES-256-GCM encrypt/decrypt wrappers                                       |
 | `src/packet.ts`                  | v2 packet header encode/decode, CRC                                        |
 | `src/retransmit-queue.ts`        | Bounded retransmit queue with timeout-based eviction                       |
-| `src/bonding-manager.ts`         | Primary/backup health checks and failover logic                            |
-| `src/congestion-control.ts`      | AIMD controller; adjusts delta timer based on RTT/loss                     |
-| `src/monitoring.ts`              | Packet loss heatmap, retransmit chart, path latency                        |
-| `src/alert-manager.ts`           | Threshold evaluation and Signal K notification emission                    |
+| `src/sequence.ts`                | Sequence tracking, gap detection, and NAK timer scheduling                 |
+| `src/bonding.ts`                 | Primary/backup health checks and failover logic                            |
+| `src/congestion.ts`              | AIMD controller; adjusts delta timer based on RTT/loss                     |
+| `src/monitoring.ts`              | Packet loss heatmap, retransmit chart, path latency, and alert thresholds  |
 | `src/routes/`                    | Express route handlers for all REST API endpoints                          |
 | `src/webapp/`                    | React-based management UI (compiled to `public/`)                          |
 | `src/scripts/migrate-config.ts`  | CLI script to convert legacy flat config to `connections[]`                |
@@ -118,3 +118,7 @@ Each connection's configuration is grouped into:
 - **Runtime files (hot-reload):** `delta_timer.json`, `subscription.json`, `sentence_filter.json`
 
 For full definitions and defaults, see `docs/configuration-reference.md`.
+
+## Future planning
+
+Future protocol-version migration constraints are tracked in docs/future-security-and-protocol-roadmap.md.

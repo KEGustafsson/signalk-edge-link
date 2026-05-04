@@ -21,14 +21,22 @@ Configuration is stored as an array of connections. A single Signal K node can r
 
 ## Common Settings (Per Connection)
 
-| Setting             | JSON Key            | Type    | Default        | Range                  | Description                                                                               |
-| ------------------- | ------------------- | ------- | -------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
-| Connection Name     | `name`              | string  | `"connection"` | max 40 chars           | Label used as instance ID and Signal K metrics namespace                                  |
-| Operation Mode      | `serverType`        | string  | `"client"`     | `"server"`, `"client"` | Server receives data, Client sends data                                                   |
-| UDP Port            | `udpPort`           | number  | `4446`         | 1024 - 65535           | Must match on both ends; each server connection needs a unique port                       |
-| Encryption Key      | `secretKey`         | string  | -              | 32-byte secret         | Use 32-character ASCII, 64-character hex, or 44-character base64; must match on both ends |
-| Use MessagePack     | `useMsgpack`        | boolean | `false`        | -                      | Binary serialization (must match both ends)                                               |
-| Use Path Dictionary | `usePathDictionary` | boolean | `false`        | -                      | Path encoding (must match both ends)                                                      |
+| Setting              | JSON Key            | Type    | Default        | Range                  | Description                                                                               |
+| -------------------- | ------------------- | ------- | -------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
+| Connection Name      | `name`              | string  | `"connection"` | max 40 chars           | Label used as instance ID and Signal K metrics namespace                                  |
+| Operation Mode       | `serverType`        | string  | `"client"`     | `"server"`, `"client"` | Server receives data, Client sends data                                                   |
+| UDP Port             | `udpPort`           | number  | `4446`         | 1024 - 65535           | Must match on both ends; each server connection needs a unique port                       |
+| v1 Metadata UDP Port | `udpMetaPort`       | number  | -              | 1024 - 65535           | Optional separate UDP port for v1 metadata packets; ignored by v2/v3                      |
+| Encryption Key       | `secretKey`         | string  | -              | 32-byte secret         | Use 32-character ASCII, 64-character hex, or 44-character base64; must match on both ends |
+| Use MessagePack      | `useMsgpack`        | boolean | `false`        | -                      | Binary serialization (must match both ends)                                               |
+| Use Path Dictionary  | `usePathDictionary` | boolean | `false`        | -                      | Path encoding (must match both ends)                                                      |
+
+## Top-Level Management Settings
+
+| Setting                      | JSON Key                    | Type    | Default | Description                                                     |
+| ---------------------------- | --------------------------- | ------- | ------- | --------------------------------------------------------------- |
+| Management API Token         | `managementApiToken`        | string  | -       | Optional shared secret for management API requests              |
+| Require Management API Token | `requireManagementApiToken` | boolean | `false` | Require token auth even when no environment token is configured |
 
 ## Client Mode Settings
 
@@ -229,6 +237,8 @@ Common sentences to filter:
 
 Alert thresholds are configured via the REST API at `POST /plugins/signalk-edge-link/monitoring/alerts`.
 
+The REST response and active in-memory alert threshold update immediately. Persistent plugin options are coalesced per connection and saved at most once per second for repeated updates; updates to different metrics are merged, and the latest value for the same metric wins.
+
 ### Default Thresholds
 
 | Metric                  | Warning | Critical |
@@ -267,14 +277,14 @@ These constants are defined in `src/constants.ts` and control internal behavior.
       "name": "shore-server",
       "serverType": "server",
       "udpPort": 4446,
-      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
+      "secretKey": "CHANGE_ME_TO_YOUR_OWN_SECRET_KEY",
       "protocolVersion": 3
     },
     {
       "name": "sat-client",
       "serverType": "client",
       "udpPort": 4447,
-      "secretKey": "K9#mP2$nQ7@rS4%tU6^vW8*xY3!zA5&B",
+      "secretKey": "CHANGE_ME_TO_YOUR_OWN_SECRET_KEY",
       "useMsgpack": true,
       "usePathDictionary": true,
       "udpAddress": "cloud-server.example.com",

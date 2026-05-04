@@ -1,0 +1,23 @@
+{
+  "created_at": "2026-04-30",
+  "mode": "interactive",
+  "granularity": "standard",
+  "parallelization": true,
+  "commit_docs": true,
+  "model_profile": "balanced",
+  "resolve_model_ids": "omit",
+  "workflow": {
+    "research": true,
+    "plan_check": true,
+    "verifier": true,
+    "nyquist_validation": true,
+    "auto_advance": false,
+    "code_review": true,
+    "code_review_depth": "standard"
+  },
+  "planning": {
+    "project_code": "SKEL",
+    "project_title": "Signal K Edge Link",
+    "project_type": "brownfield"
+  }
+}

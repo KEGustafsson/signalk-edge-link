@@ -2,7 +2,7 @@
 
 import createRoutes = require("./routes");
 import { createInstance, slugify } from "./instance";
-import { validateConnectionConfig } from "./connection-config";
+import { validateConnectionConfig, sanitizeConnectionConfig } from "./connection-config";
 import { buildConnectionItemSchema } from "./shared/connection-schema";
 import type { ConnectionConfig, SignalKApp, InstanceState, MetricsApi } from "./types";
 import type { Router } from "./routes/types";
@@ -163,9 +163,31 @@ module.exports = function createPlugin(app: SignalKApp) {
       return;
     }
 
-    // ── Deep-validate all connections before creating any instances ───────
-    // This prevents a partial-start where early connections are created and
-    // then torn down when a later connection fails validation.
+    // ── Sanitize + deep-validate all connections before creating any instances ─
+    // Sanitize first so persisted configs from older versions (which may have
+    // now-forbidden fields like testAddress on v2/v3 clients) are cleaned up
+    // before validation, avoiding spurious upgrade-time failures.
+    connectionList = connectionList.map((c) => sanitizeConnectionConfig(c) as ConnectionConfig);
+
+    // Keep _currentOptions in sync with sanitized connections so that route
+    // handlers (auth middleware, monitoring persistence) always see the
+    // cleaned-up config rather than the raw pre-sanitization values.
+    if (Array.isArray(options.connections) && options.connections.length > 0) {
+      plugin._currentOptions = { ...options, connections: connectionList };
+    } else if (options.serverType) {
+      // Merge sanitized connection fields over the original options so that
+      // top-level auth fields (managementApiToken, requireManagementApiToken)
+      // are preserved — sanitizeConnectionConfig only keeps connection-scoped keys.
+      // Explicitly omit any stale `connections` key: getCurrentConnectionsConfig()
+      // checks Array.isArray(options.connections) first, so a leftover empty array
+      // would shadow the serverType fallback and break PUT/DELETE /instances/:id.
+      const { connections: _drop, ...optionsWithoutConnections } = options as Record<
+        string,
+        unknown
+      >;
+      plugin._currentOptions = { ...optionsWithoutConnections, ...connectionList[0] };
+    }
+
     for (let i = 0; i < connectionList.length; i++) {
       const validationError = validateConnectionConfig(connectionList[i], `connections[${i}].`);
       if (validationError) {

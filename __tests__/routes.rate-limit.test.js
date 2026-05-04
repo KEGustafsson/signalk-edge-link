@@ -1000,9 +1000,6 @@ describe("instances management route", () => {
             secretKey: "12345678901234567890123456789012",
             protocolVersion: 2,
             udpAddress: "127.0.0.1",
-            testAddress: "127.0.0.1",
-            testPort: 80,
-            pingIntervalTime: 10,
             helloMessageSender: 60
           }
         ]
@@ -1456,6 +1453,14 @@ describe("status and error summary routes", () => {
       expect.objectContaining({
         healthyInstances: 0,
         totalInstances: 1,
+        managementAuth: expect.objectContaining({
+          total: 1,
+          allowed: 1,
+          byReason: expect.objectContaining({ open_access: 1 }),
+          byAction: expect.objectContaining({
+            "status.read": expect.objectContaining({ allowed: 1 })
+          })
+        }),
         instances: [
           expect.objectContaining({
             id: "alpha",
@@ -1501,10 +1506,18 @@ describe("status and error summary routes", () => {
     const req = { headers: {}, ip: "127.0.0.1", socket: {}, app: { get: () => false } };
     const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
 
-    metricsRoute.handlers.at(-1)(req, res);
+    metricsRoute.handlers[1](req, res, () => metricsRoute.handlers.at(-1)(req, res));
 
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
+        managementAuth: expect.objectContaining({
+          total: 1,
+          allowed: 1,
+          byReason: expect.objectContaining({ open_access: 1 }),
+          byAction: expect.objectContaining({
+            "metrics.read": expect.objectContaining({ allowed: 1 })
+          })
+        }),
         stats: expect.objectContaining({
           errorCounts: { general: 2, udpSend: 1 },
           dataPacketsReceived: 8,
@@ -1526,10 +1539,60 @@ describe("status and error summary routes", () => {
       })
     );
   });
+
+  test("managementAuth telemetry omits token, secret, IP, and user-agent values", () => {
+    const app = { get: jest.fn(() => false), debug: jest.fn() };
+    const bundle = makeBundle();
+    bundle.state.options.secretKey = "12345678901234567890123456789012";
+
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {
+      _currentOptions: { managementApiToken: "secret-token" }
+    });
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const metricsRoute = router.routes.find((r) => r.method === "get" && r.path === "/metrics");
+    const req = {
+      headers: { "x-edge-link-token": "secret-token", "user-agent": "private-agent" },
+      ip: "203.0.113.10",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+
+    metricsRoute.handlers[1](req, res, () => metricsRoute.handlers.at(-1)(req, res));
+
+    const body = res.json.mock.calls[0][0];
+    expect(body.managementAuth).toEqual(
+      expect.objectContaining({
+        byReason: expect.objectContaining({ valid_token: 1 }),
+        byAction: expect.objectContaining({
+          "metrics.read": expect.objectContaining({ allowed: 1 })
+        })
+      })
+    );
+
+    const telemetryText = JSON.stringify(body.managementAuth);
+    expect(telemetryText).not.toContain("secret-token");
+    expect(telemetryText).not.toContain("12345678901234567890123456789012");
+    expect(telemetryText).not.toContain("203.0.113.10");
+    expect(telemetryText).not.toContain("private-agent");
+  });
 });
 
 describe("monitoring alert persistence", () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   test("persists alert thresholds into the matching connection entry", () => {
+    jest.useFakeTimers();
     const thresholds = {};
     const app = {
       get: jest.fn(() => false),
@@ -1628,7 +1691,14 @@ describe("monitoring alert persistence", () => {
 
     route.handlers[3](req, res);
 
-    expect(app.savePluginOptions).toHaveBeenCalled();
+    expect(app.savePluginOptions).not.toHaveBeenCalled();
+    expect(pluginRef._currentOptions.connections[1].alertThresholds).toEqual({
+      rtt: { warning: 250 }
+    });
+
+    jest.advanceTimersByTime(1000);
+
+    expect(app.savePluginOptions).toHaveBeenCalledTimes(1);
     const savedConfig = app.savePluginOptions.mock.calls[0][0];
     expect(savedConfig.alertThresholds).toBeUndefined();
     expect(savedConfig.connections[0].alertThresholds).toEqual({

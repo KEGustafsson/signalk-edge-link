@@ -277,6 +277,16 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
     }
   }
 
+  function _stopRecoveryBurst(reason?: string): void {
+    if (recoveryDrainTimer) {
+      clearInterval(recoveryDrainTimer);
+      recoveryDrainTimer = null;
+      if (reason) {
+        app.debug(`Recovery burst stopped: ${reason}`);
+      }
+    }
+  }
+
   async function _runRecoveryBurst(): Promise<void> {
     if (recoveryDrainInFlight || !lastAckRinfo) {
       return;
@@ -291,10 +301,12 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         recoveryBurstIntervalMs
       );
       if (pendingSeqs.length === 0) {
-        if (recoveryDrainTimer) {
-          clearInterval(recoveryDrainTimer);
-          recoveryDrainTimer = null;
-        }
+        _stopRecoveryBurst();
+        return;
+      }
+
+      if (!state.socketUdp) {
+        _stopRecoveryBurst("UDP socket unavailable");
         return;
       }
 
@@ -304,6 +316,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         // been closed between the previous await and this iteration if
         // stop() or a socket error handler ran during the yield point.
         if (!state.socketUdp) {
+          _stopRecoveryBurst("UDP socket unavailable");
           break;
         }
         await udpSendAsync(retransmitPacket, lastAckRinfo.address, lastAckRinfo.port);
@@ -321,10 +334,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       app.debug(`Recovery burst error: ${err instanceof Error ? err.message : String(err)}`);
       // Stop the interval timer on error so it doesn't keep firing against a
       // broken socket.  A fresh burst will be re-scheduled by the next ACK.
-      if (recoveryDrainTimer) {
-        clearInterval(recoveryDrainTimer);
-        recoveryDrainTimer = null;
-      }
+      _stopRecoveryBurst();
     } finally {
       recoveryDrainInFlight = false;
     }

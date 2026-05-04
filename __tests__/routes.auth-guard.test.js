@@ -55,16 +55,35 @@ function makeResponse() {
   return res;
 }
 
-function setupRoutes(tokenValue) {
-  const pluginRef = { _currentOptions: { managementApiToken: tokenValue } };
+function makeBundle() {
+  return {
+    id: "test",
+    name: "test",
+    state: { instanceStatus: "running", isServerMode: false, options: {}, deltas: [] },
+    metricsApi: { metrics: { errorCounts: {}, recentErrors: [] } }
+  };
+}
+
+function setupRoutes(tokenValue, options = {}) {
+  const pluginRef = {
+    _currentOptions: {
+      managementApiToken: tokenValue,
+      ...(options.currentOptions || {})
+    }
+  };
+  const bundles = options.bundles || [];
   const instanceRegistry = {
-    getAll: jest.fn().mockReturnValue([]),
+    getAll: jest.fn().mockReturnValue(bundles),
     getFirst: jest.fn().mockReturnValue(null)
   };
-  const routes = createRoutes({ debug: () => {} }, instanceRegistry, pluginRef);
+  const routes = createRoutes(
+    options.app || { debug: () => {}, error: () => {} },
+    instanceRegistry,
+    pluginRef
+  );
   const router = makeRouterCollector();
   routes.registerWithRouter(router);
-  return { router, instanceRegistry };
+  return { router, instanceRegistry, pluginRef };
 }
 
 function findHandler(router, method, path) {
@@ -132,5 +151,78 @@ describe("authorizeManagement auth guard", () => {
 
     expect(instanceRegistry.getAll).toHaveBeenCalled();
     expect(res.statusCode).not.toBe(401);
+  });
+
+  test("GET /status exposes auth decision telemetry without changing auth behavior", async () => {
+    const bundle = makeBundle();
+    const { router } = setupRoutes(SECRET, { bundles: [bundle] });
+    const handler = findHandler(router, "get", "/status");
+
+    const missingReq = { headers: {}, ip: "127.0.0.1" };
+    const missingRes = makeResponse();
+    await handler(missingReq, missingRes);
+
+    const invalidReq = { headers: { "x-edge-link-token": "wrong-token" }, ip: "127.0.0.1" };
+    const invalidRes = makeResponse();
+    await handler(invalidReq, invalidRes);
+
+    const validReq = { headers: { "x-edge-link-token": SECRET }, ip: "127.0.0.1" };
+    const validRes = makeResponse();
+    await handler(validReq, validRes);
+
+    expect(validRes.statusCode).toBe(200);
+    expect(validRes.body.managementAuth).toEqual(
+      expect.objectContaining({
+        total: 3,
+        allowed: 1,
+        denied: 2,
+        byReason: expect.objectContaining({
+          missing_token: 1,
+          invalid_token: 1,
+          valid_token: 1
+        }),
+        byAction: expect.objectContaining({
+          "status.read": expect.objectContaining({
+            total: 3,
+            allowed: 1,
+            denied: 2,
+            reasons: expect.objectContaining({
+              missing_token: 1,
+              invalid_token: 1,
+              valid_token: 1
+            })
+          })
+        })
+      })
+    );
+  });
+
+  test("GET /status records required-unconfigured fail-closed decisions", async () => {
+    const bundle = makeBundle();
+    const { router, pluginRef } = setupRoutes(null, {
+      bundles: [bundle],
+      currentOptions: { requireManagementApiToken: true }
+    });
+    const handler = findHandler(router, "get", "/status");
+
+    const deniedReq = { headers: {}, ip: "127.0.0.1" };
+    const deniedRes = makeResponse();
+    await handler(deniedReq, deniedRes);
+
+    expect(deniedRes.statusCode).toBe(403);
+    expect(deniedRes.body.error).toMatch(/Management API token required/);
+
+    pluginRef._currentOptions = { managementApiToken: SECRET };
+    const allowedReq = { headers: { authorization: `Bearer ${SECRET}` }, ip: "127.0.0.1" };
+    const allowedRes = makeResponse();
+    await handler(allowedReq, allowedRes);
+
+    expect(allowedRes.statusCode).toBe(200);
+    expect(allowedRes.body.managementAuth.byReason).toEqual(
+      expect.objectContaining({
+        token_required_unconfigured: 1,
+        valid_token: 1
+      })
+    );
   });
 });

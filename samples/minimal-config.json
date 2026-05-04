@@ -6,6 +6,8 @@
       "udpAddress": "127.0.0.1",
       "udpPort": 4446,
       "secretKey": "12345678901234567890123456789012",
+      "testAddress": "127.0.0.1",
+      "testPort": 80,
       "protocolVersion": 1
     }
   ]

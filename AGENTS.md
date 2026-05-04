@@ -50,3 +50,12 @@ Each PR should include:
 - Relevant checks pass.
 - Any follow-up work is explicitly listed.
 - Final diff is focused, reviewable, and production-appropriate.
+
+## GSD project context
+
+- Project: Signal K Edge Link.
+- Planning docs live in `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, and `.planning/STATE.md`.
+- Codebase intelligence lives in `.planning/codebase/`.
+- Current milestone: see `.planning/STATE.md` for the active milestone and phase.
+- Before changing source code, check the active phase in `.planning/STATE.md` and follow the phase plan once one exists.
+- Preserve the project's security, reliability, observability, and configuration-parity goals when implementing phases.

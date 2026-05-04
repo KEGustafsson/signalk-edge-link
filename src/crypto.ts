@@ -118,18 +118,25 @@ export function normalizeKey(secretKey: string, options: KeyNormalizationOptions
 
 // Per-process PBKDF2 cache.  Without this cache every encryption /
 // decryption call would re-run the full iteration count, which would
-// dominate the per-packet cost.  The cache key is the raw ASCII string so
-// it is effectively bounded by the number of distinct configured keys
-// (typically one or two per Signal K instance).
+// dominate the per-packet cost.  The cache is keyed by a SHA-256 digest of
+// the raw ASCII key (hex-encoded for Map use) so the plaintext key is not
+// retained in process memory beyond the live derivation. The cache is
+// effectively bounded by the number of distinct configured keys (typically
+// one or two per Signal K instance).
 const asciiKeyCache = new Map<string, Buffer>();
 
+function asciiKeyCacheKey(asciiKey: string): string {
+  return crypto.createHash("sha256").update(asciiKey, "utf8").digest("hex");
+}
+
 function getOrDeriveAsciiKey(asciiKey: string): Buffer {
-  const cached = asciiKeyCache.get(asciiKey);
+  const cacheKey = asciiKeyCacheKey(asciiKey);
+  const cached = asciiKeyCache.get(cacheKey);
   if (cached) {
     return cached;
   }
   const derived = deriveKeyFromPassphrase(asciiKey);
-  asciiKeyCache.set(asciiKey, derived);
+  asciiKeyCache.set(cacheKey, derived);
   return derived;
 }
 

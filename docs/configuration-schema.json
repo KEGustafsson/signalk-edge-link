@@ -12,6 +12,15 @@
       "items": {
         "$ref": "#/definitions/connection"
       }
+    },
+    "managementApiToken": {
+      "type": "string",
+      "description": "Optional shared secret for management API requests."
+    },
+    "requireManagementApiToken": {
+      "type": "boolean",
+      "default": false,
+      "description": "Require management API token auth even when no environment token is configured."
     }
   },
   "required": ["connections"],
@@ -49,6 +58,7 @@
         "serverType": { "type": "string", "enum": ["server", "client"] },
         "udpAddress": { "type": "string" },
         "udpPort": { "type": "number", "minimum": 1024, "maximum": 65535 },
+        "udpMetaPort": { "type": "number", "minimum": 1024, "maximum": 65535 },
         "secretKey": {
           "type": "string",
           "minLength": 32,
