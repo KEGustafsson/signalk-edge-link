@@ -33,6 +33,7 @@ interface ManagementAuthActionCounters {
   allowed: number;
   denied: number;
   reasons: Record<string, number>;
+  byDecision: { allowed: Record<string, number>; denied: Record<string, number> };
 }
 
 interface ManagementAuthSnapshot {
@@ -188,11 +189,14 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       total: 0,
       allowed: 0,
       denied: 0,
-      reasons: {}
+      reasons: {},
+      byDecision: { allowed: {} as Record<string, number>, denied: {} as Record<string, number> }
     };
     actionCounters.total++;
     actionCounters[decision]++;
     actionCounters.reasons[reason] = (actionCounters.reasons[reason] || 0) + 1;
+    actionCounters.byDecision[decision][reason] =
+      (actionCounters.byDecision[decision][reason] || 0) + 1;
     managementAuthTelemetry.byAction.set(normalizedAction, actionCounters);
   }
 
@@ -208,7 +212,11 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         total: counters.total,
         allowed: counters.allowed,
         denied: counters.denied,
-        reasons: { ...counters.reasons }
+        reasons: { ...counters.reasons },
+        byDecision: {
+          allowed: { ...counters.byDecision.allowed },
+          denied: { ...counters.byDecision.denied }
+        }
       };
     }
 

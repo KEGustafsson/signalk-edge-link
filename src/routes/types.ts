@@ -65,6 +65,7 @@ export interface ManagementAuthSnapshot {
       allowed: number;
       denied: number;
       reasons: Record<string, number>;
+      byDecision: { allowed: Record<string, number>; denied: Record<string, number> };
     }
   >;
 }

@@ -33,6 +33,10 @@ try {
   fail(`Cannot parse package.json: ${err.message}`);
   packageJson = {};
 }
+if (typeof packageJson.version !== "string" || !packageJson.version) {
+  fail("package.json is missing a valid version field");
+  process.exit(1);
+}
 const apiReference = readText("docs/api-reference.md");
 const docsReadme = readText("docs/README.md");
 const architectureOverview = readText("docs/architecture-overview.md");

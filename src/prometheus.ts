@@ -292,13 +292,15 @@ export function formatManagementAuthPrometheusMetrics(
   }
 
   for (const [action, counters] of Object.entries(snapshot.byAction || {})) {
-    for (const [reason, value] of Object.entries(counters.reasons || {})) {
-      const labels = {
-        decision: managementAuthDecisionForReason(reason),
-        reason: sanitizeManagementAuthLabel(reason),
-        action: sanitizeManagementAuthLabel(action)
-      };
-      lines.push(`${fullName}${formatLabels(labels)} ${value || 0}`);
+    for (const [decision, reasonCounts] of Object.entries(counters.byDecision || {})) {
+      for (const [reason, value] of Object.entries(reasonCounts)) {
+        const labels = {
+          decision,
+          reason: sanitizeManagementAuthLabel(reason),
+          action: sanitizeManagementAuthLabel(action)
+        };
+        lines.push(`${fullName}${formatLabels(labels)} ${value || 0}`);
+      }
     }
   }
 
@@ -334,10 +336,6 @@ function sanitizeManagementAuthLabel(value: unknown): string {
     .replace(/[^a-zA-Z0-9_.:-]/g, "_")
     .slice(0, 64);
   return replaced.length > 0 ? replaced : "unknown";
-}
-
-function managementAuthDecisionForReason(reason: string): "allowed" | "denied" {
-  return reason === "open_access" || reason === "valid_token" ? "allowed" : "denied";
 }
 
 interface PrometheusValidationResult {

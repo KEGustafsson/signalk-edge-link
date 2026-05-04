@@ -172,7 +172,7 @@ module.exports = function createPlugin(app: SignalKApp) {
     // Keep _currentOptions in sync with sanitized connections so that route
     // handlers (auth middleware, monitoring persistence) always see the
     // cleaned-up config rather than the raw pre-sanitization values.
-    if (Array.isArray(options.connections)) {
+    if (Array.isArray(options.connections) && options.connections.length > 0) {
       plugin._currentOptions = { ...options, connections: connectionList };
     } else if (options.serverType) {
       // Merge sanitized connection fields over the original options so that
@@ -181,8 +181,10 @@ module.exports = function createPlugin(app: SignalKApp) {
       // Explicitly omit any stale `connections` key: getCurrentConnectionsConfig()
       // checks Array.isArray(options.connections) first, so a leftover empty array
       // would shadow the serverType fallback and break PUT/DELETE /instances/:id.
-      const { connections: _drop, ...optionsWithoutConnections } =
-        options as Record<string, unknown>;
+      const { connections: _drop, ...optionsWithoutConnections } = options as Record<
+        string,
+        unknown
+      >;
       plugin._currentOptions = { ...optionsWithoutConnections, ...connectionList[0] };
     }
 

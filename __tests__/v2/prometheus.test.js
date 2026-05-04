@@ -187,9 +187,10 @@ describe("Prometheus Metrics Exporter", () => {
       const text = formatManagementAuthPrometheusMetrics({
         byAction: {
           "status.read": {
-            reasons: {
-              open_access: 2,
-              invalid_token: 1
+            reasons: { open_access: 2, invalid_token: 1 },
+            byDecision: {
+              allowed: { open_access: 2 },
+              denied: { invalid_token: 1 }
             }
           }
         }
@@ -210,9 +211,8 @@ describe("Prometheus Metrics Exporter", () => {
       const text = formatManagementAuthPrometheusMetrics({
         byAction: {
           "bad action\nvalue": {
-            reasons: {
-              "bad/reason": 1
-            }
+            reasons: { "bad/reason": 1 },
+            byDecision: { allowed: {}, denied: { "bad/reason": 1 } }
           }
         }
       });
@@ -228,9 +228,8 @@ describe("Prometheus Metrics Exporter", () => {
       const snapshot = {
         byAction: {
           "metrics.read": {
-            reasons: {
-              valid_token: 1
-            }
+            reasons: { valid_token: 1 },
+            byDecision: { allowed: { valid_token: 1 }, denied: {} }
           }
         }
       };
