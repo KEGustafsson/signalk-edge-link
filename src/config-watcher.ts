@@ -52,49 +52,70 @@ interface WatcherHandle {
 }
 
 /**
- * Create a debounced config-change handler.
+ * A debounced config-change handler. Calling the returned function schedules
+ * the file (re)load on the standard debounce delay. The attached `flush()`
+ * runs the same load immediately, bypassing the debounce timer — used for the
+ * initial subscription wire-up at plugin start so that deltas produced by
+ * co-located plugins aren't lost during the debounce window.
  */
-export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): () => void {
+export interface DebouncedConfigHandler {
+  (): void;
+  flush(): Promise<void>;
+}
+
+export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): DebouncedConfigHandler {
   const { name, getFilePath, processConfig, state, instanceId, app, readFallback } = opts;
 
-  return function handleChange() {
+  async function runLoad(): Promise<void> {
+    if (state.stopped) return;
+    let content: string | null;
+    const filePath = getFilePath();
+    if (readFallback !== undefined) {
+      content = filePath ? await readFile(filePath, "utf-8").catch(() => null) : null;
+    } else {
+      content = filePath ? await readFile(filePath, "utf-8") : null;
+    }
+
+    if (state.stopped) return;
+
+    const hashSource = content || JSON.stringify(readFallback) || "";
+    const contentHash = crypto.createHash(CONTENT_HASH_ALGORITHM).update(hashSource).digest("hex");
+
+    if (contentHash === state.configContentHashes[name]) {
+      app.debug(`[${instanceId}] ${name} file unchanged, skipping`);
+      return;
+    }
+
+    const parsed = content ? JSON.parse(content) : readFallback;
+    await processConfig(parsed);
+    if (!state.stopped) {
+      state.configContentHashes[name] = contentHash;
+    }
+  }
+
+  const handleChange = function () {
     clearTimeout(state.configDebounceTimers[name]);
     state.configDebounceTimers[name] = setTimeout(() => {
-      (async () => {
-        if (state.stopped) return;
-        let content: string | null;
-        const filePath = getFilePath();
-        if (readFallback !== undefined) {
-          content = filePath ? await readFile(filePath, "utf-8").catch(() => null) : null;
-        } else {
-          content = filePath ? await readFile(filePath, "utf-8") : null;
-        }
-
-        if (state.stopped) return;
-
-        const hashSource = content || JSON.stringify(readFallback) || "";
-        const contentHash = crypto
-          .createHash(CONTENT_HASH_ALGORITHM)
-          .update(hashSource)
-          .digest("hex");
-
-        if (contentHash === state.configContentHashes[name]) {
-          app.debug(`[${instanceId}] ${name} file unchanged, skipping`);
-          return;
-        }
-
-        const parsed = content ? JSON.parse(content) : readFallback;
-        await processConfig(parsed);
-        if (!state.stopped) {
-          state.configContentHashes[name] = contentHash;
-        }
-      })().catch((err: unknown) => {
+      runLoad().catch((err: unknown) => {
         if (state.stopped) return;
         const msg = err instanceof Error ? err.message : String(err);
         app.error(`[${instanceId}] Error handling ${name} change: ${msg}`);
       });
     }, FILE_WATCH_DEBOUNCE_DELAY);
+  } as DebouncedConfigHandler;
+
+  handleChange.flush = async function flush(): Promise<void> {
+    clearTimeout(state.configDebounceTimers[name]);
+    try {
+      await runLoad();
+    } catch (err: unknown) {
+      if (state.stopped) return;
+      const msg = err instanceof Error ? err.message : String(err);
+      app.error(`[${instanceId}] Error handling ${name} change: ${msg}`);
+    }
   };
+
+  return handleChange;
 }
 
 /**
