@@ -888,8 +888,16 @@ function createInstance(
         createWatcherWithRecovery({ ...cfg, instanceId, app, state })
       );
 
-      // Trigger initial subscription load
-      handleSubscriptionChange();
+      // Trigger initial subscription load immediately (no debounce). The
+      // debounce delay exists to coalesce file-system change events; for the
+      // one-shot startup load it just widens the window during which deltas
+      // produced by co-located plugins are emitted before our subscription
+      // is registered with the subscriptionmanager — those deltas would be
+      // silently dropped since the manager only delivers future events.
+      handleSubscriptionChange.flush().catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        app.error(`[${instanceId}] Initial subscription load failed: ${msg}`);
+      });
       app.debug(`[${instanceId}] Configuration file watchers initialized`);
     } catch (err: unknown) {
       app.error(
