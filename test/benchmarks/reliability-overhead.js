@@ -15,8 +15,12 @@ const { RetransmitQueue } = require("../../lib/retransmit-queue");
 const { NetworkSimulator } = require("../network-simulator");
 
 function formatBytes(bytes) {
-  if (bytes < 1024) {return `${bytes} B`;}
-  if (bytes < 1048576) {return `${(bytes / 1024).toFixed(1)} KB`;}
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1048576) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
@@ -36,17 +40,25 @@ function benchACKNAKOverhead() {
   const dataSizes = [100, 500, 1000, 5000];
 
   for (const size of dataSizes) {
-    const dataPayload = Buffer.alloc(size, 0xAB);
+    const dataPayload = Buffer.alloc(size, 0xab);
     const dataPacket = builder.buildDataPacket(dataPayload);
     const ackPacket = builder.buildACKPacket(0);
     const nakPacket3 = builder.buildNAKPacket([1, 2, 3]);
     const nakPacket10 = builder.buildNAKPacket(Array.from({ length: 10 }, (_, i) => i));
 
     console.log(`Data payload: ${size} bytes`);
-    console.log(`  DATA packet: ${dataPacket.length} bytes (${HEADER_SIZE}B header + ${size}B payload)`);
-    console.log(`  ACK packet:  ${ackPacket.length} bytes (${((ackPacket.length / dataPacket.length) * 100).toFixed(1)}% of data)`);
-    console.log(`  NAK (3 missing): ${nakPacket3.length} bytes (${((nakPacket3.length / dataPacket.length) * 100).toFixed(1)}% of data)`);
-    console.log(`  NAK (10 missing): ${nakPacket10.length} bytes (${((nakPacket10.length / dataPacket.length) * 100).toFixed(1)}% of data)`);
+    console.log(
+      `  DATA packet: ${dataPacket.length} bytes (${HEADER_SIZE}B header + ${size}B payload)`
+    );
+    console.log(
+      `  ACK packet:  ${ackPacket.length} bytes (${((ackPacket.length / dataPacket.length) * 100).toFixed(1)}% of data)`
+    );
+    console.log(
+      `  NAK (3 missing): ${nakPacket3.length} bytes (${((nakPacket3.length / dataPacket.length) * 100).toFixed(1)}% of data)`
+    );
+    console.log(
+      `  NAK (10 missing): ${nakPacket10.length} bytes (${((nakPacket10.length / dataPacket.length) * 100).toFixed(1)}% of data)`
+    );
     console.log();
   }
 
@@ -58,8 +70,12 @@ function benchACKNAKOverhead() {
   console.log(`  ACK size: ${ackSize} bytes`);
   console.log(`  ACKs/sec: ${acksPerSecond}`);
   console.log(`  ACK bandwidth: ${ackBandwidth} bytes/sec (${formatBytes(ackBandwidth)}/s)`);
-  console.log(`  At 100 data pkts/sec (500B each): ${((ackBandwidth / (100 * 500)) * 100).toFixed(2)}% overhead`);
-  console.log(`  At 10 data pkts/sec (500B each):  ${((ackBandwidth / (10 * 500)) * 100).toFixed(2)}% overhead`);
+  console.log(
+    `  At 100 data pkts/sec (500B each): ${((ackBandwidth / (100 * 500)) * 100).toFixed(2)}% overhead`
+  );
+  console.log(
+    `  At 10 data pkts/sec (500B each):  ${((ackBandwidth / (10 * 500)) * 100).toFixed(2)}% overhead`
+  );
   console.log();
 }
 
@@ -70,7 +86,7 @@ function benchRetransmitQueue() {
   console.log("=== Retransmit Queue Performance ===\n");
 
   const iterations = 100000;
-  const packet = Buffer.alloc(500, 0xAB);
+  const packet = Buffer.alloc(500, 0xab);
 
   // Add performance
   const queue1 = new RetransmitQueue({ maxSize: iterations });
@@ -79,7 +95,9 @@ function benchRetransmitQueue() {
     queue1.add(i, packet);
   }
   const addTime = Date.now() - addStart;
-  console.log(`Add ${iterations.toLocaleString()} packets: ${addTime}ms (${formatRate(iterations, addTime)})`);
+  console.log(
+    `Add ${iterations.toLocaleString()} packets: ${addTime}ms (${formatRate(iterations, addTime)})`
+  );
 
   // Get performance
   const getStart = Date.now();
@@ -87,7 +105,9 @@ function benchRetransmitQueue() {
     queue1.get(i);
   }
   const getTime = Date.now() - getStart;
-  console.log(`Get ${iterations.toLocaleString()} packets: ${getTime}ms (${formatRate(iterations, getTime)})`);
+  console.log(
+    `Get ${iterations.toLocaleString()} packets: ${getTime}ms (${formatRate(iterations, getTime)})`
+  );
 
   // Acknowledge performance
   const queue2 = new RetransmitQueue({ maxSize: iterations });
@@ -110,7 +130,9 @@ function benchRetransmitQueue() {
     queue3.retransmit(retransmitSeqs);
   }
   const retransmitTime = Date.now() - retransmitStart;
-  console.log(`Retransmit 100 seqs x 1000 rounds: ${retransmitTime}ms (${formatRate(100000, retransmitTime)})`);
+  console.log(
+    `Retransmit 100 seqs x 1000 rounds: ${retransmitTime}ms (${formatRate(100000, retransmitTime)})`
+  );
 
   console.log();
 }
@@ -125,7 +147,7 @@ function benchMemoryUsage() {
 
   for (const size of sizes) {
     const queue = new RetransmitQueue({ maxSize: size });
-    const packet = Buffer.alloc(500, 0xAB);
+    const packet = Buffer.alloc(500, 0xab);
 
     const before = process.memoryUsage().heapUsed;
     for (let i = 0; i < size; i++) {
@@ -136,7 +158,9 @@ function benchMemoryUsage() {
     const memUsed = after - before;
     const perPacket = memUsed / size;
 
-    console.log(`Queue size ${size.toLocaleString()}: ${formatBytes(memUsed)} total, ${Math.round(perPacket)} bytes/entry`);
+    console.log(
+      `Queue size ${size.toLocaleString()}: ${formatBytes(memUsed)} total, ${Math.round(perPacket)} bytes/entry`
+    );
     queue.clear();
   }
   console.log();
@@ -148,7 +172,7 @@ function benchMemoryUsage() {
 function benchLossRecovery() {
   console.log("=== Loss Recovery Performance ===\n");
 
-  const lossRates = [0.01, 0.05, 0.10, 0.20];
+  const lossRates = [0.01, 0.05, 0.1, 0.2];
   const numPackets = 10000;
   const builder = new PacketBuilder();
   const parser = new PacketParser();
@@ -176,9 +200,13 @@ function benchLossRecovery() {
       rounds++;
       const missing = [];
       for (let i = 0; i < numPackets; i++) {
-        if (!received.has(i)) {missing.push(i);}
+        if (!received.has(i)) {
+          missing.push(i);
+        }
       }
-      if (missing.length === 0) {break;}
+      if (missing.length === 0) {
+        break;
+      }
 
       const retransmitted = queue.retransmit(missing);
       for (const { packet } of retransmitted) {
@@ -189,8 +217,10 @@ function benchLossRecovery() {
       }
     }
 
-    const deliveryRate = (received.size / numPackets * 100).toFixed(2);
-    console.log(`Loss ${(lossRate * 100).toFixed(0)}%: initial=${afterInitial}/${numPackets}, final=${received.size}/${numPackets} (${deliveryRate}%), rounds=${rounds}`);
+    const deliveryRate = ((received.size / numPackets) * 100).toFixed(2);
+    console.log(
+      `Loss ${(lossRate * 100).toFixed(0)}%: initial=${afterInitial}/${numPackets}, final=${received.size}/${numPackets} (${deliveryRate}%), rounds=${rounds}`
+    );
 
     sim.destroy();
   }

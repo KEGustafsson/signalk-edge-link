@@ -9,4 +9,3 @@
 ## Summary
 
 Added protocolVersion 3 with authenticated ACK/NAK/HEARTBEAT/HELLO control packets, extended validation/schema/docs/sample coverage for v3, restored clean lint by fixing metrics/webapp and route formatting debt, and verified with lint, full jest, and production build.
-

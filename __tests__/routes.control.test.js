@@ -59,7 +59,9 @@ function makeCtx(overrides = {}) {
 
 function findHandler(router, method, path) {
   const route = router.routes.find((r) => r.method === method && r.path === path);
-  if (!route) {throw new Error(`Route ${method.toUpperCase()} ${path} not found`);}
+  if (!route) {
+    throw new Error(`Route ${method.toUpperCase()} ${path} not found`);
+  }
   return route.handlers.at(-1);
 }
 

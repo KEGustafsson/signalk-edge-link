@@ -396,7 +396,7 @@ describe("RetransmissionTracker", () => {
 
     test("calculates summary statistics", () => {
       tracker._lastSnapshot.timestamp -= 1000;
-      tracker.snapshot(100, 5);  // rate = 0.05
+      tracker.snapshot(100, 5); // rate = 0.05
       tracker._lastSnapshot.timestamp -= 1000;
       tracker.snapshot(200, 30); // rate = 0.25 (30-5)/(200-100) = 25/100
 
@@ -436,7 +436,7 @@ describe("AlertManager", () => {
     alertManager = new AlertManager(mockApp, {
       thresholds: {
         rtt: { warning: 200, critical: 500 },
-        packetLoss: { warning: 0.05, critical: 0.10 }
+        packetLoss: { warning: 0.05, critical: 0.1 }
       },
       cooldown: 0, // No cooldown for testing
       enabled: true

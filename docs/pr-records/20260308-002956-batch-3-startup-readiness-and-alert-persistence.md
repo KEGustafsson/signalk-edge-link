@@ -9,4 +9,3 @@
 ## Summary
 
 Awaited UDP server bind success before startup resolves, surfaced bind failures through plugin startup status handling, and persisted monitoring alert thresholds into the correct connection entry for multi-instance configs.
-

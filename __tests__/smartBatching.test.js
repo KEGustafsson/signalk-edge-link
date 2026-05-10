@@ -171,7 +171,9 @@ describe("Smart Batching", () => {
 
       console.log("\nBytes per delta at different batch sizes:");
       results.forEach((r) => {
-        console.log(`  ${r.count} deltas: ${r.packetSize} bytes (${r.bytesPerDelta.toFixed(1)} bytes/delta)`);
+        console.log(
+          `  ${r.count} deltas: ${r.packetSize} bytes (${r.bytesPerDelta.toFixed(1)} bytes/delta)`
+        );
       });
 
       // Bytes per delta should decrease with larger batches (compression benefit)
@@ -194,7 +196,9 @@ describe("Smart Batching", () => {
         optimalBatchSize = count;
       }
 
-      console.log(`\nOptimal batch size (under ${MAX_SAFE_UDP_PAYLOAD} bytes): ${optimalBatchSize} deltas`);
+      console.log(
+        `\nOptimal batch size (under ${MAX_SAFE_UDP_PAYLOAD} bytes): ${optimalBatchSize} deltas`
+      );
       expect(optimalBatchSize).toBeGreaterThan(0);
 
       // Verify optimal size stays under MTU
@@ -303,7 +307,10 @@ describe("Smart Batching", () => {
             {
               timestamp: new Date().toISOString(),
               values: [
-                { path: "navigation.position", value: { latitude: 60.123456, longitude: 24.987654 } },
+                {
+                  path: "navigation.position",
+                  value: { latitude: 60.123456, longitude: 24.987654 }
+                },
                 { path: "navigation.speedOverGround", value: 5.2 },
                 { path: "navigation.courseOverGroundTrue", value: 1.57 },
                 { path: "environment.wind.speedApparent", value: 10.5 },

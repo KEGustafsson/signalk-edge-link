@@ -218,17 +218,26 @@ describe("PacketInspector", () => {
       readyState: 1, // OPEN
       messages: [],
       closed: false,
-      send: jest.fn((msg) => { ws.messages.push(msg); }),
-      close: jest.fn(() => { ws.closed = true; ws.readyState = 3; }),
+      send: jest.fn((msg) => {
+        ws.messages.push(msg);
+      }),
+      close: jest.fn(() => {
+        ws.closed = true;
+        ws.readyState = 3;
+      }),
       on: jest.fn((event, handler) => {
-        if (!ws._handlers) {ws._handlers = {};}
-        if (!ws._handlers[event]) {ws._handlers[event] = [];}
+        if (!ws._handlers) {
+          ws._handlers = {};
+        }
+        if (!ws._handlers[event]) {
+          ws._handlers[event] = [];
+        }
         ws._handlers[event].push(handler);
       }),
       removeAllListeners: jest.fn(),
       _emit(event) {
         if (ws._handlers && ws._handlers[event]) {
-          ws._handlers[event].forEach(fn => fn());
+          ws._handlers[event].forEach((fn) => fn());
         }
       }
     };

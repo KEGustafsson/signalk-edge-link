@@ -283,7 +283,11 @@ describe("CongestionControl", () => {
     });
 
     test("returns updated value after adjustment", () => {
-      cc = new CongestionControl({ enabled: true, initialDeltaTimer: 1200, nominalDeltaTimer: 1000 });
+      cc = new CongestionControl({
+        enabled: true,
+        initialDeltaTimer: 1200,
+        nominalDeltaTimer: 1000
+      });
       cc.lastAdjustment = Date.now() - CONGESTION_ADJUST_INTERVAL - 1;
       cc.updateMetrics({ rtt: 50, packetLoss: 0.005 });
       cc.adjust();
@@ -336,18 +340,20 @@ describe("CongestionControl", () => {
       cc.updateMetrics({ rtt: 150, packetLoss: 0.03 });
       const state = cc.getState();
 
-      expect(state).toEqual(expect.objectContaining({
-        enabled: true,
-        manualMode: false,
-        currentDeltaTimer: 1000,
-        avgRTT: expect.any(Number),
-        avgLoss: expect.any(Number),
-        targetRTT: CONGESTION_TARGET_RTT,
-        minDeltaTimer: CONGESTION_MIN_DELTA_TIMER,
-        maxDeltaTimer: CONGESTION_MAX_DELTA_TIMER,
-        adjustInterval: CONGESTION_ADJUST_INTERVAL,
-        maxAdjustment: CONGESTION_MAX_ADJUSTMENT
-      }));
+      expect(state).toEqual(
+        expect.objectContaining({
+          enabled: true,
+          manualMode: false,
+          currentDeltaTimer: 1000,
+          avgRTT: expect.any(Number),
+          avgLoss: expect.any(Number),
+          targetRTT: CONGESTION_TARGET_RTT,
+          minDeltaTimer: CONGESTION_MIN_DELTA_TIMER,
+          maxDeltaTimer: CONGESTION_MAX_DELTA_TIMER,
+          adjustInterval: CONGESTION_ADJUST_INTERVAL,
+          maxAdjustment: CONGESTION_MAX_ADJUSTMENT
+        })
+      );
     });
 
     test("rounds avgRTT to 2 decimal places", () => {

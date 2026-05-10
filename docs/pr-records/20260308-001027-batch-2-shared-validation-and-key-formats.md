@@ -9,4 +9,3 @@
 ## Summary
 
 Scope: extracted shared connection validation/sanitization, reused it in /plugin-config, /instances, and migrate-config, expanded supported secretKey formats across runtime/schema/docs, and added regression coverage for merged instance updates plus hex/base64 secrets.
-

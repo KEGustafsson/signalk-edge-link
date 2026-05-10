@@ -33,16 +33,18 @@ function generateDelta(index, pathCount) {
     });
   }
   return {
-    updates: [{
-      source: { label: "test" },
-      timestamp: new Date().toISOString(),
-      values
-    }]
+    updates: [
+      {
+        source: { label: "test" },
+        timestamp: new Date().toISOString(),
+        values
+      }
+    ]
   };
 }
 
 function percentile(sorted, p) {
-  const index = Math.ceil(sorted.length * p / 100) - 1;
+  const index = Math.ceil((sorted.length * p) / 100) - 1;
   return sorted[Math.max(0, index)];
 }
 
@@ -54,7 +56,9 @@ function printLatencyStats(label, samples) {
 
   console.log(`  ${label}:`);
   console.log(`    min: ${min.toFixed(3)}ms | avg: ${avg.toFixed(3)}ms | max: ${max.toFixed(3)}ms`);
-  console.log(`    p50: ${percentile(sorted, 50).toFixed(3)}ms | p95: ${percentile(sorted, 95).toFixed(3)}ms | p99: ${percentile(sorted, 99).toFixed(3)}ms | p99.9: ${percentile(sorted, 99.9).toFixed(3)}ms`);
+  console.log(
+    `    p50: ${percentile(sorted, 50).toFixed(3)}ms | p95: ${percentile(sorted, 95).toFixed(3)}ms | p99: ${percentile(sorted, 99).toFixed(3)}ms | p99.9: ${percentile(sorted, 99.9).toFixed(3)}ms`
+  );
 }
 
 // ── Benchmark 1: Per-Stage Latency ──
@@ -211,7 +215,9 @@ async function benchCompressionQualityImpact() {
     const p99 = percentile(sorted, 99);
     const ratio = (serialized.length / compressedSize).toFixed(2);
 
-    console.log(`  ${String(quality).padStart(7)} | ${avg.toFixed(3).padStart(9)}ms | ${p99.toFixed(3).padStart(9)}ms | ${String(compressedSize).padStart(13)} B | ${ratio.padStart(4)}x`);
+    console.log(
+      `  ${String(quality).padStart(7)} | ${avg.toFixed(3).padStart(9)}ms | ${p99.toFixed(3).padStart(9)}ms | ${String(compressedSize).padStart(13)} B | ${ratio.padStart(4)}x`
+    );
   }
   console.log();
 }
@@ -259,7 +265,9 @@ async function benchPayloadSizeImpact() {
     const txAvg = txLatencies.reduce((a, b) => a + b, 0) / txLatencies.length;
     const rxAvg = rxLatencies.reduce((a, b) => a + b, 0) / rxLatencies.length;
 
-    console.log(`  ${String(pathCount).padStart(5)} | ${String(serialized.length).padStart(6)} B | ${txAvg.toFixed(3).padStart(14)}ms | ${percentile(txSorted, 99).toFixed(3).padStart(7)}ms | ${rxAvg.toFixed(3).padStart(14)}ms | ${percentile(rxSorted, 99).toFixed(3).padStart(5)}ms`);
+    console.log(
+      `  ${String(pathCount).padStart(5)} | ${String(serialized.length).padStart(6)} B | ${txAvg.toFixed(3).padStart(14)}ms | ${percentile(txSorted, 99).toFixed(3).padStart(7)}ms | ${rxAvg.toFixed(3).padStart(14)}ms | ${percentile(rxSorted, 99).toFixed(3).padStart(5)}ms`
+    );
   }
   console.log();
 }
@@ -274,7 +282,7 @@ async function benchNetworkLatencyImpact() {
     { name: "LTE (30ms)", latency: 30, jitter: 10, loss: 0.01 },
     { name: "3G (100ms)", latency: 100, jitter: 30, loss: 0.03 },
     { name: "Satellite (600ms)", latency: 600, jitter: 50, loss: 0.02 },
-    { name: "Poor cellular (200ms, 10% loss)", latency: 200, jitter: 80, loss: 0.10 }
+    { name: "Poor cellular (200ms, 10% loss)", latency: 200, jitter: 80, loss: 0.1 }
   ];
 
   console.log("  Scenario                         | Added Latency | Delivery Rate | Effective p95");
@@ -300,13 +308,15 @@ async function benchNetworkLatencyImpact() {
     }
 
     // Wait for all delayed deliveries
-    await new Promise(resolve => setTimeout(resolve, scenario.latency + scenario.jitter + 100));
+    await new Promise((resolve) => setTimeout(resolve, scenario.latency + scenario.jitter + 100));
 
-    const deliveryRate = (delivered / total * 100).toFixed(1);
+    const deliveryRate = ((delivered / total) * 100).toFixed(1);
     const sorted = [...deliveryTimes].sort((a, b) => a - b);
     const p95 = sorted.length > 0 ? percentile(sorted, 95) : 0;
 
-    console.log(`  ${scenario.name.padEnd(33)} | ${String(scenario.latency).padStart(10)}ms  | ${(deliveryRate + "%").padStart(13)} | ${String(p95).padStart(10)}ms`);
+    console.log(
+      `  ${scenario.name.padEnd(33)} | ${String(scenario.latency).padStart(10)}ms  | ${(deliveryRate + "%").padStart(13)} | ${String(p95).padStart(10)}ms`
+    );
 
     sim.destroy();
   }
@@ -316,7 +326,7 @@ async function benchNetworkLatencyImpact() {
 // ── Run All ──
 async function main() {
   console.log("Signal K Edge Link v2.0 - Phase 7: Latency Percentile Benchmarks");
-  console.log("=" .repeat(65) + "\n");
+  console.log("=".repeat(65) + "\n");
 
   await benchPerStageLatency();
   await benchFullPipelineLatency();
@@ -324,7 +334,7 @@ async function main() {
   await benchPayloadSizeImpact();
   await benchNetworkLatencyImpact();
 
-  console.log("=" .repeat(65));
+  console.log("=".repeat(65));
   console.log("Latency percentile benchmarks complete.");
 }
 

@@ -39,7 +39,9 @@ describe("config-io", () => {
     const loaded = await loadConfigFile(filePath, logger);
 
     expect(loaded).toBeNull();
-    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining(`Error parsing JSON in ${filePath}`));
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining(`Error parsing JSON in ${filePath}`)
+    );
     expect(logger.debug).not.toHaveBeenCalled();
   });
 

@@ -23,43 +23,51 @@ const brotliCompressAsync = promisify(zlib.brotliCompress);
 const SECRET_KEY = "12345678901234567890123456789012";
 
 function formatBytes(bytes) {
-  if (bytes < 1024) {return `${bytes} B`;}
-  if (bytes < 1048576) {return `${(bytes / 1024).toFixed(1)} KB`;}
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1048576) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
 // Sample delta payloads of increasing complexity
 function generateNavDelta(index) {
   return {
-    updates: [{
-      source: { label: "gps", type: "NMEA2000" },
-      timestamp: new Date().toISOString(),
-      values: [
-        { path: "navigation.position.latitude", value: 60.1 + index * 0.001 },
-        { path: "navigation.position.longitude", value: 24.9 + index * 0.001 }
-      ]
-    }]
+    updates: [
+      {
+        source: { label: "gps", type: "NMEA2000" },
+        timestamp: new Date().toISOString(),
+        values: [
+          { path: "navigation.position.latitude", value: 60.1 + index * 0.001 },
+          { path: "navigation.position.longitude", value: 24.9 + index * 0.001 }
+        ]
+      }
+    ]
   };
 }
 
 function generateFullDelta(index) {
   return {
-    updates: [{
-      source: { label: "instruments", type: "NMEA2000" },
-      timestamp: new Date().toISOString(),
-      values: [
-        { path: "navigation.position.latitude", value: 60.1 + index * 0.001 },
-        { path: "navigation.position.longitude", value: 24.9 + index * 0.001 },
-        { path: "navigation.speedOverGround", value: 5.5 + Math.random() },
-        { path: "navigation.courseOverGroundTrue", value: 180 + Math.random() * 10 },
-        { path: "environment.wind.speedApparent", value: 8.0 + Math.random() * 2 },
-        { path: "environment.wind.angleApparent", value: 45 + Math.random() * 5 },
-        { path: "environment.depth.belowSurface", value: 15.3 + Math.random() },
-        { path: "environment.water.temperature", value: 288.15 + Math.random() },
-        { path: "electrical.batteries.main.voltage", value: 12.4 + Math.random() * 0.2 },
-        { path: "navigation.headingTrue", value: 178 + Math.random() * 2 }
-      ]
-    }]
+    updates: [
+      {
+        source: { label: "instruments", type: "NMEA2000" },
+        timestamp: new Date().toISOString(),
+        values: [
+          { path: "navigation.position.latitude", value: 60.1 + index * 0.001 },
+          { path: "navigation.position.longitude", value: 24.9 + index * 0.001 },
+          { path: "navigation.speedOverGround", value: 5.5 + Math.random() },
+          { path: "navigation.courseOverGroundTrue", value: 180 + Math.random() * 10 },
+          { path: "environment.wind.speedApparent", value: 8.0 + Math.random() * 2 },
+          { path: "environment.wind.angleApparent", value: 45 + Math.random() * 5 },
+          { path: "environment.depth.belowSurface", value: 15.3 + Math.random() },
+          { path: "environment.water.temperature", value: 288.15 + Math.random() },
+          { path: "electrical.batteries.main.voltage", value: 12.4 + Math.random() * 0.2 },
+          { path: "navigation.headingTrue", value: 178 + Math.random() * 2 }
+        ]
+      }
+    ]
   };
 }
 
@@ -85,27 +93,41 @@ async function benchCompressionRatios() {
   // Single nav delta
   const navDelta = generateNavDelta(0);
   const navResult = await compressAndEncrypt({ 0: navDelta });
-  const navPacket = builder.buildDataPacket(navResult.encrypted, { compressed: true, encrypted: true });
+  const navPacket = builder.buildDataPacket(navResult.encrypted, {
+    compressed: true,
+    encrypted: true
+  });
 
   console.log("Single Navigation Delta (lat/lon):");
   console.log(`  Raw JSON:    ${formatBytes(navResult.serialized.length)}`);
-  console.log(`  Compressed:  ${formatBytes(navResult.compressed.length)} (${((navResult.compressed.length / navResult.serialized.length) * 100).toFixed(1)}%)`);
+  console.log(
+    `  Compressed:  ${formatBytes(navResult.compressed.length)} (${((navResult.compressed.length / navResult.serialized.length) * 100).toFixed(1)}%)`
+  );
   console.log(`  + Encrypt:   ${formatBytes(navResult.encrypted.length)}`);
   console.log(`  + v2 Header: ${formatBytes(navPacket.length)} (header: ${HEADER_SIZE}B)`);
-  console.log(`  Compression ratio: ${(navResult.serialized.length / navPacket.length).toFixed(2)}x`);
+  console.log(
+    `  Compression ratio: ${(navResult.serialized.length / navPacket.length).toFixed(2)}x`
+  );
   console.log();
 
   // Full instrument delta
   const fullDelta = generateFullDelta(0);
   const fullResult = await compressAndEncrypt({ 0: fullDelta });
-  const fullPacket = builder.buildDataPacket(fullResult.encrypted, { compressed: true, encrypted: true });
+  const fullPacket = builder.buildDataPacket(fullResult.encrypted, {
+    compressed: true,
+    encrypted: true
+  });
 
   console.log("Full Instrument Delta (10 paths):");
   console.log(`  Raw JSON:    ${formatBytes(fullResult.serialized.length)}`);
-  console.log(`  Compressed:  ${formatBytes(fullResult.compressed.length)} (${((fullResult.compressed.length / fullResult.serialized.length) * 100).toFixed(1)}%)`);
+  console.log(
+    `  Compressed:  ${formatBytes(fullResult.compressed.length)} (${((fullResult.compressed.length / fullResult.serialized.length) * 100).toFixed(1)}%)`
+  );
   console.log(`  + Encrypt:   ${formatBytes(fullResult.encrypted.length)}`);
   console.log(`  + v2 Header: ${formatBytes(fullPacket.length)} (header: ${HEADER_SIZE}B)`);
-  console.log(`  Compression ratio: ${(fullResult.serialized.length / fullPacket.length).toFixed(2)}x`);
+  console.log(
+    `  Compression ratio: ${(fullResult.serialized.length / fullPacket.length).toFixed(2)}x`
+  );
   console.log();
 
   // Batched deltas
@@ -121,9 +143,18 @@ async function benchCompressionRatios() {
     }
     const result = await compressAndEncrypt(batch);
     const batchBuilder = new PacketBuilder();
-    const packet = batchBuilder.buildDataPacket(result.encrypted, { compressed: true, encrypted: true });
+    const packet = batchBuilder.buildDataPacket(result.encrypted, {
+      compressed: true,
+      encrypted: true
+    });
 
-    console.log(`  ${String(size).padStart(5)} | ${formatBytes(result.serialized.length).padStart(8)} | ${formatBytes(result.compressed.length).padStart(10)} | ${formatBytes(packet.length).padStart(6)} | ${(result.serialized.length / packet.length).toFixed(2).padStart(5)}x | ${Math.round(packet.length / size).toString().padStart(5)} B`);
+    console.log(
+      `  ${String(size).padStart(5)} | ${formatBytes(result.serialized.length).padStart(8)} | ${formatBytes(result.compressed.length).padStart(10)} | ${formatBytes(packet.length).padStart(6)} | ${(result.serialized.length / packet.length).toFixed(2).padStart(5)}x | ${Math.round(
+        packet.length / size
+      )
+        .toString()
+        .padStart(5)} B`
+    );
   }
   console.log();
 }
@@ -151,9 +182,11 @@ function benchProtocolOverhead() {
     const ackBandwidth = acksPerSecond * ackSize;
     const heartbeatBandwidth = (heartbeatsPerMinute / 60) * heartbeatSize;
     const totalBandwidth = dataBandwidth + ackBandwidth + heartbeatBandwidth;
-    const overheadPercent = ((ackBandwidth + heartbeatBandwidth) / totalBandwidth * 100);
+    const overheadPercent = ((ackBandwidth + heartbeatBandwidth) / totalBandwidth) * 100;
 
-    console.log(`  ${(timer + "ms").padStart(11)} | ${packetsPerSec.toFixed(1).padStart(8)} | ${formatBytes(Math.round(dataBandwidth)).padStart(10)}/s | ${formatBytes(Math.round(ackBandwidth)).padStart(12)}/s | ${formatBytes(Math.round(totalBandwidth)).padStart(10)}/s | ${overheadPercent.toFixed(2).padStart(8)}%`);
+    console.log(
+      `  ${(timer + "ms").padStart(11)} | ${packetsPerSec.toFixed(1).padStart(8)} | ${formatBytes(Math.round(dataBandwidth)).padStart(10)}/s | ${formatBytes(Math.round(ackBandwidth)).padStart(12)}/s | ${formatBytes(Math.round(totalBandwidth)).padStart(10)}/s | ${overheadPercent.toFixed(2).padStart(8)}%`
+    );
   }
   console.log();
 }
@@ -163,10 +196,26 @@ function benchCongestionResponse() {
   console.log("=== Congestion Control Response Time ===\n");
 
   const scenarios = [
-    { name: "Good Network → Congested", rttSequence: [50, 50, 50, 300, 400, 500, 600], lossSequence: [0, 0, 0, 0.02, 0.05, 0.1, 0.15] },
-    { name: "Congested → Recovery", rttSequence: [500, 400, 300, 200, 150, 100, 80], lossSequence: [0.1, 0.08, 0.05, 0.02, 0.01, 0.005, 0] },
-    { name: "Satellite Link", rttSequence: [600, 620, 610, 630, 600, 640, 620], lossSequence: [0.02, 0.03, 0.02, 0.04, 0.02, 0.03, 0.02] },
-    { name: "Cellular LTE", rttSequence: [30, 40, 35, 200, 50, 30, 25], lossSequence: [0, 0, 0.01, 0.05, 0.02, 0, 0] }
+    {
+      name: "Good Network → Congested",
+      rttSequence: [50, 50, 50, 300, 400, 500, 600],
+      lossSequence: [0, 0, 0, 0.02, 0.05, 0.1, 0.15]
+    },
+    {
+      name: "Congested → Recovery",
+      rttSequence: [500, 400, 300, 200, 150, 100, 80],
+      lossSequence: [0.1, 0.08, 0.05, 0.02, 0.01, 0.005, 0]
+    },
+    {
+      name: "Satellite Link",
+      rttSequence: [600, 620, 610, 630, 600, 640, 620],
+      lossSequence: [0.02, 0.03, 0.02, 0.04, 0.02, 0.03, 0.02]
+    },
+    {
+      name: "Cellular LTE",
+      rttSequence: [30, 40, 35, 200, 50, 30, 25],
+      lossSequence: [0, 0, 0.01, 0.05, 0.02, 0, 0]
+    }
   ];
 
   for (const scenario of scenarios) {
@@ -187,7 +236,9 @@ function benchCongestionResponse() {
       const newTimer = cc.adjust();
       const change = newTimer - prevTimer;
       const changeStr = change > 0 ? `+${change}` : `${change}`;
-      console.log(`  ${String(i + 1).padStart(4)} | ${String(scenario.rttSequence[i]).padStart(5)}ms | ${(scenario.lossSequence[i] * 100).toFixed(1).padStart(5)}% | ${String(newTimer).padStart(11)}ms | ${changeStr.padStart(5)}ms`);
+      console.log(
+        `  ${String(i + 1).padStart(4)} | ${String(scenario.rttSequence[i]).padStart(5)}ms | ${(scenario.lossSequence[i] * 100).toFixed(1).padStart(5)}% | ${String(newTimer).padStart(11)}ms | ${changeStr.padStart(5)}ms`
+      );
       prevTimer = newTimer;
     }
     console.log();
@@ -203,20 +254,25 @@ async function benchMTUUtilization() {
   console.log("  Batch Size | Packet Size | MTU Usage | Fits MTU | Wasted Space");
   console.log("  -----------|-------------|-----------|----------|-------------");
 
-  for (let batchSize = 1; batchSize <= 50; batchSize += (batchSize < 10 ? 1 : 5)) {
+  for (let batchSize = 1; batchSize <= 50; batchSize += batchSize < 10 ? 1 : 5) {
     const batch = {};
     for (let i = 0; i < batchSize; i++) {
       batch[i] = generateNavDelta(i);
     }
     const result = await compressAndEncrypt(batch);
     const batchBuilder = new PacketBuilder();
-    const packet = batchBuilder.buildDataPacket(result.encrypted, { compressed: true, encrypted: true });
+    const packet = batchBuilder.buildDataPacket(result.encrypted, {
+      compressed: true,
+      encrypted: true
+    });
 
-    const mtuUsage = (packet.length / MTU * 100);
+    const mtuUsage = (packet.length / MTU) * 100;
     const fitsMTU = packet.length <= MTU;
     const wasted = fitsMTU ? MTU - packet.length : -(packet.length - MTU);
 
-    console.log(`  ${String(batchSize).padStart(10)} | ${formatBytes(packet.length).padStart(11)} | ${mtuUsage.toFixed(1).padStart(8)}% | ${(fitsMTU ? "Yes" : "NO!").padStart(8)} | ${fitsMTU ? formatBytes(wasted).padStart(8) : ("-" + formatBytes(-wasted)).padStart(8)}`);
+    console.log(
+      `  ${String(batchSize).padStart(10)} | ${formatBytes(packet.length).padStart(11)} | ${mtuUsage.toFixed(1).padStart(8)}% | ${(fitsMTU ? "Yes" : "NO!").padStart(8)} | ${fitsMTU ? formatBytes(wasted).padStart(8) : ("-" + formatBytes(-wasted)).padStart(8)}`
+    );
   }
   console.log();
 }
@@ -224,14 +280,14 @@ async function benchMTUUtilization() {
 // ── Run All ──
 async function main() {
   console.log("Signal K Edge Link v2.0 - Phase 7: Bandwidth Efficiency Benchmarks");
-  console.log("=" .repeat(65) + "\n");
+  console.log("=".repeat(65) + "\n");
 
   await benchCompressionRatios();
   await benchProtocolOverhead();
   await benchCongestionResponse();
   await benchMTUUtilization();
 
-  console.log("=" .repeat(65));
+  console.log("=".repeat(65));
   console.log("Bandwidth efficiency benchmarks complete.");
 }
 

@@ -14,16 +14,26 @@ jest.mock("dgram", () => {
   const createMockSocket = () => {
     const listeners = {};
     return {
-      send: jest.fn((msg, port, address, cb) => { if (cb) {cb(null);} }),
-      bind: jest.fn((opts, cb) => { if (cb) {cb(null);} }),
+      send: jest.fn((msg, port, address, cb) => {
+        if (cb) {
+          cb(null);
+        }
+      }),
+      bind: jest.fn((opts, cb) => {
+        if (cb) {
+          cb(null);
+        }
+      }),
       close: jest.fn(),
       on: jest.fn((event, handler) => {
-        if (!listeners[event]) {listeners[event] = [];}
+        if (!listeners[event]) {
+          listeners[event] = [];
+        }
         listeners[event].push(handler);
       }),
       emit: (event, ...args) => {
         if (listeners[event]) {
-          listeners[event].forEach(h => h(...args));
+          listeners[event].forEach((h) => h(...args));
         }
       }
     };
@@ -56,7 +66,7 @@ function createDefaultConfig(overrides = {}) {
     notificationsEnabled: true,
     failover: {
       rttThreshold: 500,
-      lossThreshold: 0.10,
+      lossThreshold: 0.1,
       healthCheckInterval: 1000,
       failbackDelay: 30000,
       heartbeatTimeout: 5000,
@@ -75,7 +85,9 @@ describe("Bonding Failover Scenarios", () => {
   });
 
   afterEach(() => {
-    if (bm && bm._initialized) {bm.stop();}
+    if (bm && bm._initialized) {
+      bm.stop();
+    }
     jest.useRealTimers();
   });
 
@@ -163,7 +175,7 @@ describe("Bonding Failover Scenarios", () => {
       bm = new BondingManager(createDefaultConfig(), app);
       await bm.initialize();
 
-      bm.links.primary.health.loss = 0.10; // Exactly at threshold (not strictly greater)
+      bm.links.primary.health.loss = 0.1; // Exactly at threshold (not strictly greater)
       expect(bm._shouldFailover()).toBe(false);
     });
 
@@ -172,7 +184,7 @@ describe("Bonding Failover Scenarios", () => {
       await bm.initialize();
 
       bm.links.primary.health.rtt = 50; // Excellent RTT
-      bm.links.primary.health.loss = 0.20; // But terrible loss
+      bm.links.primary.health.loss = 0.2; // But terrible loss
       expect(bm._shouldFailover()).toBe(true);
     });
   });
@@ -568,7 +580,7 @@ describe("Bonding Failover Scenarios", () => {
     });
 
     test("loss threshold is 10%", () => {
-      expect(BONDING_LOSS_THRESHOLD).toBe(0.10);
+      expect(BONDING_LOSS_THRESHOLD).toBe(0.1);
     });
 
     test("failback delay is 30 seconds", () => {

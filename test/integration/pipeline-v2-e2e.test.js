@@ -75,14 +75,16 @@ describe("V2 Pipeline End-to-End", () => {
       const tracker = new SequenceTracker();
 
       const testDelta = {
-        updates: [{
-          source: { label: "test" },
-          timestamp: new Date().toISOString(),
-          values: [
-            { path: "navigation.position.latitude", value: 60.1 },
-            { path: "navigation.position.longitude", value: 24.9 }
-          ]
-        }]
+        updates: [
+          {
+            source: { label: "test" },
+            timestamp: new Date().toISOString(),
+            values: [
+              { path: "navigation.position.latitude", value: 60.1 },
+              { path: "navigation.position.longitude", value: 24.9 }
+            ]
+          }
+        ]
       };
 
       // Client side: serialize → compress → encrypt → packet build
@@ -129,11 +131,13 @@ describe("V2 Pipeline End-to-End", () => {
 
       for (let i = 0; i < 5; i++) {
         const delta = {
-          updates: [{
-            source: { label: "test" },
-            timestamp: new Date().toISOString(),
-            values: [{ path: "test.value", value: i }]
-          }]
+          updates: [
+            {
+              source: { label: "test" },
+              timestamp: new Date().toISOString(),
+              values: [{ path: "test.value", value: i }]
+            }
+          ]
         };
 
         // Client: serialize → compress → encrypt → packet build

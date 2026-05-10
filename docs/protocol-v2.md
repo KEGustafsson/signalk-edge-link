@@ -8,13 +8,13 @@ Protocol v3 keeps the same reliable transport model but adds HMAC authentication
 
 v2 introduces typed packets. Each packet begins with a 15-byte binary header before the encrypted payload.
 
-| Type        | Direction          | Purpose                                                                    |
-| ----------- | ------------------ | -------------------------------------------------------------------------- |
-| `DATA`      | Client → Server    | Carries one or more Signal K deltas (main data payload)                    |
-| `ACK`       | Server → Client    | Acknowledges a range of successfully received sequence numbers             |
-| `NAK`       | Server → Client    | Requests retransmission of specific missing sequence numbers               |
-| `HEARTBEAT` | Client ↔ Server    | Keepalive probe used for RTT measurement and link health monitoring        |
-| `HELLO`     | Client → Server    | Session initiation; announces client protocol version and capabilities     |
+| Type        | Direction       | Purpose                                                                |
+| ----------- | --------------- | ---------------------------------------------------------------------- |
+| `DATA`      | Client → Server | Carries one or more Signal K deltas (main data payload)                |
+| `ACK`       | Server → Client | Acknowledges a range of successfully received sequence numbers         |
+| `NAK`       | Server → Client | Requests retransmission of specific missing sequence numbers           |
+| `HEARTBEAT` | Client ↔ Server | Keepalive probe used for RTT measurement and link health monitoring    |
+| `HELLO`     | Client → Server | Session initiation; announces client protocol version and capabilities |
 
 In v3, `ACK`, `NAK`, `HEARTBEAT`, and `HELLO` packets carry an HMAC signature computed from the shared key so the server can reject forged control traffic.
 

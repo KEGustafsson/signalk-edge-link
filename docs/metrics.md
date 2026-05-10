@@ -8,25 +8,25 @@ For JSON response structures, see `docs/api-reference.md`. For Prometheus scrapi
 
 These counters and gauges appear in `GET /metrics` under `stats` and `bandwidth`.
 
-| Metric               | Unit    | Description                                                      |
-| -------------------- | ------- | ---------------------------------------------------------------- |
-| `deltasSent`         | count   | Total Signal K delta batches sent (client mode)                  |
-| `deltasReceived`     | count   | Total delta batches received and injected into Signal K (server) |
-| `bandwidth.packetsOut` | count | Total UDP packets sent                                           |
-| `bandwidth.packetsIn`  | count | Total UDP packets received                                       |
-| `bytesOut`           | bytes   | Compressed + encrypted bytes sent                                |
-| `bytesIn`            | bytes   | Compressed + encrypted bytes received                            |
-| `bytesOutRaw`        | bytes   | Uncompressed payload bytes (before Brotli)                       |
-| `compressionRatio`   | percent | `(1 - bytesOut / bytesOutRaw) × 100` — higher is better          |
-| `rateOut`            | B/s     | Current outbound byte rate (smoothed)                            |
-| `rateIn`             | B/s     | Current inbound byte rate (smoothed)                             |
-| `avgPacketSize`      | bytes   | Mean UDP payload size after compression                          |
-| `compressionErrors`  | count   | Brotli compress/decompress failures                              |
-| `encryptionErrors`   | count   | AES-GCM encrypt/decrypt failures (mismatched key shows up here)  |
-| `udpSendErrors`      | count   | UDP socket send failures                                         |
-| `udpRetries`         | count   | Packets that required at least one UDP retry                     |
-| `subscriptionErrors` | count   | Signal K subscription setup failures                             |
-| `malformedPackets`   | count   | Packets dropped due to invalid format or CRC mismatch            |
+| Metric                 | Unit    | Description                                                      |
+| ---------------------- | ------- | ---------------------------------------------------------------- |
+| `deltasSent`           | count   | Total Signal K delta batches sent (client mode)                  |
+| `deltasReceived`       | count   | Total delta batches received and injected into Signal K (server) |
+| `bandwidth.packetsOut` | count   | Total UDP packets sent                                           |
+| `bandwidth.packetsIn`  | count   | Total UDP packets received                                       |
+| `bytesOut`             | bytes   | Compressed + encrypted bytes sent                                |
+| `bytesIn`              | bytes   | Compressed + encrypted bytes received                            |
+| `bytesOutRaw`          | bytes   | Uncompressed payload bytes (before Brotli)                       |
+| `compressionRatio`     | percent | `(1 - bytesOut / bytesOutRaw) × 100` — higher is better          |
+| `rateOut`              | B/s     | Current outbound byte rate (smoothed)                            |
+| `rateIn`               | B/s     | Current inbound byte rate (smoothed)                             |
+| `avgPacketSize`        | bytes   | Mean UDP payload size after compression                          |
+| `compressionErrors`    | count   | Brotli compress/decompress failures                              |
+| `encryptionErrors`     | count   | AES-GCM encrypt/decrypt failures (mismatched key shows up here)  |
+| `udpSendErrors`        | count   | UDP socket send failures                                         |
+| `udpRetries`           | count   | Packets that required at least one UDP retry                     |
+| `subscriptionErrors`   | count   | Signal K subscription setup failures                             |
+| `malformedPackets`     | count   | Packets dropped due to invalid format or CRC mismatch            |
 
 ### Interpretation
 

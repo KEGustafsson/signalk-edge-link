@@ -20,79 +20,79 @@ node test/benchmarks/reliability-overhead.js
 
 ### Common parameters (client and server)
 
-| Parameter | Meaning | Performance impact |
-|---|---|---|
-| `name` | Connection label / namespace. | No direct runtime throughput/latency impact; helps isolate metrics and per-connection runtime files. |
-| `serverType` | Role selection (`client` sender or `server` receiver). | Indirect impact by enabling/disabling mode-specific features (e.g., congestion control and bonding are client-side). |
-| `udpPort` | UDP socket port used by the connection. | No direct speed impact; wrong value causes zero useful throughput due to no delivery. |
-| `secretKey` | Shared encryption key material used for AES-256-GCM. | No meaningful speed tuning effect; mismatch causes decryption failures and packet drops. |
-| `useMsgpack` | Binary encoding option. | Can reduce payload size and bandwidth; CPU impact depends on payload complexity. |
-| `usePathDictionary` | Dictionary-based path compaction. | Usually lowers bytes-per-delta significantly for repetitive paths; minimal additional overhead. |
-| `protocolVersion` | v1 or v2. | v2 adds reliability/metrics features and control traffic; v1 has lower overhead but fewer recovery capabilities. |
+| Parameter           | Meaning                                                | Performance impact                                                                                                   |
+| ------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `name`              | Connection label / namespace.                          | No direct runtime throughput/latency impact; helps isolate metrics and per-connection runtime files.                 |
+| `serverType`        | Role selection (`client` sender or `server` receiver). | Indirect impact by enabling/disabling mode-specific features (e.g., congestion control and bonding are client-side). |
+| `udpPort`           | UDP socket port used by the connection.                | No direct speed impact; wrong value causes zero useful throughput due to no delivery.                                |
+| `secretKey`         | Shared encryption key material used for AES-256-GCM.   | No meaningful speed tuning effect; mismatch causes decryption failures and packet drops.                             |
+| `useMsgpack`        | Binary encoding option.                                | Can reduce payload size and bandwidth; CPU impact depends on payload complexity.                                     |
+| `usePathDictionary` | Dictionary-based path compaction.                      | Usually lowers bytes-per-delta significantly for repetitive paths; minimal additional overhead.                      |
+| `protocolVersion`   | v1 or v2.                                              | v2 adds reliability/metrics features and control traffic; v1 has lower overhead but fewer recovery capabilities.     |
 
 ### Client network and sampling parameters
 
-| Parameter | Meaning | Performance impact |
-|---|---|---|
-| `udpAddress` | Destination host/IP for sends. | Incorrect value = no traffic delivered; does not tune speed directly. |
-| `helloMessageSender` | Heartbeat interval (seconds). | Lower values improve liveness detection but increase control-plane traffic. |
-| `testAddress` / `testPort` | Connectivity test target. | Affects quality of observed network telemetry (RTT/loss awareness), not packet format efficiency. |
-| `pingIntervalTime` | Frequency of connectivity tests. | Lower interval gives fresher network state but adds probe traffic/CPU. |
+| Parameter                  | Meaning                          | Performance impact                                                                                |
+| -------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `udpAddress`               | Destination host/IP for sends.   | Incorrect value = no traffic delivered; does not tune speed directly.                             |
+| `helloMessageSender`       | Heartbeat interval (seconds).    | Lower values improve liveness detection but increase control-plane traffic.                       |
+| `testAddress` / `testPort` | Connectivity test target.        | Affects quality of observed network telemetry (RTT/loss awareness), not packet format efficiency. |
+| `pingIntervalTime`         | Frequency of connectivity tests. | Lower interval gives fresher network state but adds probe traffic/CPU.                            |
 
 ### Reliability parameters (v2)
 
 #### Server-side ACK/NAK timing
 
-| Parameter | Meaning | Performance impact |
-|---|---|---|
-| `reliability.ackInterval` | ACK emission cadence. | Lower interval improves recovery feedback latency; increases ACK bandwidth overhead. |
-| `reliability.ackResendInterval` | Duplicate ACK resend cadence. | Helps recover from ACK loss; too low can add excess overhead. |
-| `reliability.nakTimeout` | Delay before requesting missing packets. | Lower values recover faster but may overreact to jitter/reordering. |
+| Parameter                       | Meaning                                  | Performance impact                                                                   |
+| ------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| `reliability.ackInterval`       | ACK emission cadence.                    | Lower interval improves recovery feedback latency; increases ACK bandwidth overhead. |
+| `reliability.ackResendInterval` | Duplicate ACK resend cadence.            | Helps recover from ACK loss; too low can add excess overhead.                        |
+| `reliability.nakTimeout`        | Delay before requesting missing packets. | Lower values recover faster but may overreact to jitter/reordering.                  |
 
 #### Client-side retransmit behavior
 
-| Parameter | Meaning | Performance impact |
-|---|---|---|
-| `retransmitQueueSize` | Max saved packets for possible retransmit. | Larger queue improves outage tolerance but increases memory usage. |
-| `maxRetransmits` | Retry limit per packet. | Higher values increase eventual delivery probability under loss, with more bandwidth cost. |
-| `retransmitMaxAge` / `retransmitMinAge` | Packet age bounds for queue expiry. | More aggressive expiry reduces memory/latency backlog but may reduce recoverability. |
-| `retransmitRttMultiplier` | Dynamic age scaling vs RTT. | Higher values better tolerate high-latency links; lower values drain queues faster. |
-| `ackIdleDrainAge`, `forceDrainAfterAckIdle`, `forceDrainAfterMs` | Behavior when ACKs disappear for long periods. | Prevents unbounded backlog; can trade guaranteed recovery for stability. |
-| `recoveryBurstEnabled`, `recoveryBurstSize`, `recoveryBurstIntervalMs`, `recoveryAckGapMs` | Fast catch-up controls after outages. | Faster recovery but can create short burst spikes in traffic/CPU. |
+| Parameter                                                                                  | Meaning                                        | Performance impact                                                                         |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `retransmitQueueSize`                                                                      | Max saved packets for possible retransmit.     | Larger queue improves outage tolerance but increases memory usage.                         |
+| `maxRetransmits`                                                                           | Retry limit per packet.                        | Higher values increase eventual delivery probability under loss, with more bandwidth cost. |
+| `retransmitMaxAge` / `retransmitMinAge`                                                    | Packet age bounds for queue expiry.            | More aggressive expiry reduces memory/latency backlog but may reduce recoverability.       |
+| `retransmitRttMultiplier`                                                                  | Dynamic age scaling vs RTT.                    | Higher values better tolerate high-latency links; lower values drain queues faster.        |
+| `ackIdleDrainAge`, `forceDrainAfterAckIdle`, `forceDrainAfterMs`                           | Behavior when ACKs disappear for long periods. | Prevents unbounded backlog; can trade guaranteed recovery for stability.                   |
+| `recoveryBurstEnabled`, `recoveryBurstSize`, `recoveryBurstIntervalMs`, `recoveryAckGapMs` | Fast catch-up controls after outages.          | Faster recovery but can create short burst spikes in traffic/CPU.                          |
 
 ### Congestion control (client, v2)
 
-| Parameter | Meaning | Performance impact |
-|---|---|---|
-| `congestionControl.enabled` | Enables AIMD send-rate adaptation. | Usually improves robustness under variable WAN conditions. |
-| `targetRTT` | Desired RTT threshold. | Lower target is conservative (backs off sooner); higher target favors throughput. |
-| `nominalDeltaTimer` | Preferred steady send interval. | Baseline latency/bandwidth trade-off. |
-| `minDeltaTimer` / `maxDeltaTimer` | Controller adjustment bounds. | Wider range allows stronger adaptation; narrower range stabilizes behavior. |
+| Parameter                         | Meaning                            | Performance impact                                                                |
+| --------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------- |
+| `congestionControl.enabled`       | Enables AIMD send-rate adaptation. | Usually improves robustness under variable WAN conditions.                        |
+| `targetRTT`                       | Desired RTT threshold.             | Lower target is conservative (backs off sooner); higher target favors throughput. |
+| `nominalDeltaTimer`               | Preferred steady send interval.    | Baseline latency/bandwidth trade-off.                                             |
+| `minDeltaTimer` / `maxDeltaTimer` | Controller adjustment bounds.      | Wider range allows stronger adaptation; narrower range stabilizes behavior.       |
 
 ### Bonding/failover (client, v2)
 
-| Parameter | Meaning | Performance impact |
-|---|---|---|
-| `bonding.enabled` | Enables dual-link mode. | Improves availability; adds monitoring/control overhead. |
-| `bonding.primary.*` / `bonding.backup.*` | Link endpoint and interface details. | Correct setup can preserve throughput during outages by failover. |
+| Parameter                                         | Meaning                                  | Performance impact                                                                                                        |
+| ------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `bonding.enabled`                                 | Enables dual-link mode.                  | Improves availability; adds monitoring/control overhead.                                                                  |
+| `bonding.primary.*` / `bonding.backup.*`          | Link endpoint and interface details.     | Correct setup can preserve throughput during outages by failover.                                                         |
 | `bonding.failover.rttThreshold` / `lossThreshold` | Trigger sensitivity for switching links. | Lower values switch earlier (possibly noisy), higher values switch later (possibly degraded performance before failover). |
-| `bonding.failover.healthCheckInterval` | Link check cadence. | Lower interval reacts faster with more probe load. |
-| `bonding.failover.failbackDelay` | Delay before returning to primary. | Higher values reduce flapping, lower values restore preferred path sooner. |
-| `bonding.failover.heartbeatTimeout` | Link-down timeout. | Lower values detect failure faster but risk false positives on jittery links. |
+| `bonding.failover.healthCheckInterval`            | Link check cadence.                      | Lower interval reacts faster with more probe load.                                                                        |
+| `bonding.failover.failbackDelay`                  | Delay before returning to primary.       | Higher values reduce flapping, lower values restore preferred path sooner.                                                |
+| `bonding.failover.heartbeatTimeout`               | Link-down timeout.                       | Lower values detect failure faster but risk false positives on jittery links.                                             |
 
 ### Monitoring thresholds (client)
 
-| Parameter | Meaning | Performance impact |
-|---|---|---|
+| Parameter                            | Meaning                                                                 | Performance impact                                                                                    |
+| ------------------------------------ | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `alertThresholds.*.warning/critical` | Warning/critical thresholds for RTT/loss/jitter/retransmit/queue depth. | No direct packet processing speed change; affects alert noise/sensitivity and operator reaction time. |
 
 ### Runtime configuration files
 
-| Runtime field | Meaning | Performance impact |
-|---|---|---|
-| `delta_timer.json: deltaTimer` | Batch send interval. | Lower = lower latency/higher bandwidth; higher = better compression/lower packet rate. |
-| `subscription.json` | Included Signal K paths. | Strongest bandwidth lever: narrower subscriptions dramatically reduce payload volume. |
-| `sentence_filter.json` | Excluded NMEA sentence types. | Reduces repetitive traffic and packet load when tuned appropriately. |
+| Runtime field                  | Meaning                       | Performance impact                                                                     |
+| ------------------------------ | ----------------------------- | -------------------------------------------------------------------------------------- |
+| `delta_timer.json: deltaTimer` | Batch send interval.          | Lower = lower latency/higher bandwidth; higher = better compression/lower packet rate. |
+| `subscription.json`            | Included Signal K paths.      | Strongest bandwidth lever: narrower subscriptions dramatically reduce payload volume.  |
+| `sentence_filter.json`         | Excluded NMEA sentence types. | Reduces repetitive traffic and packet load when tuned appropriately.                   |
 
 ## 1) Delta timer and batching impact (throughput vs overhead)
 
@@ -100,24 +100,24 @@ Source: `bandwidth-efficiency.js`
 
 ### Protocol overhead at various `deltaTimer` values
 
-| Delta timer | Packets/sec | Data BW | ACK overhead | Total BW | Overhead % |
-|---:|---:|---:|---:|---:|---:|
-| 100 ms | 10.0 | 2.1 KB/s | 210 B/s | 2.3 KB/s | 8.92% |
-| 250 ms | 4.0 | 860 B/s | 210 B/s | 1.0 KB/s | 19.67% |
-| 500 ms | 2.0 | 430 B/s | 210 B/s | 641 B/s | 32.88% |
-| 1000 ms | 1.0 | 215 B/s | 210 B/s | 426 B/s | 49.48% |
-| 2000 ms | 0.5 | 108 B/s | 210 B/s | 318 B/s | 66.21% |
-| 5000 ms | 0.2 | 43 B/s | 210 B/s | 254 B/s | 83.04% |
+| Delta timer | Packets/sec |  Data BW | ACK overhead | Total BW | Overhead % |
+| ----------: | ----------: | -------: | -----------: | -------: | ---------: |
+|      100 ms |        10.0 | 2.1 KB/s |      210 B/s | 2.3 KB/s |      8.92% |
+|      250 ms |         4.0 |  860 B/s |      210 B/s | 1.0 KB/s |     19.67% |
+|      500 ms |         2.0 |  430 B/s |      210 B/s |  641 B/s |     32.88% |
+|     1000 ms |         1.0 |  215 B/s |      210 B/s |  426 B/s |     49.48% |
+|     2000 ms |         0.5 |  108 B/s |      210 B/s |  318 B/s |     66.21% |
+|     5000 ms |         0.2 |   43 B/s |      210 B/s |  254 B/s |     83.04% |
 
 ### Batch size effect (compression + bytes per delta)
 
 | Batch size | Packet size | Compression ratio | Bytes per delta |
-|---:|---:|---:|---:|
-| 1 | 195 B | 1.13x | 195 B |
-| 5 | 231 B | 4.94x | 46 B |
-| 10 | 253 B | 9.13x | 25 B |
-| 20 | 341 B | 13.65x | 17 B |
-| 50 | 537 B | 21.59x | 11 B |
+| ---------: | ----------: | ----------------: | --------------: |
+|          1 |       195 B |             1.13x |           195 B |
+|          5 |       231 B |             4.94x |            46 B |
+|         10 |       253 B |             9.13x |            25 B |
+|         20 |       341 B |            13.65x |            17 B |
+|         50 |       537 B |            21.59x |            11 B |
 
 ### Impact summary
 
@@ -147,13 +147,13 @@ Source: `bandwidth-efficiency.js`
 Source: `latency-percentiles.js`
 
 | Brotli quality | Avg compression latency | p99 latency | Compressed size | Ratio |
-|---:|---:|---:|---:|---:|
-| 1 | 0.163 ms | 1.835 ms | 199 B | 1.85x |
-| 4 | 0.104 ms | 0.740 ms | 178 B | 2.07x |
-| 6 | 0.152 ms | 2.244 ms | 172 B | 2.14x |
-| 8 | 0.163 ms | 2.816 ms | 172 B | 2.14x |
-| 10 | 0.874 ms | 1.476 ms | 159 B | 2.31x |
-| 11 | 1.236 ms | 1.973 ms | 160 B | 2.30x |
+| -------------: | ----------------------: | ----------: | --------------: | ----: |
+|              1 |                0.163 ms |    1.835 ms |           199 B | 1.85x |
+|              4 |                0.104 ms |    0.740 ms |           178 B | 2.07x |
+|              6 |                0.152 ms |    2.244 ms |           172 B | 2.14x |
+|              8 |                0.163 ms |    2.816 ms |           172 B | 2.14x |
+|             10 |                0.874 ms |    1.476 ms |           159 B | 2.31x |
+|             11 |                1.236 ms |    1.973 ms |           160 B | 2.30x |
 
 ### Impact summary
 
@@ -164,14 +164,14 @@ Source: `latency-percentiles.js`
 
 Source: `latency-percentiles.js`
 
-| Paths in delta | Raw size | TX avg | TX p99 | RX avg | RX p99 |
-|---:|---:|---:|---:|---:|---:|
-| 1 | 151 B | 0.867 ms | 1.519 ms | 0.121 ms | 0.944 ms |
-| 3 | 260 B | 0.824 ms | 1.661 ms | 0.087 ms | 0.190 ms |
-| 5 | 369 B | 0.686 ms | 1.064 ms | 0.132 ms | 0.267 ms |
-| 10 | 638 B | 0.791 ms | 1.389 ms | 0.142 ms | 0.277 ms |
-| 20 | 1188 B | 0.899 ms | 1.157 ms | 0.135 ms | 0.327 ms |
-| 50 | 2844 B | 1.772 ms | 2.670 ms | 0.164 ms | 0.521 ms |
+| Paths in delta | Raw size |   TX avg |   TX p99 |   RX avg |   RX p99 |
+| -------------: | -------: | -------: | -------: | -------: | -------: |
+|              1 |    151 B | 0.867 ms | 1.519 ms | 0.121 ms | 0.944 ms |
+|              3 |    260 B | 0.824 ms | 1.661 ms | 0.087 ms | 0.190 ms |
+|              5 |    369 B | 0.686 ms | 1.064 ms | 0.132 ms | 0.267 ms |
+|             10 |    638 B | 0.791 ms | 1.389 ms | 0.142 ms | 0.277 ms |
+|             20 |   1188 B | 0.899 ms | 1.157 ms | 0.135 ms | 0.327 ms |
+|             50 |   2844 B | 1.772 ms | 2.670 ms | 0.164 ms | 0.521 ms |
 
 ### Impact summary
 
@@ -190,12 +190,12 @@ Source: `reliability-overhead.js`
 
 ### Loss recovery outcomes (10 rounds)
 
-| Simulated loss | Initial delivery | Final delivery |
-|---:|---:|---:|
-| 1% | 9916/10000 | 9949/10000 (99.49%) |
-| 5% | 9505/10000 | 9754/10000 (97.54%) |
-| 10% | 8997/10000 | 9496/10000 (94.96%) |
-| 20% | 7996/10000 | 9004/10000 (90.04%) |
+| Simulated loss | Initial delivery |      Final delivery |
+| -------------: | ---------------: | ------------------: |
+|             1% |       9916/10000 | 9949/10000 (99.49%) |
+|             5% |       9505/10000 | 9754/10000 (97.54%) |
+|            10% |       8997/10000 | 9496/10000 (94.96%) |
+|            20% |       7996/10000 | 9004/10000 (90.04%) |
 
 ### Retransmit queue performance (host-specific)
 

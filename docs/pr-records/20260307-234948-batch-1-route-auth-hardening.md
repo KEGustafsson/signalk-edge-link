@@ -9,4 +9,3 @@
 ## Summary
 
 Scope: protected management-token coverage for config, monitoring, capture, delta-timer, and failover routes; redacted secretKey values from GET /plugin-config; preserved persisted secretKey values when the [redacted] sentinel is submitted unchanged; added focused auth and redaction regression tests.
-

@@ -343,7 +343,7 @@ describe("Server NAK Generation", () => {
     // Check after NAK timeout
     setTimeout(() => {
       // NAK for seq 1 should have been cancelled
-      const hasSeq1NAK = naksSent.some(arr => arr.includes(1));
+      const hasSeq1NAK = naksSent.some((arr) => arr.includes(1));
       expect(hasSeq1NAK).toBe(false);
       tracker.reset();
       done();
@@ -604,9 +604,13 @@ describe("Reliability Under Simulated Network Loss", () => {
     for (let round = 0; round < 3; round++) {
       const missing = [];
       for (let i = 0; i < numPackets; i++) {
-        if (!received.has(i)) {missing.push(i);}
+        if (!received.has(i)) {
+          missing.push(i);
+        }
       }
-      if (missing.length === 0) {break;}
+      if (missing.length === 0) {
+        break;
+      }
 
       const retransmitted = queue.retransmit(missing);
       for (const { packet } of retransmitted) {

@@ -18,7 +18,11 @@ const { PacketBuilder, PacketParser } = require("../../lib/packet");
 const { SequenceTracker } = require("../../lib/sequence");
 const { RetransmitQueue } = require("../../lib/retransmit-queue");
 const { CongestionControl } = require("../../lib/congestion");
-const { PacketLossTracker, PathLatencyTracker, RetransmissionTracker } = require("../../lib/monitoring");
+const {
+  PacketLossTracker,
+  PathLatencyTracker,
+  RetransmissionTracker
+} = require("../../lib/monitoring");
 
 function formatMB(bytes) {
   return (bytes / 1048576).toFixed(2) + " MB";
@@ -31,7 +35,9 @@ function getHeapUsed() {
 
 function printMemorySnapshot(label) {
   const mem = process.memoryUsage();
-  console.log(`  [${label}] heap: ${formatMB(mem.heapUsed)}, rss: ${formatMB(mem.rss)}, external: ${formatMB(mem.external)}`);
+  console.log(
+    `  [${label}] heap: ${formatMB(mem.heapUsed)}, rss: ${formatMB(mem.rss)}, external: ${formatMB(mem.external)}`
+  );
   return mem.heapUsed;
 }
 
@@ -195,7 +201,9 @@ function testPacketBuilder() {
   const leaked = heapAfter - heapBefore;
   const leakMB = leaked / 1048576;
   console.log(`\n  Memory delta: ${leakMB > 0 ? "+" : ""}${leakMB.toFixed(2)} MB`);
-  console.log(`  Status: ${Math.abs(leakMB) < 2 ? "PASS (no accumulation)" : "WARN (possible leak)"}`);
+  console.log(
+    `  Status: ${Math.abs(leakMB) < 2 ? "PASS (no accumulation)" : "WARN (possible leak)"}`
+  );
   console.log();
 }
 
@@ -288,12 +296,18 @@ function testSustainedOperation() {
   console.log("  ------------------|--------------|------------------");
   for (const snap of snapshots) {
     const delta = snap.heap - heapStart;
-    console.log(`  ${String(snap.time).padStart(17)} | ${formatMB(snap.heap).padStart(12)} | ${(delta > 0 ? "+" : "") + formatMB(delta)}`);
+    console.log(
+      `  ${String(snap.time).padStart(17)} | ${formatMB(snap.heap).padStart(12)} | ${(delta > 0 ? "+" : "") + formatMB(delta)}`
+    );
   }
 
   const totalGrowth = (heapEnd - heapStart) / 1048576;
-  console.log(`\n  Total memory growth: ${totalGrowth.toFixed(2)} MB over ${TOTAL_ITERATIONS.toLocaleString()} iterations`);
-  console.log(`  Growth rate: ${(totalGrowth / (TOTAL_ITERATIONS / 1000)).toFixed(4)} MB per 1k iterations`);
+  console.log(
+    `\n  Total memory growth: ${totalGrowth.toFixed(2)} MB over ${TOTAL_ITERATIONS.toLocaleString()} iterations`
+  );
+  console.log(
+    `  Growth rate: ${(totalGrowth / (TOTAL_ITERATIONS / 1000)).toFixed(4)} MB per 1k iterations`
+  );
   console.log(`  Status: ${totalGrowth < 10 ? "PASS (bounded growth)" : "WARN (memory growing)"}`);
 
   // Cleanup
@@ -306,7 +320,7 @@ function testSustainedOperation() {
 // ── Run All ──
 function main() {
   console.log("Signal K Edge Link v2.0 - Phase 7: Memory Leak Testing");
-  console.log("=" .repeat(55) + "\n");
+  console.log("=".repeat(55) + "\n");
 
   testRetransmitQueue();
   testSequenceTracker();
@@ -315,7 +329,7 @@ function main() {
   testCongestionControl();
   testSustainedOperation();
 
-  console.log("=" .repeat(55));
+  console.log("=".repeat(55));
   console.log("Memory leak tests complete.");
 }
 

@@ -1,6 +1,10 @@
 "use strict";
 
-const { NetworkSimulator, createSimulatedSockets, ThrottlePattern } = require("../../test/network-simulator");
+const {
+  NetworkSimulator,
+  createSimulatedSockets,
+  ThrottlePattern
+} = require("../../test/network-simulator");
 
 describe("NetworkSimulator - Phase 7 Enhancements", () => {
   let sim;
@@ -25,7 +29,9 @@ describe("NetworkSimulator - Phase 7 Enhancements", () => {
       const interval = setInterval(() => {
         sendCount++;
         const result = sim.send(Buffer.alloc(100), (p) => delivered.push(p));
-        if (!result) {dropped.push(sendCount);}
+        if (!result) {
+          dropped.push(sendCount);
+        }
       }, 10);
 
       setTimeout(() => {
@@ -53,7 +59,7 @@ describe("NetworkSimulator - Phase 7 Enhancements", () => {
       setTimeout(() => {
         clearInterval(interval);
         sim.stopFlapping();
-        const deliveryRate = results.filter(r => r).length / results.length;
+        const deliveryRate = results.filter((r) => r).length / results.length;
         // With 200ms up / 20ms down, most packets should get through
         expect(deliveryRate).toBeGreaterThan(0.7);
         done();
@@ -118,7 +124,7 @@ describe("NetworkSimulator - Phase 7 Enhancements", () => {
     });
 
     test("asymmetric latency per direction", (done) => {
-      const c2s = new NetworkSimulator({ latency: 10 });  // 10ms client→server
+      const c2s = new NetworkSimulator({ latency: 10 }); // 10ms client→server
       const s2c = new NetworkSimulator({ latency: 200 }); // 200ms server→client
       const { clientSocket, serverSocket } = createSimulatedSockets(c2s, s2c);
 
@@ -151,7 +157,7 @@ describe("NetworkSimulator - Phase 7 Enhancements", () => {
     });
 
     test("asymmetric bandwidth per direction", () => {
-      const c2s = new NetworkSimulator({ bandwidthLimit: 100 });  // 100 bytes/s
+      const c2s = new NetworkSimulator({ bandwidthLimit: 100 }); // 100 bytes/s
       const s2c = new NetworkSimulator({ bandwidthLimit: 10000 }); // 10KB/s
       const { clientSocket, serverSocket } = createSimulatedSockets(c2s, s2c);
 
@@ -299,7 +305,7 @@ describe("NetworkSimulator - Phase 7 Enhancements", () => {
         throttlePattern: {
           type: "burst",
           cycleDuration: 2000,
-          minBandwidth: 50,  // Very low
+          minBandwidth: 50, // Very low
           maxBandwidth: 100000
         }
       });
@@ -579,7 +585,12 @@ describe("NetworkSimulator - Phase 7 Enhancements", () => {
 
     test("destroy clears throttle pattern", () => {
       sim = new NetworkSimulator({
-        throttlePattern: { type: "sawtooth", cycleDuration: 1000, minBandwidth: 0, maxBandwidth: 5000 }
+        throttlePattern: {
+          type: "sawtooth",
+          cycleDuration: 1000,
+          minBandwidth: 0,
+          maxBandwidth: 5000
+        }
       });
       sim.destroy();
       expect(sim._throttlePattern).toBeNull();

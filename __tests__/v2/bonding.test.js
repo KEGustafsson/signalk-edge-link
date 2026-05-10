@@ -15,16 +15,26 @@ jest.mock("dgram", () => {
   const createMockSocket = () => {
     const listeners = {};
     const socket = {
-      send: jest.fn((msg, port, address, cb) => { if (cb) {cb(null);} }),
-      bind: jest.fn((opts, cb) => { if (cb) {cb(null);} }),
+      send: jest.fn((msg, port, address, cb) => {
+        if (cb) {
+          cb(null);
+        }
+      }),
+      bind: jest.fn((opts, cb) => {
+        if (cb) {
+          cb(null);
+        }
+      }),
       close: jest.fn(),
       on: jest.fn((event, handler) => {
-        if (!listeners[event]) {listeners[event] = [];}
+        if (!listeners[event]) {
+          listeners[event] = [];
+        }
         listeners[event].push(handler);
       }),
       emit: (event, ...args) => {
         if (listeners[event]) {
-          listeners[event].forEach(h => h(...args));
+          listeners[event].forEach((h) => h(...args));
         }
       }
     };
@@ -60,7 +70,7 @@ function createDefaultConfig() {
     notificationsEnabled: true,
     failover: {
       rttThreshold: 500,
-      lossThreshold: 0.10,
+      lossThreshold: 0.1,
       healthCheckInterval: 1000,
       failbackDelay: 30000,
       heartbeatTimeout: 5000
@@ -93,10 +103,13 @@ describe("BondingManager", () => {
 
   describe("Construction", () => {
     test("initializes with default config values", () => {
-      const defaultBm = new BondingManager({
-        primary: { address: "1.2.3.4", port: 4446 },
-        backup: { address: "5.6.7.8", port: 4447 }
-      }, app);
+      const defaultBm = new BondingManager(
+        {
+          primary: { address: "1.2.3.4", port: 4446 },
+          backup: { address: "5.6.7.8", port: 4447 }
+        },
+        app
+      );
 
       expect(defaultBm.mode).toBe("main-backup");
       expect(defaultBm.activeLink).toBe("primary");
@@ -110,7 +123,7 @@ describe("BondingManager", () => {
     test("respects custom config values", () => {
       expect(bm.config).toBe(config);
       expect(bm.failoverThresholds.rttThreshold).toBe(500);
-      expect(bm.failoverThresholds.lossThreshold).toBe(0.10);
+      expect(bm.failoverThresholds.lossThreshold).toBe(0.1);
       expect(bm.failoverThresholds.healthCheckInterval).toBe(1000);
       expect(bm.failoverThresholds.failbackDelay).toBe(30000);
       expect(bm.failoverThresholds.heartbeatTimeout).toBe(5000);
@@ -353,21 +366,24 @@ describe("BondingManager", () => {
       await bm.initialize();
       bm.failover();
 
-      expect(app.handleMessage).toHaveBeenCalledWith("signalk-edge-link", expect.objectContaining({
-        updates: expect.arrayContaining([
-          expect.objectContaining({
-            values: expect.arrayContaining([
-              expect.objectContaining({
-                path: "notifications.signalk-edge-link.linkFailover",
-                value: expect.objectContaining({
-                  state: "alert",
-                  message: "Link switched: primary to backup"
+      expect(app.handleMessage).toHaveBeenCalledWith(
+        "signalk-edge-link",
+        expect.objectContaining({
+          updates: expect.arrayContaining([
+            expect.objectContaining({
+              values: expect.arrayContaining([
+                expect.objectContaining({
+                  path: "notifications.signalk-edge-link.linkFailover",
+                  value: expect.objectContaining({
+                    state: "alert",
+                    message: "Link switched: primary to backup"
+                  })
                 })
-              })
-            ])
-          })
-        ])
-      }));
+              ])
+            })
+          ])
+        })
+      );
     });
 
     test("logs error message", async () => {
@@ -432,20 +448,23 @@ describe("BondingManager", () => {
       app.handleMessage.mockClear();
       bm.failback();
 
-      expect(app.handleMessage).toHaveBeenCalledWith("signalk-edge-link", expect.objectContaining({
-        updates: expect.arrayContaining([
-          expect.objectContaining({
-            values: expect.arrayContaining([
-              expect.objectContaining({
-                path: "notifications.signalk-edge-link.linkFailover",
-                value: expect.objectContaining({
-                  message: "Link switched: backup to primary"
+      expect(app.handleMessage).toHaveBeenCalledWith(
+        "signalk-edge-link",
+        expect.objectContaining({
+          updates: expect.arrayContaining([
+            expect.objectContaining({
+              values: expect.arrayContaining([
+                expect.objectContaining({
+                  path: "notifications.signalk-edge-link.linkFailover",
+                  value: expect.objectContaining({
+                    message: "Link switched: backup to primary"
+                  })
                 })
-              })
-            ])
-          })
-        ])
-      }));
+              ])
+            })
+          ])
+        })
+      );
     });
 
     test("is idempotent - calling failback when already on primary does nothing", async () => {
@@ -1067,9 +1086,7 @@ describe("BondingManager", () => {
 
       socket.emit("error", new Error("Network unreachable"));
 
-      expect(app.debug).toHaveBeenCalledWith(
-        expect.stringContaining("primary socket error")
-      );
+      expect(app.debug).toHaveBeenCalledWith(expect.stringContaining("primary socket error"));
     });
   });
 

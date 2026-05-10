@@ -39,7 +39,7 @@ describe("Packet + Sequence Integration", () => {
       packets.push(builder.buildDataPacket(Buffer.from(`data ${seq}`)));
     }
 
-    const results = packets.map(packet => {
+    const results = packets.map((packet) => {
       const parsed = parser.parseHeader(packet);
       return {
         sequence: parsed.sequence,
@@ -119,7 +119,7 @@ describe("Packet + Sequence Integration", () => {
     }
 
     // Wait for NAK timeout
-    await new Promise(resolve => setTimeout(resolve, 70));
+    await new Promise((resolve) => setTimeout(resolve, 70));
 
     expect(losses).toContain(3);
     expect(losses).toContain(7);
@@ -162,9 +162,7 @@ describe("Packet + Sequence Integration", () => {
   test("NAK packet carries missing sequences", () => {
     // Create a gap
     builder.setSequence(0);
-    tracker.processSequence(
-      parser.parseHeader(builder.buildDataPacket(Buffer.from("a"))).sequence
-    );
+    tracker.processSequence(parser.parseHeader(builder.buildDataPacket(Buffer.from("a"))).sequence);
 
     builder.setSequence(3);
     const result = tracker.processSequence(

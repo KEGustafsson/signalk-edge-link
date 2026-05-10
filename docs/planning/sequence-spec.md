@@ -10,11 +10,11 @@ for missing packets.
 
 ### Constructor Options
 
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `maxOutOfOrder` | number | 100 | Max sequence slots to track |
-| `nakTimeout` | number | 100 | Delay (ms) before NAK callback fires |
-| `onLossDetected` | function | noop | Callback when loss is confirmed |
+| Property         | Type     | Default | Description                          |
+| ---------------- | -------- | ------- | ------------------------------------ |
+| `maxOutOfOrder`  | number   | 100     | Max sequence slots to track          |
+| `nakTimeout`     | number   | 100     | Delay (ms) before NAK callback fires |
+| `onLossDetected` | function | noop    | Callback when loss is confirmed      |
 
 ### Internal State
 

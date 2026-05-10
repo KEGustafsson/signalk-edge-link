@@ -19,7 +19,11 @@ const { SequenceTracker } = require("../../lib/sequence");
 const { RetransmitQueue } = require("../../lib/retransmit-queue");
 const { CongestionControl } = require("../../lib/congestion");
 const { encryptBinary, decryptBinary } = require("../../lib/crypto");
-const { PacketLossTracker, PathLatencyTracker, RetransmissionTracker } = require("../../lib/monitoring");
+const {
+  PacketLossTracker,
+  PathLatencyTracker,
+  RetransmissionTracker
+} = require("../../lib/monitoring");
 const { NetworkSimulator, createSimulatedSockets } = require("../network-simulator");
 
 const brotliCompressAsync = promisify(zlib.brotliCompress);
@@ -27,11 +31,10 @@ const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
 const SECRET_KEY = "12345678901234567890123456789012";
 
-async function waitForCondition(conditionFn, {
-  timeoutMs = 2000,
-  pollIntervalMs = 20,
-  failureMessage = "Timed out waiting for condition"
-} = {}) {
+async function waitForCondition(
+  conditionFn,
+  { timeoutMs = 2000, pollIntervalMs = 20, failureMessage = "Timed out waiting for condition" } = {}
+) {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
@@ -49,15 +52,17 @@ async function waitForCondition(conditionFn, {
 
 function generateDelta(index) {
   return {
-    updates: [{
-      source: { label: "test" },
-      timestamp: new Date().toISOString(),
-      values: [
-        { path: "navigation.position.latitude", value: 60.1 + index * 0.001 },
-        { path: "navigation.position.longitude", value: 24.9 + index * 0.001 },
-        { path: "navigation.speedOverGround", value: 5.0 + Math.random() }
-      ]
-    }]
+    updates: [
+      {
+        source: { label: "test" },
+        timestamp: new Date().toISOString(),
+        values: [
+          { path: "navigation.position.latitude", value: 60.1 + index * 0.001 },
+          { path: "navigation.position.longitude", value: 24.9 + index * 0.001 },
+          { path: "navigation.speedOverGround", value: 5.0 + Math.random() }
+        ]
+      }
+    ]
   };
 }
 
@@ -97,7 +102,8 @@ describe("System Validation - Reliability", () => {
     for (let i = 0; i < TOTAL_PACKETS; i++) {
       builder.setSequence(i);
       const packet = builder.buildDataPacket(Buffer.alloc(200, i), {
-        compressed: true, encrypted: true
+        compressed: true,
+        encrypted: true
       });
       queue.add(i, packet);
 
@@ -113,9 +119,13 @@ describe("System Validation - Reliability", () => {
       rounds++;
       const missing = [];
       for (let i = 0; i < TOTAL_PACKETS; i++) {
-        if (!received.has(i)) {missing.push(i);}
+        if (!received.has(i)) {
+          missing.push(i);
+        }
       }
-      if (missing.length === 0) {break;}
+      if (missing.length === 0) {
+        break;
+      }
 
       const retransmitted = queue.retransmit(missing);
       for (const { packet } of retransmitted) {
@@ -132,7 +142,7 @@ describe("System Validation - Reliability", () => {
   });
 
   test("achieves >95% delivery at 20% packet loss with retransmission", () => {
-    const sim = new NetworkSimulator({ packetLoss: 0.20 });
+    const sim = new NetworkSimulator({ packetLoss: 0.2 });
     const builder = new PacketBuilder();
     const parser = new PacketParser();
     const queue = new RetransmitQueue({ maxSize: 5000, maxRetransmits: 10 });
@@ -155,9 +165,13 @@ describe("System Validation - Reliability", () => {
       rounds++;
       const missing = [];
       for (let i = 0; i < TOTAL_PACKETS; i++) {
-        if (!received.has(i)) {missing.push(i);}
+        if (!received.has(i)) {
+          missing.push(i);
+        }
       }
-      if (missing.length === 0) {break;}
+      if (missing.length === 0) {
+        break;
+      }
 
       const retransmitted = queue.retransmit(missing);
       for (const { packet } of retransmitted) {
@@ -202,14 +216,11 @@ describe("System Validation - Sequence Tracking", () => {
     }
 
     // Wait for all delayed deliveries (with scheduling headroom under full-suite load)
-    await waitForCondition(
-      () => receivedOrder.length === TOTAL,
-      {
-        timeoutMs: 3000,
-        pollIntervalMs: 20,
-        failureMessage: `Expected ${TOTAL} packets, received ${receivedOrder.length}`
-      }
-    );
+    await waitForCondition(() => receivedOrder.length === TOTAL, {
+      timeoutMs: 3000,
+      pollIntervalMs: 20,
+      failureMessage: `Expected ${TOTAL} packets, received ${receivedOrder.length}`
+    });
 
     // All packets should eventually arrive
     expect(receivedOrder.length).toBe(TOTAL);
@@ -260,7 +271,7 @@ describe("System Validation - Congestion Control", () => {
 
     // Simulate congestion
     for (let i = 0; i < 20; i++) {
-      cc.updateMetrics({ rtt: 500, packetLoss: 0.10 });
+      cc.updateMetrics({ rtt: 500, packetLoss: 0.1 });
       cc.lastAdjustment = 0;
       cc.adjust();
     }
@@ -278,7 +289,7 @@ describe("System Validation - Congestion Control", () => {
 
     // Push to high timer (congested)
     for (let i = 0; i < 20; i++) {
-      cc.updateMetrics({ rtt: 500, packetLoss: 0.10 });
+      cc.updateMetrics({ rtt: 500, packetLoss: 0.1 });
       cc.lastAdjustment = 0;
       cc.adjust();
     }
@@ -323,7 +334,9 @@ describe("System Validation - Monitoring", () => {
     let lostCount = 0;
     for (let i = 0; i < 1000; i++) {
       const lost = Math.random() < 0.05;
-      if (lost) {lostCount++;}
+      if (lost) {
+        lostCount++;
+      }
       tracker.record(lost);
     }
 
@@ -385,7 +398,9 @@ describe("System Validation - Protocol Round-Trip", () => {
 
     expect(result.type).toBe(PacketType.DATA);
     expect(result.data["0"].updates[0].values[0].path).toBe("navigation.position.latitude");
-    expect(result.data["0"].updates[0].values[0].value).toBe(originalDelta.updates[0].values[0].value);
+    expect(result.data["0"].updates[0].values[0].value).toBe(
+      originalDelta.updates[0].values[0].value
+    );
   });
 
   test("100 deltas round-trip preserves all data", async () => {
@@ -399,7 +414,8 @@ describe("System Validation - Protocol Round-Trip", () => {
 
       expect(result.sequence).toBe(i);
       expect(result.data["0"].updates[0].values[0].value).toBeCloseTo(
-        originalDelta.updates[0].values[0].value, 10
+        originalDelta.updates[0].values[0].value,
+        10
       );
     }
   });
@@ -453,14 +469,11 @@ describe("System Validation - Network Transitions", () => {
     }
 
     // Wait for delayed packets (allow slower CI scheduling under full suite execution)
-    await waitForCondition(
-      () => received.size >= 70,
-      {
-        timeoutMs: 3000,
-        pollIntervalMs: 20,
-        failureMessage: `Expected initial delivery progress, got ${received.size}/${TOTAL}`
-      }
-    );
+    await waitForCondition(() => received.size >= 70, {
+      timeoutMs: 3000,
+      pollIntervalMs: 20,
+      failureMessage: `Expected initial delivery progress, got ${received.size}/${TOTAL}`
+    });
 
     // Retransmit missing
     let rounds = 0;
@@ -469,9 +482,13 @@ describe("System Validation - Network Transitions", () => {
       const beforeRound = received.size;
       const missing = [];
       for (let i = 0; i < TOTAL; i++) {
-        if (!received.has(i)) {missing.push(i);}
+        if (!received.has(i)) {
+          missing.push(i);
+        }
       }
-      if (missing.length === 0) {break;}
+      if (missing.length === 0) {
+        break;
+      }
       for (const { packet } of queue.retransmit(missing)) {
         sim.send(packet, (pkt) => {
           const parsed = parser.parseHeader(pkt);
@@ -479,14 +496,11 @@ describe("System Validation - Network Transitions", () => {
         });
       }
 
-      await waitForCondition(
-        () => received.size > beforeRound,
-        {
-          timeoutMs: 300,
-          pollIntervalMs: 20,
-          failureMessage: "No retransmit progress in this round"
-        }
-      ).catch(() => {
+      await waitForCondition(() => received.size > beforeRound, {
+        timeoutMs: 300,
+        pollIntervalMs: 20,
+        failureMessage: "No retransmit progress in this round"
+      }).catch(() => {
         // No progress in this round is acceptable; subsequent rounds can still recover.
       });
     }
@@ -506,8 +520,12 @@ describe("System Validation - Network Transitions", () => {
 
     for (let i = 0; i < TOTAL; i++) {
       // Link down for packets 30-50
-      if (i === 30) {sim.setLinkDown(true);}
-      if (i === 50) {sim.setLinkDown(false);}
+      if (i === 30) {
+        sim.setLinkDown(true);
+      }
+      if (i === 50) {
+        sim.setLinkDown(false);
+      }
 
       builder.setSequence(i);
       const packet = builder.buildDataPacket(Buffer.alloc(200));
@@ -520,14 +538,11 @@ describe("System Validation - Network Transitions", () => {
     }
 
     // Wait for delayed packets
-    await waitForCondition(
-      () => received.size > 0,
-      {
-        timeoutMs: 2000,
-        pollIntervalMs: 20,
-        failureMessage: "No packets delivered before outage assertions"
-      }
-    );
+    await waitForCondition(() => received.size > 0, {
+      timeoutMs: 2000,
+      pollIntervalMs: 20,
+      failureMessage: "No packets delivered before outage assertions"
+    });
 
     // Should have lost packets 30-49
     expect(received.size).toBeLessThan(TOTAL);
@@ -536,7 +551,9 @@ describe("System Validation - Network Transitions", () => {
     // Retransmit
     const missing = [];
     for (let i = 0; i < TOTAL; i++) {
-      if (!received.has(i)) {missing.push(i);}
+      if (!received.has(i)) {
+        missing.push(i);
+      }
     }
 
     for (const { packet } of queue.retransmit(missing)) {
@@ -546,14 +563,11 @@ describe("System Validation - Network Transitions", () => {
       });
     }
 
-    await waitForCondition(
-      () => received.size === TOTAL,
-      {
-        timeoutMs: 3000,
-        pollIntervalMs: 20,
-        failureMessage: `Expected full recovery after retransmit, got ${received.size}/${TOTAL}`
-      }
-    );
+    await waitForCondition(() => received.size === TOTAL, {
+      timeoutMs: 3000,
+      pollIntervalMs: 20,
+      failureMessage: `Expected full recovery after retransmit, got ${received.size}/${TOTAL}`
+    });
 
     // Should recover all packets after retransmit
     expect(received.size).toBe(TOTAL);
@@ -615,7 +629,7 @@ describe("System Validation - Retransmit Queue", () => {
 
 describe("System Validation - Asymmetric Networks", () => {
   test("handles asymmetric loss (high uplink, low downlink)", () => {
-    const uplink = new NetworkSimulator({ packetLoss: 0.15 });  // 15% uplink loss
+    const uplink = new NetworkSimulator({ packetLoss: 0.15 }); // 15% uplink loss
     const downlink = new NetworkSimulator({ packetLoss: 0.01 }); // 1% downlink loss
     const { clientSocket, serverSocket } = createSimulatedSockets(uplink, downlink);
 

@@ -18,10 +18,10 @@
 
 // Bandwidth throttling pattern types
 const ThrottlePattern = {
-  CONSTANT: "constant",       // Fixed bandwidth limit
-  STEP_DOWN: "step-down",     // Stepwise bandwidth reduction over time
-  SAWTOOTH: "sawtooth",       // Ramp up then drop repeatedly
-  BURST: "burst"              // Alternate between full and limited bandwidth
+  CONSTANT: "constant", // Fixed bandwidth limit
+  STEP_DOWN: "step-down", // Stepwise bandwidth reduction over time
+  SAWTOOTH: "sawtooth", // Ramp up then drop repeatedly
+  BURST: "burst" // Alternate between full and limited bandwidth
 };
 
 class NetworkSimulator {
@@ -222,12 +222,10 @@ class NetworkSimulator {
   getStats() {
     return {
       ...this.stats,
-      lossRate: this.stats.totalPackets > 0
-        ? this.stats.droppedPackets / this.stats.totalPackets
-        : 0,
-      deliveryRate: this.stats.totalPackets > 0
-        ? this.stats.deliveredPackets / this.stats.totalPackets
-        : 0
+      lossRate:
+        this.stats.totalPackets > 0 ? this.stats.droppedPackets / this.stats.totalPackets : 0,
+      deliveryRate:
+        this.stats.totalPackets > 0 ? this.stats.deliveredPackets / this.stats.totalPackets : 0
     };
   }
 
@@ -266,7 +264,9 @@ class NetworkSimulator {
     this.linkDown = false;
 
     const cycle = () => {
-      if (!this._flapping) {return;}
+      if (!this._flapping) {
+        return;
+      }
 
       // Link goes down after upDuration
       this._flappingTimer = setTimeout(() => {
@@ -401,12 +401,24 @@ class NetworkSimulator {
    * @param {Object} conditions - New conditions to apply
    */
   updateConditions(conditions) {
-    if (conditions.packetLoss !== undefined) {this.packetLoss = conditions.packetLoss;}
-    if (conditions.latency !== undefined) {this.latency = conditions.latency;}
-    if (conditions.jitter !== undefined) {this.jitter = conditions.jitter;}
-    if (conditions.reorderRate !== undefined) {this.reorderRate = conditions.reorderRate;}
-    if (conditions.bandwidthLimit !== undefined) {this.bandwidthLimit = conditions.bandwidthLimit;}
-    if (conditions.linkDown !== undefined) {this.linkDown = conditions.linkDown;}
+    if (conditions.packetLoss !== undefined) {
+      this.packetLoss = conditions.packetLoss;
+    }
+    if (conditions.latency !== undefined) {
+      this.latency = conditions.latency;
+    }
+    if (conditions.jitter !== undefined) {
+      this.jitter = conditions.jitter;
+    }
+    if (conditions.reorderRate !== undefined) {
+      this.reorderRate = conditions.reorderRate;
+    }
+    if (conditions.bandwidthLimit !== undefined) {
+      this.bandwidthLimit = conditions.bandwidthLimit;
+    }
+    if (conditions.linkDown !== undefined) {
+      this.linkDown = conditions.linkDown;
+    }
   }
 
   /**
@@ -465,7 +477,9 @@ function createSimulatedSockets(clientToServer, serverToClient) {
           fn(packet, { address: "127.0.0.1", port: 5555 });
         }
       });
-      if (callback) {callback(sent ? null : new Error("Packet dropped by simulator"));}
+      if (callback) {
+        callback(sent ? null : new Error("Packet dropped by simulator"));
+      }
     },
     on(event, fn) {
       if (event === "message") {
@@ -484,7 +498,9 @@ function createSimulatedSockets(clientToServer, serverToClient) {
           fn(packet, { address: "127.0.0.1", port: 6666 });
         }
       });
-      if (callback) {callback(sent ? null : new Error("Packet dropped by simulator"));}
+      if (callback) {
+        callback(sent ? null : new Error("Packet dropped by simulator"));
+      }
     },
     on(event, fn) {
       if (event === "message") {

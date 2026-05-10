@@ -17,11 +17,11 @@ v2 congestion control avoids this by continuously adjusting the `deltaTimer` —
 
 Edge Link uses **Additive Increase, Multiplicative Decrease (AIMD)**, the same class of algorithm used by TCP congestion control:
 
-| Condition           | Trigger                                   | Action                            | Effect                     |
-| ------------------- | ----------------------------------------- | --------------------------------- | -------------------------- |
-| Network healthy     | loss < 1% **and** RTT < `targetRTT`       | `deltaTimer × 0.95`               | Sends 5% faster            |
-| Network congested   | loss > 5% **or** RTT > `targetRTT × 1.5` | `deltaTimer × 1.5`                | Sends 50% slower           |
-| Neither condition   | loss 1–5% or RTT between target and 1.5× | No change                         | Holds current rate         |
+| Condition         | Trigger                                  | Action              | Effect             |
+| ----------------- | ---------------------------------------- | ------------------- | ------------------ |
+| Network healthy   | loss < 1% **and** RTT < `targetRTT`      | `deltaTimer × 0.95` | Sends 5% faster    |
+| Network congested | loss > 5% **or** RTT > `targetRTT × 1.5` | `deltaTimer × 1.5`  | Sends 50% slower   |
+| Neither condition | loss 1–5% or RTT between target and 1.5× | No change           | Holds current rate |
 
 **Cadence:** The controller evaluates and adjusts every 5 seconds.
 
@@ -63,12 +63,12 @@ Congestion control is configured per client connection under the `congestionCont
 }
 ```
 
-| Key              | Default | Range            | Description                                               |
-| ---------------- | ------- | ---------------- | --------------------------------------------------------- |
-| `enabled`        | `false` | —                | Enables AIMD automatic adjustment                        |
-| `targetRTT`      | `200`   | 50–2000 ms       | RTT above this triggers rate decrease                    |
-| `minDeltaTimer`  | `100`   | 50–1000 ms       | Fastest send rate (lower bound)                          |
-| `maxDeltaTimer`  | `5000`  | 1000–30000 ms    | Slowest send rate under congestion (upper bound)         |
+| Key             | Default | Range         | Description                                      |
+| --------------- | ------- | ------------- | ------------------------------------------------ |
+| `enabled`       | `false` | —             | Enables AIMD automatic adjustment                |
+| `targetRTT`     | `200`   | 50–2000 ms    | RTT above this triggers rate decrease            |
+| `minDeltaTimer` | `100`   | 50–1000 ms    | Fastest send rate (lower bound)                  |
+| `maxDeltaTimer` | `5000`  | 1000–30000 ms | Slowest send rate under congestion (upper bound) |
 
 For full field reference, see `docs/configuration-reference.md` → **Dynamic Congestion Control**.
 
@@ -123,12 +123,12 @@ curl -s -X POST \
 
 ### When to use manual mode
 
-| Situation                                          | Recommendation                              |
-| -------------------------------------------------- | ------------------------------------------- |
-| Controlled test or benchmarking                    | Manual mode with fixed value                |
-| Link conditions are genuinely stable and predictable | Auto mode with low `targetRTT`            |
-| Highly variable link (intermittent cellular)       | Auto mode; increase `maxDeltaTimer`         |
-| Congestion control oscillates frequently           | Increase `targetRTT` above your normal RTT  |
+| Situation                                            | Recommendation                             |
+| ---------------------------------------------------- | ------------------------------------------ |
+| Controlled test or benchmarking                      | Manual mode with fixed value               |
+| Link conditions are genuinely stable and predictable | Auto mode with low `targetRTT`             |
+| Highly variable link (intermittent cellular)         | Auto mode; increase `maxDeltaTimer`        |
+| Congestion control oscillates frequently             | Increase `targetRTT` above your normal RTT |
 
 ## Tuning workflow
 

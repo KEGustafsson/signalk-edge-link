@@ -76,7 +76,9 @@ describe("MetricsPublisher", () => {
       const pub = new MetricsPublisher(mockApp, { pathPrefix: "networking.edgeLink.lte" });
       pub.publishLinkMetrics("primary", { status: "active", rtt: 20, loss: 0.01 });
       const values = publishedMessages[0].updates[0].values;
-      const statusPath = values.find((v) => v.path === "networking.edgeLink.lte.links.primary.status");
+      const statusPath = values.find(
+        (v) => v.path === "networking.edgeLink.lte.links.primary.status"
+      );
       expect(statusPath).toBeDefined();
     });
   });
@@ -86,7 +88,7 @@ describe("MetricsPublisher", () => {
       publisher.publish({ rtt: 50 });
 
       const values = publishedMessages[0].updates[0].values;
-      const rttMetric = values.find(v => v.path === "networking.edgeLink.rtt");
+      const rttMetric = values.find((v) => v.path === "networking.edgeLink.rtt");
 
       expect(rttMetric).toBeDefined();
       expect(rttMetric.value).toBe(50);
@@ -96,7 +98,7 @@ describe("MetricsPublisher", () => {
       publisher.publish({ jitter: 20 });
 
       const values = publishedMessages[0].updates[0].values;
-      const jitterMetric = values.find(v => v.path === "networking.edgeLink.jitter");
+      const jitterMetric = values.find((v) => v.path === "networking.edgeLink.jitter");
 
       expect(jitterMetric).toBeDefined();
       expect(jitterMetric.value).toBe(20);
@@ -106,7 +108,7 @@ describe("MetricsPublisher", () => {
       publisher.publish({ packetLoss: 0.05 });
 
       const values = publishedMessages[0].updates[0].values;
-      const lossMetric = values.find(v => v.path === "networking.edgeLink.packetLoss");
+      const lossMetric = values.find((v) => v.path === "networking.edgeLink.packetLoss");
 
       expect(lossMetric).toBeDefined();
       expect(lossMetric.value).toBe(0.05);
@@ -120,8 +122,8 @@ describe("MetricsPublisher", () => {
 
       const values = publishedMessages[0].updates[0].values;
 
-      const upload = values.find(v => v.path === "networking.edgeLink.bandwidth.upload");
-      const download = values.find(v => v.path === "networking.edgeLink.bandwidth.download");
+      const upload = values.find((v) => v.path === "networking.edgeLink.bandwidth.upload");
+      const download = values.find((v) => v.path === "networking.edgeLink.bandwidth.download");
 
       expect(upload.value).toBe(1000000);
       expect(download.value).toBe(500000);
@@ -135,8 +137,10 @@ describe("MetricsPublisher", () => {
 
       const values = publishedMessages[0].updates[0].values;
 
-      const sent = values.find(v => v.path === "networking.edgeLink.packetsPerSecond.sent");
-      const received = values.find(v => v.path === "networking.edgeLink.packetsPerSecond.received");
+      const sent = values.find((v) => v.path === "networking.edgeLink.packetsPerSecond.sent");
+      const received = values.find(
+        (v) => v.path === "networking.edgeLink.packetsPerSecond.received"
+      );
 
       expect(sent.value).toBe(100);
       expect(received.value).toBe(95);
@@ -146,7 +150,7 @@ describe("MetricsPublisher", () => {
       publisher.publish({ retransmissions: 5 });
 
       const values = publishedMessages[0].updates[0].values;
-      const metric = values.find(v => v.path === "networking.edgeLink.retransmissions");
+      const metric = values.find((v) => v.path === "networking.edgeLink.retransmissions");
 
       expect(metric.value).toBe(5);
     });
@@ -155,7 +159,7 @@ describe("MetricsPublisher", () => {
       publisher.publish({ sequenceNumber: 12345 });
 
       const values = publishedMessages[0].updates[0].values;
-      const metric = values.find(v => v.path === "networking.edgeLink.sequenceNumber");
+      const metric = values.find((v) => v.path === "networking.edgeLink.sequenceNumber");
 
       expect(metric.value).toBe(12345);
     });
@@ -164,7 +168,7 @@ describe("MetricsPublisher", () => {
       publisher.publish({ queueDepth: 10 });
 
       const values = publishedMessages[0].updates[0].values;
-      const metric = values.find(v => v.path === "networking.edgeLink.queueDepth");
+      const metric = values.find((v) => v.path === "networking.edgeLink.queueDepth");
 
       expect(metric.value).toBe(10);
     });
@@ -173,7 +177,7 @@ describe("MetricsPublisher", () => {
       publisher.publish({ activeLink: "primary" });
 
       const values = publishedMessages[0].updates[0].values;
-      const metric = values.find(v => v.path === "networking.edgeLink.activeLink");
+      const metric = values.find((v) => v.path === "networking.edgeLink.activeLink");
 
       expect(metric.value).toBe("primary");
     });
@@ -182,7 +186,7 @@ describe("MetricsPublisher", () => {
       publisher.publish({ compressionRatio: 0.97 });
 
       const values = publishedMessages[0].updates[0].values;
-      const metric = values.find(v => v.path === "networking.edgeLink.compressionRatio");
+      const metric = values.find((v) => v.path === "networking.edgeLink.compressionRatio");
 
       expect(metric.value).toBe(0.97);
     });
@@ -191,7 +195,7 @@ describe("MetricsPublisher", () => {
       publisher.publish({ rtt: 50 });
 
       const values = publishedMessages[0].updates[0].values;
-      const quality = values.find(v => v.path === "networking.edgeLink.linkQuality");
+      const quality = values.find((v) => v.path === "networking.edgeLink.linkQuality");
 
       expect(quality).toBeDefined();
       expect(typeof quality.value).toBe("number");
@@ -264,7 +268,7 @@ describe("MetricsPublisher", () => {
       const quality = publisher.calculateLinkQuality({
         rtt: 800,
         jitter: 400,
-        packetLoss: 0.80,
+        packetLoss: 0.8,
         retransmitRate: 0.08
       });
 
@@ -275,7 +279,7 @@ describe("MetricsPublisher", () => {
       const highLoss = publisher.calculateLinkQuality({
         rtt: 0,
         jitter: 0,
-        packetLoss: 0.50,
+        packetLoss: 0.5,
         retransmitRate: 0
       });
 
@@ -377,7 +381,7 @@ describe("MetricsPublisher", () => {
       // Average should be (50 + 60 + 70) / 3 = 60
       const lastMessage = publishedMessages[publishedMessages.length - 1];
       const rttValue = lastMessage.updates[0].values.find(
-        v => v.path === "networking.edgeLink.rtt"
+        (v) => v.path === "networking.edgeLink.rtt"
       );
 
       expect(rttValue.value).toBe(60);
@@ -400,7 +404,7 @@ describe("MetricsPublisher", () => {
       // Average: (70 + 80 + 90) / 3 = 80
       const lastMessage = publishedMessages[publishedMessages.length - 1];
       const rttValue = lastMessage.updates[0].values.find(
-        v => v.path === "networking.edgeLink.rtt"
+        (v) => v.path === "networking.edgeLink.rtt"
       );
 
       expect(rttValue.value).toBe(80);
@@ -414,7 +418,7 @@ describe("MetricsPublisher", () => {
 
       const lastMessage = publishedMessages[publishedMessages.length - 1];
       const jitterValue = lastMessage.updates[0].values.find(
-        v => v.path === "networking.edgeLink.jitter"
+        (v) => v.path === "networking.edgeLink.jitter"
       );
 
       // Average of 10, 10, 10, 100 = 32.5 (smoothed)
@@ -430,7 +434,7 @@ describe("MetricsPublisher", () => {
       publisher.publish({ rtt: 42 });
 
       const rttValue = publishedMessages[0].updates[0].values.find(
-        v => v.path === "networking.edgeLink.rtt"
+        (v) => v.path === "networking.edgeLink.rtt"
       );
 
       expect(rttValue.value).toBe(42);
@@ -443,11 +447,11 @@ describe("MetricsPublisher", () => {
       const lastMessage = publishedMessages[publishedMessages.length - 1];
       const values = lastMessage.updates[0].values;
 
-      const rtt = values.find(v => v.path === "networking.edgeLink.rtt");
-      const jitter = values.find(v => v.path === "networking.edgeLink.jitter");
-      const loss = values.find(v => v.path === "networking.edgeLink.packetLoss");
+      const rtt = values.find((v) => v.path === "networking.edgeLink.rtt");
+      const jitter = values.find((v) => v.path === "networking.edgeLink.jitter");
+      const loss = values.find((v) => v.path === "networking.edgeLink.packetLoss");
 
-      expect(rtt.value).toBe(150);   // (100+200)/2
+      expect(rtt.value).toBe(150); // (100+200)/2
       expect(jitter.value).toBe(15); // (10+20)/2
       expect(loss.value).toBe(0.015); // (0.01+0.02)/2
     });
@@ -516,9 +520,7 @@ describe("MetricsPublisher", () => {
 
       const values = publishedMessages[0].updates[0].values;
 
-      const status = values.find(v =>
-        v.path === "networking.edgeLink.links.backup.status"
-      );
+      const status = values.find((v) => v.path === "networking.edgeLink.links.backup.status");
 
       expect(status.value).toBe("standby");
     });
@@ -534,9 +536,7 @@ describe("MetricsPublisher", () => {
       });
 
       const values = publishedMessages[0].updates[0].values;
-      const quality = values.find(v =>
-        v.path === "networking.edgeLink.links.primary.quality"
-      );
+      const quality = values.find((v) => v.path === "networking.edgeLink.links.primary.quality");
 
       expect(quality.value).toBe(100);
     });
@@ -552,9 +552,7 @@ describe("MetricsPublisher", () => {
       });
 
       const values = publishedMessages[0].updates[0].values;
-      const loss = values.find(v =>
-        v.path === "networking.edgeLink.links.primary.loss"
-      );
+      const loss = values.find((v) => v.path === "networking.edgeLink.links.primary.loss");
 
       expect(loss.value).toBe(0.05);
     });
@@ -569,9 +567,7 @@ describe("MetricsPublisher", () => {
       });
 
       const values = publishedMessages[0].updates[0].values;
-      const loss = values.find(v =>
-        v.path === "networking.edgeLink.links.primary.loss"
-      );
+      const loss = values.find((v) => v.path === "networking.edgeLink.links.primary.loss");
 
       expect(loss.value).toBe(0.07);
     });
@@ -627,7 +623,7 @@ describe("MetricsPublisher", () => {
       publisher.publish({ rtt: 10 });
 
       const rttValue = publishedMessages[0].updates[0].values.find(
-        v => v.path === "networking.edgeLink.rtt"
+        (v) => v.path === "networking.edgeLink.rtt"
       );
       expect(rttValue.value).toBe(10);
     });
@@ -643,7 +639,7 @@ describe("MetricsPublisher", () => {
       });
 
       const values = publishedMessages[0].updates[0].values;
-      const quality = values.find(v => v.path === "networking.edgeLink.linkQuality");
+      const quality = values.find((v) => v.path === "networking.edgeLink.linkQuality");
       expect(quality.value).toBe(100);
     });
 
@@ -673,7 +669,7 @@ describe("MetricsPublisher", () => {
       // Should still publish linkQuality
       expect(publishedMessages.length).toBe(1);
       const values = publishedMessages[0].updates[0].values;
-      const quality = values.find(v => v.path === "networking.edgeLink.linkQuality");
+      const quality = values.find((v) => v.path === "networking.edgeLink.linkQuality");
       expect(quality).toBeDefined();
     });
   });
