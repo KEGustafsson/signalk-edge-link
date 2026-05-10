@@ -62,6 +62,7 @@ import {
 } from "./metadata";
 import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "./delta-sanitizer";
 import { collectSourceSnapshot } from "./source-snapshot";
+import { collectValuesSnapshot } from "./values-snapshot";
 
 const DELTA_SEND_MAX_RETRIES = 1;
 const DELTA_SEND_RETRY_BACKOFF_MS = 100;
@@ -512,6 +513,47 @@ function createInstance(
     }
   }
 
+  /**
+   * Replay every value currently in the local Signal K tree by feeding
+   * synthetic deltas through `processDelta`. The subscription manager only
+   * delivers *future* deltas, so values published into the tree before
+   * `subscribe()` ran (one-shot startup deltas, or deltas published by a
+   * co-located edge-link server-mode instance via `app.handleMessage`) would
+   * otherwise never reach the receiver. Triggered on initial subscribe
+   * success, on subscribe-retry success, and on UDP socket recovery so the
+   * receiver gets re-primed if it restarted.
+   *
+   * Returns silently if the SignalK app object doesn't expose `signalk`
+   * (older signalk-server versions or test mocks), or while the instance is
+   * not yet ready to send.
+   */
+  function replayValuesSnapshot(reason: string): void {
+    if (state.stopped || !state.readyToSend || !state.processDelta) {
+      return;
+    }
+    let snapshot: Delta[];
+    try {
+      snapshot = collectValuesSnapshot(appProxy);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      app.debug(`[${instanceId}] values snapshot collect failed (${reason}): ${msg}`);
+      return;
+    }
+    if (snapshot.length === 0) {
+      return;
+    }
+    app.debug(`[${instanceId}] Replaying ${snapshot.length} value-snapshot delta(s) (${reason})`);
+    for (const delta of snapshot) {
+      try {
+        state.processDelta(delta);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        app.debug(`[${instanceId}] values snapshot replay failed (${reason}): ${msg}`);
+        return;
+      }
+    }
+  }
+
   function restartSourceSnapshotTimer(): void {
     clearInterval(state.sourceSnapshotTimer ?? undefined);
     state.sourceSnapshotTimer = null;
@@ -757,6 +799,9 @@ function createInstance(
         }
         state.readyToSend = true;
         _setStatus("Subscription restored", true);
+        // Replay current tree state so any value that arrived in the tree
+        // while we were retrying isn't permanently lost.
+        replayValuesSnapshot("subscription retry");
       } catch (retryError: unknown) {
         const msg = retryError instanceof Error ? retryError.message : String(retryError);
         app.error(`[${instanceId}] Subscription retry ${attempt} failed: ${msg}`);
@@ -816,6 +861,12 @@ function createInstance(
         if (state.metaConfig?.enabled) {
           scheduleMetadataSnapshot(2000);
         }
+        // Replay every value already present in the tree. Without this,
+        // one-shot startup deltas published before subscribe() ran (e.g. by
+        // a co-located edge-link server-mode instance) never reach the
+        // receiver, since the subscription manager only delivers future
+        // events.
+        replayValuesSnapshot("initial subscribe");
       } catch (subscribeError: unknown) {
         // Re-subscribe failed — restore old handlers so stop() can still
         // clean up and the previous subscription remains active until retry.
@@ -1229,6 +1280,10 @@ function createInstance(
               if (state.metaConfig?.enabled) {
                 scheduleMetadataSnapshot(1000);
               }
+              // Re-prime the receiver's value tree too — a restarted
+              // receiver lost everything we sent before, and the
+              // subscription manager won't replay past deltas.
+              replayValuesSnapshot("socket recovery");
             } catch (recoveryErr: unknown) {
               state.socketRecoveryInProgress = false;
               const recoveryMsg =
