@@ -111,16 +111,6 @@ describe("validateConnectionConfig", () => {
       expect(error).toMatch(/udpPort/);
     });
 
-    test("accepts optional udpMetaPort on client and server configs", () => {
-      expect(validateConnectionConfig(makeValidClient({ udpMetaPort: 5001 }))).toBeNull();
-      expect(validateConnectionConfig(makeValidServer({ udpMetaPort: 5001 }))).toBeNull();
-    });
-
-    test("rejects invalid udpMetaPort with exact error", () => {
-      const error = validateConnectionConfig(makeValidClient({ udpMetaPort: 100 }));
-      expect(error).toBe("udpMetaPort must be an integer between 1024 and 65535");
-    });
-
     test("rejects invalid protocol version", () => {
       const error = validateConnectionConfig(makeValidClient({ protocolVersion: 4 }));
       expect(error).toMatch(/protocolVersion/);
@@ -421,11 +411,6 @@ describe("sanitizeConnectionConfig", () => {
     expect(result.reliability).toEqual({ retransmitQueueSize: 500 });
   });
 
-  test("preserves udpMetaPort when sanitizing connection config", () => {
-    const result = sanitizeConnectionConfig(makeValidClient({ udpMetaPort: 5001 }));
-    expect(result.udpMetaPort).toBe(5001);
-  });
-
   test("drops per-connection managementApiToken when sanitizing connection config", () => {
     const result = sanitizeConnectionConfig(
       makeValidClient({ managementApiToken: "per-connection-secret" })
@@ -463,6 +448,15 @@ describe("skipOwnData validation", () => {
   test("sanitizeConnectionConfig preserves skipOwnData on client connections", () => {
     const sanitized = sanitizeConnectionConfig(makeValidClient({ skipOwnData: true }));
     expect(sanitized.skipOwnData).toBe(true);
+  });
+});
+
+describe("requestFullStatusOnRestart sanitization", () => {
+  test("sanitizeConnectionConfig preserves requestFullStatusOnRestart on server connections", () => {
+    const sanitized = sanitizeConnectionConfig(
+      makeValidServer({ requestFullStatusOnRestart: true })
+    );
+    expect(sanitized.requestFullStatusOnRestart).toBe(true);
   });
 });
 

@@ -24,6 +24,7 @@ It is designed for links where latency, packet loss, and bandwidth usage matter 
   - monitoring and alerting endpoints
   - values snapshot replay on subscribe, retry, and socket recovery
   - optional server-triggered full-state request on restart (`requestFullStatusOnRestart`)
+  - Signal K path metadata transport (units, descriptions, zones)
 - **Multi-connection support** on one Signal K instance
 
 ## How data flows
@@ -112,11 +113,11 @@ Check that:
 
 ## Protocol version guidance
 
-| Version | Use when                                                  | Notes                                                                       |
-| ------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
-| v1      | stable local links, simplest setup                        | lower overhead, no ACK/NAK reliability layer                                |
-| v2      | packet loss, variable latency, WAN links                  | adds retransmission, congestion control, bonding, richer monitoring         |
-| v3      | same use cases as v2 when both peers can upgrade together | keeps v2 features and authenticates ACK/NAK/HEARTBEAT/HELLO control packets |
+| Version | Use when                                                  | Notes                                                                         |
+| ------- | --------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| v1      | stable local links, simplest setup                        | lower overhead, no ACK/NAK reliability, no metadata transport                 |
+| v2      | packet loss, variable latency, WAN links                  | adds retransmission, congestion control, bonding, metadata, richer monitoring |
+| v3      | same use cases as v2 when both peers can upgrade together | keeps v2 features and authenticates ACK/NAK/HEARTBEAT/HELLO control packets   |
 
 For unstable links, start with **v3** when both peers support it; fall back to **v2** only when you need compatibility with an already deployed v2 peer.
 
@@ -139,7 +140,7 @@ Most used endpoints:
 - `GET /bonding`
 - `POST /bonding`
 
-For full endpoint details, use `docs/api-reference.md
+For full endpoint details, use `docs/api-reference.md`
 
 ## Configuration model (summary)
 
@@ -202,6 +203,24 @@ Common checks:
 - Verify `udpAddress`, `udpPort`, and `secretKey` match both ends.
 - Confirm server UDP port is reachable and not already in use.
 - If link quality is poor, switch to `protocolVersion: 3` when both peers can upgrade together, or `2` if you must stay compatible with an existing v2 peer.
+
+**`testAddress is only supported on v1 clients` after upgrading to v2/v3**
+
+The fields `testAddress`, `testPort`, and `pingIntervalTime` belong to the v1 ping monitor and are not used by v2/v3 clients (which derive RTT from HEARTBEAT exchanges instead). If these fields are present in a connection with `protocolVersion: 2` or `3` the validator will reject the config.
+
+Remove them from the affected connection:
+
+```json
+{
+  "name": "my-client",
+  "serverType": "client",
+  "protocolVersion": 3,
+  "udpAddress": "...",
+  "heartbeatInterval": 25000
+}
+```
+
+The plugin strips these fields automatically on startup, but if you see the error when saving via the SignalK admin UI you need to remove them from the stored config JSON manually once.
 
 For issue-oriented diagnostics, use `docs/troubleshooting.md`.
 
@@ -268,7 +287,7 @@ window.__EDGE_LINK_AUTH__ = {
 - `docs/README.md` (documentation index)
 - `docs/architecture-overview.md` (system architecture and lifecycle)
 - `docs/configuration-reference.md` (settings and defaults)
-- `docs/api-reference.md
+- `docs/api-reference.md`
 - `docs/protocol-v2.md` (reliable protocol operational overview)
 - `docs/protocol-v3-spec.md` (authenticated control-plane details)
 - `docs/bonding.md` (bonding concepts and API usage)

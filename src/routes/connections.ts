@@ -252,13 +252,14 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(400).json({ error: "Missing required field 'name'" });
         }
 
-        const validationError = validateConnectionConfig(body);
+        const sanitized = sanitizeConnectionConfig(body) as ConnectionConfig;
+        const validationError = validateConnectionConfig(sanitized);
         if (validationError) {
           return res.status(400).json({ error: validationError });
         }
 
         const connections = getCurrentConnectionsConfig();
-        connections.push(sanitizeConnectionConfig(body) as ConnectionConfig);
+        connections.push(sanitized);
 
         const portError = validateUniqueServerPorts(connections);
         if (portError) {
@@ -310,15 +311,11 @@ function register(router: Router, ctx: RouteContext): void {
         const mutableAllowed = new Set([
           "name",
           "protocolVersion",
-          "udpMetaPort",
           "useMsgpack",
           "usePathDictionary",
           "enableNotifications",
           "udpAddress",
           "helloMessageSender",
-          "testAddress",
-          "testPort",
-          "pingIntervalTime",
           "reliability",
           "congestionControl",
           "bonding",
@@ -339,12 +336,13 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         const mergedConnection = { ...connections[idx], ...patch };
-        const validationError = validateConnectionConfig(mergedConnection);
+        const sanitizedConnection = sanitizeConnectionConfig(mergedConnection) as ConnectionConfig;
+        const validationError = validateConnectionConfig(sanitizedConnection);
         if (validationError) {
           return res.status(400).json({ error: validationError });
         }
 
-        connections[idx] = sanitizeConnectionConfig(mergedConnection) as ConnectionConfig;
+        connections[idx] = sanitizedConnection;
 
         const portError = validateUniqueServerPorts(connections);
         if (portError) {

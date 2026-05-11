@@ -268,6 +268,10 @@ function register(router: Router, ctx: RouteContext): void {
           });
         }
 
+        connectionList = connectionList.map((connection: Record<string, unknown>) =>
+          sanitizeConnectionConfig(connection as unknown as ConnectionConfig)
+        );
+
         for (let index = 0; index < connectionList.length; index++) {
           const prefix = connectionList.length > 1 ? `connections[${index}].` : "";
           const validationError = validateConnectionConfig(connectionList[index], prefix);
@@ -297,9 +301,7 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         const finalConfig: Record<string, unknown> = {
-          connections: connectionList.map((connection: Record<string, unknown>) =>
-            sanitizeConnectionConfig(connection as unknown as ConnectionConfig)
-          )
+          connections: connectionList
         };
 
         if (resolvedManagementToken !== undefined) {

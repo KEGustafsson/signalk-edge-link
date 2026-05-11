@@ -22,35 +22,6 @@ jest.mock(
 );
 
 const { slugify } = require("../lib/instance");
-const {
-  buildConnectionItemSchema,
-  buildWebappConnectionSchema
-} = require("../src/shared/connection-schema");
-
-describe("shared connection schema", () => {
-  function expectUdpMetaPortProperty(properties) {
-    expect(properties.udpMetaPort).toMatchObject({
-      type: "integer",
-      title: "v1 Metadata UDP Port",
-      minimum: 1024,
-      maximum: 65535
-    });
-  }
-
-  test("backend item schema exposes optional udpMetaPort", () => {
-    const schema = buildConnectionItemSchema();
-
-    expectUdpMetaPortProperty(schema.properties);
-    expect(schema.required).not.toContain("udpMetaPort");
-  });
-
-  test("webapp connection schema exposes optional udpMetaPort", () => {
-    const schema = buildWebappConnectionSchema(true, 1);
-
-    expectUdpMetaPortProperty(schema.properties);
-    expect(schema.required).not.toContain("udpMetaPort");
-  });
-});
 
 // ── slugify ───────────────────────────────────────────────────────────────
 
