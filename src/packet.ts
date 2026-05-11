@@ -545,11 +545,15 @@ export class PacketParser {
         });
         payload = payloadData;
       } else {
-        // HEARTBEAT and META_REQUEST packets carry a 0-byte payload with no CRC
-        // — accept as-is. ACK / NAK / HELLO must include a 2-byte CRC16 trailer;
-        // reject undersized payloads so forged control frames cannot slip
-        // through unverified.
-        if (type !== PacketType.HEARTBEAT && type !== PacketType.META_REQUEST) {
+        // HEARTBEAT, META_REQUEST, and FULL_STATUS_REQUEST carry a 0-byte
+        // payload with no CRC — accept as-is. ACK / NAK / HELLO must include
+        // a 2-byte CRC16 trailer; reject undersized payloads so forged control
+        // frames cannot slip through unverified.
+        if (
+          type !== PacketType.HEARTBEAT &&
+          type !== PacketType.META_REQUEST &&
+          type !== PacketType.FULL_STATUS_REQUEST
+        ) {
           if (payload.length < 2) {
             throw new Error(`Control packet payload too short for CRC: ${payload.length} byte(s)`);
           }
@@ -655,7 +659,8 @@ function getTypeName(type: number): string {
     [PacketType.HEARTBEAT]: "HEARTBEAT",
     [PacketType.HELLO]: "HELLO",
     [PacketType.METADATA]: "METADATA",
-    [PacketType.META_REQUEST]: "META_REQUEST"
+    [PacketType.META_REQUEST]: "META_REQUEST",
+    [PacketType.FULL_STATUS_REQUEST]: "FULL_STATUS_REQUEST"
   };
   return names[type] || "UNKNOWN";
 }

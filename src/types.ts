@@ -797,6 +797,8 @@ export interface ClientPipelineApi {
   ): Promise<void>;
   /** Register a callback fired when the receiver sends a META_REQUEST packet. */
   setMetaRequestHandler?(handler: (() => void) | null): void;
+  /** Register a callback fired when the server sends a FULL_STATUS_REQUEST packet. */
+  setFullStatusRequestHandler?(handler: (() => void) | null): void;
   handleControlPacket(msg: Buffer, rinfo: import("dgram").RemoteInfo): Promise<void>;
   startMetricsPublishing(): void;
   stopMetricsPublishing(): void;
