@@ -22,6 +22,8 @@ It is designed for links where latency, packet loss, and bandwidth usage matter 
   - congestion control
   - optional primary/backup bonding
   - monitoring and alerting endpoints
+  - values snapshot replay on subscribe, retry, and socket recovery
+  - optional server-triggered full-state request on restart (`requestFullStatusOnRestart`)
 - **Multi-connection support** on one Signal K instance
 
 ## How data flows
@@ -151,7 +153,8 @@ Configuration is an array of independent connections:
       "serverType": "server",
       "udpPort": 4446,
       "secretKey": "<32-byte key>",
-      "protocolVersion": 3
+      "protocolVersion": 3,
+      "requestFullStatusOnRestart": false
     },
     {
       "name": "sat-client",
@@ -168,6 +171,7 @@ Configuration is an array of independent connections:
 - Each connection runs independently.
 - Legacy single-object config is auto-normalized to one connection.
 - Client runtime JSON files (`delta_timer.json`, `subscription.json`, `sentence_filter.json`) are stored per connection and can be edited via API.
+- `requestFullStatusOnRestart` (server mode, v2/v3, default `false`): when enabled, the server sends a `FULL_STATUS_REQUEST` to each client on first contact after a (re)start; the client immediately replays its complete values snapshot so the server rebuilds state without waiting for incremental deltas. Client-side rate-limited to 10 s to prevent replay floods across rapid restarts.
 
 For complete setting definitions and ranges, use `docs/configuration-reference.md`.
 
