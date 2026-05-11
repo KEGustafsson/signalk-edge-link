@@ -11,6 +11,7 @@ import type { Router } from "./routes/types";
 interface InstanceApi {
   start(): Promise<void>;
   stop(): void;
+  isServerMode(): boolean;
   getId(): string;
   getName(): string;
   getStatus(): { text: string; healthy: boolean };
@@ -220,29 +221,37 @@ module.exports = function createPlugin(app: SignalKApp) {
       instances.set(instanceId, instance);
     }
 
-    // Start all instances concurrently.
-    // Track which ones started successfully so that, on partial failure,
-    // only the started instances are stopped — avoiding double-cleanup of
-    // instances that never completed start() and the dangling timer / socket
-    // leaks that would follow.
+    // Start servers before clients so that in a co-located proxy setup the
+    // local server is already listening by the time the local client fires its
+    // initial snapshot replay. Servers and clients within each group start
+    // concurrently; the two groups are sequenced (servers first).
     const startedInstances: Array<{ stop: () => void }> = [];
     let startError: unknown = null;
 
-    await Promise.all(
-      [...instances.values()].map(async (inst) => {
-        try {
-          await inst.start();
-          startedInstances.push(inst);
-        } catch (err: unknown) {
-          if (!startError) {
-            startError = err;
+    const allInstances = [...instances.values()];
+    const serverInstances = allInstances.filter((inst) => inst.isServerMode());
+    const clientInstances = allInstances.filter((inst) => !inst.isServerMode());
+
+    async function startGroup(group: typeof allInstances): Promise<void> {
+      await Promise.all(
+        group.map(async (inst) => {
+          try {
+            await inst.start();
+            startedInstances.push(inst);
+          } catch (err: unknown) {
+            if (!startError) {
+              startError = err;
+            }
+            app.error(
+              `Failed to start connection: ${err instanceof Error ? err.message : String(err)}`
+            );
           }
-          app.error(
-            `Failed to start connection: ${err instanceof Error ? err.message : String(err)}`
-          );
-        }
-      })
-    );
+        })
+      );
+    }
+
+    await startGroup(serverInstances);
+    await startGroup(clientInstances);
 
     if (startError) {
       app.error(`Failed to start one or more connections — stopping all started instances`);

@@ -113,12 +113,67 @@ function walkValues(node: unknown, pathParts: string[], onLeaf: (leaf: ValueLeaf
 }
 
 /**
+ * Build a lookup map from $source reference string → structured source object
+ * using the top-level `sources` section of the SK full model tree.
+ *
+ * signalk-server stores sources as sources[provider][key] = { label, type, ... }
+ * and formats $source references as "provider.key". This function inverts that
+ * structure so we can attach the correct source object to each synthetic update.
+ *
+ * Falls back to a minimal { label } entry derived from the $source string if
+ * the sources section is absent or the exact reference is not found there.
+ */
+function buildSourceLookup(tree: Record<string, unknown>): Map<string, Record<string, unknown>> {
+  const lookup = new Map<string, Record<string, unknown>>();
+  const sourcesNode = tree.sources;
+  if (!isRecord(sourcesNode)) {
+    return lookup;
+  }
+  for (const [provider, providerNode] of Object.entries(sourcesNode)) {
+    if (!isRecord(providerNode)) {
+      continue;
+    }
+    for (const [key, sourceObj] of Object.entries(providerNode)) {
+      if (isRecord(sourceObj)) {
+        lookup.set(`${provider}.${key}`, sourceObj);
+      }
+    }
+  }
+  return lookup;
+}
+
+/**
+ * Resolve the source object for a $source reference string. Tries the exact
+ * reference in the lookup, then falls back to a { label } derived from the
+ * part of the reference before the first ".".
+ */
+function resolveSource(
+  sourceRef: string,
+  lookup: Map<string, Record<string, unknown>>
+): { label?: string; type?: string } | undefined {
+  const found = lookup.get(sourceRef);
+  if (found) {
+    return found as { label?: string; type?: string };
+  }
+  // Fallback: provider label is the part before the first "."
+  const dotIdx = sourceRef.indexOf(".");
+  const label = dotIdx > 0 ? sourceRef.slice(0, dotIdx) : sourceRef;
+  return label ? { label } : undefined;
+}
+
+/**
  * Build synthetic deltas for every value currently in the Signal K tree.
  *
- * Returns one delta per `(context, source)` pair, with all matching leaves
- * grouped into a single `updates[].values[]` array. `DeltaUpdate.timestamp`
- * is per-update (not per-leaf), so the latest timestamp across the group is
- * used — receivers treat the delta as "current state" anyway.
+ * Returns one delta per `(context, source, timestamp)` triple so that the
+ * original per-path measurement time is preserved. Values from the same
+ * source that were last updated at different times (e.g. GPS speed vs
+ * autopilot settings) end up in separate updates rather than being collapsed
+ * under the latest timestamp of the group.
+ *
+ * Each update carries both `$source` (the reference string) and `source`
+ * (the structured source object looked up from the SK sources tree) so that
+ * `handleMessageBySource` can call `app.handleMessage(source.label, delta)`
+ * with the original instrument label rather than an empty provider ID.
  *
  * Returns [] when `app.signalk` isn't exposed (older signalk-server) or the
  * tree is empty.
@@ -139,7 +194,14 @@ export function collectValuesSnapshot(app: Pick<SignalKApp, "signalk" | "debug">
     return [];
   }
 
-  // Group leaves by (context, source) so we emit one delta per group.
+  // Build $source → source object lookup from the top-level sources tree so
+  // each synthetic update can carry the correct source.label for attribution.
+  const sourceLookup = buildSourceLookup(tree);
+
+  // Group leaves by (context, source, timestamp) so each distinct measurement
+  // time gets its own update. This preserves per-path timestamps: paths from
+  // the same source that were last updated at different times (e.g. GPS vs
+  // autopilot settings) are not collapsed under the same (latest) timestamp.
   const grouped = new Map<
     string,
     {
@@ -166,13 +228,10 @@ export function collectValuesSnapshot(app: Pick<SignalKApp, "signalk" | "debug">
       const context = `${contextGroup}.${contextId}`;
 
       walkValues(contextNode, [], (leaf) => {
-        const key = `${context}|${leaf.source ?? ""}`;
+        const key = `${context}|${leaf.source ?? ""}|${leaf.timestamp}`;
         const existing = grouped.get(key);
         if (existing) {
           existing.values.push({ path: leaf.path, value: leaf.value });
-          if (leaf.timestamp > existing.timestamp) {
-            existing.timestamp = leaf.timestamp;
-          }
         } else {
           grouped.set(key, {
             context,
@@ -196,6 +255,10 @@ export function collectValuesSnapshot(app: Pick<SignalKApp, "signalk" | "debug">
     };
     if (entry.source) {
       update.$source = entry.source;
+      const sourceObj = resolveSource(entry.source, sourceLookup);
+      if (sourceObj) {
+        update.source = sourceObj;
+      }
     }
     deltas.push({ context: entry.context, updates: [update] });
   }

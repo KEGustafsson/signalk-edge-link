@@ -93,7 +93,7 @@ function slugify(name: string): string {
  * @param instanceId     - URL-safe unique identifier for this connection
  * @param pluginId       - Plugin ID (used as source label in SK messages)
  * @param onStatusChange - Called as (instanceId, message) whenever status changes
- * @returns Instance API: { start, stop, getId, getName, getStatus, getState, getMetricsApi }
+ * @returns Instance API: { start, stop, isServerMode, getId, getName, getStatus, getState, getMetricsApi }
  */
 function createInstance(
   app: SignalKApp,
@@ -104,6 +104,7 @@ function createInstance(
 ): {
   start: () => Promise<void>;
   stop: () => void;
+  isServerMode: () => boolean;
   getId: () => string;
   getName: () => string;
   getStatus: () => { text: string; healthy: boolean };
@@ -1344,6 +1345,11 @@ function createInstance(
           const msg = err instanceof Error ? err.message : String(err);
           app.debug(`[${instanceId}] initial source snapshot failed: ${msg}`);
         });
+        // The initial-subscribe replayValuesSnapshot fires before readyToSend
+        // is true (pipeline not yet created) and silently returns early. Replay
+        // now so data already in the SK tree — including values injected by a
+        // co-located server-mode instance — is forwarded on first connect.
+        replayValuesSnapshot("initial connect");
 
         state.socketUdp.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
           v2Pipeline.handleControlPacket(msg, rinfo).catch((err: unknown) => {
@@ -1523,6 +1529,7 @@ function createInstance(
   return {
     start,
     stop,
+    isServerMode: () => state.isServerMode,
     getId: () => instanceId,
     getName: () => state.instanceName,
     getStatus: () => ({ text: state.instanceStatus, healthy: state.isHealthy }),
