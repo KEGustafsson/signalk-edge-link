@@ -56,7 +56,9 @@ const PacketType = Object.freeze({
   HEARTBEAT: 0x04,
   HELLO: 0x05,
   METADATA: 0x06,
-  META_REQUEST: 0x07
+  META_REQUEST: 0x07,
+  /** Server → client: request a full values snapshot replay. */
+  FULL_STATUS_REQUEST: 0x08
 });
 
 /**
@@ -226,6 +228,17 @@ export class PacketBuilder {
    */
   buildMetaRequestPacket(options: { secretKey?: string; protocolVersion?: number } = {}): Buffer {
     return this._buildPacket(PacketType.META_REQUEST, Buffer.alloc(0), {}, options);
+  }
+
+  /**
+   * Build a FULL_STATUS_REQUEST control packet (server → client).
+   * Payload is empty. Instructs the client to replay its full values snapshot
+   * so the server can rebuild state after a restart.
+   */
+  buildFullStatusRequestPacket(
+    options: { secretKey?: string; protocolVersion?: number } = {}
+  ): Buffer {
+    return this._buildPacket(PacketType.FULL_STATUS_REQUEST, Buffer.alloc(0), {}, options);
   }
 
   /**
@@ -532,11 +545,15 @@ export class PacketParser {
         });
         payload = payloadData;
       } else {
-        // HEARTBEAT and META_REQUEST packets carry a 0-byte payload with no CRC
-        // — accept as-is. ACK / NAK / HELLO must include a 2-byte CRC16 trailer;
-        // reject undersized payloads so forged control frames cannot slip
-        // through unverified.
-        if (type !== PacketType.HEARTBEAT && type !== PacketType.META_REQUEST) {
+        // HEARTBEAT, META_REQUEST, and FULL_STATUS_REQUEST carry a 0-byte
+        // payload with no CRC — accept as-is. ACK / NAK / HELLO must include
+        // a 2-byte CRC16 trailer; reject undersized payloads so forged control
+        // frames cannot slip through unverified.
+        if (
+          type !== PacketType.HEARTBEAT &&
+          type !== PacketType.META_REQUEST &&
+          type !== PacketType.FULL_STATUS_REQUEST
+        ) {
           if (payload.length < 2) {
             throw new Error(`Control packet payload too short for CRC: ${payload.length} byte(s)`);
           }
@@ -642,7 +659,8 @@ function getTypeName(type: number): string {
     [PacketType.HEARTBEAT]: "HEARTBEAT",
     [PacketType.HELLO]: "HELLO",
     [PacketType.METADATA]: "METADATA",
-    [PacketType.META_REQUEST]: "META_REQUEST"
+    [PacketType.META_REQUEST]: "META_REQUEST",
+    [PacketType.FULL_STATUS_REQUEST]: "FULL_STATUS_REQUEST"
   };
   return names[type] || "UNKNOWN";
 }

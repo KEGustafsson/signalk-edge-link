@@ -160,6 +160,7 @@ function createInstance(
     metaDiffFlushTimer: null,
     metaSnapshotTimers: [],
     lastMetaRequestAt: 0,
+    lastFullStatusRequestAt: 0,
     sourceRegistry: createSourceRegistry(app)
   };
 
@@ -481,6 +482,24 @@ function createInstance(
       const msg = err instanceof Error ? err.message : String(err);
       app.debug(`[${instanceId}] META_REQUEST snapshot failed: ${msg}`);
     });
+  }
+
+  /** Minimum gap between server-initiated full-status replays. Prevents a
+   *  restarting or misconfigured server from flooding the link. */
+  const FULL_STATUS_REQUEST_RATE_LIMIT_MS = 10000;
+
+  /** Server asked for a full values snapshot (FULL_STATUS_REQUEST control
+   *  packet). Replays the entire current Signal K tree to the server.
+   *  Rate-limited to prevent replay floods across rapid server restarts. */
+  function handleFullStatusRequest(): void {
+    const now = Date.now();
+    if (now - state.lastFullStatusRequestAt < FULL_STATUS_REQUEST_RATE_LIMIT_MS) {
+      app.debug(`[${instanceId}] FULL_STATUS_REQUEST rate-limited, skipping`);
+      return;
+    }
+    state.lastFullStatusRequestAt = now;
+    app.debug(`[${instanceId}] FULL_STATUS_REQUEST received — replaying values snapshot`);
+    replayValuesSnapshot("full-status-request");
   }
 
   async function sendSourceSnapshot(): Promise<void> {
@@ -1358,6 +1377,9 @@ function createInstance(
         if (typeof v2Pipeline.setMetaRequestHandler === "function") {
           v2Pipeline.setMetaRequestHandler(handleMetaRequest);
         }
+        if (typeof v2Pipeline.setFullStatusRequestHandler === "function") {
+          v2Pipeline.setFullStatusRequestHandler(handleFullStatusRequest);
+        }
         v2Pipeline.startMetricsPublishing();
 
         if (options.congestionControl && options.congestionControl.enabled) {
@@ -1459,6 +1481,7 @@ function createInstance(
     );
     state.excludedSentences = ["GSV"];
     state.lastPacketTime = 0;
+    state.lastFullStatusRequestAt = 0;
 
     // Reset metrics
     resetMetrics();

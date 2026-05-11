@@ -315,6 +315,14 @@ export interface ConnectionConfig {
   bonding?: BondingConfig;
   /** Alert threshold overrides for the monitoring subsystem. */
   alertThresholds?: AlertThresholds;
+  /**
+   * When true (server mode, v2/v3 only), the server sends a FULL_STATUS_REQUEST
+   * control packet to the client on first contact from each new session. The
+   * client responds by replaying its complete current values snapshot, so the
+   * server rebuilds state immediately after a restart instead of waiting for
+   * individual value changes to trickle in. Default false.
+   */
+  requestFullStatusOnRestart?: boolean;
 }
 
 // ── Metrics Types ───────────────────────────────────────────────────────────
@@ -554,6 +562,8 @@ export interface InstanceState {
   metaSnapshotTimers: Array<ReturnType<typeof setTimeout>>;
   /** Timestamp (ms) of the last receiver-requested snapshot; used for rate limiting. */
   lastMetaRequestAt: number;
+  /** Timestamp (ms) of the last full-status replay triggered by FULL_STATUS_REQUEST. */
+  lastFullStatusRequestAt: number;
   /** Replicated and normalized server-side source registry snapshot state. */
   sourceRegistry: {
     upsertFromDelta(delta: Delta, sourceClientInstanceId: string): void;
@@ -787,6 +797,8 @@ export interface ClientPipelineApi {
   ): Promise<void>;
   /** Register a callback fired when the receiver sends a META_REQUEST packet. */
   setMetaRequestHandler?(handler: (() => void) | null): void;
+  /** Register a callback fired when the server sends a FULL_STATUS_REQUEST packet. */
+  setFullStatusRequestHandler?(handler: (() => void) | null): void;
   handleControlPacket(msg: Buffer, rinfo: import("dgram").RemoteInfo): Promise<void>;
   startMetricsPublishing(): void;
   stopMetricsPublishing(): void;

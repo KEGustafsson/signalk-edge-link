@@ -258,6 +258,14 @@ export const clientReliabilityProperty: SchemaFragment = {
 
 // ── v2/v3 reliability (server pipeline — ACK/NAK timing) ──────────────────────
 
+export const requestFullStatusOnRestartProperty: SchemaFragment = {
+  type: "boolean",
+  title: "Request Full Status on Server Start (v2/v3 only)",
+  description:
+    "When enabled, the server sends a request to each client on first contact asking it to replay its complete current values snapshot. This rebuilds the server's state immediately after a restart instead of waiting for incremental deltas to arrive.",
+  default: false
+};
+
 export const serverReliabilityProperty: SchemaFragment = {
   type: "object",
   title: "Reliability Settings (v2/v3 only)",
@@ -538,6 +546,7 @@ export function buildConnectionItemSchema(): SchemaFragment {
           {
             properties: {
               serverType: { enum: ["server"] },
+              requestFullStatusOnRestart: requestFullStatusOnRestartProperty,
               reliability: serverReliabilityProperty
             }
           },
@@ -598,6 +607,7 @@ export function buildWebappConnectionSchema(
       required.push("testAddress", "testPort");
     }
   } else if (isReliableProtocol) {
+    props.requestFullStatusOnRestart = requestFullStatusOnRestartProperty;
     props.reliability = serverReliabilityProperty;
   }
 
