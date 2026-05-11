@@ -68,6 +68,10 @@ interface ClientSession {
   /** True once we have emitted a META_REQUEST to this client. Used to cap
    *  outbound META_REQUEST traffic at exactly one per session lifetime. */
   metaRequested: boolean;
+  /** True once we have emitted a FULL_STATUS_REQUEST to this client. Used to
+   *  cap outbound requests at exactly one per session lifetime. Reset on
+   *  sender-restart detection so a restarted client gets re-primed. */
+  statusRequested: boolean;
   /** Last observed meta-envelope seq, used to drop stale/duplicate envelopes
    *  that UDP reorders or replays. null until the first envelope from this
    *  session arrives. */
@@ -210,6 +214,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         rateLimitCount: 0,
         rateLimitWindowStart: Date.now(),
         metaRequested: false,
+        statusRequested: false,
         lastMetaEnvSeq: null,
         seenMetaChunkIdx: new Set<number>(),
         lastSourceEnvSeq: null,
@@ -245,6 +250,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       rateLimitWindowStart: Date.now(),
       // META_REQUEST bookkeeping
       metaRequested: false,
+      // FULL_STATUS_REQUEST bookkeeping
+      statusRequested: false,
       // Stale-envelope rejection for METADATA packets
       lastMetaEnvSeq: null,
       seenMetaChunkIdx: new Set<number>(),
@@ -565,6 +572,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       seenChunkIdx.clear();
       if (!isSource) {
         session.metaRequested = false;
+        session.statusRequested = false;
       }
     }
 
@@ -721,6 +729,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
           session.lastMetaEnvSeq = null;
           session.seenMetaChunkIdx.clear();
           session.metaRequested = false;
+          session.statusRequested = false;
         }
         if (session.lastMetaEnvSeq !== null) {
           const distance = (envSeq - session.lastMetaEnvSeq) >>> 0;
@@ -814,6 +823,21 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
       app.error(`v2 handleMetadataPacket error: ${msg}`);
       recordError("general", `v2 META decode error: ${msg}`);
+    }
+  }
+
+  /**
+   * Build and send a FULL_STATUS_REQUEST (0x08) control packet to a client.
+   * Instructs the client to replay its complete current values snapshot so the
+   * server can rebuild state immediately after a restart.
+   */
+  async function _sendFullStatusRequest(session: ClientSession, secretKey: string): Promise<void> {
+    try {
+      const packet = packetBuilder.buildFullStatusRequestPacket({ secretKey });
+      await _sendUDP(packet, { address: session.address, port: session.port });
+      app.debug(`[v2-server] FULL_STATUS_REQUEST sent to ${session.key}`);
+    } catch (err: unknown) {
+      throw err;
     }
   }
 
@@ -961,6 +985,17 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
             );
           });
         }
+        // If the operator enabled full-status-on-restart, also request a values
+        // snapshot. Capped at one per session so rapid HELLOs (e.g. NAT churn)
+        // don't create repeated replay bursts.
+        if (session && !session.statusRequested && state.options?.requestFullStatusOnRestart) {
+          session.statusRequested = true;
+          _sendFullStatusRequest(session, secretKey).catch((err: unknown) => {
+            app.debug(
+              `[v2-server] FULL_STATUS_REQUEST send failed: ${err instanceof Error ? err.message : String(err)}`
+            );
+          });
+        }
         return;
       }
 
@@ -1042,6 +1077,16 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       metrics.dataPacketsReceived = (metrics.dataPacketsReceived ?? 0) + 1;
       if (session) {
         session.hasReceivedData = true;
+      }
+      // On first DATA from a new session, request full-status replay if enabled.
+      // This covers the case where the client sends data before its next HELLO.
+      if (session && !session.statusRequested && state.options?.requestFullStatusOnRestart) {
+        session.statusRequested = true;
+        _sendFullStatusRequest(session, secretKey).catch((err: unknown) => {
+          app.debug(
+            `[v2-server] FULL_STATUS_REQUEST (data trigger) send failed: ${err instanceof Error ? err.message : String(err)}`
+          );
+        });
       }
       const dataSeq = parsed.sequence >>> 0;
       if (session) {

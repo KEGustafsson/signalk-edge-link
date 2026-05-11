@@ -134,6 +134,9 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   // (META_REQUEST control packet). Wired up by instance.ts, which is the only
   // layer that knows how to build a snapshot from `app.signalk.retrieve()`.
   let metaRequestHandler: (() => void) | null = null;
+  // Callback fired when the server sends FULL_STATUS_REQUEST, asking the client
+  // to replay its complete current values snapshot.
+  let fullStatusRequestHandler: (() => void) | null = null;
   let metaEnvelopeSeq = 0;
   let sourceEnvelopeSeq = 0;
   // Seed all four meta bandwidth counters so downstream consumers (metrics
@@ -798,6 +801,10 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
     metaRequestHandler = handler;
   }
 
+  function setFullStatusRequestHandler(handler: (() => void) | null): void {
+    fullStatusRequestHandler = handler;
+  }
+
   /**
    * Handle incoming ACK packet from server.
    * Removes acknowledged packets from the retransmit queue.
@@ -957,6 +964,21 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err);
             app.debug(`META_REQUEST handler error: ${errMsg}`);
+          }
+        }
+      } else if (parsed.type === PacketType.FULL_STATUS_REQUEST) {
+        // Server asks us to replay our full values snapshot (e.g. after a
+        // server restart). Rate-limited in instance.ts to prevent abuse.
+        if (fullStatusRequestHandler) {
+          try {
+            Promise.resolve(fullStatusRequestHandler() as unknown).catch((err: unknown) => {
+              app.debug(
+                `FULL_STATUS_REQUEST handler rejected: ${err instanceof Error ? err.message : String(err)}`
+              );
+            });
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            app.debug(`FULL_STATUS_REQUEST handler error: ${errMsg}`);
           }
         }
       }
@@ -1364,6 +1386,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
     sendMetadata,
     sendSourceSnapshot,
     setMetaRequestHandler,
+    setFullStatusRequestHandler,
     getPacketBuilder,
     getRetransmitQueue,
     getMetricsPublisher,
