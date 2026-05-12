@@ -228,6 +228,22 @@ export function collectValuesSnapshot(app: Pick<SignalKApp, "signalk" | "debug">
       const context = `${contextGroup}.${contextId}`;
 
       walkValues(contextNode, [], (leaf) => {
+        // Skip values that this plugin injected from remote instances.
+        // SK stores them under "signalk-edge-link.*" $source keys. Including
+        // them in the snapshot would loop remote data back to its origin and
+        // propagate wrong source labels (the fallback label derived from the
+        // "signalk-edge-link" prefix is never the original sensor label).
+        // Live streaming handles relay correctly via subscription callbacks,
+        // which SK populates with the full source object automatically.
+        const src = leaf.source ?? "";
+        if (
+          src === "signalk-edge-link" ||
+          src.startsWith("signalk-edge-link.") ||
+          src.startsWith("signalk-edge-link:")
+        ) {
+          return;
+        }
+
         const key = `${context}|${leaf.source ?? ""}|${leaf.timestamp}`;
         const existing = grouped.get(key);
         if (existing) {
