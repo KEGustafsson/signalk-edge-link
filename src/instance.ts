@@ -110,6 +110,8 @@ function createInstance(
   getStatus: () => { text: string; healthy: boolean };
   getState: () => InstanceState;
   getMetricsApi: () => MetricsApi;
+  setFullStatusCascadeHandler: (handler: (() => void) | null) => void;
+  requestFullStatusFromAllClients: () => void;
 } {
   // ── Per-instance state ────────────────────────────────────────────────────
   const state: InstanceState = {
@@ -465,6 +467,13 @@ function createInstance(
    *  restarting or misconfigured server from flooding the link. */
   const FULL_STATUS_REQUEST_RATE_LIMIT_MS = 10000;
 
+  /**
+   * Optional callback invoked after this (client-mode) instance handles a
+   * FULL_STATUS_REQUEST. Used in multi-hop chains to cascade the request to
+   * any downstream clients connected to a co-located server-mode instance.
+   */
+  let fullStatusCascadeHandler: (() => void) | null = null;
+
   /** Server asked for a full values snapshot (FULL_STATUS_REQUEST control
    *  packet). Replays the entire current Signal K tree to the server.
    *  Rate-limited to prevent replay floods across rapid server restarts. */
@@ -477,6 +486,10 @@ function createInstance(
     state.lastFullStatusRequestAt = now;
     app.debug(`[${instanceId}] FULL_STATUS_REQUEST received — replaying values snapshot`);
     replayValuesSnapshot("full-status-request");
+    if (fullStatusCascadeHandler) {
+      app.debug(`[${instanceId}] FULL_STATUS_REQUEST cascading to downstream clients`);
+      fullStatusCascadeHandler();
+    }
   }
 
   async function sendSourceSnapshot(): Promise<void> {
@@ -1534,7 +1547,17 @@ function createInstance(
     getName: () => state.instanceName,
     getStatus: () => ({ text: state.instanceStatus, healthy: state.isHealthy }),
     getState: () => state,
-    getMetricsApi: () => metricsApi
+    getMetricsApi: () => metricsApi,
+    /** Register a callback to invoke when this client-mode instance handles
+     *  a FULL_STATUS_REQUEST, so the request cascades to downstream clients. */
+    setFullStatusCascadeHandler(handler: (() => void) | null) {
+      fullStatusCascadeHandler = handler;
+    },
+    /** Forward a FULL_STATUS_REQUEST to all currently-connected clients
+     *  (server-mode instances only; no-op on client-mode instances). */
+    requestFullStatusFromAllClients() {
+      state.pipelineServer?.requestFullStatusFromAllClients?.();
+    }
   };
 }
 

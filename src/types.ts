@@ -822,6 +822,7 @@ export interface ServerPipelineApi {
   getPacketBuilder(): unknown;
   getMetrics(): unknown;
   getMetricsPublisher(): MetricsPublisherApi;
+  requestFullStatusFromAllClients(): void;
 }
 
 export {};

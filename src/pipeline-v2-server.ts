@@ -842,6 +842,23 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   }
 
   /**
+   * Send FULL_STATUS_REQUEST to every currently-connected client session.
+   * Called when this server instance itself receives a FULL_STATUS_REQUEST
+   * from an upstream server, so the request cascades down the chain:
+   * Cloud → Proxy (triggers this) → Boat.
+   */
+  function requestFullStatusFromAllClients(): void {
+    const secretKey = state.options?.secretKey ?? "";
+    for (const session of clientSessions.values()) {
+      _sendFullStatusRequest(session, secretKey).catch((err: unknown) => {
+        app.debug(
+          `[v2-server] cascade FULL_STATUS_REQUEST to ${session.key} failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      });
+    }
+  }
+
+  /**
    * Build and send a META_REQUEST (0x07) control packet to a client.
    * Instructs the client to emit a fresh metadata snapshot — used on first
    * contact from a new session so the receiver doesn't have to wait for the
@@ -1410,7 +1427,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
     startACKTimer,
     stopACKTimer,
     startMetricsPublishing,
-    stopMetricsPublishing
+    stopMetricsPublishing,
+    requestFullStatusFromAllClients
   };
 }
 

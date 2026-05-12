@@ -17,6 +17,8 @@ interface InstanceApi {
   getStatus(): { text: string; healthy: boolean };
   getState(): InstanceState;
   getMetricsApi(): MetricsApi;
+  setFullStatusCascadeHandler(handler: (() => void) | null): void;
+  requestFullStatusFromAllClients(): void;
 }
 
 const pkg = require("../package.json");
@@ -263,6 +265,24 @@ module.exports = function createPlugin(app: SignalKApp) {
         `Startup failed: ${startError instanceof Error ? startError.message : String(startError)}`
       );
       return;
+    }
+
+    // Wire up FULL_STATUS_REQUEST cascade: when a client-mode instance receives
+    // a FULL_STATUS_REQUEST from its upstream server, it should also forward the
+    // request to all downstream clients connected to any co-located server-mode
+    // instances. This propagates the request down the chain (Cloud → Proxy → Boat)
+    // so one-shot startup values from the furthest-downstream node are re-sent.
+    const allStarted = [...instances.values()];
+    const serverInsts = allStarted.filter((inst) => inst.isServerMode());
+    const clientInsts = allStarted.filter((inst) => !inst.isServerMode());
+    if (serverInsts.length > 0 && clientInsts.length > 0) {
+      for (const clientInst of clientInsts) {
+        clientInst.setFullStatusCascadeHandler(() => {
+          for (const serverInst of serverInsts) {
+            serverInst.requestFullStatusFromAllClients();
+          }
+        });
+      }
     }
 
     // Initial status aggregation after all instances report their status

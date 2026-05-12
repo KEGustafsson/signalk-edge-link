@@ -228,20 +228,32 @@ export function collectValuesSnapshot(app: Pick<SignalKApp, "signalk" | "debug">
       const context = `${contextGroup}.${contextId}`;
 
       walkValues(contextNode, [], (leaf) => {
-        // Skip values that this plugin injected from remote instances.
-        // SK stores them under "signalk-edge-link.*" $source keys. Including
-        // them in the snapshot would loop remote data back to its origin and
-        // propagate wrong source labels (the fallback label derived from the
-        // "signalk-edge-link" prefix is never the original sensor label).
-        // Live streaming handles relay correctly via subscription callbacks,
-        // which SK populates with the full source object automatically.
+        // Values stored under "signalk-edge-link.*" $source keys were injected
+        // by this plugin (data received via an upstream edge-link server connection
+        // or a downstream edge-link client connection). Skip them only when the SK
+        // sources table cannot provide a proper original-sensor label — that case
+        // would produce wrong attribution on the receiver. When the sources table
+        // does resolve to a real label (e.g. "pypilot"), include the value so relay
+        // data reaches the upstream server after its restart; the receiver's
+        // normalizeDeltaSourceRefs will strip the stale $source and
+        // handleMessageBySource will dispatch under the original label.
         const src = leaf.source ?? "";
         if (
           src === "signalk-edge-link" ||
           src.startsWith("signalk-edge-link.") ||
           src.startsWith("signalk-edge-link:")
         ) {
-          return;
+          const resolved = sourceLookup.get(src);
+          const resolvedLabel = typeof resolved?.label === "string" ? resolved.label.trim() : "";
+          if (
+            !resolvedLabel ||
+            resolvedLabel === "signalk-edge-link" ||
+            resolvedLabel.startsWith("signalk-edge-link.") ||
+            resolvedLabel.startsWith("signalk-edge-link:")
+          ) {
+            return; // No proper label available — skip to avoid wrong attribution
+          }
+          // Resolved to a real sensor label — fall through and include the value
         }
 
         const key = `${context}|${leaf.source ?? ""}|${leaf.timestamp}`;
