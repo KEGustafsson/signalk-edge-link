@@ -52,16 +52,25 @@ function deriveSourceRefFromObject(source: Record<string, unknown>): string {
 /**
  * Resolve the canonical `$source` string for an update, preferring the
  * incoming `$source` field over a derived value from the structured source
- * object. Stale `signalk-edge-link.*` refs are ignored in favour of the
- * structured source so attribution survives multi-hop relays.
+ * object. A stale `signalk-edge-link.*` explicit ref is only replaced when
+ * the derived ref is genuinely fresh — otherwise we'd be swapping one stale
+ * attribution for another (e.g. when `source.label` is itself
+ * `"signalk-edge-link"` on a relayed update), which would collapse keys and
+ * misroute downstream subscribers.
  */
 function resolveSourceRef(update: DeltaUpdate): string {
   const explicit = trimmedString(update.$source);
   const sourceObj = isRecord(update.source) ? update.source : null;
   const derived = sourceObj ? deriveSourceRefFromObject(sourceObj) : "";
 
-  if (explicit && (!isStaleEdgeLinkRef(explicit) || !derived)) {
-    return explicit;
+  if (explicit) {
+    if (!isStaleEdgeLinkRef(explicit)) {
+      return explicit;
+    }
+    // Explicit is stale; only swap to derived if derived is genuinely fresh.
+    if (!derived || isStaleEdgeLinkRef(derived)) {
+      return explicit;
+    }
   }
   return derived;
 }
@@ -131,8 +140,10 @@ export function normalizeDeltaSourceRefs(delta: Delta): Delta {
     const sourceLabel = trimmedString(sourceObj?.label);
     // Only strip when we have a real (non-edge-link) structured source the
     // receiver can fall back to. Otherwise keep the stale $source so the
-    // value still has *some* attribution downstream.
-    if (!sourceLabel || sourceLabel === "signalk-edge-link") {
+    // value still has *some* attribution downstream. Use prefix-aware
+    // staleness detection so a label like `"signalk-edge-link:<instanceId>"`
+    // is treated the same as the bare `"signalk-edge-link"`.
+    if (!sourceLabel || isStaleEdgeLinkRef(sourceLabel)) {
       return update;
     }
     changed = true;

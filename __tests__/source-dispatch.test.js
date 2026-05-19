@@ -129,6 +129,24 @@ describe("handleMessageBySource", () => {
     expect(app.calls[0].delta.updates[0].$source).toBe("bedroom");
   });
 
+  test("keeps a stale $source when the derived ref would also be stale (no key swap to another edge-link label)", () => {
+    const app = makeAppCapturer();
+    handleMessageBySource(app, {
+      context: "vessels.self",
+      updates: [
+        {
+          // Both attribution sources are stale signalk-edge-link.* — swapping
+          // would collapse one stale key into another instead of recovering
+          // real attribution.
+          source: { label: "signalk-edge-link" },
+          $source: "signalk-edge-link.42",
+          values: [{ path: "p", value: 1 }]
+        }
+      ]
+    });
+    expect(app.calls[0].delta.updates[0].$source).toBe("signalk-edge-link.42");
+  });
+
   test("keeps a stale signalk-edge-link.* $source when no usable source object is present", () => {
     const app = makeAppCapturer();
     handleMessageBySource(app, {
@@ -200,6 +218,22 @@ describe("normalizeDeltaSourceRefs", () => {
     });
     expect(out.updates[0].$source).toBeUndefined();
     expect(out.updates[0].source).toEqual({ label: "bedroom" });
+  });
+
+  test("keeps stale $source when the structured label is an edge-link namespace too (prefix-aware)", () => {
+    // The structured label is `signalk-edge-link:<instanceId>` (colon
+    // variant) — still stale, must not be used as a fresh fallback.
+    const out = normalizeDeltaSourceRefs({
+      context: "vessels.self",
+      updates: [
+        {
+          source: { label: "signalk-edge-link:proxy-01" },
+          $source: "signalk-edge-link.42",
+          values: [{ path: "p", value: 1 }]
+        }
+      ]
+    });
+    expect(out.updates[0].$source).toBe("signalk-edge-link.42");
   });
 
   test("keeps stale $source when only an edge-link-labelled source is available", () => {

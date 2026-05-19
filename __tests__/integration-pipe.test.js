@@ -191,7 +191,7 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       expect(delivered.updates[0].source).toBeUndefined();
     });
 
-    test("null/empty source is dropped, $source derived from source label when absent", async () => {
+    test("null source is dropped and no $source is emitted when attribution is unavailable", async () => {
       const deltaWithNullSource = {
         context: "vessels.self",
         updates: [
