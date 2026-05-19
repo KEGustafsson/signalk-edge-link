@@ -8,7 +8,9 @@
  *   3. Metrics tracking across both sides
  *   4. Frontend /metrics API serves correct data for the webapp
  *   5. Path dictionary encode/decode round-trip through the pipeline
- *   6. Source fixing (null source → empty object) through decodeDelta
+ *   6. Source handling: null/absent source is omitted (no structured source
+ *      passes through to handleMessage), so FullSignalK doesn't recompute
+ *      `$source` from a providerId-rewritten label
  */
 
 jest.mock("ping-monitor", () => {
@@ -157,7 +159,6 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       expect(delivered.updates[0].values[1].value).toBe(5.14);
       expect(delivered.updates[0].timestamp).toBe("2024-06-15T12:00:00.000Z");
       expect(delivered.updates[0].$source).toBe("n2k-gateway.3");
-      // Structured source object is dropped on dispatch — see comment above.
       expect(delivered.updates[0].source).toBeUndefined();
     });
 
@@ -187,7 +188,6 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       // The $source string survives the round-trip so the receiver's
       // FullSignalK stores the leaf under the same key the sender used.
       expect(delivered.updates[0].$source).toBe("n2k-gateway.3");
-      // Structured source object is intentionally dropped on dispatch.
       expect(delivered.updates[0].source).toBeUndefined();
     });
 
