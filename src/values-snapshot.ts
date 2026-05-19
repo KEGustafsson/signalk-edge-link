@@ -68,11 +68,29 @@ function walkValues(node: unknown, pathParts: string[], onLeaf: (leaf: ValueLeaf
     return;
   }
 
-  // Multi-source case wins when present: `values` is { sourceLabel:
-  // { value, timestamp } } and is more authoritative than the top-level
-  // `value`/`timestamp` (which mirror the latest of the multi-source map).
-  // Emit one leaf per source so the receiver retains attribution, then stop
-  // — the rest of the node is per-source bookkeeping.
+  // Prefer the top-level single-source view: it reflects the *current*
+  // writer, which is what live subscription deltas also carry. The
+  // multi-source `values: { … }` map is signalk-server's append-only
+  // history bookkeeping — entries created by sources that have since
+  // stopped writing (different N2K source address, a previous edge-link
+  // version, a one-shot delta from another local provider) stay there
+  // for the life of the signalk-server process with no TTL. Walking
+  // that map would ship every historical `$source` to the receiver,
+  // where they become ghost entries that never refresh because no live
+  // writer is producing them anymore.
+  const single = readLeafFromNode(node);
+  if (single !== null) {
+    onLeaf({
+      path: pathParts.join("."),
+      value: single.value,
+      timestamp: single.timestamp,
+      source: single.source
+    });
+    return;
+  }
+
+  // No top-level leaf — fall back to the multi-source map for older
+  // signalk-server versions or partial trees that only populated `values`.
   if (isRecord(node.values)) {
     for (const [sourceLabel, sourceData] of Object.entries(node.values)) {
       if (
@@ -88,18 +106,6 @@ function walkValues(node: unknown, pathParts: string[], onLeaf: (leaf: ValueLeaf
         });
       }
     }
-    return;
-  }
-
-  // Single-source leaf.
-  const single = readLeafFromNode(node);
-  if (single !== null) {
-    onLeaf({
-      path: pathParts.join("."),
-      value: single.value,
-      timestamp: single.timestamp,
-      source: single.source
-    });
     return;
   }
 

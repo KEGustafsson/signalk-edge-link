@@ -265,7 +265,7 @@ describe("pipeline-v2-server", () => {
     expect(metricsApi.metrics.malformedPackets).toBe(1);
   });
 
-  test("dispatches remote updates under their original source labels", async () => {
+  test("preserves original source attribution via $source-as-string across the hop", async () => {
     const app = {
       debug: jest.fn(),
       error: jest.fn(),
@@ -286,6 +286,9 @@ describe("pipeline-v2-server", () => {
         context: "vessels.self",
         updates: [
           {
+            // Stale signalk-edge-link.* $source from a previous hop. The
+            // structured source object is the fresh attribution, so the
+            // dispatch path must prefer it and derive $source from it.
             $source: "signalk-edge-link.HC",
             source: { label: "Arabella Compass", type: "NMEA0183", talker: "HC", sentence: "HDM" },
             values: [{ path: "navigation.headingMagnetic", value: 1.23 }]
@@ -302,15 +305,21 @@ describe("pipeline-v2-server", () => {
 
     await pipeline.receivePacket(packet, secretKey, { address: "127.0.0.1", port: 12007 });
 
-    expect(app.handleMessage).toHaveBeenCalledTimes(2);
-    expect(app.handleMessage.mock.calls.map((call) => call[0])).toEqual([
-      "Arabella Compass",
-      "Arabella AIS"
-    ]);
-    expect(app.handleMessage.mock.calls[0][1].updates).toHaveLength(1);
-    expect(app.handleMessage.mock.calls[1][1].updates).toHaveLength(1);
-    expect(app.handleMessage.mock.calls[0][1].updates[0].$source).toBeUndefined();
-    expect(app.handleMessage.mock.calls[1][1].updates[0].$source).toBeUndefined();
+    // Single dispatch with providerId="" — signalk-server's plugin wrapper
+    // would override anything else we pass anyway, so per-source dispatch
+    // would be a no-op. Attribution rides on each update's $source string,
+    // which signalk-server's FullSignalK uses verbatim because we drop the
+    // structured source object that would otherwise trigger getSourceId
+    // recomputation (and its `.XX` fallback).
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+    expect(app.handleMessage.mock.calls[0][0]).toBe("");
+
+    const delivered = app.handleMessage.mock.calls[0][1];
+    expect(delivered.updates).toHaveLength(2);
+    expect(delivered.updates[0].$source).toBe("Arabella Compass.HC");
+    expect(delivered.updates[1].$source).toBe("Arabella AIS.AI");
+    expect(delivered.updates[0].source).toBeUndefined();
+    expect(delivered.updates[1].source).toBeUndefined();
   });
 
   test("marks duplicate DATA packets", async () => {
