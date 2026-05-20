@@ -265,6 +265,32 @@ describe("createInstance", () => {
     expect(state.configWatcherObjects).toEqual([]);
   });
 
+  test("isServerMode() reflects options.serverType before start() runs", () => {
+    // Regression: index.ts filters instances into server and client startup
+    // groups via inst.isServerMode() BEFORE start() is called. If
+    // state.isServerMode is initialised to false and only mutated inside
+    // start(), the server group ends up empty and the "servers first, then
+    // clients" sequencing collapses into one concurrent startGroup —
+    // producing variable per-restart races (e.g. proxy-client subscribing
+    // before the local server-mode instance has received any data).
+    const serverInst = createInstance(
+      makeMockApp(),
+      makeClientOptions({ serverType: "server" }),
+      "server-mode-id",
+      "plugin",
+      jest.fn()
+    );
+    const clientInst = createInstance(
+      makeMockApp(),
+      makeClientOptions({ serverType: "client" }),
+      "client-mode-id",
+      "plugin",
+      jest.fn()
+    );
+    expect(serverInst.isServerMode()).toBe(true);
+    expect(clientInst.isServerMode()).toBe(false);
+  });
+
   test("validates secretKey and rejects invalid key without starting", async () => {
     const app = makeMockApp();
     const inst = createInstance(

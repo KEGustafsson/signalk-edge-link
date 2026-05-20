@@ -123,7 +123,13 @@ function createInstance(
     socketUdp: null,
     readyToSend: false,
     stopped: false,
-    isServerMode: false,
+    // Initialise from options so isServerMode() returns the correct value
+    // BEFORE start() runs. index.ts filters instances into server and client
+    // groups (servers start first) using inst.isServerMode(); if that read
+    // happens before start() has had a chance to set state.isServerMode, the
+    // server group ends up empty and every instance starts concurrently in
+    // the client group, defeating the intended sequencing.
+    isServerMode: (options.serverType as unknown) === true || options.serverType === "server",
     deltas: [],
     timer: false,
     batchSendInFlight: false,
