@@ -265,6 +265,56 @@ describe("createInstance", () => {
     expect(state.configWatcherObjects).toEqual([]);
   });
 
+  test("processDelta drops deliveries during subscribe() (signalk-server cache replay)", () => {
+    // Regression: signalk-server's subscriptionmanager.subscribe synchronously
+    // calls latest.forEach(callback) AFTER registering the live listener,
+    // bypassing the bufferWithTime+uniqBy dedupe on the live pipeline. For
+    // every path that exists at subscribe time, the callback fires twice for
+    // the cached value (once direct, once via the live listener). Without
+    // gating, that produces a one-shot per-path duplicate at every restart —
+    // which on a busy proxy averages out to ~2x rate over short uptimes.
+    // The gate makes processDelta drop anything delivered while
+    // state.subscribing is true; replayValuesSnapshot("initial subscribe")
+    // is responsible for shipping the initial tree state explicitly.
+    const inst = createInstance(
+      makeMockApp(),
+      makeClientOptions(),
+      "subscribe-gate",
+      "plugin",
+      jest.fn()
+    );
+    const state = inst.getState();
+    state.readyToSend = true;
+    // Simulate signalk-server inside its synchronous subscribe() body
+    state.subscribing = true;
+    state.processDelta({
+      context: "vessels.self",
+      updates: [
+        {
+          source: { label: "SatHead", talker: "GN" },
+          $source: "SatHead.GN",
+          timestamp: "2026-01-01T00:00:00.000Z",
+          values: [{ path: "navigation.position", value: { latitude: 60, longitude: 25 } }]
+        }
+      ]
+    });
+    expect(state.deltas).toHaveLength(0);
+    // After subscribe() returns the gate lifts and live deliveries flow.
+    state.subscribing = false;
+    state.processDelta({
+      context: "vessels.self",
+      updates: [
+        {
+          source: { label: "SatHead", talker: "GN" },
+          $source: "SatHead.GN",
+          timestamp: "2026-01-01T00:00:01.000Z",
+          values: [{ path: "navigation.position", value: { latitude: 60.1, longitude: 25.1 } }]
+        }
+      ]
+    });
+    expect(state.deltas).toHaveLength(1);
+  });
+
   test("isServerMode() reflects options.serverType before start() runs", () => {
     // Regression: index.ts filters instances into server and client startup
     // groups via inst.isServerMode() BEFORE start() is called. If

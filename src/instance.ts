@@ -153,6 +153,7 @@ function createInstance(
     pingMonitor: null,
     deltaTimer: null,
     subscriptionRetryTimer: null,
+    subscribing: false,
     pipeline: null,
     pipelineServer: null,
     heartbeatHandle: null,
@@ -687,6 +688,18 @@ function createInstance(
       return;
     }
 
+    // Drop signalk-server's synchronous cache replay. handleSubscribeRow
+    // calls `latest.forEach(callback)` after registering the live listener,
+    // bypassing the bufferWithTime+uniqBy dedupe — so each path with a
+    // cached value at subscribe time is delivered to us twice (once direct,
+    // once through the live pipeline). `replayValuesSnapshot("initial
+    // subscribe")` runs immediately after subscribe() returns and walks
+    // the SK tree explicitly to ship initial state downstream, so dropping
+    // the direct replay does not cost us any data.
+    if (state.subscribing) {
+      return;
+    }
+
     // Capture live meta BEFORE the delta flows into the pipeline encoder,
     // because pathDictionary.transformDelta will strip `updates[].meta[]` when
     // rebuilding the update objects. `extractLiveMeta` returns [] when meta
@@ -796,17 +809,24 @@ function createInstance(
       partialUnsubscribes.forEach((f: () => void) => f());
 
       try {
-        app.subscriptionmanager.subscribe(
-          state.localSubscription,
-          state.unsubscribes,
-          (retrySubError: unknown) => {
-            app.error(`[${instanceId}] Subscription error (attempt ${attempt}): ${retrySubError}`);
-            state.readyToSend = false;
-            _setStatus("Subscription error - data transmission paused", false);
-            recordError("subscription", `Subscription error: ${retrySubError}`);
-          },
-          processDelta
-        );
+        state.subscribing = true;
+        try {
+          app.subscriptionmanager.subscribe(
+            state.localSubscription,
+            state.unsubscribes,
+            (retrySubError: unknown) => {
+              app.error(
+                `[${instanceId}] Subscription error (attempt ${attempt}): ${retrySubError}`
+              );
+              state.readyToSend = false;
+              _setStatus("Subscription error - data transmission paused", false);
+              recordError("subscription", `Subscription error: ${retrySubError}`);
+            },
+            processDelta
+          );
+        } finally {
+          state.subscribing = false;
+        }
         // Retry succeeded — perform the staged commit that the original
         // processConfig catch block skipped. Without this, the operator's
         // new meta block (stashed on state.pendingMetaConfig) would remain
@@ -869,17 +889,22 @@ function createInstance(
       previousUnsubscribes.forEach((f: () => void) => f());
 
       try {
-        app.subscriptionmanager.subscribe(
-          state.localSubscription,
-          state.unsubscribes,
-          (subscriptionError: unknown) => {
-            app.error(`[${instanceId}] Subscription error: ${subscriptionError}`);
-            state.readyToSend = false;
-            _setStatus("Subscription error - data transmission paused", false);
-            recordError("subscription", `Subscription error: ${subscriptionError}`);
-          },
-          processDelta
-        );
+        state.subscribing = true;
+        try {
+          app.subscriptionmanager.subscribe(
+            state.localSubscription,
+            state.unsubscribes,
+            (subscriptionError: unknown) => {
+              app.error(`[${instanceId}] Subscription error: ${subscriptionError}`);
+              state.readyToSend = false;
+              _setStatus("Subscription error - data transmission paused", false);
+              recordError("subscription", `Subscription error: ${subscriptionError}`);
+            },
+            processDelta
+          );
+        } finally {
+          state.subscribing = false;
+        }
         // Commit the new metadata config AFTER a successful subscribe: swap
         // state.metaConfig, (re)start the periodic timer, and reset the diff
         // cache so the next snapshot represents the live state in full. We
