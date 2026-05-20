@@ -68,6 +68,22 @@ const DELTA_SEND_MAX_RETRIES = 1;
 const DELTA_SEND_RETRY_BACKOFF_MS = 100;
 const SOURCE_SNAPSHOT_INTERVAL_MS = 60_000;
 
+/**
+ * Per-path flow counter used to debug "data inflates at each hop" reports.
+ * Opt-in via `SIGNALK_EDGE_LINK_FLOW=1` because every delta delivery walks the
+ * values array; off by default.
+ *
+ * When enabled, every 60 s each instance logs the top 15 paths by
+ * `processDelta` invocation count vs. value-entries enqueued. Comparing the
+ * processed count on a client-mode instance against the server-mode instance's
+ * `pathStats` (visible in the webapp) pinpoints whether the subscription
+ * delivery rate matches the inbound UDP delivery rate, or whether something
+ * between subscription and `sendDelta` is multiplying.
+ */
+const FLOW_DIAGNOSTIC_ENABLED =
+  process.env.SIGNALK_EDGE_LINK_FLOW === "1" || process.env.SIGNALK_EDGE_LINK_FLOW === "true";
+const FLOW_DIAGNOSTIC_INTERVAL_MS = 60_000;
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -676,10 +692,66 @@ function createInstance(
     }
   }
 
+  // Diagnostic flow counter — populated only when SIGNALK_EDGE_LINK_FLOW=1.
+  // Maps path → { processDelta calls, value-entries enqueued } seen during
+  // the current 60 s reporting window. Cleared after each periodic dump.
+  const flowCounters = new Map<string, { calls: number; values: number }>();
+  let flowDiagnosticTimer: ReturnType<typeof setInterval> | null = null;
+
+  function _flowRecord(delta: Delta): void {
+    if (!FLOW_DIAGNOSTIC_ENABLED || !delta || !Array.isArray(delta.updates)) {
+      return;
+    }
+    for (const update of delta.updates) {
+      const values = Array.isArray(update?.values) ? update.values : null;
+      if (!values || values.length === 0) {
+        continue;
+      }
+      const seenInThisCall = new Set<string>();
+      for (const v of values) {
+        if (!v || typeof v.path !== "string" || !v.path) {
+          continue;
+        }
+        let entry = flowCounters.get(v.path);
+        if (!entry) {
+          entry = { calls: 0, values: 0 };
+          flowCounters.set(v.path, entry);
+        }
+        entry.values++;
+        // Each processDelta call is counted once per distinct path it touches,
+        // so a single delta with two values for the same path still only
+        // contributes one "call" — matching how the user perceives "an update
+        // for that path landed".
+        if (!seenInThisCall.has(v.path)) {
+          entry.calls++;
+          seenInThisCall.add(v.path);
+        }
+      }
+    }
+  }
+
+  function _flowDump(): void {
+    if (!FLOW_DIAGNOSTIC_ENABLED || flowCounters.size === 0) {
+      return;
+    }
+    const top = Array.from(flowCounters.entries())
+      .sort((a, b) => b[1].calls - a[1].calls)
+      .slice(0, 15);
+    app.debug(
+      `[${instanceId}] [flow] processDelta delivery (last ${FLOW_DIAGNOSTIC_INTERVAL_MS / 1000}s, top ${top.length}):`
+    );
+    for (const [path, entry] of top) {
+      app.debug(`[${instanceId}] [flow]   ${path}: calls=${entry.calls} values=${entry.values}`);
+    }
+    flowCounters.clear();
+  }
+
   function processDelta(delta: Delta): void {
     if (!state.readyToSend) {
       return;
     }
+
+    _flowRecord(delta);
 
     // Capture live meta BEFORE the delta flows into the pipeline encoder,
     // because pathDictionary.transformDelta will strip `updates[].meta[]` when
@@ -971,6 +1043,13 @@ function createInstance(
   async function start(): Promise<void> {
     state.stopped = false;
     state.options = options;
+
+    if (FLOW_DIAGNOSTIC_ENABLED && flowDiagnosticTimer === null) {
+      app.debug(
+        `[${instanceId}] [flow] diagnostic enabled — dumping per-path processDelta counts every ${FLOW_DIAGNOSTIC_INTERVAL_MS / 1000}s`
+      );
+      flowDiagnosticTimer = setInterval(_flowDump, FLOW_DIAGNOSTIC_INTERVAL_MS);
+    }
 
     // Validate secret key — throw so Promise.all in index.js can detect startup failure
     try {
@@ -1428,6 +1507,12 @@ function createInstance(
     state.stopped = true;
     state.readyToSend = false;
     state.isHealthy = false;
+
+    if (flowDiagnosticTimer !== null) {
+      clearInterval(flowDiagnosticTimer);
+      flowDiagnosticTimer = null;
+      _flowDump();
+    }
 
     // Unsubscribe from Signal K
     state.unsubscribes.forEach((f: () => void) => f());
