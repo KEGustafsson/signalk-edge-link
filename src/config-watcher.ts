@@ -86,10 +86,47 @@ export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): Debounc
       return;
     }
 
-    const parsed = content ? JSON.parse(content) : readFallback;
-    await processConfig(parsed);
-    if (!state.stopped) {
-      state.configContentHashes[name] = contentHash;
+    // Claim the hash BEFORE awaiting processConfig so a concurrent runLoad
+    // (e.g. the initial flush() racing an fs.watch event triggered during
+    // startup) sees the hash and skips instead of running processConfig
+    // twice. Without this, two processConfigs can both observe the same
+    // pre-claim hash and both call subscribe(), leaving leaked listeners
+    // for any path whose bus is created between the new subscribe() and
+    // the old previousUnsubscribes.forEach() in the second call.
+    const previousHash = state.configContentHashes[name];
+    function revertHashClaim(): void {
+      if (state.configContentHashes[name] !== contentHash) return;
+      if (previousHash === undefined) {
+        delete state.configContentHashes[name];
+      } else {
+        state.configContentHashes[name] = previousHash;
+      }
+    }
+    state.configContentHashes[name] = contentHash;
+
+    let parsed: unknown;
+    try {
+      parsed = content ? JSON.parse(content) : readFallback;
+    } catch (parseErr) {
+      // Parse failure leaves nothing valid to process. Revert the claim so
+      // a subsequent file event (presumably with corrected content) is not
+      // silently skipped on the unchanged-hash check.
+      revertHashClaim();
+      throw parseErr;
+    }
+
+    try {
+      await processConfig(parsed);
+    } catch (err) {
+      revertHashClaim();
+      throw err;
+    }
+
+    // If stop() ran between claim and the processConfig microtask, treat
+    // the hash as unclaimed so a fresh start() will reload from disk
+    // instead of inheriting our claim (the in-memory state is gone).
+    if (state.stopped) {
+      revertHashClaim();
     }
   }
 

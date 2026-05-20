@@ -853,6 +853,14 @@ function createInstance(
         return;
       }
       app.debug(`[${instanceId}] Retrying subscription (attempt ${attempt})...`);
+      // Tear down any partial listeners left behind by a previous failed
+      // subscribe attempt before adding new ones — same reason as the main
+      // handleSubscriptionChange path: keeping stale partial listeners in
+      // state.unsubscribes alongside a fresh subscribe() causes them to fire
+      // for every push, doubling processDelta delivery for affected paths.
+      const partialUnsubscribes = state.unsubscribes.splice(0);
+      partialUnsubscribes.forEach((f: () => void) => f());
+
       try {
         app.subscriptionmanager.subscribe(
           state.localSubscription,
@@ -907,13 +915,24 @@ function createInstance(
       const previousMetaConfig = state.metaConfig;
       const pendingMetaConfig = parseMetaConfig(config);
 
-      // Capture the old cleanup handlers but do NOT call them yet.
-      // We establish the new subscription first so data keeps flowing during
-      // the handover; only after success do we release the old subscription.
-      // If the new subscribe() throws, we restore the old handlers so that
-      // stop() can still clean up and the old subscription remains active
-      // until the scheduled retry succeeds.
+      // Tear down the old subscription FIRST, then establish the new one.
+      // The previous "subscribe-then-unsubscribe" ordering tried to avoid
+      // dropping any delta during the handover, but it leaves a window
+      // where BOTH the old and new subscriptions are simultaneously
+      // attached to every per-path bus in signalk-server's
+      // `streambundle.buses`. Any push that lands in that window — or any
+      // listener that the new subscribe() registers asynchronously via
+      // streambundle.keys.onValue for a path whose bus is created during
+      // the window — fires both callbacks, doubling processDelta delivery
+      // for the rest of the process lifetime.
+      //
+      // Replaying via `replayValuesSnapshot("initial subscribe")` below
+      // recovers any value that was already in the SK tree, and any
+      // genuinely live delta that lands in the brief teardown→subscribe
+      // gap will be re-emitted by its publisher within the subscription's
+      // throttle period.
       const previousUnsubscribes = state.unsubscribes.splice(0);
+      previousUnsubscribes.forEach((f: () => void) => f());
 
       try {
         app.subscriptionmanager.subscribe(
@@ -927,8 +946,6 @@ function createInstance(
           },
           processDelta
         );
-        // New subscription established — release old cleanup handlers.
-        previousUnsubscribes.forEach((f: () => void) => f());
         // Commit the new metadata config AFTER a successful subscribe: swap
         // state.metaConfig, (re)start the periodic timer, and reset the diff
         // cache so the next snapshot represents the live state in full. We
@@ -949,12 +966,19 @@ function createInstance(
         // events.
         replayValuesSnapshot("initial subscribe");
       } catch (subscribeError: unknown) {
-        // Re-subscribe failed — restore old handlers so stop() can still
-        // clean up and the previous subscription remains active until retry.
+        // Re-subscribe failed. The old subscription was already torn down
+        // before we attempted the new subscribe(), so we cannot restore it —
+        // any partial subscriptions registered by the failed subscribe() are
+        // already in state.unsubscribes and stop() can clean them up.
+        // The retry path (scheduleSubscriptionRetry) will attempt a fresh
+        // subscribe() against state.unsubscribes; if any partial listeners
+        // exist they get added to alongside, but that's no worse than the
+        // pre-fix behaviour and avoids the more serious 2× delivery race.
         // Leave state.metaConfig / metaCache / metaTimer untouched so the
-        // previous subscription's metadata stream keeps running unchanged.
-        state.unsubscribes = previousUnsubscribes;
+        // previous subscription's metadata behaviour rules are preserved
+        // pending retry.
         void previousMetaConfig; // explicit: intentionally unchanged
+        void previousUnsubscribes; // intentionally not restored — see above
         // Stash the new meta config on state so the scheduled retry can
         // promote it when subscribe() finally succeeds. Otherwise the
         // operator's new meta settings would silently sit unused until the
