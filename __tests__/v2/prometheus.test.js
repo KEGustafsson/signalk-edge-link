@@ -35,6 +35,19 @@ describe("Prometheus Metrics Exporter", () => {
       rateLimitedPackets: 4,
       droppedDeltaBatches: 2,
       droppedDeltaCount: 9,
+      suppressedOutboundDuplicates: 6,
+      suppressedOutboundDuplicateStats: new Map([
+        [
+          "nav",
+          {
+            context: "vessels.self",
+            path: "navigation.speedOverGround",
+            source: "SatHead.GN",
+            count: 4,
+            lastUpdate: Date.now()
+          }
+        ]
+      ]),
       bandwidth: {
         bytesOut: 500000,
         bytesIn: 200000,
@@ -96,6 +109,10 @@ describe("Prometheus Metrics Exporter", () => {
       expect(text).toContain("signalk_edge_link_rate_limited_packets_total");
       expect(text).toContain("signalk_edge_link_dropped_delta_batches_total");
       expect(text).toContain("signalk_edge_link_dropped_deltas_total");
+      expect(text).toContain("signalk_edge_link_suppressed_outbound_duplicates_total");
+      expect(text).toContain("signalk_edge_link_suppressed_outbound_duplicates_by_path_total");
+      expect(text).toContain('path="navigation.speedOverGround"');
+      expect(text).toContain('source="SatHead.GN"');
     });
 
     test("includes error counters", () => {

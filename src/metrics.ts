@@ -70,6 +70,8 @@ function createMetrics(): MetricsApi {
     rateLimitedPackets: 0,
     droppedDeltaBatches: 0,
     droppedDeltaCount: 0,
+    suppressedOutboundDuplicates: 0,
+    suppressedOutboundDuplicateStats: new Map(),
     remoteNetworkQuality: {
       rtt: 0,
       jitter: 0,
@@ -209,7 +211,9 @@ function createMetrics(): MetricsApi {
       dataPacketsReceived: 0,
       rateLimitedPackets: 0,
       droppedDeltaBatches: 0,
-      droppedDeltaCount: 0
+      droppedDeltaCount: 0,
+      suppressedOutboundDuplicates: 0,
+      suppressedOutboundDuplicateStats: new Map()
     });
     Object.assign(metrics.bandwidth, {
       bytesOut: 0,

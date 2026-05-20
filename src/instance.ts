@@ -67,6 +67,11 @@ import { collectValuesSnapshot } from "./values-snapshot";
 const DELTA_SEND_MAX_RETRIES = 1;
 const DELTA_SEND_RETRY_BACKOFF_MS = 100;
 const SOURCE_SNAPSHOT_INTERVAL_MS = 60_000;
+// Signal K's subscription manager can deliver the same cached/live delta pair
+// about one fixed-policy window apart. Exact JSON equality keeps this narrow:
+// a fresh timestamp or changed value still forwards normally.
+const OUTBOUND_DUPLICATE_SUPPRESS_MS = 1500;
+const SUPPRESSED_DUPLICATE_STATS_MAX_SIZE = 50;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -175,6 +180,9 @@ function createInstance(
 
   const metricsApi = createMetrics();
   const { metrics, recordError, resetMetrics } = metricsApi;
+  const recentOutboundDeltas = new Map<string, number>();
+  let lastOutboundDuplicateLogAt = 0;
+  let activeSubscriptionGeneration = 0;
 
   // v1 pipeline is created lazily on first use (only needed in client v1 mode)
   type V1Pipeline = {
@@ -591,6 +599,60 @@ function createInstance(
     return parseMetaConfigShared(raw, (msg) => app.error(msg), instanceId);
   }
 
+  function normalizeSubscriptionConfig(config: unknown): unknown {
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      return config;
+    }
+    const record = config as Record<string, unknown>;
+    if (!Array.isArray(record.subscribe)) {
+      return config;
+    }
+
+    const rows = record.subscribe as unknown[];
+    const wildcardRow = rows.find(
+      (row) =>
+        row &&
+        typeof row === "object" &&
+        !Array.isArray(row) &&
+        (row as Record<string, unknown>).path === "*"
+    );
+    if (wildcardRow) {
+      if (rows.length > 1) {
+        app.debug(
+          `[${instanceId}] Subscription contains path="*"; ignoring ${rows.length - 1} overlapping row(s)`
+        );
+      }
+      return { ...record, subscribe: [wildcardRow] };
+    }
+
+    const seenPaths = new Set<string>();
+    const deduped: unknown[] = [];
+    let dropped = 0;
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        deduped.push(row);
+        continue;
+      }
+      const path = (row as Record<string, unknown>).path;
+      if (typeof path !== "string") {
+        deduped.push(row);
+        continue;
+      }
+      if (seenPaths.has(path)) {
+        dropped++;
+        continue;
+      }
+      seenPaths.add(path);
+      deduped.push(row);
+    }
+
+    if (dropped > 0) {
+      app.debug(`[${instanceId}] Removed ${dropped} duplicate subscription row(s)`);
+      return { ...record, subscribe: deduped };
+    }
+    return config;
+  }
+
   /**
    * Processes an incoming delta from the subscription manager.
    * Buffers and dispatches deltas to the send pipeline.
@@ -716,6 +778,27 @@ function createInstance(
       return;
     }
 
+    const now = Date.now();
+    const dedupeKey = JSON.stringify(outboundDelta);
+    const lastSeenAt = recentOutboundDeltas.get(dedupeKey);
+    if (lastSeenAt !== undefined && now - lastSeenAt <= OUTBOUND_DUPLICATE_SUPPRESS_MS) {
+      metrics.suppressedOutboundDuplicates = (metrics.suppressedOutboundDuplicates || 0) + 1;
+      recordSuppressedDuplicateStats(outboundDelta, now);
+      if (now - lastOutboundDuplicateLogAt >= 1000) {
+        lastOutboundDuplicateLogAt = now;
+        app.debug(
+          `[${instanceId}] Suppressed duplicate outbound delta (${summarizeDeltaForLog(outboundDelta)})`
+        );
+      }
+      return;
+    }
+    recentOutboundDeltas.set(dedupeKey, now);
+    for (const [key, seenAt] of recentOutboundDeltas) {
+      if (now - seenAt > OUTBOUND_DUPLICATE_SUPPRESS_MS) {
+        recentOutboundDeltas.delete(key);
+      }
+    }
+
     if (state.deltas.length >= MAX_DELTAS_BUFFER_SIZE) {
       const dropCount = Math.floor(MAX_DELTAS_BUFFER_SIZE * DELTA_BUFFER_DROP_RATIO);
       state.deltas.splice(0, dropCount);
@@ -750,6 +833,15 @@ function createInstance(
   }
 
   state.processDelta = processDelta;
+
+  function createSubscriptionDeltaHandler(subscriptionGeneration: number): (delta: Delta) => void {
+    return (delta: Delta) => {
+      if (subscriptionGeneration !== activeSubscriptionGeneration) {
+        return;
+      }
+      processDelta(delta);
+    };
+  }
 
   const SUBSCRIPTION_RETRY_BASE_DELAY = 5000;
   const SUBSCRIPTION_RETRY_MAX_DELAY = 300000;
@@ -809,6 +901,7 @@ function createInstance(
       partialUnsubscribes.forEach((f: () => void) => f());
 
       try {
+        const subscriptionGeneration = ++activeSubscriptionGeneration;
         state.subscribing = true;
         try {
           app.subscriptionmanager.subscribe(
@@ -822,7 +915,7 @@ function createInstance(
               _setStatus("Subscription error - data transmission paused", false);
               recordError("subscription", `Subscription error: ${retrySubError}`);
             },
-            processDelta
+            createSubscriptionDeltaHandler(subscriptionGeneration)
           );
         } finally {
           state.subscribing = false;
@@ -859,7 +952,7 @@ function createInstance(
     name: "Subscription",
     getFilePath: () => state.subscriptionFile,
     processConfig: (config: unknown) => {
-      state.localSubscription = config;
+      state.localSubscription = normalizeSubscriptionConfig(config);
       app.debug(`[${instanceId}] Subscription configuration updated`);
 
       // Stage the new metadata config — do NOT yet touch state.metaConfig,
@@ -867,7 +960,7 @@ function createInstance(
       // subscription remains active until the retry succeeds, so its
       // previous metadata behaviour must remain intact.
       const previousMetaConfig = state.metaConfig;
-      const pendingMetaConfig = parseMetaConfig(config);
+      const pendingMetaConfig = parseMetaConfig(state.localSubscription);
 
       // Tear down the old subscription FIRST, then establish the new one.
       // The previous "subscribe-then-unsubscribe" ordering tried to avoid
@@ -889,6 +982,7 @@ function createInstance(
       previousUnsubscribes.forEach((f: () => void) => f());
 
       try {
+        const subscriptionGeneration = ++activeSubscriptionGeneration;
         state.subscribing = true;
         try {
           app.subscriptionmanager.subscribe(
@@ -900,7 +994,7 @@ function createInstance(
               _setStatus("Subscription error - data transmission paused", false);
               recordError("subscription", `Subscription error: ${subscriptionError}`);
             },
-            processDelta
+            createSubscriptionDeltaHandler(subscriptionGeneration)
           );
         } finally {
           state.subscribing = false;
@@ -983,7 +1077,7 @@ function createInstance(
   });
 
   // ── File-system watchers (delegated to config-watcher module) ────────────
-  function setupConfigWatchers(): void {
+  async function setupConfigWatchers(): Promise<void> {
     try {
       const watcherConfigs = [
         { filePath: state.deltaTimerFile, onChange: handleDeltaTimerChange, name: "Delta timer" },
@@ -1009,10 +1103,7 @@ function createInstance(
       // produced by co-located plugins are emitted before our subscription
       // is registered with the subscriptionmanager — those deltas would be
       // silently dropped since the manager only delivers future events.
-      handleSubscriptionChange.flush().catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        app.error(`[${instanceId}] Initial subscription load failed: ${msg}`);
-      });
+      await handleSubscriptionChange.flush();
       app.debug(`[${instanceId}] Configuration file watchers initialized`);
     } catch (err: unknown) {
       app.error(
@@ -1332,8 +1423,6 @@ function createInstance(
       state.socketUdp.on("error", handleClientSocketError);
 
       scheduleDeltaTimer();
-      setupConfigWatchers();
-
       // Ping / connectivity monitor (v1 only, RTT measurement)
       if ((options.protocolVersion ?? 0) < 2) {
         state.pingMonitor = new Monitor({
@@ -1413,12 +1502,6 @@ function createInstance(
           const msg = err instanceof Error ? err.message : String(err);
           app.debug(`[${instanceId}] initial source snapshot failed: ${msg}`);
         });
-        // The initial-subscribe replayValuesSnapshot fires before readyToSend
-        // is true (pipeline not yet created) and silently returns early. Replay
-        // now so data already in the SK tree — including values injected by a
-        // co-located server-mode instance — is forwarded on first connect.
-        replayValuesSnapshot("initial connect");
-
         state.socketUdp.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
           v2Pipeline.handleControlPacket(msg, rinfo).catch((err: unknown) => {
             const errMsg = err instanceof Error ? err.message : String(err);
@@ -1466,7 +1549,82 @@ function createInstance(
         }
         app.debug(`[${instanceId}] [v1] Client pipeline initialized`);
       }
+
+      // Wire the Signal K subscription after the client send pipeline is ready.
+      // The subscription handler performs one explicit values-snapshot replay;
+      // doing it here prevents the v2 startup path from also sending a second
+      // "initial connect" snapshot.
+      await setupConfigWatchers();
     }
+  }
+
+  function summarizeDeltaForLog(delta: Delta): string {
+    const fields = getDeltaSummaryFields(delta);
+    return `context=${fields.context}, path=${fields.path}, source=${fields.source}, timestamp=${fields.timestamp}, updates=${fields.updateCount}, values=${fields.valueCount}, suppressed=${metrics.suppressedOutboundDuplicates || 0}`;
+  }
+
+  function getDeltaSummaryFields(delta: Delta): {
+    context: string;
+    path: string;
+    source: string;
+    timestamp: string;
+    updateCount: number;
+    valueCount: number;
+  } {
+    const update = Array.isArray(delta.updates) ? delta.updates[0] : null;
+    const value = Array.isArray(update?.values) ? update.values[0] : null;
+    const context = delta.context || "?";
+    const path = value?.path || "?";
+    const source = update?.$source || update?.source?.label || "?";
+    const timestamp = update?.timestamp || "?";
+    const updateCount = Array.isArray(delta.updates) ? delta.updates.length : 0;
+    const valueCount = Array.isArray(delta.updates)
+      ? delta.updates.reduce(
+          (sum, item) => sum + (Array.isArray(item.values) ? item.values.length : 0),
+          0
+        )
+      : 0;
+    return { context, path, source, timestamp, updateCount, valueCount };
+  }
+
+  function recordSuppressedDuplicateStats(delta: Delta, now: number): void {
+    if (!metrics.suppressedOutboundDuplicateStats) {
+      metrics.suppressedOutboundDuplicateStats = new Map();
+    }
+    const fields = getDeltaSummaryFields(delta);
+    const key = JSON.stringify({
+      context: fields.context,
+      path: fields.path,
+      source: fields.source
+    });
+    const existing = metrics.suppressedOutboundDuplicateStats.get(key);
+    if (existing) {
+      existing.count++;
+      existing.lastUpdate = now;
+      return;
+    }
+
+    if (metrics.suppressedOutboundDuplicateStats.size >= SUPPRESSED_DUPLICATE_STATS_MAX_SIZE) {
+      let stalestKey: string | null = null;
+      let stalestTime = Infinity;
+      for (const [candidateKey, item] of metrics.suppressedOutboundDuplicateStats) {
+        if (item.lastUpdate < stalestTime) {
+          stalestKey = candidateKey;
+          stalestTime = item.lastUpdate;
+        }
+      }
+      if (stalestKey) {
+        metrics.suppressedOutboundDuplicateStats.delete(stalestKey);
+      }
+    }
+
+    metrics.suppressedOutboundDuplicateStats.set(key, {
+      context: fields.context,
+      path: fields.path,
+      source: fields.source,
+      count: 1,
+      lastUpdate: now
+    });
   }
 
   function stop(): void {
@@ -1488,9 +1646,11 @@ function createInstance(
     state.unsubscribes.forEach((f: () => void) => f());
     state.unsubscribes = [];
     state.localSubscription = null;
+    activeSubscriptionGeneration++;
 
     // Reset runtime state
     state.deltas = [];
+    recentOutboundDeltas.clear();
     state.timer = false;
     state.batchSendInFlight = false;
     state.socketRecoveryInProgress = false;

@@ -470,6 +470,7 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       expect(data.stats).toHaveProperty("rateLimitedPackets");
       expect(data.stats).toHaveProperty("droppedDeltaBatches");
       expect(data.stats).toHaveProperty("droppedDeltaCount");
+      expect(data.stats).toHaveProperty("suppressedOutboundDuplicates");
     });
 
     test("bandwidth data includes formatted values for webapp display", async () => {

@@ -542,6 +542,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         rateLimitedPackets: metrics.rateLimitedPackets || 0,
         droppedDeltaBatches: metrics.droppedDeltaBatches || 0,
         droppedDeltaCount: metrics.droppedDeltaCount || 0,
+        suppressedOutboundDuplicates: metrics.suppressedOutboundDuplicates || 0,
         errorCounts: { ...(metrics.errorCounts || {}) }
       },
       status: {

@@ -418,6 +418,11 @@ export interface Metrics {
   rateLimitedPackets?: number;
   droppedDeltaBatches?: number;
   droppedDeltaCount?: number;
+  suppressedOutboundDuplicates?: number;
+  suppressedOutboundDuplicateStats?: Map<
+    string,
+    { context: string; path: string; source: string; count: number; lastUpdate: number }
+  >;
 }
 
 /** Metrics API returned by createMetrics(). */
