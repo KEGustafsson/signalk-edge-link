@@ -1044,13 +1044,6 @@ function createInstance(
     state.stopped = false;
     state.options = options;
 
-    if (FLOW_DIAGNOSTIC_ENABLED && flowDiagnosticTimer === null) {
-      app.debug(
-        `[${instanceId}] [flow] diagnostic enabled — dumping per-path processDelta counts every ${FLOW_DIAGNOSTIC_INTERVAL_MS / 1000}s`
-      );
-      flowDiagnosticTimer = setInterval(_flowDump, FLOW_DIAGNOSTIC_INTERVAL_MS);
-    }
-
     // Validate secret key — throw so Promise.all in index.js can detect startup failure
     try {
       validateSecretKey(options.secretKey);
@@ -1490,6 +1483,16 @@ function createInstance(
         }
         app.debug(`[${instanceId}] [v1] Client pipeline initialized`);
       }
+    }
+
+    // Start the diagnostic timer LAST, after all validation/bind paths that
+    // may throw — otherwise a startup failure leaks the interval (index.ts
+    // only calls stop() on instances that started successfully).
+    if (FLOW_DIAGNOSTIC_ENABLED && flowDiagnosticTimer === null) {
+      app.debug(
+        `[${instanceId}] [flow] diagnostic enabled — dumping per-path processDelta counts every ${FLOW_DIAGNOSTIC_INTERVAL_MS / 1000}s`
+      );
+      flowDiagnosticTimer = setInterval(_flowDump, FLOW_DIAGNOSTIC_INTERVAL_MS);
     }
   }
 
