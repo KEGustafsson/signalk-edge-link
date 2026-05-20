@@ -163,4 +163,81 @@ describe("collectValuesSnapshot", () => {
     expect(paths).toContain("navigation.headingTrue");
     expect(paths).not.toContain("navigation.depth"); // label is "signalk-edge-link" — excluded
   });
+
+  test("emits only the current top-level $source, not historical entries in values: { … }", () => {
+    // signalk-server's `values: { … }` map is append-only — entries from a
+    // source that has since stopped writing (e.g. previous N2K address,
+    // earlier edge-link build) stay there with no TTL. Walking that map
+    // would replicate ghosts to the receiver where they'd never refresh.
+    // The snapshot must mirror live behaviour: just the current writer.
+    const app = makeApp({
+      vessels: {
+        self: {
+          electrical: {
+            batteries: {
+              bedroom: {
+                voltage: {
+                  value: 12.6,
+                  timestamp: "2026-05-19T15:32:00.000Z",
+                  $source: "bedroom",
+                  values: {
+                    bedroom: {
+                      value: 12.6,
+                      timestamp: "2026-05-19T15:32:00.000Z"
+                    },
+                    // Stale entry from an earlier session / source — older
+                    // timestamp, no live writer.
+                    "bedroom.XX": {
+                      value: 12.4,
+                      timestamp: "2026-05-19T14:07:00.000Z"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      sources: {}
+    });
+
+    const deltas = collectValuesSnapshot(app);
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0].updates[0].$source).toBe("bedroom");
+    expect(deltas[0].updates[0].timestamp).toBe("2026-05-19T15:32:00.000Z");
+    expect(deltas[0].updates[0].values).toEqual([
+      { path: "electrical.batteries.bedroom.voltage", value: 12.6 }
+    ]);
+  });
+
+  test("falls back to values: { … } map only when no top-level value is present", () => {
+    // Older signalk-server versions / partial trees may populate only the
+    // multi-source map without a top-level `value` mirror. In that case
+    // we still want every entry to ride through.
+    const app = makeApp({
+      vessels: {
+        self: {
+          navigation: {
+            speedOverGround: {
+              values: {
+                "pypilot.compass": {
+                  value: 3.5,
+                  timestamp: "2024-01-01T00:00:00.000Z"
+                },
+                "n2k-gateway.3": {
+                  value: 3.6,
+                  timestamp: "2024-01-01T00:00:01.000Z"
+                }
+              }
+            }
+          }
+        }
+      },
+      sources: {}
+    });
+
+    const deltas = collectValuesSnapshot(app);
+    const sources = deltas.map((d) => d.updates[0].$source).sort();
+    expect(sources).toEqual(["n2k-gateway.3", "pypilot.compass"]);
+  });
 });

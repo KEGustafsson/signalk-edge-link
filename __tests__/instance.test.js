@@ -30,6 +30,8 @@ const { createInstance, slugify } = require("../lib/instance");
 const path = require("path");
 const EventEmitter = require("events");
 const dgram = require("dgram");
+const fs = require("fs");
+const os = require("os");
 
 // ── slugify ───────────────────────────────────────────────────────────────
 
@@ -265,6 +267,194 @@ describe("createInstance", () => {
     expect(state.configWatcherObjects).toEqual([]);
   });
 
+  test("processDelta drops deliveries during subscribe() (signalk-server cache replay)", () => {
+    // Regression: signalk-server's subscriptionmanager.subscribe synchronously
+    // calls latest.forEach(callback) AFTER registering the live listener,
+    // bypassing the bufferWithTime+uniqBy dedupe on the live pipeline. For
+    // every path that exists at subscribe time, the callback fires twice for
+    // the cached value (once direct, once via the live listener). Without
+    // gating, that produces a one-shot per-path duplicate at every restart —
+    // which on a busy proxy averages out to ~2x rate over short uptimes.
+    // The gate makes processDelta drop anything delivered while
+    // state.subscribing is true; replayValuesSnapshot("initial subscribe")
+    // is responsible for shipping the initial tree state explicitly.
+    const inst = createInstance(
+      makeMockApp(),
+      makeClientOptions(),
+      "subscribe-gate",
+      "plugin",
+      jest.fn()
+    );
+    const state = inst.getState();
+    state.readyToSend = true;
+    // Simulate signalk-server inside its synchronous subscribe() body
+    state.subscribing = true;
+    state.processDelta({
+      context: "vessels.self",
+      updates: [
+        {
+          source: { label: "SatHead", talker: "GN" },
+          $source: "SatHead.GN",
+          timestamp: "2026-01-01T00:00:00.000Z",
+          values: [{ path: "navigation.position", value: { latitude: 60, longitude: 25 } }]
+        }
+      ]
+    });
+    expect(state.deltas).toHaveLength(0);
+    // After subscribe() returns the gate lifts and live deliveries flow.
+    state.subscribing = false;
+    state.processDelta({
+      context: "vessels.self",
+      updates: [
+        {
+          source: { label: "SatHead", talker: "GN" },
+          $source: "SatHead.GN",
+          timestamp: "2026-01-01T00:00:01.000Z",
+          values: [{ path: "navigation.position", value: { latitude: 60.1, longitude: 25.1 } }]
+        }
+      ]
+    });
+    expect(state.deltas).toHaveLength(1);
+  });
+
+  test("processDelta suppresses immediate duplicate outbound deltas", () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const app = makeMockApp();
+    const inst = createInstance(app, makeClientOptions(), "outbound-dedupe", "plugin", jest.fn());
+    const state = inst.getState();
+    state.readyToSend = true;
+
+    const delta = {
+      context: "vessels.self",
+      updates: [
+        {
+          source: { label: "SatHead", talker: "GN" },
+          $source: "SatHead.GN",
+          timestamp: "2026-01-01T00:00:00.000Z",
+          values: [{ path: "navigation.speedOverGround", value: 4.2 }]
+        }
+      ]
+    };
+
+    state.processDelta(delta);
+    state.processDelta(JSON.parse(JSON.stringify(delta)));
+
+    expect(state.deltas).toHaveLength(1);
+    expect(inst.getMetricsApi().metrics.suppressedOutboundDuplicates).toBe(1);
+    expect(app.debug).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[outbound-dedupe] Suppressed duplicate outbound delta (context=vessels.self, path=navigation.speedOverGround, source=SatHead.GN"
+      )
+    );
+
+    jest.advanceTimersByTime(1501);
+    state.processDelta(JSON.parse(JSON.stringify(delta)));
+
+    expect(state.deltas).toHaveLength(2);
+    jest.useRealTimers();
+  });
+
+  test("stale subscription callbacks from a previous start cannot forward", async () => {
+    const callbacks = [];
+    const app = makeMockApp();
+    app.subscriptionmanager.subscribe = jest.fn((_sub, unsubs, _onError, onDelta) => {
+      callbacks.push(onDelta);
+      unsubs.push(() => {});
+    });
+
+    const inst = createInstance(
+      app,
+      makeClientOptions(),
+      "subscription-generation",
+      "plugin",
+      jest.fn()
+    );
+    const delta = {
+      context: "vessels.self",
+      updates: [
+        {
+          timestamp: "2026-01-01T00:00:00.000Z",
+          values: [{ path: "navigation.speedOverGround", value: 4.2 }]
+        }
+      ]
+    };
+
+    await inst.start();
+    inst.stop();
+    await inst.start();
+    try {
+      expect(callbacks).toHaveLength(2);
+      const state = inst.getState();
+
+      callbacks[0](delta);
+      expect(state.deltas).toHaveLength(0);
+
+      callbacks[1](delta);
+      expect(state.deltas).toHaveLength(1);
+    } finally {
+      inst.stop();
+    }
+  });
+
+  test("subscription config collapses wildcard overlap before subscribing", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "edge-link-subscription-"));
+    const instanceDir = path.join(tempDir, "instances", "default");
+    fs.mkdirSync(instanceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(instanceDir, "subscription.json"),
+      JSON.stringify({
+        context: "*",
+        subscribe: [
+          { path: "*" },
+          { path: "navigation.position" },
+          { path: "navigation.speedOverGround" }
+        ]
+      })
+    );
+
+    const app = makeMockApp();
+    app.getDataDirPath = jest.fn(() => tempDir);
+    const inst = createInstance(app, makeClientOptions(), "default", "plugin", jest.fn());
+
+    await inst.start();
+    try {
+      const subscription = app.subscriptionmanager.subscribe.mock.calls[0][0];
+      expect(subscription.subscribe).toEqual([{ path: "*" }]);
+      expect(app.debug).toHaveBeenCalledWith(
+        '[default] Subscription contains path="*"; ignoring 2 overlapping row(s)'
+      );
+    } finally {
+      inst.stop();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test("isServerMode() reflects options.serverType before start() runs", () => {
+    // Regression: index.ts filters instances into server and client startup
+    // groups via inst.isServerMode() BEFORE start() is called. If
+    // state.isServerMode is initialised to false and only mutated inside
+    // start(), the server group ends up empty and the "servers first, then
+    // clients" sequencing collapses into one concurrent startGroup —
+    // producing variable per-restart races (e.g. proxy-client subscribing
+    // before the local server-mode instance has received any data).
+    const serverInst = createInstance(
+      makeMockApp(),
+      makeClientOptions({ serverType: "server" }),
+      "server-mode-id",
+      "plugin",
+      jest.fn()
+    );
+    const clientInst = createInstance(
+      makeMockApp(),
+      makeClientOptions({ serverType: "client" }),
+      "client-mode-id",
+      "plugin",
+      jest.fn()
+    );
+    expect(serverInst.isServerMode()).toBe(true);
+    expect(clientInst.isServerMode()).toBe(false);
+  });
+
   test("validates secretKey and rejects invalid key without starting", async () => {
     const app = makeMockApp();
     const inst = createInstance(
@@ -349,6 +539,52 @@ describe("createInstance", () => {
       inst.stop();
     }
   });
+
+  test("v2 startup replays the current values snapshot only once", async () => {
+    const app = makeMockApp();
+    app.signalk = {
+      retrieve: jest.fn(() => ({
+        vessels: {
+          "urn:mrn:imo:mmsi:123456789": {
+            navigation: {
+              speedOverGround: {
+                value: 4.2,
+                timestamp: "2026-01-01T00:00:00.000Z",
+                $source: "sensor.gps"
+              }
+            }
+          }
+        },
+        sources: {
+          sensor: {
+            gps: { label: "sensor.gps", type: "NMEA0183" }
+          }
+        }
+      }))
+    };
+
+    const inst = createInstance(
+      app,
+      makeClientOptions({ protocolVersion: 2 }),
+      "single-startup-replay",
+      "plugin",
+      jest.fn()
+    );
+
+    await inst.start();
+    try {
+      const replayMessages = app.debug.mock.calls
+        .map(([msg]) => String(msg))
+        .filter((msg) => msg.includes("Replaying") && msg.includes("value-snapshot"));
+
+      expect(replayMessages).toHaveLength(1);
+      expect(replayMessages[0]).toContain("initial subscribe");
+      expect(replayMessages[0]).not.toContain("initial connect");
+    } finally {
+      inst.stop();
+    }
+  });
+
   test("flushDeltaBatch caps each send at state.maxDeltasPerBatch (not full buffer)", async () => {
     const app = makeMockApp();
     const inst = createInstance(

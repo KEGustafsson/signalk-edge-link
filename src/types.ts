@@ -418,6 +418,11 @@ export interface Metrics {
   rateLimitedPackets?: number;
   droppedDeltaBatches?: number;
   droppedDeltaCount?: number;
+  suppressedOutboundDuplicates?: number;
+  suppressedOutboundDuplicateStats?: Map<
+    string,
+    { context: string; path: string; source: string; count: number; lastUpdate: number }
+  >;
 }
 
 /** Metrics API returned by createMetrics(). */
@@ -502,6 +507,15 @@ export interface InstanceState {
   pingTimeout: ReturnType<typeof setTimeout> | null;
   /** Pending subscription retry timer; null when not scheduled. */
   subscriptionRetryTimer: ReturnType<typeof setTimeout> | null;
+  /** True while `app.subscriptionmanager.subscribe()` is executing. signalk-
+   *  server's subscribe() synchronously replays cached deltas (via
+   *  `latest.forEach(callback)` in handleSubscribeRow) bypassing the
+   *  `bufferWithTime`/`uniqBy` dedupe of the live listener — so a cached
+   *  value is delivered twice (once via direct replay, once via the live
+   *  pipeline) for every path that exists at subscribe time. Setting this
+   *  flag lets `processDelta` skip the direct replay; `replayValuesSnapshot`
+   *  ships the initial tree state explicitly right after subscribe() returns. */
+  subscribing: boolean;
   /** Pending UDP socket recovery timer; null when not scheduled. */
   socketRecoveryTimer: ReturnType<typeof setTimeout> | null;
   /** True while a socket recovery is in progress; gates send operations during recovery. */

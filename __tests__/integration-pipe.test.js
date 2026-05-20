@@ -8,7 +8,9 @@
  *   3. Metrics tracking across both sides
  *   4. Frontend /metrics API serves correct data for the webapp
  *   5. Path dictionary encode/decode round-trip through the pipeline
- *   6. Source fixing (null source → empty object) through decodeDelta
+ *   6. Source handling: null/absent source is omitted (no structured source
+ *      passes through to handleMessage), so FullSignalK doesn't recompute
+ *      `$source` from a providerId-rewritten label
  */
 
 jest.mock("ping-monitor", () => {
@@ -136,9 +138,15 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       // SERVER: receive and unpack
       await pipeline.unpackDecrypt(packet, state.options.secretKey);
 
-      // Verify delta delivered to SignalK
+      // Verify delta delivered to SignalK. handleMessageBySource always uses
+      // providerId="" because signalk-server's plugin wrapper substitutes the
+      // calling plugin's id regardless of what we pass — dispatching per source
+      // label would be a no-op there. Attribution is preserved via $source-as-
+      // string (the structured source object is intentionally dropped so
+      // FullSignalK.addValue doesn't recompute the leaf's $source from the
+      // providerId-rewritten label).
       expect(mockApp.handleMessage).toHaveBeenCalledTimes(1);
-      expect(mockApp.handleMessage.mock.calls[0][0]).toBe("N2K");
+      expect(mockApp.handleMessage.mock.calls[0][0]).toBe("");
       const delivered = mockApp.handleMessage.mock.calls[0][1];
 
       expect(delivered.context).toBe("vessels.urn:mrn:imo:mmsi:230035780");
@@ -151,12 +159,7 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       expect(delivered.updates[0].values[1].value).toBe(5.14);
       expect(delivered.updates[0].timestamp).toBe("2024-06-15T12:00:00.000Z");
       expect(delivered.updates[0].$source).toBe("n2k-gateway.3");
-      expect(delivered.updates[0].source).toEqual({
-        label: "N2K",
-        type: "NMEA2000",
-        pgn: 129029,
-        src: "3"
-      });
+      expect(delivered.updates[0].source).toBeUndefined();
     });
 
     test("multiple deltas batch: all delivered in order", async () => {
@@ -177,16 +180,18 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       expect(second.updates[0].values[0].path).toBe("environment.wind.speedApparent");
     });
 
-    test("source is preserved through the pipeline", async () => {
+    test("$source is preserved end-to-end through the pipeline", async () => {
       await pipeline.packCrypt([navigationDelta], state.options.secretKey, "10.0.0.1", 4446);
       await pipeline.unpackDecrypt(capturedPackets[0], state.options.secretKey);
 
       const delivered = mockApp.handleMessage.mock.calls[0][1];
-      expect(delivered.updates[0].source).toBeDefined();
-      expect(delivered.updates[0].source).not.toBeNull();
+      // The $source string survives the round-trip so the receiver's
+      // FullSignalK stores the leaf under the same key the sender used.
+      expect(delivered.updates[0].$source).toBe("n2k-gateway.3");
+      expect(delivered.updates[0].source).toBeUndefined();
     });
 
-    test("null source is fixed to empty object by decodeDelta", async () => {
+    test("null source is dropped and no $source is emitted when attribution is unavailable", async () => {
       const deltaWithNullSource = {
         context: "vessels.self",
         updates: [
@@ -202,8 +207,11 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       await pipeline.unpackDecrypt(capturedPackets[0], state.options.secretKey);
 
       const delivered = mockApp.handleMessage.mock.calls[0][1];
-      // decodeDelta applies source ?? {}, so null becomes {}
-      expect(delivered.updates[0].source).toEqual({});
+      // No structured source, no $source string in → nothing to attribute,
+      // so the dispatched update carries neither. FullSignalK will fall back
+      // to its own providerId-based source key.
+      expect(delivered.updates[0].source).toBeUndefined();
+      expect(delivered.updates[0].$source).toBeUndefined();
     });
   });
 
@@ -462,6 +470,7 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       expect(data.stats).toHaveProperty("rateLimitedPackets");
       expect(data.stats).toHaveProperty("droppedDeltaBatches");
       expect(data.stats).toHaveProperty("droppedDeltaCount");
+      expect(data.stats).toHaveProperty("suppressedOutboundDuplicates");
     });
 
     test("bandwidth data includes formatted values for webapp display", async () => {

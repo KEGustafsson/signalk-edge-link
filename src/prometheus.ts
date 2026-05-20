@@ -104,6 +104,28 @@ export function formatPrometheusMetrics(
     "Total deltas dropped before send",
     metrics.droppedDeltaCount || 0
   );
+  counter(
+    "suppressed_outbound_duplicates_total",
+    "Total exact duplicate outbound deltas suppressed before send",
+    metrics.suppressedOutboundDuplicates || 0
+  );
+  if (metrics.suppressedOutboundDuplicateStats) {
+    const duplicateStats = Array.from(metrics.suppressedOutboundDuplicateStats.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20);
+    for (const item of duplicateStats) {
+      counter(
+        "suppressed_outbound_duplicates_by_path_total",
+        "Total exact duplicate outbound deltas suppressed before send, grouped by context/path/source",
+        item.count,
+        {
+          context: item.context,
+          path: item.path,
+          source: item.source
+        }
+      );
+    }
+  }
 
   // Error counters
   counter("udp_send_errors_total", "Total UDP send errors", metrics.udpSendErrors);

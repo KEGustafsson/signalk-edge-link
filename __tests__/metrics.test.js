@@ -45,6 +45,14 @@ describe("Metrics Reset", () => {
     metrics.rateLimitedPackets = 4;
     metrics.droppedDeltaBatches = 3;
     metrics.droppedDeltaCount = 12;
+    metrics.suppressedOutboundDuplicates = 6;
+    metrics.suppressedOutboundDuplicateStats.set("nav", {
+      context: "vessels.self",
+      path: "navigation.speedOverGround",
+      source: "SatHead.GN",
+      count: 6,
+      lastUpdate: Date.now()
+    });
     metrics.bandwidth.metaBytesOut = 1234;
     metrics.bandwidth.metaPacketsOut = 5;
     metrics.bandwidth.metaBytesIn = 4321;
@@ -74,6 +82,8 @@ describe("Metrics Reset", () => {
     expect(metrics.rateLimitedPackets).toBe(0);
     expect(metrics.droppedDeltaBatches).toBe(0);
     expect(metrics.droppedDeltaCount).toBe(0);
+    expect(metrics.suppressedOutboundDuplicates).toBe(0);
+    expect(metrics.suppressedOutboundDuplicateStats.size).toBe(0);
     expect(metrics.bandwidth.metaBytesOut).toBe(0);
     expect(metrics.bandwidth.metaPacketsOut).toBe(0);
     expect(metrics.bandwidth.metaBytesIn).toBe(0);

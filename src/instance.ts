@@ -67,6 +67,11 @@ import { collectValuesSnapshot } from "./values-snapshot";
 const DELTA_SEND_MAX_RETRIES = 1;
 const DELTA_SEND_RETRY_BACKOFF_MS = 100;
 const SOURCE_SNAPSHOT_INTERVAL_MS = 60_000;
+// Signal K's subscription manager can deliver the same cached/live delta pair
+// about one fixed-policy window apart. Exact JSON equality keeps this narrow:
+// a fresh timestamp or changed value still forwards normally.
+const OUTBOUND_DUPLICATE_SUPPRESS_MS = 1500;
+const SUPPRESSED_DUPLICATE_STATS_MAX_SIZE = 50;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -123,7 +128,13 @@ function createInstance(
     socketUdp: null,
     readyToSend: false,
     stopped: false,
-    isServerMode: false,
+    // Initialise from options so isServerMode() returns the correct value
+    // BEFORE start() runs. index.ts filters instances into server and client
+    // groups (servers start first) using inst.isServerMode(); if that read
+    // happens before start() has had a chance to set state.isServerMode, the
+    // server group ends up empty and every instance starts concurrently in
+    // the client group, defeating the intended sequencing.
+    isServerMode: (options.serverType as unknown) === true || options.serverType === "server",
     deltas: [],
     timer: false,
     batchSendInFlight: false,
@@ -147,6 +158,7 @@ function createInstance(
     pingMonitor: null,
     deltaTimer: null,
     subscriptionRetryTimer: null,
+    subscribing: false,
     pipeline: null,
     pipelineServer: null,
     heartbeatHandle: null,
@@ -168,6 +180,9 @@ function createInstance(
 
   const metricsApi = createMetrics();
   const { metrics, recordError, resetMetrics } = metricsApi;
+  const recentOutboundDeltas = new Map<string, number>();
+  let lastOutboundDuplicateLogAt = 0;
+  let activeSubscriptionGeneration = 0;
 
   // v1 pipeline is created lazily on first use (only needed in client v1 mode)
   type V1Pipeline = {
@@ -584,6 +599,60 @@ function createInstance(
     return parseMetaConfigShared(raw, (msg) => app.error(msg), instanceId);
   }
 
+  function normalizeSubscriptionConfig(config: unknown): unknown {
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      return config;
+    }
+    const record = config as Record<string, unknown>;
+    if (!Array.isArray(record.subscribe)) {
+      return config;
+    }
+
+    const rows = record.subscribe as unknown[];
+    const wildcardRow = rows.find(
+      (row) =>
+        row &&
+        typeof row === "object" &&
+        !Array.isArray(row) &&
+        (row as Record<string, unknown>).path === "*"
+    );
+    if (wildcardRow) {
+      if (rows.length > 1) {
+        app.debug(
+          `[${instanceId}] Subscription contains path="*"; ignoring ${rows.length - 1} overlapping row(s)`
+        );
+      }
+      return { ...record, subscribe: [wildcardRow] };
+    }
+
+    const seenPaths = new Set<string>();
+    const deduped: unknown[] = [];
+    let dropped = 0;
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        deduped.push(row);
+        continue;
+      }
+      const path = (row as Record<string, unknown>).path;
+      if (typeof path !== "string") {
+        deduped.push(row);
+        continue;
+      }
+      if (seenPaths.has(path)) {
+        dropped++;
+        continue;
+      }
+      seenPaths.add(path);
+      deduped.push(row);
+    }
+
+    if (dropped > 0) {
+      app.debug(`[${instanceId}] Removed ${dropped} duplicate subscription row(s)`);
+      return { ...record, subscribe: deduped };
+    }
+    return config;
+  }
+
   /**
    * Processes an incoming delta from the subscription manager.
    * Buffers and dispatches deltas to the send pipeline.
@@ -681,6 +750,18 @@ function createInstance(
       return;
     }
 
+    // Drop signalk-server's synchronous cache replay. handleSubscribeRow
+    // calls `latest.forEach(callback)` after registering the live listener,
+    // bypassing the bufferWithTime+uniqBy dedupe — so each path with a
+    // cached value at subscribe time is delivered to us twice (once direct,
+    // once through the live pipeline). `replayValuesSnapshot("initial
+    // subscribe")` runs immediately after subscribe() returns and walks
+    // the SK tree explicitly to ship initial state downstream, so dropping
+    // the direct replay does not cost us any data.
+    if (state.subscribing) {
+      return;
+    }
+
     // Capture live meta BEFORE the delta flows into the pipeline encoder,
     // because pathDictionary.transformDelta will strip `updates[].meta[]` when
     // rebuilding the update objects. `extractLiveMeta` returns [] when meta
@@ -695,6 +776,27 @@ function createInstance(
     const outboundDelta = filterOutboundDelta(delta);
     if (!outboundDelta) {
       return;
+    }
+
+    const now = Date.now();
+    const dedupeKey = JSON.stringify(outboundDelta);
+    const lastSeenAt = recentOutboundDeltas.get(dedupeKey);
+    if (lastSeenAt !== undefined && now - lastSeenAt <= OUTBOUND_DUPLICATE_SUPPRESS_MS) {
+      metrics.suppressedOutboundDuplicates = (metrics.suppressedOutboundDuplicates || 0) + 1;
+      recordSuppressedDuplicateStats(outboundDelta, now);
+      if (now - lastOutboundDuplicateLogAt >= 1000) {
+        lastOutboundDuplicateLogAt = now;
+        app.debug(
+          `[${instanceId}] Suppressed duplicate outbound delta (${summarizeDeltaForLog(outboundDelta)})`
+        );
+      }
+      return;
+    }
+    recentOutboundDeltas.set(dedupeKey, now);
+    for (const [key, seenAt] of recentOutboundDeltas) {
+      if (now - seenAt > OUTBOUND_DUPLICATE_SUPPRESS_MS) {
+        recentOutboundDeltas.delete(key);
+      }
     }
 
     if (state.deltas.length >= MAX_DELTAS_BUFFER_SIZE) {
@@ -731,6 +833,15 @@ function createInstance(
   }
 
   state.processDelta = processDelta;
+
+  function createSubscriptionDeltaHandler(subscriptionGeneration: number): (delta: Delta) => void {
+    return (delta: Delta) => {
+      if (subscriptionGeneration !== activeSubscriptionGeneration) {
+        return;
+      }
+      processDelta(delta);
+    };
+  }
 
   const SUBSCRIPTION_RETRY_BASE_DELAY = 5000;
   const SUBSCRIPTION_RETRY_MAX_DELAY = 300000;
@@ -781,18 +892,34 @@ function createInstance(
         return;
       }
       app.debug(`[${instanceId}] Retrying subscription (attempt ${attempt})...`);
+      // Tear down any partial listeners left behind by a previous failed
+      // subscribe attempt before adding new ones — same reason as the main
+      // handleSubscriptionChange path: keeping stale partial listeners in
+      // state.unsubscribes alongside a fresh subscribe() causes them to fire
+      // for every push, doubling processDelta delivery for affected paths.
+      const partialUnsubscribes = state.unsubscribes.splice(0);
+      partialUnsubscribes.forEach((f: () => void) => f());
+
       try {
-        app.subscriptionmanager.subscribe(
-          state.localSubscription,
-          state.unsubscribes,
-          (retrySubError: unknown) => {
-            app.error(`[${instanceId}] Subscription error (attempt ${attempt}): ${retrySubError}`);
-            state.readyToSend = false;
-            _setStatus("Subscription error - data transmission paused", false);
-            recordError("subscription", `Subscription error: ${retrySubError}`);
-          },
-          processDelta
-        );
+        const subscriptionGeneration = ++activeSubscriptionGeneration;
+        state.subscribing = true;
+        try {
+          app.subscriptionmanager.subscribe(
+            state.localSubscription,
+            state.unsubscribes,
+            (retrySubError: unknown) => {
+              app.error(
+                `[${instanceId}] Subscription error (attempt ${attempt}): ${retrySubError}`
+              );
+              state.readyToSend = false;
+              _setStatus("Subscription error - data transmission paused", false);
+              recordError("subscription", `Subscription error: ${retrySubError}`);
+            },
+            createSubscriptionDeltaHandler(subscriptionGeneration)
+          );
+        } finally {
+          state.subscribing = false;
+        }
         // Retry succeeded — perform the staged commit that the original
         // processConfig catch block skipped. Without this, the operator's
         // new meta block (stashed on state.pendingMetaConfig) would remain
@@ -825,7 +952,7 @@ function createInstance(
     name: "Subscription",
     getFilePath: () => state.subscriptionFile,
     processConfig: (config: unknown) => {
-      state.localSubscription = config;
+      state.localSubscription = normalizeSubscriptionConfig(config);
       app.debug(`[${instanceId}] Subscription configuration updated`);
 
       // Stage the new metadata config — do NOT yet touch state.metaConfig,
@@ -833,30 +960,45 @@ function createInstance(
       // subscription remains active until the retry succeeds, so its
       // previous metadata behaviour must remain intact.
       const previousMetaConfig = state.metaConfig;
-      const pendingMetaConfig = parseMetaConfig(config);
+      const pendingMetaConfig = parseMetaConfig(state.localSubscription);
 
-      // Capture the old cleanup handlers but do NOT call them yet.
-      // We establish the new subscription first so data keeps flowing during
-      // the handover; only after success do we release the old subscription.
-      // If the new subscribe() throws, we restore the old handlers so that
-      // stop() can still clean up and the old subscription remains active
-      // until the scheduled retry succeeds.
+      // Tear down the old subscription FIRST, then establish the new one.
+      // The previous "subscribe-then-unsubscribe" ordering tried to avoid
+      // dropping any delta during the handover, but it leaves a window
+      // where BOTH the old and new subscriptions are simultaneously
+      // attached to every per-path bus in signalk-server's
+      // `streambundle.buses`. Any push that lands in that window — or any
+      // listener that the new subscribe() registers asynchronously via
+      // streambundle.keys.onValue for a path whose bus is created during
+      // the window — fires both callbacks, doubling processDelta delivery
+      // for the rest of the process lifetime.
+      //
+      // Replaying via `replayValuesSnapshot("initial subscribe")` below
+      // recovers any value that was already in the SK tree, and any
+      // genuinely live delta that lands in the brief teardown→subscribe
+      // gap will be re-emitted by its publisher within the subscription's
+      // throttle period.
       const previousUnsubscribes = state.unsubscribes.splice(0);
+      previousUnsubscribes.forEach((f: () => void) => f());
 
       try {
-        app.subscriptionmanager.subscribe(
-          state.localSubscription,
-          state.unsubscribes,
-          (subscriptionError: unknown) => {
-            app.error(`[${instanceId}] Subscription error: ${subscriptionError}`);
-            state.readyToSend = false;
-            _setStatus("Subscription error - data transmission paused", false);
-            recordError("subscription", `Subscription error: ${subscriptionError}`);
-          },
-          processDelta
-        );
-        // New subscription established — release old cleanup handlers.
-        previousUnsubscribes.forEach((f: () => void) => f());
+        const subscriptionGeneration = ++activeSubscriptionGeneration;
+        state.subscribing = true;
+        try {
+          app.subscriptionmanager.subscribe(
+            state.localSubscription,
+            state.unsubscribes,
+            (subscriptionError: unknown) => {
+              app.error(`[${instanceId}] Subscription error: ${subscriptionError}`);
+              state.readyToSend = false;
+              _setStatus("Subscription error - data transmission paused", false);
+              recordError("subscription", `Subscription error: ${subscriptionError}`);
+            },
+            createSubscriptionDeltaHandler(subscriptionGeneration)
+          );
+        } finally {
+          state.subscribing = false;
+        }
         // Commit the new metadata config AFTER a successful subscribe: swap
         // state.metaConfig, (re)start the periodic timer, and reset the diff
         // cache so the next snapshot represents the live state in full. We
@@ -877,12 +1019,19 @@ function createInstance(
         // events.
         replayValuesSnapshot("initial subscribe");
       } catch (subscribeError: unknown) {
-        // Re-subscribe failed — restore old handlers so stop() can still
-        // clean up and the previous subscription remains active until retry.
+        // Re-subscribe failed. The old subscription was already torn down
+        // before we attempted the new subscribe(), so we cannot restore it —
+        // any partial subscriptions registered by the failed subscribe() are
+        // already in state.unsubscribes and stop() can clean them up.
+        // The retry path (scheduleSubscriptionRetry) will attempt a fresh
+        // subscribe() against state.unsubscribes; if any partial listeners
+        // exist they get added to alongside, but that's no worse than the
+        // pre-fix behaviour and avoids the more serious 2× delivery race.
         // Leave state.metaConfig / metaCache / metaTimer untouched so the
-        // previous subscription's metadata stream keeps running unchanged.
-        state.unsubscribes = previousUnsubscribes;
+        // previous subscription's metadata behaviour rules are preserved
+        // pending retry.
         void previousMetaConfig; // explicit: intentionally unchanged
+        void previousUnsubscribes; // intentionally not restored — see above
         // Stash the new meta config on state so the scheduled retry can
         // promote it when subscribe() finally succeeds. Otherwise the
         // operator's new meta settings would silently sit unused until the
@@ -928,7 +1077,7 @@ function createInstance(
   });
 
   // ── File-system watchers (delegated to config-watcher module) ────────────
-  function setupConfigWatchers(): void {
+  async function setupConfigWatchers(): Promise<void> {
     try {
       const watcherConfigs = [
         { filePath: state.deltaTimerFile, onChange: handleDeltaTimerChange, name: "Delta timer" },
@@ -954,10 +1103,7 @@ function createInstance(
       // produced by co-located plugins are emitted before our subscription
       // is registered with the subscriptionmanager — those deltas would be
       // silently dropped since the manager only delivers future events.
-      handleSubscriptionChange.flush().catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        app.error(`[${instanceId}] Initial subscription load failed: ${msg}`);
-      });
+      await handleSubscriptionChange.flush();
       app.debug(`[${instanceId}] Configuration file watchers initialized`);
     } catch (err: unknown) {
       app.error(
@@ -1277,8 +1423,6 @@ function createInstance(
       state.socketUdp.on("error", handleClientSocketError);
 
       scheduleDeltaTimer();
-      setupConfigWatchers();
-
       // Ping / connectivity monitor (v1 only, RTT measurement)
       if ((options.protocolVersion ?? 0) < 2) {
         state.pingMonitor = new Monitor({
@@ -1358,12 +1502,6 @@ function createInstance(
           const msg = err instanceof Error ? err.message : String(err);
           app.debug(`[${instanceId}] initial source snapshot failed: ${msg}`);
         });
-        // The initial-subscribe replayValuesSnapshot fires before readyToSend
-        // is true (pipeline not yet created) and silently returns early. Replay
-        // now so data already in the SK tree — including values injected by a
-        // co-located server-mode instance — is forwarded on first connect.
-        replayValuesSnapshot("initial connect");
-
         state.socketUdp.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
           v2Pipeline.handleControlPacket(msg, rinfo).catch((err: unknown) => {
             const errMsg = err instanceof Error ? err.message : String(err);
@@ -1411,7 +1549,82 @@ function createInstance(
         }
         app.debug(`[${instanceId}] [v1] Client pipeline initialized`);
       }
+
+      // Wire the Signal K subscription after the client send pipeline is ready.
+      // The subscription handler performs one explicit values-snapshot replay;
+      // doing it here prevents the v2 startup path from also sending a second
+      // "initial connect" snapshot.
+      await setupConfigWatchers();
     }
+  }
+
+  function summarizeDeltaForLog(delta: Delta): string {
+    const fields = getDeltaSummaryFields(delta);
+    return `context=${fields.context}, path=${fields.path}, source=${fields.source}, timestamp=${fields.timestamp}, updates=${fields.updateCount}, values=${fields.valueCount}, suppressed=${metrics.suppressedOutboundDuplicates || 0}`;
+  }
+
+  function getDeltaSummaryFields(delta: Delta): {
+    context: string;
+    path: string;
+    source: string;
+    timestamp: string;
+    updateCount: number;
+    valueCount: number;
+  } {
+    const update = Array.isArray(delta.updates) ? delta.updates[0] : null;
+    const value = Array.isArray(update?.values) ? update.values[0] : null;
+    const context = delta.context || "?";
+    const path = value?.path || "?";
+    const source = update?.$source || update?.source?.label || "?";
+    const timestamp = update?.timestamp || "?";
+    const updateCount = Array.isArray(delta.updates) ? delta.updates.length : 0;
+    const valueCount = Array.isArray(delta.updates)
+      ? delta.updates.reduce(
+          (sum, item) => sum + (Array.isArray(item.values) ? item.values.length : 0),
+          0
+        )
+      : 0;
+    return { context, path, source, timestamp, updateCount, valueCount };
+  }
+
+  function recordSuppressedDuplicateStats(delta: Delta, now: number): void {
+    if (!metrics.suppressedOutboundDuplicateStats) {
+      metrics.suppressedOutboundDuplicateStats = new Map();
+    }
+    const fields = getDeltaSummaryFields(delta);
+    const key = JSON.stringify({
+      context: fields.context,
+      path: fields.path,
+      source: fields.source
+    });
+    const existing = metrics.suppressedOutboundDuplicateStats.get(key);
+    if (existing) {
+      existing.count++;
+      existing.lastUpdate = now;
+      return;
+    }
+
+    if (metrics.suppressedOutboundDuplicateStats.size >= SUPPRESSED_DUPLICATE_STATS_MAX_SIZE) {
+      let stalestKey: string | null = null;
+      let stalestTime = Infinity;
+      for (const [candidateKey, item] of metrics.suppressedOutboundDuplicateStats) {
+        if (item.lastUpdate < stalestTime) {
+          stalestKey = candidateKey;
+          stalestTime = item.lastUpdate;
+        }
+      }
+      if (stalestKey) {
+        metrics.suppressedOutboundDuplicateStats.delete(stalestKey);
+      }
+    }
+
+    metrics.suppressedOutboundDuplicateStats.set(key, {
+      context: fields.context,
+      path: fields.path,
+      source: fields.source,
+      count: 1,
+      lastUpdate: now
+    });
   }
 
   function stop(): void {
@@ -1433,9 +1646,11 @@ function createInstance(
     state.unsubscribes.forEach((f: () => void) => f());
     state.unsubscribes = [];
     state.localSubscription = null;
+    activeSubscriptionGeneration++;
 
     // Reset runtime state
     state.deltas = [];
+    recentOutboundDeltas.clear();
     state.timer = false;
     state.batchSendInFlight = false;
     state.socketRecoveryInProgress = false;
