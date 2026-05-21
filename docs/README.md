@@ -1,43 +1,35 @@
 # Documentation Guide
 
-This folder includes both **end-user documentation** and **internal engineering documents**.
+This folder contains documentation for Signal K Edge Link.
 
-If you are configuring or operating the plugin, start with the user docs below.
+## Primary Reference
 
-## End-user docs
+**[GUIDE.md](GUIDE.md)** — The single comprehensive reference covering all concepts, configuration, API, protocols, monitoring, security, performance, and troubleshooting.
 
-- `../README.md` - Quick start, installation, protocol choice, and links to detailed references
-- `configuration-reference.md` - Complete configuration keys, defaults, ranges, and examples
-- `api-reference.md` - REST endpoints, response examples, and monitoring/control routes (current: 2.8.0)
-- `troubleshooting.md` - Diagnostic workflows and symptom-based fixes
-- `migration/v1-to-v2.md` - Practical migration path from protocol v1 to v2
-- `protocol-v2-spec.md` - Protocol behavior and packet-level specification
-- `protocol-v3-spec.md` - Authenticated control-plane additions for protocol v3
-- `protocol-v2.md` - Operational v2 overview (reliability, ACK/NAK, congestion, bonding)
-- `bonding.md` - Bonding concepts, endpoint usage, and tuning notes
-- `congestion-control.md` - Congestion-control behavior and tuning workflow
-- `metrics.md` - Runtime and Prometheus-oriented metrics reference
-- `management-tools.md` - Practical API and CLI operations for instances/bonding
-- `security.md` - Security hardening and operational best practices
-- `performance-tuning.md` - Tuning guidance for embedded and server deployments
+Start here for any question about configuring, operating, or extending the plugin.
 
-## Performance reports
+## Wire Protocol Specification
+
+**[protocol-v2-spec.md](protocol-v2-spec.md)** — RFC-style specification of the binary wire format, packet types, flags, CRC16, sequence semantics, and METADATA envelope schema. Read this for bit-level implementation details not covered in GUIDE.md.
+
+## Process Docs
+
+- **[release-checklist.md](release-checklist.md)** — Steps to follow before publishing a release
+- **[future-security-and-protocol-roadmap.md](future-security-and-protocol-roadmap.md)** — Planned key-rotation, key-agreement, and protocol-migration features
+
+## Migration
+
+- **[migration/v1-to-v2.md](migration/v1-to-v2.md)** — Practical migration path from protocol v1 to v2
+
+## Performance Reports
 
 - `performance/phase-1-baseline.md`
 - `performance/phase-2-results.md`
 - `performance/phase-7-results.md`
 
-These are benchmarking and optimization records from development phases.
+Benchmarking and optimization records from development phases.
 
-## Sample configs
-
-- `../samples/` - Sample config files for minimal, development, and v2-bonding setups
-
-## Dashboard assets
-
-- `../grafana/dashboards/edge-link.json` - Starter dashboard for RTT, loss, retransmit, ACK/NAK and bonding trends
-
-## Planning and design records
+## Planning and Design Records
 
 - `planning/pipeline-analysis.md`
 - `planning/pipeline-v2-design.md`
@@ -48,25 +40,34 @@ These are benchmarking and optimization records from development phases.
 - `planning/phase-2-completion.md`
 - `planning/phase-3-completion.md`
 
-These are architecture/design notes retained for contributors and maintainers.
+Architecture and design notes retained for contributors and maintainers.
 
-## Reading order recommendations
+## Sample Configs
+
+- `../samples/` — Sample config files for minimal, development, and v2-bonding setups
+
+## Dashboard Assets
+
+- `../grafana/dashboards/edge-link.json` — Starter dashboard for RTT, loss, retransmit, ACK/NAK, and bonding trends
+
+## Reading Order
 
 ### New end users
 
-1. `../README.md`
-2. `configuration-reference.md`
-3. `troubleshooting.md`
+1. `../README.md` (installation and quick start)
+2. `GUIDE.md` (full reference)
 
 ### Operators tuning unstable links
 
-1. `../README.md` (Protocol v2/v3 guidance)
-2. `api-reference.md` (metrics and monitoring endpoints, current: 2.8.0)
-3. `protocol-v3-spec.md` (control-plane hardening details)
+1. `GUIDE.md` §9 Congestion Control, §10 Bonding, §17 Performance Tuning
+
+### Security hardening
+
+1. `GUIDE.md` §12 Encryption & Keys, §15 Management API
 
 ### Contributors
 
-1. `../README.md`
-2. `release-checklist.md`
-3. `protocol-v2-spec.md`
+1. `GUIDE.md` §18 Developer Reference
+2. `protocol-v2-spec.md`
+3. `release-checklist.md`
 4. `planning/` and `performance/` docs relevant to your area
