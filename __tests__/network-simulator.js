@@ -13,7 +13,7 @@
  * - Burst/correlated loss (Gilbert-Elliott model)
  * - Latency spike simulation
  *
- * @module test/network-simulator
+ * @module __tests__/network-simulator
  */
 
 // Bandwidth throttling pattern types

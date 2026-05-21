@@ -11,7 +11,7 @@
  * - Congestion control overhead
  * - Monitoring overhead
  *
- * Run: node test/benchmarks/cpu-profiling.js
+ * Run: node __tests__/benchmarks/cpu-profiling.js
  */
 
 const zlib = require("zlib");

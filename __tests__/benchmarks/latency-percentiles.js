@@ -9,7 +9,7 @@
  * - Impact of compression quality on latency
  * - Impact of payload size on latency
  *
- * Run: node test/benchmarks/latency-percentiles.js
+ * Run: node __tests__/benchmarks/latency-percentiles.js
  */
 
 const zlib = require("zlib");
