@@ -302,29 +302,38 @@ export class PacketBuilder {
    * @param {Object} info - Hello information
    * @param {number} [info.protocolVersion] - Protocol version
    * @param {string} [info.clientId] - Client identifier
+   * @param {string} [info.instanceId] - Plugin instance identifier (used by the
+   *   server to namespace source-registry attribution; falls back to clientId
+   *   when omitted)
    * @param {string[]} [info.capabilities] - Supported capabilities
    * @returns {Buffer} Hello packet
    */
   buildHelloPacket(
-    info: { protocolVersion?: number; clientId?: string; capabilities?: string[] } = {},
+    info: {
+      protocolVersion?: number;
+      clientId?: string;
+      instanceId?: string;
+      capabilities?: string[];
+    } = {},
     options: { secretKey?: string; protocolVersion?: number } = {}
   ): Buffer {
     const protocolVersion = normalizeProtocolVersion(
       options.protocolVersion ?? info.protocolVersion ?? this._protocolVersion
     );
-    const payload = Buffer.from(
-      JSON.stringify({
-        protocolVersion,
-        clientId: info.clientId || "",
-        timestamp: Date.now(),
-        capabilities:
-          info.capabilities ||
-          (usesAuthenticatedControl(protocolVersion)
-            ? ["compression", "encryption", "reliability", "authenticated-control"]
-            : ["compression", "encryption", "reliability"])
-      })
-    );
-    return this._buildPacket(PacketType.HELLO, payload, {}, options);
+    const payload: Record<string, unknown> = {
+      protocolVersion,
+      clientId: info.clientId || "",
+      timestamp: Date.now(),
+      capabilities:
+        info.capabilities ||
+        (usesAuthenticatedControl(protocolVersion)
+          ? ["compression", "encryption", "reliability", "authenticated-control"]
+          : ["compression", "encryption", "reliability"])
+    };
+    if (info.instanceId) {
+      payload.instanceId = info.instanceId;
+    }
+    return this._buildPacket(PacketType.HELLO, Buffer.from(JSON.stringify(payload)), {}, options);
   }
 
   /**

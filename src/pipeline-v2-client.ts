@@ -1283,6 +1283,34 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   }
 
   /**
+   * Send a HELLO packet to identify this client to the server.
+   *
+   * The v2 server uses HELLO to populate `session.clientId` /
+   * `session.sourceClientInstanceId`. Until that happens, the server's
+   * `_ingestRemoteTelemetry` `peerIdentified` gate silently drops every
+   * client-published telemetry delta, leaving the server's Network Quality
+   * dashboard stuck at 0/0/0. Callers MUST invoke this once after socket
+   * creation and again after every socket recovery.
+   *
+   * @param udpAddress - Server address (overridden by bonding if active)
+   * @param udpPort    - Server port (overridden by bonding if active)
+   */
+  async function sendHello(udpAddress: string, udpPort: number): Promise<void> {
+    try {
+      const helloPacket = packetBuilder.buildHelloPacket({
+        protocolVersion,
+        clientId: state.instanceId || "",
+        instanceId: state.instanceId || ""
+      });
+      await udpSendAsync(helloPacket, udpAddress, udpPort);
+      state.lastPacketTime = Date.now();
+      app.debug("v2 HELLO sent");
+    } catch (err: unknown) {
+      app.debug(`v2 HELLO send failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
    * Start periodic heartbeat for NAT keepalive.
    *
    * @param udpAddress - Server address
@@ -1399,6 +1427,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
     stopMetricsPublishing,
     startCongestionControl,
     stopCongestionControl,
+    sendHello,
     startHeartbeat,
     initBonding,
     stopBonding,

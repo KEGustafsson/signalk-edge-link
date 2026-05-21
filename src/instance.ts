@@ -1444,26 +1444,37 @@ function createInstance(
           if (!state.readyToSend) {
             app.debug(`[${instanceId}] Skipping hello (not ready)`);
           } else if (timeSinceLastPacket >= helloInterval) {
-            const mmsi = app.getSelfPath("mmsi") || "000000000";
-            const fixedDelta = {
-              context: "vessels.urn:mrn:imo:mmsi:" + mmsi,
-              updates: [{ timestamp: new Date().toISOString(), values: [] }]
-            };
-            app.debug(`[${instanceId}] Sending hello message`);
-            if (state.pipeline) {
-              await state.pipeline.sendDelta(
-                [fixedDelta],
-                options.secretKey,
-                options.udpAddress ?? "",
-                options.udpPort
-              );
+            // For v2/v3, send a real HELLO packet so the server can keep this
+            // session identified across long idle periods or NAT rebinds.
+            // sendHello populates `session.clientId` on the server, which the
+            // `peerIdentified` gate in `_ingestRemoteTelemetry` requires before
+            // telemetry is admitted. For v1 there is no HELLO frame, so we
+            // fall back to the legacy empty-delta NAT keepalive.
+            if (state.pipeline && typeof state.pipeline.sendHello === "function") {
+              app.debug(`[${instanceId}] Sending periodic v2 HELLO`);
+              await state.pipeline.sendHello(options.udpAddress ?? "", options.udpPort);
             } else {
-              await getV1Pipeline().packCrypt(
-                [fixedDelta],
-                options.secretKey,
-                options.udpAddress ?? "",
-                options.udpPort
-              );
+              const mmsi = app.getSelfPath("mmsi") || "000000000";
+              const fixedDelta = {
+                context: "vessels.urn:mrn:imo:mmsi:" + mmsi,
+                updates: [{ timestamp: new Date().toISOString(), values: [] }]
+              };
+              app.debug(`[${instanceId}] Sending hello message`);
+              if (state.pipeline) {
+                await state.pipeline.sendDelta(
+                  [fixedDelta],
+                  options.secretKey,
+                  options.udpAddress ?? "",
+                  options.udpPort
+                );
+              } else {
+                await getV1Pipeline().packCrypt(
+                  [fixedDelta],
+                  options.secretKey,
+                  options.udpAddress ?? "",
+                  options.udpPort
+                );
+              }
             }
           } else {
             app.debug(`[${instanceId}] Skipping hello (last packet ${timeSinceLastPacket}ms ago)`);
@@ -1558,6 +1569,14 @@ function createInstance(
                       heartbeatInterval: options.heartbeatInterval
                     }
                   );
+                }
+                // Socket recovery creates a new ephemeral port, which the
+                // server treats as a new session — so we must re-identify
+                // ourselves with HELLO or telemetry is silently dropped.
+                // sendHello swallows its own errors, so fire-and-forget is
+                // safe here (the surrounding callback is not async).
+                if (state.pipeline.sendHello) {
+                  state.pipeline.sendHello(options.udpAddress ?? "", options.udpPort);
                 }
               }
 
@@ -1668,6 +1687,11 @@ function createInstance(
             heartbeatInterval: options.heartbeatInterval
           }
         );
+        // Send HELLO immediately so the server can identify this client and
+        // accept its telemetry into remoteNetworkQuality. Without this, the
+        // server's Network Quality dashboard stays at 0/0/0 — every telemetry
+        // delta is silently dropped at the peerIdentified gate.
+        await v2Pipeline.sendHello(options.udpAddress ?? "", options.udpPort);
         restartSourceSnapshotTimer();
         sendSourceSnapshot().catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);

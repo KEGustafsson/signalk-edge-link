@@ -440,6 +440,60 @@ describe("HEARTBEAT and HELLO packet handling", () => {
     expect(app.error).not.toHaveBeenCalled();
   });
 
+  test("client telemetry is admitted only after a HELLO has identified the session", async () => {
+    // Regression for v2.8.0: the security hardening in commit 47224ee added a
+    // `peerIdentified` gate to _ingestRemoteTelemetry. Without a preceding
+    // HELLO that populates session.clientId, all telemetry deltas are silently
+    // dropped and remoteNetworkQuality.lastUpdate stays at 0 — leaving the
+    // server's Network Quality dashboard stuck at 0/0/0. This test locks in
+    // the gate's behavior on both sides: dropped without HELLO, admitted with.
+    const { pipeline, metricsApi } = makeServer();
+    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const rinfo = { address: "10.0.0.30", port: 9100 };
+
+    const telemetryDelta = [
+      {
+        context: "vessels.self",
+        updates: [
+          {
+            source: { label: "signalk-edge-link-client-telemetry", type: "plugin" },
+            timestamp: new Date().toISOString(),
+            values: [
+              { path: "networking.edgeLink.rtt", value: 42 },
+              { path: "networking.edgeLink.jitter", value: 3 },
+              { path: "networking.edgeLink.packetLoss", value: 0.01 }
+            ]
+          }
+        ]
+      }
+    ];
+    const telemetryPacket = await makeEncryptedPacket(telemetryDelta, builder);
+
+    // Before HELLO: telemetry must NOT update remoteNetworkQuality.
+    await pipeline.receivePacket(telemetryPacket, SECRET_KEY, rinfo);
+    expect(metricsApi.metrics.remoteNetworkQuality.lastUpdate).toBe(0);
+
+    // HELLO identifies the session.
+    const helloPacket = builder.buildHelloPacket({
+      clientId: "test-client",
+      instanceId: "edge-link-1"
+    });
+    await pipeline.receivePacket(helloPacket, SECRET_KEY, rinfo);
+
+    // After HELLO: telemetry values must reach remoteNetworkQuality.
+    const builder2 = new PacketBuilder({
+      protocolVersion: 2,
+      secretKey: SECRET_KEY,
+      initialSequence: 100
+    });
+    const telemetryPacket2 = await makeEncryptedPacket(telemetryDelta, builder2);
+    await pipeline.receivePacket(telemetryPacket2, SECRET_KEY, rinfo);
+    expect(metricsApi.metrics.remoteNetworkQuality.lastUpdate).toBeGreaterThan(0);
+    expect(metricsApi.metrics.remoteNetworkQuality.rtt).toBe(42);
+    expect(metricsApi.metrics.remoteNetworkQuality.jitter).toBe(3);
+    expect(metricsApi.metrics.remoteNetworkQuality.packetLoss).toBeCloseTo(0.01);
+  });
+
   test("HELLO packet with invalid JSON payload logs error", async () => {
     const { pipeline, app } = makeServer();
 

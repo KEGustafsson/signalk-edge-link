@@ -831,6 +831,13 @@ export interface ClientPipelineApi {
     port: number,
     options?: { heartbeatInterval?: number }
   ): { stop(): void };
+  /**
+   * Send a HELLO packet so the server can populate `session.clientId` and
+   * admit subsequent telemetry through its `peerIdentified` gate. Required
+   * after socket creation and after every socket recovery; safe to call
+   * periodically as a re-identification refresh.
+   */
+  sendHello(address: string, port: number): Promise<void>;
   initBonding(config: Record<string, unknown>): Promise<BondingManagerApi>;
   stopBonding(): void;
   getBondingManager(): BondingManagerApi | null;
