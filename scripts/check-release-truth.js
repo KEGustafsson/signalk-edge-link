@@ -37,13 +37,12 @@ if (typeof packageJson.version !== "string" || !packageJson.version) {
   fail("package.json is missing a valid version field");
   process.exit(1);
 }
-const apiReference = readText("docs/api-reference.md");
+const guide = readText("docs/GUIDE.md");
 const docsReadme = readText("docs/README.md");
-const architectureOverview = readText("docs/architecture-overview.md");
 const publishWorkflow = readText(".github/workflows/publish-packages.yml");
 const currentMarker = `current: ${packageJson.version}`;
 
-requireIncludes(apiReference, currentMarker, "docs/api-reference.md");
+requireIncludes(guide, currentMarker, "docs/GUIDE.md");
 requireIncludes(docsReadme, currentMarker, "docs/README.md");
 
 function requireNoStaleVersionMarker(content, relativePath) {
@@ -58,7 +57,7 @@ function requireNoStaleVersionMarker(content, relativePath) {
   }
 }
 
-requireNoStaleVersionMarker(apiReference, "docs/api-reference.md");
+requireNoStaleVersionMarker(guide, "docs/GUIDE.md");
 requireNoStaleVersionMarker(docsReadme, "docs/README.md");
 
 for (const staleName of [
@@ -67,13 +66,13 @@ for (const staleName of [
   "alert-manager.ts",
   "sequence-tracker.ts"
 ]) {
-  if (architectureOverview.includes(staleName)) {
-    fail(`docs/architecture-overview.md must not reference ${staleName}.`);
+  if (guide.includes(staleName)) {
+    fail(`docs/GUIDE.md must not reference ${staleName}.`);
   }
 }
 
 for (const currentName of ["bonding.ts", "congestion.ts", "monitoring.ts", "sequence.ts"]) {
-  requireIncludes(architectureOverview, currentName, "docs/architecture-overview.md");
+  requireIncludes(guide, currentName, "docs/GUIDE.md");
 }
 
 const packageFiles = Array.isArray(packageJson.files) ? packageJson.files : [];
