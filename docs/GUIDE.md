@@ -62,7 +62,7 @@ Signal K Edge Link solves each of these with UDP transport, Brotli compression, 
 
 ### Basic topology
 
-```
+```text
 ┌─────────────────────────────────┐           ┌─────────────────────────────────┐
 │        VESSEL (at sea)          │           │        SHORE (server room)       │
 │                                 │           │                                 │
@@ -86,7 +86,7 @@ Signal K Edge Link solves each of these with UDP transport, Brotli compression, 
 
 One Signal K instance can run **both** a server and a client simultaneously — acting as a relay.
 
-```
+```text
   [Vessel A]                 [Relay / aggregator]              [Shore HQ]
   Client ─────UDP v3──────► Server  Client ─────UDP v3──────► Server
                              (relay instance)
@@ -96,7 +96,7 @@ One Signal K instance can run **both** a server and a client simultaneously — 
 
 ### Dual-link (bonding) topology
 
-```
+```text
   [Vessel]                                      [Shore]
   Client                                        Server A (port 4446)
   ├─ Primary (LTE)    ─────UDP:4446───────────► (receives primary data)
@@ -113,7 +113,7 @@ One Signal K instance can run **both** a server and a client simultaneously — 
 
 ### Client outbound pipeline
 
-```
+```text
  Signal K local deltas
         │
         ▼
@@ -180,7 +180,7 @@ One Signal K instance can run **both** a server and a client simultaneously — 
 
 ### Server inbound pipeline
 
-```
+```text
        UDP receive ◄──────────────────── remote client
             │
             ▼
@@ -315,7 +315,7 @@ On the **source** Signal K instance:
 
 Open the runtime dashboard on either instance:
 
-```
+```text
 http://<signalk-host>:3000/plugins/signalk-edge-link/
 ```
 
@@ -338,7 +338,7 @@ v1 is the simplest protocol. Every batch of deltas is compressed and encrypted a
 
 #### Wire format
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │  [  12-byte random IV  ]                            │
 │  [  AES-256-GCM ciphertext (Brotli-compressed       │
@@ -391,7 +391,7 @@ v2 adds a 15-byte binary header to every packet, enabling sequence tracking, ACK
 
 #### Packet header format
 
-```
+```text
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -446,7 +446,7 @@ Both peers must be configured identically for `useMsgpack` and `usePathDictionar
 
 #### ACK/NAK handshake
 
-```
+```text
   Client                                 Server
     │                                      │
     │──── HELLO (version, clientId) ──────►│  Session established
@@ -671,7 +671,7 @@ Defined in `src/constants.ts`. Not configurable via UI; require a source rebuild
 
 Three JSON files can be edited or updated via the API **without restarting the plugin**. They are stored in:
 
-```
+```text
 <signalk-data-dir>/plugin-config-data/signalk-edge-link/<connectionName>/
 ```
 
@@ -754,7 +754,7 @@ UDP has no built-in congestion feedback. Without adaptation, a fixed send rate o
 
 **Additive Increase, Multiplicative Decrease (AIMD)** — same class as TCP congestion control:
 
-```
+```text
 Every 5 seconds, evaluate smoothed RTT and packet loss:
 
   ┌─────────────────────────────────────────────────────────────┐
@@ -772,7 +772,7 @@ Every 5 seconds, evaluate smoothed RTT and packet loss:
 
 ### Example timer behavior
 
-```
+```text
 deltaTimer (ms)
  5000 ─────────────────────────────────────────────────── (max)
                                                ╭─ congestion spike ×1.5
@@ -860,7 +860,7 @@ curl -s -X POST -H "Content-Type: application/json" \
 
 ### Failover state machine
 
-```
+```text
    ┌──────────────┐   RTT > rttThreshold
    │              │   OR loss > lossThreshold
    │   ACTIVE     │   OR link DOWN
@@ -1423,6 +1423,7 @@ Manually set or clear the delta timer. Client mode only.
 ```json
 { "value": 500 }
 ```
+
 Value: 100–10000 ms. Re-enable auto mode: `{ "mode": "auto" }`.
 
 ```json
