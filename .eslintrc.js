@@ -18,7 +18,7 @@ module.exports = {
       }
     },
     {
-      files: ["test/benchmarks/**/*.js"],
+      files: ["__tests__/benchmarks/**/*.js"],
       rules: {
         "no-console": "off"
       }

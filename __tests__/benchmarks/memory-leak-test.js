@@ -11,7 +11,7 @@
  * - Packet builder (sequence number growth)
  * - Congestion control (EMA doesn't accumulate)
  *
- * Run: node test/benchmarks/memory-leak-test.js
+ * Run: node __tests__/benchmarks/memory-leak-test.js
  */
 
 const { PacketBuilder, PacketParser } = require("../../lib/packet");

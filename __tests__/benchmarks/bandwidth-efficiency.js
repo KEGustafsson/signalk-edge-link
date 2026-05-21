@@ -9,7 +9,7 @@
  * - Effective bandwidth utilization at different send rates
  * - Bytes-per-delta at different batch sizes
  *
- * Run: node test/benchmarks/bandwidth-efficiency.js
+ * Run: node __tests__/benchmarks/bandwidth-efficiency.js
  */
 
 const zlib = require("zlib");

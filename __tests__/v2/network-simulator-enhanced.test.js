@@ -1,6 +1,6 @@
 "use strict";
 
-const { NetworkSimulator, createSimulatedSockets } = require("../../test/network-simulator");
+const { NetworkSimulator, createSimulatedSockets } = require("../network-simulator");
 
 describe("NetworkSimulator - Enhanced Features", () => {
   let sim;

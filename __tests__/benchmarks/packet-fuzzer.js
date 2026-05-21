@@ -7,7 +7,7 @@
  * to verify it handles malformed input without crashing.
  *
  * Usage:
- *   node test/benchmarks/packet-fuzzer.js [iterations]
+ *   node __tests__/benchmarks/packet-fuzzer.js [iterations]
  *
  * Default: 100,000 iterations
  */

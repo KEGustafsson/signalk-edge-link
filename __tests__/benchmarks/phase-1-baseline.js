@@ -6,7 +6,7 @@
  * Measures packet building and parsing performance to establish
  * baseline metrics for the v2 protocol layer.
  *
- * Run: node test/benchmarks/phase-1-baseline.js
+ * Run: node __tests__/benchmarks/phase-1-baseline.js
  */
 
 const { PacketBuilder, PacketParser } = require("../../lib/packet");
