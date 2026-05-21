@@ -8,6 +8,7 @@ import type {
   SourceRegistryMetrics,
   SourceRegistrySnapshot
 } from "./types";
+import { SOURCE_REGISTRY_MAX_RECORDS, SOURCE_REGISTRY_TTL_MS } from "./constants";
 
 export const SOURCE_REPLICATION_SCHEMA_VERSION = 1;
 export type {
@@ -152,6 +153,8 @@ function chooseValue(
 }
 
 export function createSourceRegistry(app: { debug: (msg: string) => void }) {
+  // Insertion-order Map doubles as an LRU: refresh() moves an entry to the
+  // tail (delete + set), evict() drops from the head.
   const records = new Map<string, SourceReplicationRecord>();
   let lastLoggedRegistrySize = 0;
   const metrics: SourceRegistryMetrics = {
@@ -160,6 +163,31 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
     missingIdentity: 0,
     conflicts: 0
   };
+  let evictions = 0;
+
+  function evictStaleAndOverflow(nowMs: number): void {
+    // TTL pass: scan from oldest (insertion order). Map iteration order is
+    // insertion order, so we can stop at the first non-stale entry.
+    const cutoff = nowMs - SOURCE_REGISTRY_TTL_MS;
+    for (const [key, record] of records) {
+      const ts = Date.parse(record.lastSeenAt);
+      if (Number.isFinite(ts) && ts < cutoff) {
+        records.delete(key);
+        evictions++;
+        continue;
+      }
+      break;
+    }
+    // Hard cap: if still over the limit, drop oldest until under.
+    while (records.size > SOURCE_REGISTRY_MAX_RECORDS) {
+      const oldest = records.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      records.delete(oldest.value);
+      evictions++;
+    }
+  }
 
   function upsertFromDelta(delta: Delta, sourceClientInstanceId: string): void {
     if (!delta || !Array.isArray(delta.updates)) {
@@ -286,15 +314,26 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
       const mergeHash = toMergeHash(mergedBase);
       if (existing && existing.mergeHash === mergeHash) {
         existing.lastSeenAt = nowIso;
+        // Refresh LRU position so an actively-seen record is not evicted
+        // ahead of stale ones at the head of the insertion-order Map.
+        records.delete(key);
+        records.set(key, existing);
         metrics.noops++;
         continue;
       }
 
       mergedBase.lastSeenAt = nowIso;
       mergedBase.lastUpdatedAt = nowIso;
+      // Re-insert at the tail of the LRU order: delete-then-set so updates
+      // to an existing record refresh its position the same way as noops.
+      if (existing) {
+        records.delete(key);
+      }
       records.set(key, { ...mergedBase, mergeHash });
       metrics.upserts++;
     }
+
+    evictStaleAndOverflow(Date.now());
 
     if (records.size % 50 === 0 && records.size > 0 && records.size !== lastLoggedRegistrySize) {
       app.debug(`[source-replication] registry-size=${records.size}`);
@@ -326,12 +365,17 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
   }
 
   function getMetrics(): SourceRegistryMetrics {
-    return { ...metrics };
+    return { ...metrics, evictions };
+  }
+
+  function getSize(): number {
+    return records.size;
   }
 
   return {
     upsertFromDelta,
     snapshot,
-    getMetrics
+    getMetrics,
+    getSize
   };
 }

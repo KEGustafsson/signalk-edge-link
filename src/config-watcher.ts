@@ -66,7 +66,15 @@ export interface DebouncedConfigHandler {
 export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): DebouncedConfigHandler {
   const { name, getFilePath, processConfig, state, instanceId, app, readFallback } = opts;
 
-  async function runLoad(): Promise<void> {
+  // Serialize concurrent runLoad calls: while one is in flight, a follow-up
+  // call awaits its completion and only then evaluates its own work. The
+  // previous hash-claim trick had a window between "claim hash" and
+  // "processConfig await" in which a second runLoad could observe the new
+  // hash, skip, and silently drop a legitimate event if the first one then
+  // threw. A simple promise-chain serialization is strictly more correct.
+  let runInFlight: Promise<void> | null = null;
+
+  async function runLoadInner(): Promise<void> {
     if (state.stopped) return;
     let content: string | null;
     const filePath = getFilePath();
@@ -86,47 +94,47 @@ export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): Debounc
       return;
     }
 
-    // Claim the hash BEFORE awaiting processConfig so a concurrent runLoad
-    // (e.g. the initial flush() racing an fs.watch event triggered during
-    // startup) sees the hash and skips instead of running processConfig
-    // twice. Without this, two processConfigs can both observe the same
-    // pre-claim hash and both call subscribe(), leaving leaked listeners
-    // for any path whose bus is created between the new subscribe() and
-    // the old previousUnsubscribes.forEach() in the second call.
-    const previousHash = state.configContentHashes[name];
-    function revertHashClaim(): void {
-      if (state.configContentHashes[name] !== contentHash) return;
-      if (previousHash === undefined) {
-        delete state.configContentHashes[name];
-      } else {
-        state.configContentHashes[name] = previousHash;
-      }
-    }
-    state.configContentHashes[name] = contentHash;
-
     let parsed: unknown;
     try {
       parsed = content ? JSON.parse(content) : readFallback;
     } catch (parseErr) {
-      // Parse failure leaves nothing valid to process. Revert the claim so
-      // a subsequent file event (presumably with corrected content) is not
-      // silently skipped on the unchanged-hash check.
-      revertHashClaim();
+      // Parse failure: do not advance the hash so a subsequent file event
+      // (presumably with corrected content) is not silently skipped.
       throw parseErr;
     }
 
     try {
       await processConfig(parsed);
     } catch (err) {
-      revertHashClaim();
+      // Processing failed: leave the previous hash intact so a retry can
+      // re-detect the same content as still-pending.
       throw err;
     }
 
-    // If stop() ran between claim and the processConfig microtask, treat
-    // the hash as unclaimed so a fresh start() will reload from disk
-    // instead of inheriting our claim (the in-memory state is gone).
-    if (state.stopped) {
-      revertHashClaim();
+    // Only after processConfig completes successfully do we mark this
+    // content as the last-known-good. Holding the hash update to the
+    // success path means a failed apply does not silently swallow the next
+    // identical event.
+    if (!state.stopped) {
+      state.configContentHashes[name] = contentHash;
+    }
+  }
+
+  async function runLoad(): Promise<void> {
+    // Coalesce: if a previous runLoad is still running, attach to its
+    // completion and then run once more so the absolute-latest file state
+    // is observed. A single re-run is sufficient because runLoadInner re-
+    // reads getFilePath() and re-hashes fresh content.
+    if (runInFlight) {
+      await runInFlight.catch(() => {
+        /* errors logged by caller below */
+      });
+    }
+    runInFlight = runLoadInner();
+    try {
+      await runInFlight;
+    } finally {
+      runInFlight = null;
     }
   }
 

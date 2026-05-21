@@ -117,6 +117,7 @@ export interface SourceRegistryMetrics {
   noops: number;
   missingIdentity: number;
   conflicts: number;
+  evictions?: number;
 }
 
 // ── Protocol Types ──────────────────────────────────────────────────────────
@@ -423,6 +424,24 @@ export interface Metrics {
     string,
     { context: string; path: string; source: string; count: number; lastUpdate: number }
   >;
+  /** Total invocations of processDelta on this instance. Should equal
+   *  deltasSent + droppedDeltaCount + suppressedOutboundDuplicates +
+   *  deltas-still-buffered + deltas-skipped-while-subscribing. A larger
+   *  value indicates a delivery-doubling regression. */
+  processDeltaCalls?: number;
+  /** Snapshot replays performed, broken out by reason. */
+  snapshotsReplayed?: {
+    initialSubscribe: number;
+    subscriptionRetry: number;
+    socketRecovery: number;
+    fullStatusRequest: number;
+  };
+  /** Total deltas emitted across all snapshot replays (sum of all reasons). */
+  snapshotReplayDeltas?: number;
+  /** Cascades emitted from this server instance to all connected clients. */
+  fullStatusCascadeFired?: number;
+  /** Peak observed length of state.deltas since reset. */
+  deltasBufferHighWaterMark?: number;
 }
 
 /** Metrics API returned by createMetrics(). */
@@ -571,6 +590,7 @@ export interface InstanceState {
     upsertFromDelta(delta: Delta, sourceClientInstanceId: string): void;
     snapshot(): SourceRegistrySnapshot;
     getMetrics(): SourceRegistryMetrics;
+    getSize(): number;
   };
   /** MetaConfig that was parsed from a new subscription.json but whose
    *  subscribe() call threw. Stashed here so the scheduled

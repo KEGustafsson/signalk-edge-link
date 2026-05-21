@@ -36,7 +36,15 @@ import {
   MAX_DELTAS_BUFFER_SIZE,
   DELTA_BUFFER_DROP_RATIO,
   SMART_BATCH_INITIAL_ESTIMATE,
-  calculateMaxDeltasPerBatch
+  calculateMaxDeltasPerBatch,
+  OUTBOUND_DUPLICATE_SUPPRESS_MS,
+  SUPPRESSED_DUPLICATE_STATS_MAX_SIZE,
+  OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS,
+  OUTBOUND_DEDUPE_MAX_ENTRIES,
+  SOURCE_SNAPSHOT_INTERVAL_MS,
+  DELTA_SEND_MAX_RETRIES,
+  DELTA_SEND_RETRY_BACKOFF_MS,
+  SNAPSHOT_REPLAY_CHUNK_SIZE
 } from "./constants";
 import { loadConfigFile, loadConfigFileSafe } from "./config-io";
 import {
@@ -64,15 +72,6 @@ import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "./delta-sanitize
 import { collectSourceSnapshot } from "./source-snapshot";
 import { collectValuesSnapshot } from "./values-snapshot";
 
-const DELTA_SEND_MAX_RETRIES = 1;
-const DELTA_SEND_RETRY_BACKOFF_MS = 100;
-const SOURCE_SNAPSHOT_INTERVAL_MS = 60_000;
-// Signal K's subscription manager can deliver the same cached/live delta pair
-// about one fixed-policy window apart. Exact JSON equality keeps this narrow:
-// a fresh timestamp or changed value still forwards normally.
-const OUTBOUND_DUPLICATE_SUPPRESS_MS = 1500;
-const SUPPRESSED_DUPLICATE_STATS_MAX_SIZE = 50;
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -86,6 +85,64 @@ function slugify(name: string): string {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "connection"
   );
+}
+
+/** Sole source of truth for "is this instance a server?" — derived from
+ *  options.serverType. Accepts both the legacy boolean (`true` == server) and
+ *  the current string form ("server"/"client"). */
+function derivedIsServerMode(options: ConnectionConfig): boolean {
+  return (options.serverType as unknown) === true || options.serverType === "server";
+}
+
+/**
+ * Build a small, deterministic structural key from an outbound delta for
+ * duplicate suppression. Replaces `JSON.stringify(delta)` in the per-delta
+ * hot path: a deep stringify dominated processDelta CPU at >100 deltas/s.
+ *
+ * The key captures the fields that, taken together, identify a logical
+ * publish event: context, source attribution, timestamp, and each value's
+ * (path, value-hash) pair in insertion order. Two genuinely-distinct
+ * publications with the same content will produce the same key — that's
+ * the entire point of the suppression window. Two updates with even one
+ * differing value or timestamp produce different keys and both forward.
+ */
+function buildOutboundDedupeKey(delta: Delta): string {
+  const parts: string[] = [];
+  parts.push(delta.context || "");
+  const updates = Array.isArray(delta.updates) ? delta.updates : [];
+  for (const update of updates) {
+    parts.push("|u");
+    parts.push((update?.$source as string) || "");
+    parts.push("|");
+    const srcObj = update?.source as Record<string, unknown> | undefined;
+    if (srcObj && typeof srcObj === "object") {
+      parts.push((srcObj.label as string) || "");
+      parts.push(":");
+      parts.push((srcObj.type as string) || "");
+      parts.push(":");
+      parts.push(String(srcObj.src ?? ""));
+    }
+    parts.push("|");
+    parts.push((update?.timestamp as string) || "");
+    const values = Array.isArray(update?.values) ? update.values : [];
+    for (const v of values) {
+      parts.push("|v");
+      parts.push(String(v?.path ?? ""));
+      parts.push("=");
+      const value = v?.value;
+      if (value === null || value === undefined) {
+        parts.push("");
+      } else if (typeof value === "object") {
+        // Nested object values are rare in SK deltas; fall back to a stable
+        // stringify only for these. Cheap because most deltas hit the
+        // primitive fast path above.
+        parts.push(JSON.stringify(value));
+      } else {
+        parts.push(String(value));
+      }
+    }
+  }
+  return parts.join("");
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -128,13 +185,15 @@ function createInstance(
     socketUdp: null,
     readyToSend: false,
     stopped: false,
-    // Initialise from options so isServerMode() returns the correct value
-    // BEFORE start() runs. index.ts filters instances into server and client
-    // groups (servers start first) using inst.isServerMode(); if that read
-    // happens before start() has had a chance to set state.isServerMode, the
-    // server group ends up empty and every instance starts concurrently in
-    // the client group, defeating the intended sequencing.
-    isServerMode: (options.serverType as unknown) === true || options.serverType === "server",
+    // Derived from options (see derivedIsServerMode below) so isServerMode()
+    // returns the correct value BEFORE start() runs. index.ts filters
+    // instances into server and client groups (servers start first) using
+    // inst.isServerMode(); if that read happened before start() had a chance
+    // to set state.isServerMode, the server group ended up empty and every
+    // instance started concurrently in the client group, defeating the
+    // intended sequencing. The state field is kept as a mirror only so that
+    // other modules typed against InstanceState.isServerMode keep working.
+    isServerMode: derivedIsServerMode(options),
     deltas: [],
     timer: false,
     batchSendInFlight: false,
@@ -181,8 +240,44 @@ function createInstance(
   const metricsApi = createMetrics();
   const { metrics, recordError, resetMetrics } = metricsApi;
   const recentOutboundDeltas = new Map<string, number>();
+  let recentOutboundDeltasCleanupTimer: ReturnType<typeof setInterval> | null = null;
   let lastOutboundDuplicateLogAt = 0;
   let activeSubscriptionGeneration = 0;
+  // Coalesce `app.reportOutputMessages()` calls so a burst of deltas in the
+  // same event-loop tick produces one status nudge, not N. Without this, a
+  // 200 delta/s stream produces 200 microtasks/s just for status reporting.
+  let reportOutputMessagesPending = false;
+  function scheduleReportOutputMessages(): void {
+    if (reportOutputMessagesPending) {
+      return;
+    }
+    reportOutputMessagesPending = true;
+    setImmediate(() => {
+      reportOutputMessagesPending = false;
+      try {
+        app.reportOutputMessages();
+      } catch {
+        /* ignore — status reporting is best-effort */
+      }
+    });
+  }
+
+  function cleanupRecentOutboundDeltas(now: number): void {
+    for (const [key, seenAt] of recentOutboundDeltas) {
+      if (now - seenAt > OUTBOUND_DUPLICATE_SUPPRESS_MS) {
+        recentOutboundDeltas.delete(key);
+      }
+    }
+    // Hard cap: if the map is still over the limit (a burst of unique
+    // deltas inside the suppress window), drop oldest entries until under.
+    while (recentOutboundDeltas.size > OUTBOUND_DEDUPE_MAX_ENTRIES) {
+      const oldest = recentOutboundDeltas.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      recentOutboundDeltas.delete(oldest.value);
+    }
+  }
 
   // v1 pipeline is created lazily on first use (only needed in client v1 mode)
   type V1Pipeline = {
@@ -405,9 +500,13 @@ function createInstance(
       if (changed.length === 0) {
         return;
       }
+      // Snapshot cache generation before the async send; if a resubscribe
+      // clears the cache while the send is in flight, the post-send commit
+      // must NOT repopulate stale entries into the new generation.
+      const generationAtSend = metaCache.generation();
       sendMetaEntries(changed, "diff")
         .then((sent) => {
-          if (sent) {
+          if (sent && metaCache.generation() === generationAtSend) {
             metaCache.commit(changed);
           }
         })
@@ -503,6 +602,7 @@ function createInstance(
     replayValuesSnapshot("full-status-request");
     if (fullStatusCascadeHandler) {
       app.debug(`[${instanceId}] FULL_STATUS_REQUEST cascading to downstream clients`);
+      metrics.fullStatusCascadeFired = (metrics.fullStatusCascadeFired || 0) + 1;
       fullStatusCascadeHandler();
     }
   }
@@ -567,15 +667,50 @@ function createInstance(
       return;
     }
     app.debug(`[${instanceId}] Replaying ${snapshot.length} value-snapshot delta(s) (${reason})`);
-    for (const delta of snapshot) {
+    recordSnapshotReplay(reason, snapshot.length);
+    // Yield to the event loop every SNAPSHOT_REPLAY_CHUNK_SIZE deltas so a
+    // large snapshot (hundreds of paths) cannot synchronously fill
+    // MAX_DELTAS_BUFFER_SIZE and force-drop live traffic. On the same tick
+    // we already buffer; this only adds a microtask hop between chunks.
+    let i = 0;
+    function pumpChunk(): void {
+      if (state.stopped || !state.readyToSend || !state.processDelta) {
+        return;
+      }
+      const end = Math.min(i + SNAPSHOT_REPLAY_CHUNK_SIZE, snapshot.length);
       try {
-        state.processDelta(delta);
+        for (; i < end; i++) {
+          state.processDelta(snapshot[i]);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         app.debug(`[${instanceId}] values snapshot replay failed (${reason}): ${msg}`);
         return;
       }
+      if (i < snapshot.length) {
+        setImmediate(pumpChunk);
+      }
     }
+    pumpChunk();
+  }
+
+  function recordSnapshotReplay(reason: string, count: number): void {
+    metrics.snapshotsReplayed = metrics.snapshotsReplayed || {
+      initialSubscribe: 0,
+      subscriptionRetry: 0,
+      socketRecovery: 0,
+      fullStatusRequest: 0
+    };
+    if (reason === "initial subscribe") {
+      metrics.snapshotsReplayed.initialSubscribe++;
+    } else if (reason === "subscription retry") {
+      metrics.snapshotsReplayed.subscriptionRetry++;
+    } else if (reason === "socket recovery") {
+      metrics.snapshotsReplayed.socketRecovery++;
+    } else if (reason === "full-status-request") {
+      metrics.snapshotsReplayed.fullStatusRequest++;
+    }
+    metrics.snapshotReplayDeltas = (metrics.snapshotReplayDeltas || 0) + count;
   }
 
   function restartSourceSnapshotTimer(): void {
@@ -746,6 +881,7 @@ function createInstance(
   }
 
   function processDelta(delta: Delta): void {
+    metrics.processDeltaCalls = (metrics.processDeltaCalls || 0) + 1;
     if (!state.readyToSend) {
       return;
     }
@@ -779,7 +915,7 @@ function createInstance(
     }
 
     const now = Date.now();
-    const dedupeKey = JSON.stringify(outboundDelta);
+    const dedupeKey = buildOutboundDedupeKey(outboundDelta);
     const lastSeenAt = recentOutboundDeltas.get(dedupeKey);
     if (lastSeenAt !== undefined && now - lastSeenAt <= OUTBOUND_DUPLICATE_SUPPRESS_MS) {
       metrics.suppressedOutboundDuplicates = (metrics.suppressedOutboundDuplicates || 0) + 1;
@@ -793,10 +929,10 @@ function createInstance(
       return;
     }
     recentOutboundDeltas.set(dedupeKey, now);
-    for (const [key, seenAt] of recentOutboundDeltas) {
-      if (now - seenAt > OUTBOUND_DUPLICATE_SUPPRESS_MS) {
-        recentOutboundDeltas.delete(key);
-      }
+    // Cleanup is off the hot path (periodic interval); only enforce the hard
+    // cap synchronously to bound memory if a burst of unique deltas lands.
+    if (recentOutboundDeltas.size > OUTBOUND_DEDUPE_MAX_ENTRIES) {
+      cleanupRecentOutboundDeltas(now);
     }
 
     if (state.deltas.length >= MAX_DELTAS_BUFFER_SIZE) {
@@ -814,7 +950,10 @@ function createInstance(
     }
 
     state.deltas.push(outboundDelta);
-    setImmediate(() => app.reportOutputMessages());
+    if (state.deltas.length > (metrics.deltasBufferHighWaterMark || 0)) {
+      metrics.deltasBufferHighWaterMark = state.deltas.length;
+    }
+    scheduleReportOutputMessages();
 
     const batchReady = state.deltas.length >= state.maxDeltasPerBatch;
     if ((batchReady || state.timer) && !state.pendingRetry) {
@@ -1117,6 +1256,18 @@ function createInstance(
   async function start(): Promise<void> {
     state.stopped = false;
     state.options = options;
+    // Re-derive each start() in case options changed; processDelta-driven
+    // cleanup runs off the hot path and is bounded by OUTBOUND_DEDUPE_MAX_ENTRIES.
+    state.isServerMode = derivedIsServerMode(options);
+
+    // Periodic GC of the dedupe map, moved off the per-delta hot path. The
+    // hot path only enforces a hard cap; this interval evicts stale entries.
+    if (recentOutboundDeltasCleanupTimer) {
+      clearInterval(recentOutboundDeltasCleanupTimer);
+    }
+    recentOutboundDeltasCleanupTimer = setInterval(() => {
+      cleanupRecentOutboundDeltas(Date.now());
+    }, OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS);
 
     // Validate secret key — throw so Promise.all in index.js can detect startup failure
     try {
@@ -1135,9 +1286,14 @@ function createInstance(
       throw new Error(`[${instanceId}] ${msg}`);
     }
 
-    if ((options.serverType as unknown) === true || options.serverType === "server") {
+    // Race guard: if stop() was called after we were invoked but before
+    // validation finished, bail out before binding sockets / wiring watchers.
+    if (state.stopped) {
+      return;
+    }
+
+    if (derivedIsServerMode(options)) {
       // ── Server mode ──
-      state.isServerMode = true;
       app.debug(`[${instanceId}] Starting server on port ${options.udpPort}`);
       state.socketUdp = dgram.createSocket({ type: "udp4", reuseAddr: true });
 
@@ -1235,8 +1391,11 @@ function createInstance(
       });
     } else {
       // ── Client mode ──
-      state.isServerMode = false;
       await initializePersistentStorage({ instanceId, app, state });
+      // Race guard: bail if stop() ran while awaiting persistent storage.
+      if (state.stopped) {
+        return;
+      }
 
       // Load the delta-timer override file and distinguish not-found (first run,
       // use default) from a parse/read error (log prominently, use default).
@@ -1550,6 +1709,11 @@ function createInstance(
         app.debug(`[${instanceId}] [v1] Client pipeline initialized`);
       }
 
+      // Race guard: if stop() ran while we were configuring the pipeline,
+      // do not attach fs watchers / register subscriptions.
+      if (state.stopped) {
+        return;
+      }
       // Wire the Signal K subscription after the client send pipeline is ready.
       // The subscription handler performs one explicit values-snapshot replay;
       // doing it here prevents the v2 startup path from also sending a second
@@ -1651,6 +1815,10 @@ function createInstance(
     // Reset runtime state
     state.deltas = [];
     recentOutboundDeltas.clear();
+    if (recentOutboundDeltasCleanupTimer) {
+      clearInterval(recentOutboundDeltasCleanupTimer);
+      recentOutboundDeltasCleanupTimer = null;
+    }
     state.timer = false;
     state.batchSendInFlight = false;
     state.socketRecoveryInProgress = false;
