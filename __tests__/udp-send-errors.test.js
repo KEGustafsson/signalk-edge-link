@@ -79,7 +79,6 @@ describe("udpSendAsync — error paths", () => {
     const promise = udpSendAsync(socket, Buffer.from("x"), "127.0.0.1", 4567);
     jest.advanceTimersByTime(5001);
     await expect(promise).rejects.toThrow(/timed out/);
-    // afterEach restores real timers — no inline restore needed.
   });
 
   test("succeeds without invoking error callbacks on clean send", async () => {

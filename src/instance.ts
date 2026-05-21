@@ -1283,7 +1283,8 @@ function createInstance(
 
     // Arm the periodic dedupe GC only after validation succeeds — keeps an
     // early-throw start() from leaking a setInterval handle. The per-delta
-    // hot path enforces a hard cap independently.
+    // hot path enforces a hard cap independently. Failures past this point
+    // (socket bind, async pipeline init) clear the interval in catch below.
     if (recentOutboundDeltasCleanupTimer) {
       clearInterval(recentOutboundDeltasCleanupTimer);
     }
@@ -1291,6 +1292,18 @@ function createInstance(
       cleanupRecentOutboundDeltas(Date.now());
     }, OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS);
 
+    try {
+      await startInner();
+    } catch (err) {
+      if (recentOutboundDeltasCleanupTimer) {
+        clearInterval(recentOutboundDeltasCleanupTimer);
+        recentOutboundDeltasCleanupTimer = null;
+      }
+      throw err;
+    }
+  }
+
+  async function startInner(): Promise<void> {
     if (derivedIsServerMode(options)) {
       // ── Server mode ──
       app.debug(`[${instanceId}] Starting server on port ${options.udpPort}`);

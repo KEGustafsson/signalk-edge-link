@@ -123,12 +123,11 @@ export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): Debounc
   let rerunRequested = false;
 
   async function runLoad(): Promise<void> {
-    // If a runLoadInner is already in flight, mark a re-run as needed
-    // (so the absolute-latest disk state still gets observed once the
-    // current one finishes) and attach to the same promise. Without
-    // this identity check, two callers could both observe runInFlight,
-    // both await it, and both then assign a fresh runLoadInner() —
-    // the very overlap this serialization is meant to prevent.
+    // Single-producer serialization: only the first caller spawns the
+    // runLoadInner loop; later callers set rerunRequested and return,
+    // so the producer drains them before clearing runInFlight. A naive
+    // "attach + recreate" pattern would let two callers both spawn a
+    // fresh runLoadInner and reintroduce overlap.
     if (runInFlight) {
       rerunRequested = true;
       await runInFlight.catch(() => {
@@ -137,10 +136,26 @@ export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): Debounc
       return;
     }
     runInFlight = (async () => {
-      do {
+      // Drain queued reruns even if an earlier pass threw — a parse or
+      // apply failure must not strand the queued follow-up that
+      // arrived between the failure and now. The latest error is
+      // reported once draining is complete.
+      let lastError: unknown;
+      while (!state.stopped) {
         rerunRequested = false;
-        await runLoadInner();
-      } while (rerunRequested && !state.stopped);
+        try {
+          await runLoadInner();
+          lastError = undefined;
+        } catch (err) {
+          lastError = err;
+        }
+        if (!rerunRequested) {
+          break;
+        }
+      }
+      if (lastError !== undefined) {
+        throw lastError;
+      }
     })();
     try {
       await runInFlight;
