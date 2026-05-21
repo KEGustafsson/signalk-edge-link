@@ -49,11 +49,16 @@ All notable changes to signalk-edge-link are documented here.
   (`pipeline-v2-server.ts`): FullStatus replay was synthesizing a fresh
   timestamp and a generic `$source`, which broke downstream consumers
   relying on the original metadata. Both are now preserved.
-- **Spurious v1-field rejection on v2/v3 configs** (`routes.ts`): Route
-  handlers were validating raw input before sanitization, so leftover
-  v1-only fields on a v2/v3 connection (`testAddress`, `testPort`,
-  `pingIntervalTime`) caused valid configs to be rejected. Sanitize now
-  runs before validate.
+- **Spurious v1-field rejection in HTTP route handlers** (`routes/connections.ts`):
+  The connection POST/PUT handlers were validating raw request bodies before
+  sanitization, so when the webapp re-submitted a config that still carried
+  v1-only fields (`testAddress`, `testPort`, `pingIntervalTime`) on a v2/v3
+  connection — the very rejection rule added in 2.5.1 — the request failed
+  even though those fields would have been stripped by the sanitizer a step
+  later. The route handlers now sanitize before validate, so v1-only fields
+  on a v2/v3 body are silently dropped on the HTTP path. The 2.5.1 rejection
+  rule in `validateConnectionConfig` is unchanged; it still fires for any
+  caller that validates without sanitizing first.
 
 ### Security
 
