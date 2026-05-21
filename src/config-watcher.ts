@@ -120,17 +120,28 @@ export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): Debounc
     }
   }
 
+  let rerunRequested = false;
+
   async function runLoad(): Promise<void> {
-    // Coalesce: if a previous runLoad is still running, attach to its
-    // completion and then run once more so the absolute-latest file state
-    // is observed. A single re-run is sufficient because runLoadInner re-
-    // reads getFilePath() and re-hashes fresh content.
+    // If a runLoadInner is already in flight, mark a re-run as needed
+    // (so the absolute-latest disk state still gets observed once the
+    // current one finishes) and attach to the same promise. Without
+    // this identity check, two callers could both observe runInFlight,
+    // both await it, and both then assign a fresh runLoadInner() —
+    // the very overlap this serialization is meant to prevent.
     if (runInFlight) {
+      rerunRequested = true;
       await runInFlight.catch(() => {
-        /* errors logged by caller below */
+        /* errors surface through the caller's .catch */
       });
+      return;
     }
-    runInFlight = runLoadInner();
+    runInFlight = (async () => {
+      do {
+        rerunRequested = false;
+        await runLoadInner();
+      } while (rerunRequested && !state.stopped);
+    })();
     try {
       await runInFlight;
     } finally {

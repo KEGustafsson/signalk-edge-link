@@ -327,10 +327,10 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
 
   // Tracks which session "owns" remote telemetry. First authenticated peer
   // to publish edge-link-client-telemetry inside the TTL window wins;
-  // others' telemetry deltas are filtered through unchanged (they still
-  // reach the SK tree) but cannot overwrite remoteNetworkQuality. This
-  // prevents one authorized-but-misbehaving peer from poisoning the
-  // network-quality dashboard for all the others.
+  // telemetry values from any other peer are dropped (not merged into
+  // remoteNetworkQuality and not forwarded as plain SK deltas) until the
+  // owner's TTL expires. Prevents one authorized-but-misbehaving peer
+  // from poisoning the network-quality dashboard for the rest.
   let telemetryOwnerSessionKey: string | null = null;
   let telemetryOwnerLastSeen = 0;
 

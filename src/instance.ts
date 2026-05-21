@@ -107,38 +107,39 @@ function derivedIsServerMode(options: ConnectionConfig): boolean {
  * differing value or timestamp produce different keys and both forward.
  */
 function buildOutboundDedupeKey(delta: Delta): string {
+  // Length-prefix every field (`<len>:<data>`) so two structurally-distinct
+  // deltas can never collapse to the same key just because one of their
+  // strings happens to contain delimiter-like bytes. Without this, a
+  // payload whose value text was `|v` would have collided with the
+  // delimiter used to separate values.
   const parts: string[] = [];
-  parts.push(delta.context || "");
+  function push(tag: string, raw: unknown): void {
+    const s = raw == null ? "" : String(raw);
+    parts.push(tag, String(s.length), ":", s);
+  }
+  push("c", delta.context);
   const updates = Array.isArray(delta.updates) ? delta.updates : [];
   for (const update of updates) {
     parts.push("|u");
-    parts.push((update?.$source as string) || "");
-    parts.push("|");
+    push("s", update?.$source);
     const srcObj = update?.source as Record<string, unknown> | undefined;
     if (srcObj && typeof srcObj === "object") {
-      parts.push((srcObj.label as string) || "");
-      parts.push(":");
-      parts.push((srcObj.type as string) || "");
-      parts.push(":");
-      parts.push(String(srcObj.src ?? ""));
+      push("sl", srcObj.label);
+      push("st", srcObj.type);
+      push("ss", srcObj.src);
     }
-    parts.push("|");
-    parts.push((update?.timestamp as string) || "");
+    push("t", update?.timestamp);
     const values = Array.isArray(update?.values) ? update.values : [];
     for (const v of values) {
       parts.push("|v");
-      parts.push(String(v?.path ?? ""));
-      parts.push("=");
+      push("p", v?.path);
       const value = v?.value;
       if (value === null || value === undefined) {
-        parts.push("");
+        push("v", "");
       } else if (typeof value === "object") {
-        // Nested object values are rare in SK deltas; fall back to a stable
-        // stringify only for these. Cheap because most deltas hit the
-        // primitive fast path above.
-        parts.push(JSON.stringify(value));
+        push("v", JSON.stringify(value));
       } else {
-        parts.push(String(value));
+        push("v", String(value));
       }
     }
   }
@@ -668,10 +669,9 @@ function createInstance(
     }
     app.debug(`[${instanceId}] Replaying ${snapshot.length} value-snapshot delta(s) (${reason})`);
     recordSnapshotReplay(reason, snapshot.length);
-    // Yield to the event loop every SNAPSHOT_REPLAY_CHUNK_SIZE deltas so a
-    // large snapshot (hundreds of paths) cannot synchronously fill
-    // MAX_DELTAS_BUFFER_SIZE and force-drop live traffic. On the same tick
-    // we already buffer; this only adds a microtask hop between chunks.
+    // Chunk via setImmediate so a hundred-leaf snapshot can't fill
+    // MAX_DELTAS_BUFFER_SIZE in a single tick and force-drop concurrent
+    // live deltas. Each chunk yields to a later event-loop turn.
     let i = 0;
     function pumpChunk(): void {
       if (state.stopped || !state.readyToSend || !state.processDelta) {
@@ -1256,18 +1256,7 @@ function createInstance(
   async function start(): Promise<void> {
     state.stopped = false;
     state.options = options;
-    // Re-derive each start() in case options changed; processDelta-driven
-    // cleanup runs off the hot path and is bounded by OUTBOUND_DEDUPE_MAX_ENTRIES.
     state.isServerMode = derivedIsServerMode(options);
-
-    // Periodic GC of the dedupe map, moved off the per-delta hot path. The
-    // hot path only enforces a hard cap; this interval evicts stale entries.
-    if (recentOutboundDeltasCleanupTimer) {
-      clearInterval(recentOutboundDeltasCleanupTimer);
-    }
-    recentOutboundDeltasCleanupTimer = setInterval(() => {
-      cleanupRecentOutboundDeltas(Date.now());
-    }, OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS);
 
     // Validate secret key — throw so Promise.all in index.js can detect startup failure
     try {
@@ -1291,6 +1280,16 @@ function createInstance(
     if (state.stopped) {
       return;
     }
+
+    // Arm the periodic dedupe GC only after validation succeeds — keeps an
+    // early-throw start() from leaking a setInterval handle. The per-delta
+    // hot path enforces a hard cap independently.
+    if (recentOutboundDeltasCleanupTimer) {
+      clearInterval(recentOutboundDeltasCleanupTimer);
+    }
+    recentOutboundDeltasCleanupTimer = setInterval(() => {
+      cleanupRecentOutboundDeltas(Date.now());
+    }, OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS);
 
     if (derivedIsServerMode(options)) {
       // ── Server mode ──

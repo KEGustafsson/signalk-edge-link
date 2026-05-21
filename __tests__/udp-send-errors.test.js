@@ -39,6 +39,10 @@ function makeFakeSocket({ errorCode = null, neverCallback = false } = {}) {
 }
 
 describe("udpSendAsync — error paths", () => {
+  // Restore real timers unconditionally so an assertion failure in the
+  // timeout test below cannot leak fake timers into later suites.
+  afterEach(() => jest.useRealTimers());
+
   test("hard error fires onError once and rejects", async () => {
     const socket = makeFakeSocket({ errorCode: "ENETUNREACH" });
     const onError = jest.fn();
@@ -73,10 +77,9 @@ describe("udpSendAsync — error paths", () => {
     jest.useFakeTimers();
     const socket = makeFakeSocket({ neverCallback: true });
     const promise = udpSendAsync(socket, Buffer.from("x"), "127.0.0.1", 4567);
-    // Race a no-op against the configured 5s timeout.
     jest.advanceTimersByTime(5001);
     await expect(promise).rejects.toThrow(/timed out/);
-    jest.useRealTimers();
+    // afterEach restores real timers — no inline restore needed.
   });
 
   test("succeeds without invoking error callbacks on clean send", async () => {

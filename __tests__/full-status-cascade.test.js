@@ -126,7 +126,18 @@ describe("requestFullStatusFromAllClients delegates to pipelineServer", () => {
 describe("3-hop chain orchestration (index.ts-style wiring)", () => {
   // Mimics what src/index.ts does after startup: every client-mode
   // instance's cascade handler iterates every server-mode instance and
-  // invokes requestFullStatusFromAllClients on it.
+  // invokes requestFullStatusFromAllClients on it. The test captures the
+  // handler the wiring installs (rather than overwriting it) so the
+  // assertion actually verifies that this orchestration is what runs.
+  function captureCascadeHandler(inst) {
+    let captured = null;
+    const originalSet = inst.setFullStatusCascadeHandler.bind(inst);
+    inst.setFullStatusCascadeHandler = (handler) => {
+      captured = handler;
+      return originalSet(handler);
+    };
+    return () => captured;
+  }
   function wireCascadeForChain(instances) {
     const serverInsts = instances.filter((i) => i.isServerMode());
     const clientInsts = instances.filter((i) => !i.isServerMode());
@@ -142,12 +153,12 @@ describe("3-hop chain orchestration (index.ts-style wiring)", () => {
     }
   }
 
-  test("cascading from a proxy client fires both upstream and downstream server instances", () => {
+  test("cascading from a proxy client fires the wired downstream server", () => {
     // Topology (process-local 3-hop proxy node):
     //   - clientUp: connects upstream (to Cloud)
     //   - serverDown: serves downstream (to Boats)
     // When upstream Cloud sends FULL_STATUS_REQUEST → clientUp receives →
-    // cascade handler → serverDown.requestFullStatusFromAllClients().
+    // wired cascade handler → serverDown.requestFullStatusFromAllClients().
     const clientUp = createInstance(
       makeMockApp(),
       makeOptions({ serverType: "client", udpPort: 14700 }),
@@ -166,21 +177,13 @@ describe("3-hop chain orchestration (index.ts-style wiring)", () => {
     const downSpy = jest.fn();
     serverDown.getState().pipelineServer = { requestFullStatusFromAllClients: downSpy };
 
+    const getHandler = captureCascadeHandler(clientUp);
     wireCascadeForChain([clientUp, serverDown]);
 
-    // Capture the cascade handler that index.ts-style wiring just set
-    // on clientUp, and invoke it directly (simulates pipeline receipt
-    // of a FULL_STATUS_REQUEST from the upstream server).
-    // The handler was stored privately; the only way to trigger it
-    // through the public API is to set our own handler that we control
-    // — so we re-set the wiring with the same effect.
-    const cascadeSpy = jest.fn(() => {
-      serverDown.requestFullStatusFromAllClients();
-    });
-    clientUp.setFullStatusCascadeHandler(cascadeSpy);
-    cascadeSpy();
+    const wiredHandler = getHandler();
+    expect(typeof wiredHandler).toBe("function");
+    wiredHandler();
 
-    expect(cascadeSpy).toHaveBeenCalledTimes(1);
     expect(downSpy).toHaveBeenCalledTimes(1);
 
     clientUp.stop();
@@ -215,18 +218,12 @@ describe("3-hop chain orchestration (index.ts-style wiring)", () => {
     serverA.getState().pipelineServer = { requestFullStatusFromAllClients: spyA };
     serverB.getState().pipelineServer = { requestFullStatusFromAllClients: spyB };
 
+    const getHandler = captureCascadeHandler(client);
     wireCascadeForChain([client, serverA, serverB]);
 
-    client.setFullStatusCascadeHandler(() => {
-      serverA.requestFullStatusFromAllClients();
-      serverB.requestFullStatusFromAllClients();
-    });
-    // Invoke the handler we just set, replicating what handleFullStatusRequest
-    // would do internally when a real FULL_STATUS_REQUEST arrives.
-    // (createInstance's setter overwrites the index.ts-style handler;
-    // both forms must call BOTH servers — that's the topology guarantee.)
-    serverA.requestFullStatusFromAllClients();
-    serverB.requestFullStatusFromAllClients();
+    const wiredHandler = getHandler();
+    expect(typeof wiredHandler).toBe("function");
+    wiredHandler();
 
     expect(spyA).toHaveBeenCalledTimes(1);
     expect(spyB).toHaveBeenCalledTimes(1);

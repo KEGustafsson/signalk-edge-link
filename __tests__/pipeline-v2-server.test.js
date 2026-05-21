@@ -119,7 +119,7 @@ describe("startACKTimer / stopACKTimer", () => {
     const baseline = jest.getTimerCount();
     pipeline.startACKTimer();
     expect(jest.getTimerCount()).toBe(baseline + 1);
-    pipeline.startACKTimer(); // second call is a no-op
+    pipeline.startACKTimer();
     expect(jest.getTimerCount()).toBe(baseline + 1);
     pipeline.stopACKTimer();
     expect(jest.getTimerCount()).toBe(baseline);
@@ -129,13 +129,13 @@ describe("startACKTimer / stopACKTimer", () => {
     jest.useFakeTimers();
     const { pipeline } = makeServer();
     const baseline = jest.getTimerCount();
-    pipeline.stopACKTimer(); // stop before start
+    pipeline.stopACKTimer();
     expect(jest.getTimerCount()).toBe(baseline);
     pipeline.startACKTimer();
     expect(jest.getTimerCount()).toBe(baseline + 1);
     pipeline.stopACKTimer();
     expect(jest.getTimerCount()).toBe(baseline);
-    pipeline.stopACKTimer(); // stop twice is fine
+    pipeline.stopACKTimer();
     expect(jest.getTimerCount()).toBe(baseline);
   });
 });

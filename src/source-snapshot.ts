@@ -30,7 +30,9 @@ import {
   SOURCE_SNAPSHOT_MAX_PROVIDERS,
   SOURCE_SNAPSHOT_MAX_KEY_LENGTH,
   SOURCE_SNAPSHOT_MAX_STRING_LENGTH,
-  SOURCE_SNAPSHOT_MAX_DEPTH
+  SOURCE_SNAPSHOT_MAX_DEPTH,
+  SOURCE_SNAPSHOT_MAX_ARRAY_LENGTH,
+  SOURCE_SNAPSHOT_MAX_OBJECT_KEYS
 } from "./constants";
 
 export type SourceTree = Record<string, unknown>;
@@ -90,14 +92,24 @@ function isAcceptableValue(value: unknown, depth: number): boolean {
       return true;
     case "object": {
       if (Array.isArray(value)) {
+        // Reject pathologically wide arrays before scanning them — without
+        // this, an attacker who stays within depth/string rules can still
+        // force O(N) work by sending one extremely long array.
+        if (value.length > SOURCE_SNAPSHOT_MAX_ARRAY_LENGTH) {
+          return false;
+        }
         return value.every((entry) => isAcceptableValue(entry, depth + 1));
       }
       const record = value as Record<string, unknown>;
-      for (const [k, v] of Object.entries(record)) {
+      const keys = Object.keys(record);
+      if (keys.length > SOURCE_SNAPSHOT_MAX_OBJECT_KEYS) {
+        return false;
+      }
+      for (const k of keys) {
         if (!isAcceptableKey(k)) {
           return false;
         }
-        if (!isAcceptableValue(v, depth + 1)) {
+        if (!isAcceptableValue(record[k], depth + 1)) {
           return false;
         }
       }
@@ -157,16 +169,20 @@ export function mergeSourceSnapshot(app: Pick<SignalKApp, "debug">, sources: unk
 
   const target = root.sources as Record<string, unknown>;
   const before = Object.keys(target).length;
-  // Cap incoming provider count so a misbehaving or malicious peer cannot
-  // grow root.sources without bound.
+  // Stop scanning incoming providers once the cap is reached so a
+  // pathologically wide snapshot never gets fully iterated.
   const limited: Record<string, unknown> = {};
   let count = 0;
   let dropped = 0;
-  for (const [key, value] of Object.entries(sources)) {
-    if (count >= SOURCE_SNAPSHOT_MAX_PROVIDERS) {
-      dropped++;
+  for (const key in sources as Record<string, unknown>) {
+    if (!Object.prototype.hasOwnProperty.call(sources, key)) {
       continue;
     }
+    if (count >= SOURCE_SNAPSHOT_MAX_PROVIDERS) {
+      dropped++;
+      break;
+    }
+    const value = (sources as Record<string, unknown>)[key];
     if (!isAcceptableKey(key) || !isAcceptableValue(value, 1)) {
       dropped++;
       continue;

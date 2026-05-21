@@ -167,4 +167,58 @@ describe("buildOutboundDedupeKey", () => {
     });
     expect(a).not.toBe(b);
   });
+
+  test("delimiter-bearing values cannot collide with multi-value deltas", () => {
+    // A peer-controlled value text that mimics our internal delimiter
+    // shape (e.g. "|v") MUST NOT collide with a delta that legitimately
+    // has two values. Without length-prefix encoding, the two would
+    // hash equal and one of them would be silently suppressed in live
+    // traffic.
+    const singleValueWithDelimiter = buildOutboundDedupeKey({
+      context: "x",
+      updates: [
+        {
+          $source: "s",
+          timestamp: "t",
+          values: [{ path: "a", value: "1|vp1:b=2" }]
+        }
+      ]
+    });
+    const twoSeparateValues = buildOutboundDedupeKey({
+      context: "x",
+      updates: [
+        {
+          $source: "s",
+          timestamp: "t",
+          values: [
+            { path: "a", value: "1" },
+            { path: "b", value: 2 }
+          ]
+        }
+      ]
+    });
+    expect(singleValueWithDelimiter).not.toBe(twoSeparateValues);
+  });
+
+  test("path containing '=' cannot collide with the next value's path", () => {
+    // Path "a=foo" with value "1" vs. path "a" with value "foo|vb=1"
+    // would have collided under the old "path=value" delimiter style.
+    const a = buildOutboundDedupeKey({
+      context: "x",
+      updates: [
+        {
+          values: [{ path: "a=foo", value: "1" }]
+        }
+      ]
+    });
+    const b = buildOutboundDedupeKey({
+      context: "x",
+      updates: [
+        {
+          values: [{ path: "a", value: "foo|vb=1" }]
+        }
+      ]
+    });
+    expect(a).not.toBe(b);
+  });
 });

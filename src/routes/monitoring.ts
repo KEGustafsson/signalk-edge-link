@@ -55,12 +55,13 @@ function register(router: Router, ctx: RouteContext): () => void {
     };
   }
 
-  // Defense-in-depth: even though the route handler validates each metric
-  // and {warning, critical} field at input, every persistence path spreads
-  // the supplied `thresholds` object into the on-disk record. Any unknown
-  // key that ever reached here would be written verbatim and accumulate
-  // across restarts. Sanitize to the known-metric allow-list before write.
-  const PERSIST_ALLOWED_METRICS = [
+  // Single source of truth for the alert-metric contract: both the
+  // route input-validation path (POST /alerts/thresholds) and the
+  // persistence-sanitization path filter through this exact list.
+  // Without sharing, the two could diverge and the route would either
+  // reject metrics that persistence supports or accept metrics that
+  // persistence silently drops on save.
+  const ALERT_METRIC_ALLOWLIST = [
     "rtt",
     "packetLoss",
     "retransmitRate",
@@ -71,7 +72,7 @@ function register(router: Router, ctx: RouteContext): () => void {
     thresholds: Record<string, unknown>
   ): Record<string, { warning?: number; critical?: number }> {
     const out: Record<string, { warning?: number; critical?: number }> = {};
-    for (const metric of PERSIST_ALLOWED_METRICS) {
+    for (const metric of ALERT_METRIC_ALLOWLIST) {
       const value = thresholds[metric];
       if (!value || typeof value !== "object") {
         continue;
@@ -382,11 +383,10 @@ function register(router: Router, ctx: RouteContext): () => void {
         if (typeof metric !== "string" || !metric) {
           return res.status(400).json({ error: "metric is required" });
         }
-        const validAlertMetrics = ["rtt", "packetLoss", "retransmitRate", "jitter", "queueDepth"];
-        if (!validAlertMetrics.includes(metric)) {
+        if (!(ALERT_METRIC_ALLOWLIST as readonly string[]).includes(metric)) {
           return res
             .status(400)
-            .json({ error: `metric must be one of: ${validAlertMetrics.join(", ")}` });
+            .json({ error: `metric must be one of: ${ALERT_METRIC_ALLOWLIST.join(", ")}` });
         }
 
         const update: { warning?: number; critical?: number } = {};

@@ -122,15 +122,11 @@ describe("startCongestionControl / stopCongestionControl", () => {
     const startCount = jest.getTimerCount();
     const { pipeline } = makeClient();
     pipeline.startCongestionControl();
-    // Interval is now armed — exactly one more timer than baseline.
     expect(jest.getTimerCount()).toBe(startCount + 1);
-    // Starting a second time is a no-op (does not arm a second timer).
     pipeline.startCongestionControl();
     expect(jest.getTimerCount()).toBe(startCount + 1);
     pipeline.stopCongestionControl();
-    // Timer must be cleared on stop — proves there's no leak across stop/start.
     expect(jest.getTimerCount()).toBe(startCount);
-    // Should not throw when stopped a second time.
     pipeline.stopCongestionControl();
     expect(jest.getTimerCount()).toBe(startCount);
   });
@@ -147,11 +143,11 @@ describe("startMetricsPublishing / stopMetricsPublishing", () => {
     const { pipeline } = makeClient();
     pipeline.startMetricsPublishing();
     expect(jest.getTimerCount()).toBe(baseline + 1);
-    pipeline.startMetricsPublishing(); // double start is a no-op
+    pipeline.startMetricsPublishing();
     expect(jest.getTimerCount()).toBe(baseline + 1);
     pipeline.stopMetricsPublishing();
     expect(jest.getTimerCount()).toBe(baseline);
-    pipeline.stopMetricsPublishing(); // double stop is a no-op
+    pipeline.stopMetricsPublishing();
     expect(jest.getTimerCount()).toBe(baseline);
   });
 });

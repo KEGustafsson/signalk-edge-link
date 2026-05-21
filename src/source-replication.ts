@@ -352,6 +352,11 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
       }
       records.set(key, { ...mergedBase, mergeHash });
       metrics.upserts++;
+      // Cap mid-loop so a single oversized delta cannot push records far
+      // above SOURCE_REGISTRY_MAX_RECORDS before cleanup runs.
+      if (records.size > SOURCE_REGISTRY_MAX_RECORDS) {
+        evictStaleAndOverflow(Date.now());
+      }
     }
 
     evictStaleAndOverflow(Date.now());
@@ -363,6 +368,9 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
   }
 
   function snapshot(): SourceRegistrySnapshot {
+    // Prune on read so callers never observe TTL-expired entries that
+    // only happen to be reachable because no write has landed yet.
+    evictStaleAndOverflow(Date.now());
     const sources = [...records.values()].sort((a, b) => a.key.localeCompare(b.key));
     const legacyByLabel: Record<string, string> = {};
     const legacyBySourceRef: Record<string, string> = {};
@@ -390,6 +398,7 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
   }
 
   function getSize(): number {
+    evictStaleAndOverflow(Date.now());
     return records.size;
   }
 

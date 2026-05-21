@@ -202,8 +202,9 @@ Empty-payload control packet. Server → Client.
 
 Sent by the server **once per session** when a HELLO arrives, to demand an
 immediate metadata snapshot rather than waiting up to `intervalSec` for the
-client's next periodic resend. Subject to the same control-packet HMAC
-authentication as ACK/NAK/HEARTBEAT/HELLO (mandatory on both v2 and v3).
+client's next periodic resend. Control-packet authentication follows the
+same rule as the other control types: HMAC-SHA256 in v3, CRC16-only (no
+authentication) in v2 — see §5.
 
 The client SHOULD rate-limit its response to at most one snapshot per ~5
 seconds to protect against malformed or hostile receivers spamming requests.
@@ -225,8 +226,8 @@ receives FULL_STATUS_REQUEST it MAY cascade the request to all clients
 connected to a co-located server-mode instance, so a tree restart at the
 top of the chain replays all the way to the leaves.
 
-Subject to the same control-packet HMAC authentication as the other
-control types (mandatory on both v2 and v3).
+Control-packet authentication follows the same rule as the other control
+types: HMAC-SHA256 in v3, CRC16-only (no authentication) in v2 — see §5.
 
 ### METADATA Packet — Source Snapshot Variant
 
@@ -237,12 +238,15 @@ envelope above, but uses `kind: "sources"` and replaces `entries` with a
 tree. Receivers MUST verify both the envelope schema version (`v`) and
 recognize `kind: "sources"`; unknown `kind` values are dropped.
 
-A separate per-sender sequence counter (`lastSourceEnvSeq` server-side)
-prevents source resends from making in-flight metadata chunks look stale.
-Provider keys and string values in the merged tree are validated against
-length and character-class caps to prevent an authenticated peer from
-polluting the local SK tree with arbitrary keys (see
-`SOURCE_SNAPSHOT_MAX_*` in `src/constants.ts`).
+A separate per-sender sequence counter (server-side) prevents source
+resends from making in-flight metadata chunks look stale.
+
+Receivers MUST validate the merged tree to prevent an authenticated
+peer from polluting the local Signal K tree with arbitrary content:
+provider keys are restricted to printable ASCII, key length and string-
+value length are capped, the per-snapshot provider count is bounded,
+and recursion depth is limited. Exact numeric limits are
+implementation-defined.
 
 ### v1 metadata transport (separate UDP port)
 
