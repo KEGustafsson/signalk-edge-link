@@ -4,7 +4,7 @@ const {
   NetworkSimulator,
   createSimulatedSockets,
   ThrottlePattern
-} = require("../../test/network-simulator");
+} = require("../network-simulator");
 
 describe("NetworkSimulator - Phase 7 Enhancements", () => {
   let sim;
