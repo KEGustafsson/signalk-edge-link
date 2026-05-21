@@ -1,5 +1,30 @@
 "use strict";
 
+/**
+ * Signal K Edge Link — Source Tree Replicator
+ *
+ * NOTE: This module is one of three sibling files with confusable names.
+ * They cover three different layers:
+ *
+ *   - source-snapshot.ts   (THIS FILE) — WIRE TRANSPORT. Captures the
+ *     sender's `app.signalk.retrieve().sources` tree as a snapshot and
+ *     merges incoming peer snapshots into the receiver's tree. Bounded
+ *     by SOURCE_SNAPSHOT_MAX_* constants so a malicious peer cannot
+ *     pollute /signalk/v1/api/sources with arbitrary keys.
+ *
+ *   - source-replication.ts — SERVER-SIDE REGISTRY. Normalised
+ *     in-memory record per logical source (identity hash, metadata,
+ *     provenance), populated incrementally from DATA ingest. The
+ *     content of `sources` it replicates actually arrives via this
+ *     module's METADATA channel.
+ *
+ *   - source-dispatch.ts — RECEIVER-SIDE DELTA NORMALIZATION. Massages
+ *     incoming DATA deltas (source-ref handling, edge-link-injected
+ *     filter) before app.handleMessage().
+ *
+ * @module lib/source-snapshot
+ */
+
 import type { SignalKApp } from "./types";
 import {
   SOURCE_SNAPSHOT_MAX_PROVIDERS,

@@ -1,5 +1,26 @@
 "use strict";
 
+/**
+ * Signal K Edge Link — Source Identity Registry
+ *
+ * NOTE: One of three sibling files with confusable names. See the
+ * top-of-file block in src/source-snapshot.ts for the full taxonomy.
+ *
+ * This module owns a per-process LRU+TTL Map keyed by either source-ref
+ * or a SHA-256 hash of the canonical identity tuple. Records are
+ * upserted from incoming DATA deltas as the server pipeline ingests
+ * them; the conflict counter tracks divergence when the same logical
+ * source emits two different identities. Bounded by
+ * SOURCE_REGISTRY_MAX_RECORDS (LRU) and SOURCE_REGISTRY_TTL_MS (drop
+ * unseen records).
+ *
+ * Distinct from `source-snapshot.ts` which captures and merges the
+ * full /sources tree on the wire, and from `source-dispatch.ts` which
+ * normalises per-delta source attribution before app.handleMessage.
+ *
+ * @module lib/source-replication
+ */
+
 import crypto from "node:crypto";
 import type {
   Delta,
