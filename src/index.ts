@@ -204,6 +204,26 @@ module.exports = function createPlugin(app: SignalKApp) {
     routes.startRateLimitCleanup();
 
     // ── Create and start instances ────────────────────────────────────────
+    // Emit a security warning specifically for v2 connections so operators
+    // running on untrusted networks notice the gap and migrate to v3. v2
+    // control packets (HEARTBEAT/HELLO/META_REQUEST/FULL_STATUS_REQUEST/
+    // ACK/NAK) are CRC-only and forgeable; v3 adds HMAC authentication.
+    // v1 is logged at debug level — it is the documented legacy default and
+    // has a wholly different threat model (no reliable transport at all).
+    for (const cfg of connectionList) {
+      const proto = (cfg.protocolVersion ?? 1) as number;
+      if (proto === 2) {
+        app.error(
+          `[security] Connection "${cfg.name}" uses protocol v2; control frames are NOT authenticated (CRC-only) ` +
+            `and can be forged by any host that reaches the UDP port. Migrate to protocolVersion: 3 for any link exposed ` +
+            `to untrusted networks. See docs/protocol-v2-spec.md §5.`
+        );
+      } else if (proto < 2) {
+        app.debug(
+          `[security] Connection "${cfg.name}" uses legacy protocol v${proto}; see docs/protocol-v2-spec.md for v3 migration.`
+        );
+      }
+    }
     const usedIds = new Set<string>();
     for (const cfg of connectionList) {
       const instanceId = generateInstanceId(cfg.name, usedIds);

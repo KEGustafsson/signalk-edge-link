@@ -113,7 +113,7 @@ describe("SignalK Data Connector Plugin", () => {
       const secretKey = itemSchema.properties.secretKey;
       expect(secretKey.minLength).toBe(32);
       expect(secretKey.maxLength).toBe(64);
-      expect(secretKey.pattern).toBe("^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$");
+      expect(secretKey.pattern).toBe("^(?:[\\x21-\\x7E]{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$");
     });
 
     test("should expose protocol versions 1, 2, and 3", () => {

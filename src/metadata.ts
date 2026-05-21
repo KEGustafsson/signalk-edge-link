@@ -90,6 +90,18 @@ function stripUnsetDeep(value: unknown): unknown {
  */
 export class MetaCache {
   private hashes = new Map<string, string>();
+  private gen = 0;
+
+  /**
+   * Monotonic generation counter — bumped by every `clear()` so a caller can
+   * snapshot the generation before kicking off an async send and check it
+   * before applying `commit()`. Avoids the race where a resubscribe clears
+   * the cache while a previous-subscription's diff-send is still in flight
+   * and would otherwise repopulate stale entries into the new cache.
+   */
+  generation(): number {
+    return this.gen;
+  }
 
   private keyFor(entry: MetaEntry): string {
     return entry.context + "|" + entry.path;
@@ -156,6 +168,7 @@ export class MetaCache {
 
   clear(): void {
     this.hashes.clear();
+    this.gen++;
   }
 
   size(): number {

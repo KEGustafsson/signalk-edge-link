@@ -1,5 +1,26 @@
 "use strict";
 
+/**
+ * Signal K Edge Link — Source Identity Registry
+ *
+ * NOTE: One of three sibling files with confusable names. See the
+ * top-of-file block in src/source-snapshot.ts for the full taxonomy.
+ *
+ * This module owns a per-process LRU+TTL Map keyed by either source-ref
+ * or a SHA-256 hash of the canonical identity tuple. Records are
+ * upserted from incoming DATA deltas as the server pipeline ingests
+ * them; the conflict counter tracks divergence when the same logical
+ * source emits two different identities. Bounded by
+ * SOURCE_REGISTRY_MAX_RECORDS (LRU) and SOURCE_REGISTRY_TTL_MS (drop
+ * unseen records).
+ *
+ * Distinct from `source-snapshot.ts` which captures and merges the
+ * full /sources tree on the wire, and from `source-dispatch.ts` which
+ * normalises per-delta source attribution before app.handleMessage.
+ *
+ * @module lib/source-replication
+ */
+
 import crypto from "node:crypto";
 import type {
   Delta,
@@ -8,6 +29,7 @@ import type {
   SourceRegistryMetrics,
   SourceRegistrySnapshot
 } from "./types";
+import { SOURCE_REGISTRY_MAX_RECORDS, SOURCE_REGISTRY_TTL_MS } from "./constants";
 
 export const SOURCE_REPLICATION_SCHEMA_VERSION = 1;
 export type {
@@ -152,6 +174,8 @@ function chooseValue(
 }
 
 export function createSourceRegistry(app: { debug: (msg: string) => void }) {
+  // Insertion-order Map doubles as an LRU: refresh() moves an entry to the
+  // tail (delete + set), evict() drops from the head.
   const records = new Map<string, SourceReplicationRecord>();
   let lastLoggedRegistrySize = 0;
   const metrics: SourceRegistryMetrics = {
@@ -160,6 +184,31 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
     missingIdentity: 0,
     conflicts: 0
   };
+  let evictions = 0;
+
+  function evictStaleAndOverflow(nowMs: number): void {
+    // TTL pass: scan from oldest (insertion order). Map iteration order is
+    // insertion order, so we can stop at the first non-stale entry.
+    const cutoff = nowMs - SOURCE_REGISTRY_TTL_MS;
+    for (const [key, record] of records) {
+      const ts = Date.parse(record.lastSeenAt);
+      if (Number.isFinite(ts) && ts < cutoff) {
+        records.delete(key);
+        evictions++;
+        continue;
+      }
+      break;
+    }
+    // Hard cap: if still over the limit, drop oldest until under.
+    while (records.size > SOURCE_REGISTRY_MAX_RECORDS) {
+      const oldest = records.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      records.delete(oldest.value);
+      evictions++;
+    }
+  }
 
   function upsertFromDelta(delta: Delta, sourceClientInstanceId: string): void {
     if (!delta || !Array.isArray(delta.updates)) {
@@ -286,15 +335,31 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
       const mergeHash = toMergeHash(mergedBase);
       if (existing && existing.mergeHash === mergeHash) {
         existing.lastSeenAt = nowIso;
+        // Refresh LRU position so an actively-seen record is not evicted
+        // ahead of stale ones at the head of the insertion-order Map.
+        records.delete(key);
+        records.set(key, existing);
         metrics.noops++;
         continue;
       }
 
       mergedBase.lastSeenAt = nowIso;
       mergedBase.lastUpdatedAt = nowIso;
+      // Re-insert at the tail of the LRU order: delete-then-set so updates
+      // to an existing record refresh its position the same way as noops.
+      if (existing) {
+        records.delete(key);
+      }
       records.set(key, { ...mergedBase, mergeHash });
       metrics.upserts++;
+      // Cap mid-loop so a single oversized delta cannot push records far
+      // above SOURCE_REGISTRY_MAX_RECORDS before cleanup runs.
+      if (records.size > SOURCE_REGISTRY_MAX_RECORDS) {
+        evictStaleAndOverflow(Date.now());
+      }
     }
+
+    evictStaleAndOverflow(Date.now());
 
     if (records.size % 50 === 0 && records.size > 0 && records.size !== lastLoggedRegistrySize) {
       app.debug(`[source-replication] registry-size=${records.size}`);
@@ -303,6 +368,9 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
   }
 
   function snapshot(): SourceRegistrySnapshot {
+    // Prune on read so callers never observe TTL-expired entries that
+    // only happen to be reachable because no write has landed yet.
+    evictStaleAndOverflow(Date.now());
     const sources = [...records.values()].sort((a, b) => a.key.localeCompare(b.key));
     const legacyByLabel: Record<string, string> = {};
     const legacyBySourceRef: Record<string, string> = {};
@@ -326,12 +394,18 @@ export function createSourceRegistry(app: { debug: (msg: string) => void }) {
   }
 
   function getMetrics(): SourceRegistryMetrics {
-    return { ...metrics };
+    return { ...metrics, evictions };
+  }
+
+  function getSize(): number {
+    evictStaleAndOverflow(Date.now());
+    return records.size;
   }
 
   return {
     upsertFromDelta,
     snapshot,
-    getMetrics
+    getMetrics,
+    getSize
   };
 }

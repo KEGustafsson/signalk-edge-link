@@ -73,6 +73,42 @@ export const METRICS_PUBLISH_INTERVAL = 1000; // Interval (ms) for publishing me
 export const BANDWIDTH_HISTORY_MAX = 60; // Keep 60 data points (5 minutes at 5s intervals)
 export const PATH_STATS_MAX_SIZE = 500; // Max tracked paths in pathStats Map (prevent unbounded growth)
 
+// Outbound delta deduplication. signalk-server's subscriptionmanager can
+// deliver the same cached/live pair about one fixed-policy window apart;
+// 1500 ms catches that without suppressing legitimate periodic resends.
+export const OUTBOUND_DUPLICATE_SUPPRESS_MS = 1500;
+export const SUPPRESSED_DUPLICATE_STATS_MAX_SIZE = 50;
+export const OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS = 1000;
+export const OUTBOUND_DEDUPE_MAX_ENTRIES = 5000;
+
+// Source replication registry. 7-day TTL chosen to retain records across a
+// typical maintenance gap; 5000 records covers the busiest production
+// boats observed with N2K source-address rotation churn.
+export const SOURCE_REGISTRY_MAX_RECORDS = 5000;
+export const SOURCE_REGISTRY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Source snapshot replication (per-peer source tree)
+export const SOURCE_SNAPSHOT_INTERVAL_MS = 60_000;
+export const SOURCE_SNAPSHOT_MAX_PROVIDERS = 256;
+export const SOURCE_SNAPSHOT_MAX_KEY_LENGTH = 128;
+export const SOURCE_SNAPSHOT_MAX_STRING_LENGTH = 1024;
+export const SOURCE_SNAPSHOT_MAX_DEPTH = 8;
+// Per-container limits inside a provider — without these, an authorised
+// peer could stay within depth/string rules and still force large
+// allocations by sending one extremely wide array or object.
+export const SOURCE_SNAPSHOT_MAX_ARRAY_LENGTH = 256;
+export const SOURCE_SNAPSHOT_MAX_OBJECT_KEYS = 256;
+
+// Delta send retry behaviour
+export const DELTA_SEND_MAX_RETRIES = 1;
+export const DELTA_SEND_RETRY_BACKOFF_MS = 100;
+
+// Full-status snapshot replay backpressure
+export const SNAPSHOT_REPLAY_CHUNK_SIZE = 50; // Yield to event loop every N deltas
+
+// HELLO payload bound (UDP MTU is already a soft cap; reject anything larger)
+export const HELLO_PAYLOAD_MAX_BYTES = 4096;
+
 // Enhanced monitoring
 export const MONITORING_HEATMAP_BUCKETS = 60; // Number of time buckets for packet loss heatmap
 export const MONITORING_HEATMAP_BUCKET_DURATION = 5000; // Duration of each bucket (5 seconds)

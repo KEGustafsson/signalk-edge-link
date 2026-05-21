@@ -1,5 +1,27 @@
 "use strict";
 
+/**
+ * Signal K Edge Link — Delta Source Dispatcher
+ *
+ * NOTE: One of three sibling files with confusable names. See the
+ * top-of-file block in src/source-snapshot.ts for the full taxonomy.
+ *
+ * This module handles RECEIVER-SIDE NORMALIZATION of incoming deltas
+ * before they are dispatched into the local Signal K tree via
+ * app.handleMessage. Responsibilities: synthesize `$source` from the
+ * structured `source` object when missing, drop deltas that carry
+ * stale edge-link-injected attribution (preventing source loops
+ * across multi-hop chains), and split a multi-source delta into one
+ * handleMessage call per source so signalk-server's source recompute
+ * lands on the correct bucket.
+ *
+ * Distinct from `source-replication.ts` (per-process source identity
+ * registry, populated from DATA ingest) and `source-snapshot.ts`
+ * (wire transport for the full /sources tree).
+ *
+ * @module lib/source-dispatch
+ */
+
 import type { Delta, DeltaMeta, DeltaUpdate, DeltaValue, SignalKApp } from "./types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {

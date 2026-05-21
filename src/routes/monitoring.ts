@@ -55,9 +55,46 @@ function register(router: Router, ctx: RouteContext): () => void {
     };
   }
 
+  // Single source of truth for the alert-metric contract: both the
+  // route input-validation path (POST /alerts/thresholds) and the
+  // persistence-sanitization path filter through this exact list.
+  // Without sharing, the two could diverge and the route would either
+  // reject metrics that persistence supports or accept metrics that
+  // persistence silently drops on save.
+  const ALERT_METRIC_ALLOWLIST = [
+    "rtt",
+    "packetLoss",
+    "retransmitRate",
+    "jitter",
+    "queueDepth"
+  ] as const;
+  function sanitizeThresholdsForPersistence(
+    thresholds: Record<string, unknown>
+  ): Record<string, { warning?: number; critical?: number }> {
+    const out: Record<string, { warning?: number; critical?: number }> = {};
+    for (const metric of ALERT_METRIC_ALLOWLIST) {
+      const value = thresholds[metric];
+      if (!value || typeof value !== "object") {
+        continue;
+      }
+      const entry: { warning?: number; critical?: number } = {};
+      const candidate = value as Record<string, unknown>;
+      if (typeof candidate.warning === "number" && Number.isFinite(candidate.warning)) {
+        entry.warning = candidate.warning;
+      }
+      if (typeof candidate.critical === "number" && Number.isFinite(candidate.critical)) {
+        entry.critical = candidate.critical;
+      }
+      if (Object.keys(entry).length > 0) {
+        out[metric] = entry;
+      }
+    }
+    return out;
+  }
+
   function persistAlertThresholds(
     bundle: InstanceBundle,
-    thresholds: Record<string, unknown>
+    thresholdsRaw: Record<string, unknown>
   ): void {
     if (
       typeof app.readPluginOptions !== "function" ||
@@ -65,6 +102,8 @@ function register(router: Router, ctx: RouteContext): () => void {
     ) {
       return;
     }
+
+    const thresholds = sanitizeThresholdsForPersistence(thresholdsRaw);
 
     try {
       const pluginOptions = (app.readPluginOptions() || {}) as Record<string, unknown>;
@@ -344,11 +383,10 @@ function register(router: Router, ctx: RouteContext): () => void {
         if (typeof metric !== "string" || !metric) {
           return res.status(400).json({ error: "metric is required" });
         }
-        const validAlertMetrics = ["rtt", "packetLoss", "retransmitRate", "jitter", "queueDepth"];
-        if (!validAlertMetrics.includes(metric)) {
+        if (!(ALERT_METRIC_ALLOWLIST as readonly string[]).includes(metric)) {
           return res
             .status(400)
-            .json({ error: `metric must be one of: ${validAlertMetrics.join(", ")}` });
+            .json({ error: `metric must be one of: ${ALERT_METRIC_ALLOWLIST.join(", ")}` });
         }
 
         const update: { warning?: number; critical?: number } = {};

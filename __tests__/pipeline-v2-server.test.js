@@ -113,21 +113,30 @@ describe("getMetrics", () => {
 describe("startACKTimer / stopACKTimer", () => {
   afterEach(() => jest.useRealTimers());
 
-  test("start is idempotent", () => {
+  test("start is idempotent and leaves no leaked timers", () => {
     jest.useFakeTimers();
     const { pipeline } = makeServer();
+    const baseline = jest.getTimerCount();
     pipeline.startACKTimer();
-    pipeline.startACKTimer(); // second call is a no-op
+    expect(jest.getTimerCount()).toBe(baseline + 1);
+    pipeline.startACKTimer();
+    expect(jest.getTimerCount()).toBe(baseline + 1);
     pipeline.stopACKTimer();
+    expect(jest.getTimerCount()).toBe(baseline);
   });
 
-  test("stop is idempotent", () => {
+  test("stop is idempotent and double-stop does not under-decrement", () => {
     jest.useFakeTimers();
     const { pipeline } = makeServer();
-    pipeline.stopACKTimer(); // stop before start
-    pipeline.startACKTimer();
+    const baseline = jest.getTimerCount();
     pipeline.stopACKTimer();
-    pipeline.stopACKTimer(); // stop twice is fine
+    expect(jest.getTimerCount()).toBe(baseline);
+    pipeline.startACKTimer();
+    expect(jest.getTimerCount()).toBe(baseline + 1);
+    pipeline.stopACKTimer();
+    expect(jest.getTimerCount()).toBe(baseline);
+    pipeline.stopACKTimer();
+    expect(jest.getTimerCount()).toBe(baseline);
   });
 });
 
@@ -136,13 +145,18 @@ describe("startACKTimer / stopACKTimer", () => {
 describe("startMetricsPublishing / stopMetricsPublishing", () => {
   afterEach(() => jest.useRealTimers());
 
-  test("are idempotent", () => {
+  test("are idempotent and leave no leaked timers", () => {
     jest.useFakeTimers();
     const { pipeline } = makeServer();
+    const baseline = jest.getTimerCount();
     pipeline.startMetricsPublishing();
+    expect(jest.getTimerCount()).toBe(baseline + 1);
     pipeline.startMetricsPublishing();
+    expect(jest.getTimerCount()).toBe(baseline + 1);
     pipeline.stopMetricsPublishing();
+    expect(jest.getTimerCount()).toBe(baseline);
     pipeline.stopMetricsPublishing();
+    expect(jest.getTimerCount()).toBe(baseline);
   });
 });
 

@@ -72,6 +72,16 @@ function createMetrics(): MetricsApi {
     droppedDeltaCount: 0,
     suppressedOutboundDuplicates: 0,
     suppressedOutboundDuplicateStats: new Map(),
+    processDeltaCalls: 0,
+    snapshotsReplayed: {
+      initialSubscribe: 0,
+      subscriptionRetry: 0,
+      socketRecovery: 0,
+      fullStatusRequest: 0
+    },
+    snapshotReplayDeltas: 0,
+    fullStatusCascadeFired: 0,
+    deltasBufferHighWaterMark: 0,
     remoteNetworkQuality: {
       rtt: 0,
       jitter: 0,
@@ -213,7 +223,17 @@ function createMetrics(): MetricsApi {
       droppedDeltaBatches: 0,
       droppedDeltaCount: 0,
       suppressedOutboundDuplicates: 0,
-      suppressedOutboundDuplicateStats: new Map()
+      suppressedOutboundDuplicateStats: new Map(),
+      processDeltaCalls: 0,
+      snapshotsReplayed: {
+        initialSubscribe: 0,
+        subscriptionRetry: 0,
+        socketRecovery: 0,
+        fullStatusRequest: 0
+      },
+      snapshotReplayDeltas: 0,
+      fullStatusCascadeFired: 0,
+      deltasBufferHighWaterMark: 0
     });
     Object.assign(metrics.bandwidth, {
       bytesOut: 0,

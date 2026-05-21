@@ -1,10 +1,51 @@
 "use strict";
 
+/**
+ * Signal K Edge Link — Source Tree Replicator
+ *
+ * NOTE: This module is one of three sibling files with confusable names.
+ * They cover three different layers:
+ *
+ *   - source-snapshot.ts   (THIS FILE) — WIRE TRANSPORT. Captures the
+ *     sender's `app.signalk.retrieve().sources` tree as a snapshot and
+ *     merges incoming peer snapshots into the receiver's tree. Bounded
+ *     by SOURCE_SNAPSHOT_MAX_* constants so a malicious peer cannot
+ *     pollute /signalk/v1/api/sources with arbitrary keys.
+ *
+ *   - source-replication.ts — SERVER-SIDE REGISTRY. Normalised
+ *     in-memory record per logical source (identity hash, metadata,
+ *     provenance), populated incrementally from DATA ingest. The
+ *     content of `sources` it replicates actually arrives via this
+ *     module's METADATA channel.
+ *
+ *   - source-dispatch.ts — RECEIVER-SIDE DELTA NORMALIZATION. Massages
+ *     incoming DATA deltas (source-ref handling, edge-link-injected
+ *     filter) before app.handleMessage().
+ *
+ * @module lib/source-snapshot
+ */
+
 import type { SignalKApp } from "./types";
+import {
+  SOURCE_SNAPSHOT_MAX_PROVIDERS,
+  SOURCE_SNAPSHOT_MAX_KEY_LENGTH,
+  SOURCE_SNAPSHOT_MAX_STRING_LENGTH,
+  SOURCE_SNAPSHOT_MAX_DEPTH,
+  SOURCE_SNAPSHOT_MAX_ARRAY_LENGTH,
+  SOURCE_SNAPSHOT_MAX_OBJECT_KEYS
+} from "./constants";
 
 export type SourceTree = Record<string, unknown>;
 
 const BLOCKED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+// Provider/sub-keys come from a peer; constrain to printable ASCII without
+// control bytes so a malicious peer cannot pollute /signalk/v1/api/sources
+// with control characters or overlong strings that would explode
+// JSON-encoded API responses. Spaces and the broader printable range are
+// allowed because legitimate provider names ("Arabella Compass", talker
+// labels) and NMEA sentence keys exercise the full printable set.
+// eslint-disable-next-line no-control-regex
+const KEY_PATTERN = /^[\x20-\x7E]+$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -26,9 +67,65 @@ function clonePlain(value: unknown): unknown {
   return out;
 }
 
+function isAcceptableKey(key: string): boolean {
+  return (
+    !BLOCKED_KEYS.has(key) &&
+    key.length > 0 &&
+    key.length <= SOURCE_SNAPSHOT_MAX_KEY_LENGTH &&
+    KEY_PATTERN.test(key)
+  );
+}
+
+function isAcceptableValue(value: unknown, depth: number): boolean {
+  if (depth > SOURCE_SNAPSHOT_MAX_DEPTH) {
+    return false;
+  }
+  if (value === null) {
+    return true;
+  }
+  switch (typeof value) {
+    case "string":
+      return value.length <= SOURCE_SNAPSHOT_MAX_STRING_LENGTH;
+    case "number":
+      return Number.isFinite(value);
+    case "boolean":
+      return true;
+    case "object": {
+      if (Array.isArray(value)) {
+        // Reject pathologically wide arrays before scanning them — without
+        // this, an attacker who stays within depth/string rules can still
+        // force O(N) work by sending one extremely long array.
+        if (value.length > SOURCE_SNAPSHOT_MAX_ARRAY_LENGTH) {
+          return false;
+        }
+        return value.every((entry) => isAcceptableValue(entry, depth + 1));
+      }
+      const record = value as Record<string, unknown>;
+      const keys = Object.keys(record);
+      if (keys.length > SOURCE_SNAPSHOT_MAX_OBJECT_KEYS) {
+        return false;
+      }
+      for (const k of keys) {
+        if (!isAcceptableKey(k)) {
+          return false;
+        }
+        if (!isAcceptableValue(record[k], depth + 1)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
 function mergePlain(target: Record<string, unknown>, incoming: Record<string, unknown>): void {
   for (const [key, incomingValue] of Object.entries(incoming)) {
-    if (BLOCKED_KEYS.has(key)) {
+    if (!isAcceptableKey(key)) {
+      continue;
+    }
+    if (!isAcceptableValue(incomingValue, 1)) {
       continue;
     }
     const currentValue = target[key];
@@ -72,6 +169,30 @@ export function mergeSourceSnapshot(app: Pick<SignalKApp, "debug">, sources: unk
 
   const target = root.sources as Record<string, unknown>;
   const before = Object.keys(target).length;
-  mergePlain(target, sources);
+  // Stop scanning incoming providers once the cap is reached so a
+  // pathologically wide snapshot never gets fully iterated.
+  const limited: Record<string, unknown> = {};
+  let count = 0;
+  let dropped = 0;
+  for (const key in sources as Record<string, unknown>) {
+    if (!Object.prototype.hasOwnProperty.call(sources, key)) {
+      continue;
+    }
+    if (count >= SOURCE_SNAPSHOT_MAX_PROVIDERS) {
+      dropped++;
+      break;
+    }
+    const value = (sources as Record<string, unknown>)[key];
+    if (!isAcceptableKey(key) || !isAcceptableValue(value, 1)) {
+      dropped++;
+      continue;
+    }
+    limited[key] = value;
+    count++;
+  }
+  if (dropped > 0) {
+    app.debug(`[source-snapshot] rejected ${dropped} provider key(s) (validation/cap)`);
+  }
+  mergePlain(target, limited);
   return Object.keys(target).length - before;
 }

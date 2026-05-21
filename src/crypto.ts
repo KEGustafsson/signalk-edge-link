@@ -122,7 +122,9 @@ export function normalizeKey(secretKey: string, options: KeyNormalizationOptions
 // the raw ASCII key (hex-encoded for Map use) so the plaintext key is not
 // retained in process memory beyond the live derivation. The cache is
 // effectively bounded by the number of distinct configured keys (typically
-// one or two per Signal K instance).
+// one or two per Signal K instance); the LRU cap is a defensive measure
+// against a future caller that passes externally-influenced strings here.
+const ASCII_KEY_CACHE_MAX = 32;
 const asciiKeyCache = new Map<string, Buffer>();
 
 function asciiKeyCacheKey(asciiKey: string): string {
@@ -133,9 +135,18 @@ function getOrDeriveAsciiKey(asciiKey: string): Buffer {
   const cacheKey = asciiKeyCacheKey(asciiKey);
   const cached = asciiKeyCache.get(cacheKey);
   if (cached) {
+    // LRU refresh: move to tail by delete-then-set on insertion order Map.
+    asciiKeyCache.delete(cacheKey);
+    asciiKeyCache.set(cacheKey, cached);
     return cached;
   }
   const derived = deriveKeyFromPassphrase(asciiKey);
+  if (asciiKeyCache.size >= ASCII_KEY_CACHE_MAX) {
+    const oldest = asciiKeyCache.keys().next();
+    if (!oldest.done) {
+      asciiKeyCache.delete(oldest.value);
+    }
+  }
   asciiKeyCache.set(cacheKey, derived);
   return derived;
 }
