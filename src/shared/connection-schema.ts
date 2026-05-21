@@ -54,7 +54,11 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
       "32-byte secret key: 32-character ASCII, 64-character hex, or 44-character base64.",
     minLength: 32,
     maxLength: 64,
-    pattern: "^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
+    // 32-byte form: restrict to printable, non-whitespace ASCII so a pasted
+    // key with stray newlines / control bytes is surfaced immediately
+    // instead of silently breaking authentication. Hex (64) and base64 (43+)
+    // alternatives match their respective alphabets.
+    pattern: "^(?:[\\x21-\\x7E]{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
   },
   stretchAsciiKey: {
     type: "boolean",

@@ -35,7 +35,8 @@ import {
   MAX_CLIENT_SESSIONS,
   METRICS_PUBLISH_INTERVAL,
   UDP_RATE_LIMIT_WINDOW,
-  UDP_RATE_LIMIT_MAX_PACKETS
+  UDP_RATE_LIMIT_MAX_PACKETS,
+  HELLO_PAYLOAD_MAX_BYTES
 } from "./constants";
 
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
@@ -324,10 +325,24 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
     return Number.isFinite(last) && last > 0 && now - last <= REMOTE_TELEMETRY_TTL_MS;
   }
 
-  function _ingestRemoteTelemetry(deltaMessage: Delta): void {
+  // Tracks which session "owns" remote telemetry. First authenticated peer
+  // to publish edge-link-client-telemetry inside the TTL window wins;
+  // others' telemetry deltas are filtered through unchanged (they still
+  // reach the SK tree) but cannot overwrite remoteNetworkQuality. This
+  // prevents one authorized-but-misbehaving peer from poisoning the
+  // network-quality dashboard for all the others.
+  let telemetryOwnerSessionKey: string | null = null;
+  let telemetryOwnerLastSeen = 0;
+
+  function _ingestRemoteTelemetry(deltaMessage: Delta, session?: ClientSession | null): void {
     if (!deltaMessage || !Array.isArray(deltaMessage.updates)) {
       return;
     }
+    // Telemetry attribution is only meaningful when the peer completed a
+    // HELLO (clientId or sourceClientInstanceId set). Telemetry without a
+    // session — or from a session that never identified itself — is
+    // accepted into the SK tree but does not update authoritative metrics.
+    const peerIdentified = !!(session && (session.clientId || session.sourceClientInstanceId));
 
     let changed = false;
     const remote = metrics.remoteNetworkQuality || {};
@@ -344,6 +359,22 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         filteredUpdates.push(update);
         continue;
       }
+
+      const now = Date.now();
+      const ttl =
+        telemetryOwnerLastSeen > 0 && now - telemetryOwnerLastSeen <= REMOTE_TELEMETRY_TTL_MS;
+      if (!peerIdentified) {
+        // Drop telemetry values silently from unidentified peers; do not
+        // forward as regular SK tree updates either (they'd carry the
+        // telemetry source label and confuse downstream consumers).
+        continue;
+      }
+      if (telemetryOwnerSessionKey && ttl && telemetryOwnerSessionKey !== session!.key) {
+        // Another peer holds the telemetry slot; drop these values.
+        continue;
+      }
+      telemetryOwnerSessionKey = session!.key;
+      telemetryOwnerLastSeen = now;
 
       const remainingValues: DeltaValue[] = [];
       for (const entry of update.values) {
@@ -970,6 +1001,13 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       if (parsed.type === PacketType.HELLO) {
+        if (parsed.payload.length > HELLO_PAYLOAD_MAX_BYTES) {
+          app.debug(
+            `[v2-server] HELLO payload ${parsed.payload.length}B exceeds cap ${HELLO_PAYLOAD_MAX_BYTES}B — rejecting`
+          );
+          metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+          return;
+        }
         try {
           const info = JSON.parse(parsed.payload.toString());
           app.debug(`v2 hello from client: ${JSON.stringify(info)}`);
@@ -983,12 +1021,27 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
                 ? info.instanceId.trim()
                 : null;
             session.clientId = helloClientId;
-            session.sourceClientInstanceId = helloInstanceId || helloClientId;
+            // Bind sourceClientInstanceId to a verified address so a peer
+            // cannot claim another peer's instance bucket in the source
+            // registry by faking instanceId in HELLO. HMAC on the HELLO
+            // packet (v2+v3) means we trust the secret-key-holder, but
+            // among multiple authorized peers we still want each one's
+            // contributions tagged uniquely. The address:port suffix
+            // disambiguates and keeps the value stable per session.
+            const peerSuffix = `${session.address}:${session.port}`;
+            session.sourceClientInstanceId = helloInstanceId
+              ? `${helloInstanceId}@${peerSuffix}`
+              : helloClientId
+                ? `${helloClientId}@${peerSuffix}`
+                : peerSuffix;
           }
         } catch (parseErr: unknown) {
-          app.error(
-            `v2 failed to parse HELLO payload: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
-          );
+          const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+          // Truncate so an attacker-controlled JSON parse error can't bloat
+          // the log file (the message echoes parser context including the
+          // attacker's bytes).
+          const truncated = parseMsg.length > 256 ? parseMsg.slice(0, 256) + "…" : parseMsg;
+          app.error(`v2 failed to parse HELLO payload: ${truncated}`);
         }
         // HELLO is the earliest reliable indication of a live peer, so use it
         // as the trigger to demand a fresh metadata snapshot. The client
@@ -1206,7 +1259,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         deltaMessage = sanitizedDelta;
         deltaMessage = normalizeDeltaSourceRefs(deltaMessage);
 
-        _ingestRemoteTelemetry(deltaMessage);
+        _ingestRemoteTelemetry(deltaMessage, session);
         if (!Array.isArray(deltaMessage.updates) || deltaMessage.updates.length === 0) {
           continue;
         }

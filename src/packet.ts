@@ -99,6 +99,18 @@ function normalizeProtocolVersion(version: number | undefined | null): number {
   return version;
 }
 
+/**
+ * Whether control packets (ACK/NAK/HEARTBEAT/HELLO/META_REQUEST/
+ * FULL_STATUS_REQUEST) carry an HMAC tag instead of a CRC-only trailer.
+ *
+ * v3 requires HMAC. v2 control packets carry only a CRC16 trailer (or no
+ * trailer at all for HEARTBEAT / META_REQUEST / FULL_STATUS_REQUEST) — a
+ * CRC is not a security primitive, so v2 control frames are forgeable by
+ * any host that can reach the UDP port. Operators MUST deploy v3 for any
+ * configuration where the UDP port is exposed to untrusted networks; the
+ * server emits a loud warning at startup whenever a v2 connection is
+ * configured. See src/index.ts and docs/protocol-v2-spec.md §5.
+ */
 function usesAuthenticatedControl(version: number | undefined | null): boolean {
   return normalizeProtocolVersion(version) >= PROTOCOL_VERSION_V3;
 }

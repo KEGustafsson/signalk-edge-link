@@ -55,9 +55,45 @@ function register(router: Router, ctx: RouteContext): () => void {
     };
   }
 
+  // Defense-in-depth: even though the route handler validates each metric
+  // and {warning, critical} field at input, every persistence path spreads
+  // the supplied `thresholds` object into the on-disk record. Any unknown
+  // key that ever reached here would be written verbatim and accumulate
+  // across restarts. Sanitize to the known-metric allow-list before write.
+  const PERSIST_ALLOWED_METRICS = [
+    "rtt",
+    "packetLoss",
+    "retransmitRate",
+    "jitter",
+    "queueDepth"
+  ] as const;
+  function sanitizeThresholdsForPersistence(
+    thresholds: Record<string, unknown>
+  ): Record<string, { warning?: number; critical?: number }> {
+    const out: Record<string, { warning?: number; critical?: number }> = {};
+    for (const metric of PERSIST_ALLOWED_METRICS) {
+      const value = thresholds[metric];
+      if (!value || typeof value !== "object") {
+        continue;
+      }
+      const entry: { warning?: number; critical?: number } = {};
+      const candidate = value as Record<string, unknown>;
+      if (typeof candidate.warning === "number" && Number.isFinite(candidate.warning)) {
+        entry.warning = candidate.warning;
+      }
+      if (typeof candidate.critical === "number" && Number.isFinite(candidate.critical)) {
+        entry.critical = candidate.critical;
+      }
+      if (Object.keys(entry).length > 0) {
+        out[metric] = entry;
+      }
+    }
+    return out;
+  }
+
   function persistAlertThresholds(
     bundle: InstanceBundle,
-    thresholds: Record<string, unknown>
+    thresholdsRaw: Record<string, unknown>
   ): void {
     if (
       typeof app.readPluginOptions !== "function" ||
@@ -65,6 +101,8 @@ function register(router: Router, ctx: RouteContext): () => void {
     ) {
       return;
     }
+
+    const thresholds = sanitizeThresholdsForPersistence(thresholdsRaw);
 
     try {
       const pluginOptions = (app.readPluginOptions() || {}) as Record<string, unknown>;

@@ -53,15 +53,16 @@ All multi-byte integers are big-endian (network byte order).
 
 ## 3. Packet Types
 
-| Value | Name         | Direction       | Description                         | Payload                            |
-| ----- | ------------ | --------------- | ----------------------------------- | ---------------------------------- |
-| 0x01  | DATA         | Client → Server | Signal K delta data                 | Encrypted/compressed delta         |
-| 0x02  | ACK          | Server → Client | Cumulative acknowledgement          | uint32 acked sequence              |
-| 0x03  | NAK          | Server → Client | Negative acknowledgement            | Array of uint32 missing sequences  |
-| 0x04  | HEARTBEAT    | Bidirectional   | Keep-alive                          | None (0 bytes)                     |
-| 0x05  | HELLO        | Client → Server | Connection establishment            | JSON with protocol info            |
-| 0x06  | METADATA     | Client → Server | Signal K path metadata (units, ...) | Encrypted/compressed meta envelope |
-| 0x07  | META_REQUEST | Server → Client | Demand a fresh metadata snapshot    | None (0 bytes)                     |
+| Value | Name                | Direction       | Description                                                        | Payload                            |
+| ----- | ------------------- | --------------- | ------------------------------------------------------------------ | ---------------------------------- |
+| 0x01  | DATA                | Client → Server | Signal K delta data                                                | Encrypted/compressed delta         |
+| 0x02  | ACK                 | Server → Client | Cumulative acknowledgement                                         | uint32 acked sequence              |
+| 0x03  | NAK                 | Server → Client | Negative acknowledgement                                           | Array of uint32 missing sequences  |
+| 0x04  | HEARTBEAT           | Bidirectional   | Keep-alive                                                         | None (0 bytes)                     |
+| 0x05  | HELLO               | Client → Server | Connection establishment                                           | JSON with protocol info            |
+| 0x06  | METADATA            | Client → Server | Signal K path metadata (units, ...)                                | Encrypted/compressed meta envelope |
+| 0x07  | META_REQUEST        | Server → Client | Demand a fresh metadata snapshot                                   | None (0 bytes)                     |
+| 0x08  | FULL_STATUS_REQUEST | Server → Client | Demand a full values-snapshot replay (e.g. after a server restart) | None (0 bytes)                     |
 
 ### DATA Packet
 
@@ -201,12 +202,47 @@ Empty-payload control packet. Server → Client.
 
 Sent by the server **once per session** when a HELLO arrives, to demand an
 immediate metadata snapshot rather than waiting up to `intervalSec` for the
-client's next periodic resend. Subject to the same control-packet
-authentication as ACK/NAK/HEARTBEAT/HELLO (CRC16 trailer on v2,
-HMAC tag on v3).
+client's next periodic resend. Subject to the same control-packet HMAC
+authentication as ACK/NAK/HEARTBEAT/HELLO (mandatory on both v2 and v3).
 
 The client SHOULD rate-limit its response to at most one snapshot per ~5
 seconds to protect against malformed or hostile receivers spamming requests.
+
+### FULL_STATUS_REQUEST Packet (0x08)
+
+Empty-payload control packet. Server → Client.
+
+Sent by the server **once per session** when the operator enabled
+`requestFullStatusOnRestart` and a HELLO from a client arrives. The client
+walks the current Signal K tree and replays every leaf as a synthetic
+delta through the normal DATA pipeline — so a server that lost in-flight
+state across a restart can rebuild it without waiting for the next live
+update on each path.
+
+The client rate-limits FULL_STATUS_REQUEST handling to at most one replay
+per 10 seconds. In multi-hop proxy chains, when a client-mode instance
+receives FULL_STATUS_REQUEST it MAY cascade the request to all clients
+connected to a co-located server-mode instance, so a tree restart at the
+top of the chain replays all the way to the leaves.
+
+Subject to the same control-packet HMAC authentication as the other
+control types (mandatory on both v2 and v3).
+
+### METADATA Packet — Source Snapshot Variant
+
+The METADATA packet type (0x06) also carries periodic source-tree
+snapshots. The envelope is structurally identical to the metadata
+envelope above, but uses `kind: "sources"` and replaces `entries` with a
+`sources` object copied from the sender's `app.signalk.retrieve().sources`
+tree. Receivers MUST verify both the envelope schema version (`v`) and
+recognize `kind: "sources"`; unknown `kind` values are dropped.
+
+A separate per-sender sequence counter (`lastSourceEnvSeq` server-side)
+prevents source resends from making in-flight metadata chunks look stale.
+Provider keys and string values in the merged tree are validated against
+length and character-class caps to prevent an authenticated peer from
+polluting the local SK tree with arbitrary keys (see
+`SOURCE_SNAPSHOT_MAX_*` in `src/constants.ts`).
 
 ### v1 metadata transport (separate UDP port)
 
@@ -232,13 +268,27 @@ Byte 4 of the header contains feature flags:
 
 Both client and server must agree on flag settings via configuration. Mismatched flags will cause decoding failures.
 
-## 5. CRC16 Checksum
+## 5. CRC16 Checksum and Control-Packet Authentication
 
-The CRC16 field uses the CRC-CCITT polynomial (0x1021) with initial value 0xFFFF.
+The CRC16 field in the 15-byte header uses the CRC-CCITT polynomial (0x1021) with initial value 0xFFFF.
 
-The checksum is computed over header bytes 0 through 12 (everything except the CRC16 field itself). This provides header integrity verification without the overhead of checksumming the entire payload (which has its own AES-GCM authentication tag).
+The checksum is computed over header bytes 0 through 12 (everything except the CRC16 field itself). This provides header integrity verification without the overhead of checksumming the entire payload (DATA/METADATA payloads carry their own AES-GCM authentication tag).
 
 Packets with invalid CRC16 are silently discarded.
+
+### Control packet authentication — security note
+
+ACK / NAK / HEARTBEAT / HELLO / META_REQUEST / FULL_STATUS_REQUEST in v2 carry only a CRC16 over the payload (or no trailer at all for HEARTBEAT / META_REQUEST / FULL_STATUS_REQUEST). **A CRC trailer is not a security primitive.** Any host that can reach the UDP port can mint a valid v2 control frame:
+
+- A spoofed `HELLO` creates a server-side session.
+- A spoofed `FULL_STATUS_REQUEST` triggers a full-tree snapshot replay toward the spoofed source address (usable as a reflection amplifier).
+- A spoofed `META_REQUEST` triggers a meta snapshot replay.
+
+Rate limits and per-IP session caps reduce the blast radius but do not close the vector.
+
+**Operators MUST deploy protocol v3 for any configuration where the UDP port is reachable from an untrusted network.** v3 control frames carry a 16-byte HMAC-SHA256 tag over `header[0..12] ‖ payload`, keyed by the shared secret. Only a peer holding the secret can mint a valid v3 control frame.
+
+The edge-link plugin emits a startup warning when a v2 connection is configured, naming this gap. v2 is retained for backwards compatibility with deployments on trusted/private links only.
 
 ## 6. Sequence Numbers
 
