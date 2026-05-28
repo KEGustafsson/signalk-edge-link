@@ -193,20 +193,33 @@ describe("sendHello → CONNECT", () => {
 // ── CONNACK handling ──────────────────────────────────────────────────────────
 
 describe("CONNACK handling", () => {
-  test("accepted CONNACK moves state to CONNECTED", async () => {
-    const { pipeline, state } = makeClient();
+  test("accepted CONNACK moves state to CONNECTED — sendDelta enters REGISTER flow", async () => {
+    const { pipeline, state, app } = makeClient();
     await pipeline.sendHello(GW_ADDR, GW_PORT);
     await deliver(pipeline, buildConnack(RC.ACCEPTED));
-    // No error should have been logged
-    // Verify: a subsequent sendDelta should not be dropped
-    // (it will try to REGISTER, so at least no "dropped" debug msg)
+
+    state.socketUdp.send.mockClear();
+    app.debug.mockClear();
+    pipeline.sendDelta(makeDelta("navigation.speedOverGround", 7.3), SECRET_KEY, GW_ADDR, GW_PORT);
+    expect(findSent(state, "REGISTER")).toBeDefined();
+    expect(app.debug).not.toHaveBeenCalledWith(expect.stringContaining("dropped"));
   });
 
-  test("rejected CONNACK logs error and does not send further messages immediately", async () => {
+  test("rejected CONNACK logs error and subsequent sendDelta is dropped", async () => {
     const { pipeline, app, state } = makeClient();
     await pipeline.sendHello(GW_ADDR, GW_PORT);
     await deliver(pipeline, buildConnack(RC.REJECTED_CONGESTION));
     expect(app.error).toHaveBeenCalled();
+
+    state.socketUdp.send.mockClear();
+    await pipeline.sendDelta(
+      makeDelta("navigation.speedOverGround", 7.3),
+      SECRET_KEY,
+      GW_ADDR,
+      GW_PORT
+    );
+    expect(findSent(state, "REGISTER")).toBeUndefined();
+    expect(findSent(state, "PUBLISH")).toBeUndefined();
   });
 });
 
@@ -239,20 +252,16 @@ describe("sendDelta — CONNECT → REGISTER → PUBLISH", () => {
       GW_PORT
     );
 
-    // REGISTER should be sent
     const regFrame = findSent(state, "REGISTER");
     expect(regFrame).toBeDefined();
     const regMsg = parseMessage(regFrame[0]);
     expect(regMsg.type).toBe("REGISTER");
     expect(regMsg.topicName).toBe("sk/navigation/speedOverGround");
 
-    // Simulate REGACK
     await deliver(pipeline, buildRegack(1, regMsg.msgId, RC.ACCEPTED));
     await sendPromise;
 
-    // PUBLISH should be sent
-    const pubFrame = findSent(state, "PUBLISH");
-    expect(pubFrame).toBeDefined();
+    expect(findSent(state, "PUBLISH")).toBeDefined();
   });
 
   test("PUBLISH payload is AES-256-GCM encrypted (not raw JSON)", async () => {
@@ -284,7 +293,6 @@ describe("sendDelta — CONNECT → REGISTER → PUBLISH", () => {
     await doConnect(pipeline, state);
     state.socketUdp.send.mockClear();
 
-    // First delta — registers topic
     const p1 = pipeline.sendDelta(
       makeDelta("navigation.speedOverGround", 1.0),
       SECRET_KEY,
@@ -295,10 +303,8 @@ describe("sendDelta — CONNECT → REGISTER → PUBLISH", () => {
     await deliver(pipeline, buildRegack(1, reg1.msgId, RC.ACCEPTED));
     await p1;
 
-    const sendCountAfterFirst = state.socketUdp.send.mock.calls.length;
     state.socketUdp.send.mockClear();
 
-    // Second delta — same path, should skip REGISTER
     await pipeline.sendDelta(
       makeDelta("navigation.speedOverGround", 2.0),
       SECRET_KEY,
@@ -438,15 +444,25 @@ describe("PINGRESP", () => {
 // ── stopCongestionControl (full teardown) ─────────────────────────────────────
 
 describe("stopCongestionControl (full teardown)", () => {
-  test("sends DISCONNECT and stops further operations", async () => {
+  test("sends DISCONNECT and drops subsequent sendDelta calls", async () => {
     const { pipeline, state } = makeClient();
     await doConnect(pipeline, state);
     state.socketUdp.send.mockClear();
 
     pipeline.stopCongestionControl();
 
-    const disconnectFrame = findSent(state, "DISCONNECT");
-    expect(disconnectFrame).toBeDefined();
+    expect(findSent(state, "DISCONNECT")).toBeDefined();
+
+    // Further sendDelta calls must not emit REGISTER or PUBLISH
+    state.socketUdp.send.mockClear();
+    await pipeline.sendDelta(
+      makeDelta("navigation.speedOverGround", 9.9),
+      SECRET_KEY,
+      GW_ADDR,
+      GW_PORT
+    );
+    expect(findSent(state, "REGISTER")).toBeUndefined();
+    expect(findSent(state, "PUBLISH")).toBeUndefined();
   });
 });
 

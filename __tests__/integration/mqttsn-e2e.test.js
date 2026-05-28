@@ -51,7 +51,9 @@ function waitUntil(predicate, timeoutMs = 2000, intervalMs = 10) {
     const start = Date.now();
     const tick = () => {
       try {
-        if (predicate()) {return resolve();}
+        if (predicate()) {
+          return resolve();
+        }
       } catch (err) {
         return reject(err);
       }
@@ -160,6 +162,7 @@ async function makePair(clientOptionOverrides = {}) {
     gateway,
     gatewayApp,
     gatewayPort: gw.port,
+    gatewaySocket: gw.socket,
     cleanup
   };
 }
@@ -193,23 +196,17 @@ describe("MQTT-SN v4 — real UDP loopback E2E", () => {
     pair = await makePair();
     const { client, clientApp, gatewayApp, gatewayPort } = pair;
 
-    // Trigger CONNECT
     await client.sendHello("127.0.0.1", gatewayPort);
-
-    // Wait for the gateway to log the CONNECT receipt
     await waitUntil(() =>
       gatewayApp.debug.mock.calls.some((c) => /CONNECT from "sk-test-vessel"/.test(String(c[0])))
     );
 
-    // Publish a delta — registration + publish flow
     await client.sendDelta(
       makeDelta("navigation.speedOverGround", 6.2),
       SECRET_KEY,
       "127.0.0.1",
       gatewayPort
     );
-
-    // Wait for the gateway to inject into Signal K
     await waitUntil(() => gatewayApp.handleMessage.mock.calls.length > 0);
 
     const [, delta] = gatewayApp.handleMessage.mock.calls[0];
@@ -444,18 +441,29 @@ describe("MQTT-SN v4 — real UDP loopback E2E", () => {
   });
 
   test("PINGREQ → PINGRESP keepalive round-trip over real UDP", async () => {
-    pair = await makePair({ mqttsnKeepalive: 1 }); // 1s keepalive forces a quick ping
-    const { client, gatewayApp, gatewayPort } = pair;
+    // Gateway watchdog tolerance is 1.5×keepalive = 1.5s. We wait 1.8s,
+    // which forces keepalive PINGREQ traffic to arrive: without it the
+    // gateway would expire the session and the post-wait sendDelta would
+    // fail (handleMessage would not be called).
+    const { parseMessage: parse } = require("../../lib/mqttsn-protocol");
+    pair = await makePair({ mqttsnKeepalive: 1 });
+    const { client, gatewayApp, gatewayPort, gatewaySocket } = pair;
+
+    // Sniff the gateway socket for PINGREQ frames so the assertion is direct.
+    let pingreqSeen = 0;
+    gatewaySocket.on("message", (msg) => {
+      if (parse(msg).type === "PINGREQ") {pingreqSeen++;}
+    });
 
     await client.sendHello("127.0.0.1", gatewayPort);
     await waitUntil(() => gatewayApp.debug.mock.calls.some((c) => /CONNECT/.test(String(c[0]))));
 
-    // After keepalive period, client should send PINGREQ and gateway echoes PINGRESP.
-    // We can't directly observe the PINGRESP receipt easily, but we can confirm
-    // the client is still in a healthy CONNECTED state by publishing successfully
-    // after the keepalive interval.
-    await new Promise((r) => setTimeout(r, 1200));
+    await new Promise((r) => setTimeout(r, 1800));
 
+    // Direct assertion: at least one PINGREQ traversed the wire.
+    expect(pingreqSeen).toBeGreaterThanOrEqual(1);
+
+    // Indirect assertion: session is still alive past the watchdog tolerance.
     await client.sendDelta(
       makeDelta("navigation.speedOverGround", 4.4),
       SECRET_KEY,
@@ -493,7 +501,9 @@ describe("MQTT-SN v4 — real UDP loopback E2E", () => {
       .filter((v) => v.path === "navigation.speedOverGround")
       .map((v) => v.value);
     const expected = [];
-    for (let i = 0; i < N; i += 2) {expected.push(i * 0.1);}
+    for (let i = 0; i < N; i += 2) {
+      expected.push(i * 0.1);
+    }
     expect(sogValues).toEqual(expected);
   });
 });

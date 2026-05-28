@@ -39,6 +39,9 @@ export class TopicRegistry {
    * Store a gateway-assigned mapping (client role, called on REGACK).
    */
   set(topicName: string, topicId: number): void {
+    if (!Number.isInteger(topicId) || topicId < 0x0001 || topicId > 0xfffe) {
+      throw new Error(`MQTT-SN topic ID must be in range 0x0001..0xFFFE (got ${topicId})`);
+    }
     const prevId = this.nameToId.get(topicName);
     if (prevId !== undefined && prevId !== topicId) this.idToName.delete(prevId);
     const prevName = this.idToName.get(topicId);

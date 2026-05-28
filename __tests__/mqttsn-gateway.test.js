@@ -53,7 +53,9 @@ function makeState(overrides = {}) {
 let _activeGateways = [];
 
 afterEach(() => {
-  for (const gw of _activeGateways) {gw.stop();}
+  for (const gw of _activeGateways) {
+    gw.stop();
+  }
   _activeGateways = [];
 });
 
@@ -73,7 +75,6 @@ function encryptPayload(value, useMsgpack = false) {
   return encryptBinary(serialized, SECRET_KEY, { stretchAsciiKey: false });
 }
 
-// Find sent frame of a given type among all socket.send calls
 function findSent(socket, type) {
   return socket.send.mock.calls.find((c) => {
     try {
@@ -115,7 +116,7 @@ describe("CONNECT", () => {
     expect(connacks.length).toBe(2);
   });
 
-  test("REGISTER after CONNECT without preceding CONNECT is rejected (no session)", () => {
+  test("REGISTER without an active session is ignored (no REGACK)", () => {
     const { gw, socket } = makeGateway();
     gw.handleMessage(buildRegister("sk/nav/speed", 1), RINFO);
     const regack = findSent(socket, "REGACK");
@@ -346,23 +347,15 @@ describe("keepalive watchdog", () => {
   });
 
   test("PINGREQ resets watchdog — session survives past original timeout", () => {
-    const { gw, socket, app } = makeGateway();
-    gw.handleMessage(buildConnect("s1", true, 30), RINFO);
-    socket.send.mockClear();
-    // Advance 40s (>1.5×30=45s? No, 40<45). Try a tighter scenario
-    // keepalive=2, watchdog=3s. Send PINGREQ at t=2s → resets watchdog to t=5s
-    // Watchdog fires at 3s without PINGREQ, but with it fires at 5s.
-    const { gw: gw2, socket: socket2, app: app2 } = makeGateway();
-    gw2.handleMessage(buildConnect("s2", true, 2), RINFO);
-    jest.advanceTimersByTime(2000); // at 2s
-    gw2.handleMessage(buildPingReq(), RINFO); // reset watchdog to t+3s = 5s
-    jest.advanceTimersByTime(2500); // now at 4.5s — before watchdog reset fires
-    // Session should still be alive
-    app2.handleMessage.mockClear();
-    const topicId = 999; // would be ignored for unknown topic but session lookup happens first
-    // A simpler proof: try REGISTER and expect REGACK
-    gw2.handleMessage(buildRegister("sk/nav/speed", 1), RINFO);
-    expect(findSent(socket2, "REGACK")).toBeDefined();
+    // keepalive=2s, watchdog=3s. PINGREQ at t=2s resets watchdog to t=5s.
+    // At t=4.5s the session must still be alive — REGISTER → REGACK proves it.
+    const { gw, socket } = makeGateway();
+    gw.handleMessage(buildConnect("s1", true, 2), RINFO);
+    jest.advanceTimersByTime(2000);
+    gw.handleMessage(buildPingReq(), RINFO);
+    jest.advanceTimersByTime(2500);
+    gw.handleMessage(buildRegister("sk/nav/speed", 1), RINFO);
+    expect(findSent(socket, "REGACK")).toBeDefined();
   });
 });
 

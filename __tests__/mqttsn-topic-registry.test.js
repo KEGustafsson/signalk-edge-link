@@ -60,6 +60,16 @@ describe("TopicRegistry.set", () => {
     expect(r.getNameForId(99)).toBe("sk/nav/speed");
     expect(r.getNameForId(1)).toBeUndefined();
   });
+
+  test("set rejects out-of-range topic IDs (0x0000 and 0xFFFF are reserved)", () => {
+    const r = new TopicRegistry();
+    expect(() => r.set("sk/nav/speed", 0x0000)).toThrow(/range/);
+    expect(() => r.set("sk/nav/speed", 0xffff)).toThrow(/range/);
+    expect(() => r.set("sk/nav/speed", -1)).toThrow(/range/);
+    expect(() => r.set("sk/nav/speed", 1.5)).toThrow(/range/);
+    expect(() => r.set("sk/nav/speed", 0xfffe)).not.toThrow();
+    expect(() => r.set("sk/other", 0x0001)).not.toThrow();
+  });
 });
 
 describe("TopicRegistry.clear", () => {
