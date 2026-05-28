@@ -410,7 +410,11 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       recordPathLatencies(sanitizedDelta);
 
       // Compress
-      const compressed = await compressPayload(serialized, state.options?.useMsgpack ?? false);
+      const compressed = await compressPayload(
+        serialized,
+        state.options?.useMsgpack ?? false,
+        state.options?.brotliQuality
+      );
 
       // Encrypt
       const encrypted = encryptBinary(compressed, secretKey, {
@@ -567,7 +571,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       sources
     };
     const serialized = deltaBuffer(envelope, useMsgpack);
-    const compressed = await compressPayload(serialized, useMsgpack);
+    const compressed = await compressPayload(serialized, useMsgpack, state.options?.brotliQuality);
     const encrypted = encryptBinary(compressed, secretKey, { stretchAsciiKey });
     return packetBuilder.buildMetadataPacket(encrypted, {
       compressed: true,
@@ -708,7 +712,11 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         const envelope = buildMetaEnvelope(processedEntries, kind, envelopeSeq, i, chunks.length);
 
         const serialized = deltaBuffer(envelope, useMsgpack);
-        const compressed = await compressPayload(serialized, useMsgpack);
+        const compressed = await compressPayload(
+          serialized,
+          useMsgpack,
+          state.options?.brotliQuality
+        );
         const encrypted = encryptBinary(compressed, secretKey, { stretchAsciiKey });
         const packet = packetBuilder.buildMetadataPacket(encrypted, {
           compressed: true,

@@ -265,6 +265,11 @@ export interface ConnectionConfig {
   protocolVersion?: number;
   /** Serialize deltas with MessagePack instead of JSON (smaller, faster). Default false. */
   useMsgpack?: boolean;
+  /**
+   * Brotli compression quality (0..11). Higher = smaller payload, more CPU.
+   * Local-only setting; peers do not need to match. Default 6 (balanced).
+   */
+  brotliQuality?: number;
   /** Compress Signal K path strings with a shared dictionary to reduce packet size. Default false. */
   usePathDictionary?: boolean;
   /** Forward Signal K notification deltas over the link. Default false. */

@@ -16,6 +16,8 @@ export const WATCHER_RECOVERY_DELAY = 5000; // milliseconds
 // UDP and network
 export const MAX_SAFE_UDP_PAYLOAD = 1400; // Maximum safe UDP payload size (avoid fragmentation)
 export const BROTLI_QUALITY_HIGH = 6; // Balanced quality: ~90% of max compression at ~10% of the CPU cost
+export const BROTLI_QUALITY_MIN = 0; // Fastest, lowest ratio
+export const BROTLI_QUALITY_MAX = 11; // Highest ratio, ~3-5× more CPU than quality 6
 export const UDP_RETRY_MAX = 3; // Maximum UDP send retries
 export const UDP_RETRY_DELAY = 100; // milliseconds - base retry delay
 export const UDP_SEND_TIMEOUT_MS = 5000; // Maximum ms to wait for socket.send() callback

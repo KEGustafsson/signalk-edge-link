@@ -82,7 +82,11 @@ function createPipeline(
       }
 
       // Single compression stage (before encryption)
-      const compressed = await compressPayload(serialized, state.options.useMsgpack || false);
+      const compressed = await compressPayload(
+        serialized,
+        state.options.useMsgpack || false,
+        state.options.brotliQuality
+      );
 
       // Encrypt with AES-256-GCM (binary format with built-in authentication)
       const packet = encryptBinary(compressed, secretKey, {

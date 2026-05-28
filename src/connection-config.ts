@@ -18,6 +18,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "stretchAsciiKey",
   "useMsgpack",
   "usePathDictionary",
+  "brotliQuality",
   "enableNotifications",
   "skipOwnData",
   "protocolVersion",
@@ -118,6 +119,12 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   }
   if (conn.useMsgpack !== undefined && typeof conn.useMsgpack !== "boolean") {
     return `${p}useMsgpack must be a boolean`;
+  }
+  if (conn.brotliQuality !== undefined) {
+    const q = conn.brotliQuality;
+    if (!Number.isInteger(q) || (q as number) < 0 || (q as number) > 11) {
+      return `${p}brotliQuality must be an integer between 0 and 11`;
+    }
   }
   if (conn.usePathDictionary !== undefined && typeof conn.usePathDictionary !== "boolean") {
     return `${p}usePathDictionary must be a boolean`;
