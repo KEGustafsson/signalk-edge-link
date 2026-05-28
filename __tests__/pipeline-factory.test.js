@@ -44,9 +44,23 @@ describe("pipeline-factory", () => {
     expect(pipeline.getSequenceTracker).toBeDefined();
   });
 
+  test("version 4 client uses MQTT-SN pipeline methods", () => {
+    state.socketUdp = { send: jest.fn((buf, port, addr, cb) => cb && cb(null)), on: jest.fn() };
+    const pipeline = createPipeline(4, "client", mockApp, state, metricsApi);
+    expect(pipeline.sendDelta).toBeDefined();
+    expect(pipeline.handleControlPacket).toBeDefined();
+  });
+
+  test("version 4 server uses MQTT-SN gateway methods", () => {
+    state.socketUdp = { send: jest.fn(), on: jest.fn() };
+    const pipeline = createPipeline(4, "server", mockApp, state, metricsApi);
+    expect(pipeline.receivePacket).toBeDefined();
+    expect(pipeline.startACKTimer).toBeDefined();
+  });
+
   test("unsupported version throws descriptive error", () => {
     expect(() => createPipeline(0, "client", mockApp, state, metricsApi)).toThrow(
-      "Unsupported pipeline version: 0 (supported versions: 1, 2, 3)"
+      "Unsupported pipeline version: 0 (supported versions: 1, 2, 3, 4)"
     );
   });
 });

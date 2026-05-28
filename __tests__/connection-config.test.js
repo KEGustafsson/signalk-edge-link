@@ -112,8 +112,13 @@ describe("validateConnectionConfig", () => {
     });
 
     test("rejects invalid protocol version", () => {
-      const error = validateConnectionConfig(makeValidClient({ protocolVersion: 4 }));
+      const error = validateConnectionConfig(makeValidClient({ protocolVersion: 5 }));
       expect(error).toMatch(/protocolVersion/);
+    });
+
+    test("accepts protocol version 4 (MQTT-SN)", () => {
+      const error = validateConnectionConfig(makeValidClient({ protocolVersion: 4 }));
+      expect(error).toBeNull();
     });
 
     test("validates connectionId after trimming whitespace", () => {

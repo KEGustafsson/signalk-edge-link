@@ -1,0 +1,19 @@
+{
+  "connections": [
+    {
+      "name": "shore-gateway",
+      "serverType": "client",
+      "udpAddress": "192.168.1.100",
+      "udpPort": 1883,
+      "secretKey": "ChangeThisTo32CharASCIIKey123456",
+      "protocolVersion": 4,
+      "useMsgpack": false,
+      "mqttsnClientId": "sk-vessel",
+      "mqttsnTopicPrefix": "sk",
+      "mqttsnQos": 1,
+      "mqttsnKeepalive": 60,
+      "mqttsnCleanSession": true,
+      "mqttsnPublishRetain": false
+    }
+  ]
+}

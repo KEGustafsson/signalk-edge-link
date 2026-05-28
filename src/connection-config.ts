@@ -112,9 +112,54 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     conn.protocolVersion !== undefined &&
     conn.protocolVersion !== 1 &&
     conn.protocolVersion !== 2 &&
-    conn.protocolVersion !== 3
+    conn.protocolVersion !== 3 &&
+    conn.protocolVersion !== 4
   ) {
-    return `${p}protocolVersion must be 1, 2, or 3`;
+    return `${p}protocolVersion must be 1, 2, 3, or 4`;
+  }
+
+  // ── MQTT-SN (protocolVersion 4) validation ────────────────────────────────
+  if (conn.protocolVersion === 4) {
+    if (conn.mqttsnClientId !== undefined) {
+      if (typeof conn.mqttsnClientId !== "string") {
+        return `${p}mqttsnClientId must be a string`;
+      }
+      if (conn.mqttsnClientId.length < 1 || conn.mqttsnClientId.length > 23) {
+        return `${p}mqttsnClientId must be 1–23 characters`;
+      }
+      if (!/^[\x21-\x7E]+$/.test(conn.mqttsnClientId)) {
+        return `${p}mqttsnClientId must contain only printable ASCII characters (no spaces or control chars)`;
+      }
+    }
+    if (conn.mqttsnQos !== undefined && conn.mqttsnQos !== 0 && conn.mqttsnQos !== 1) {
+      return `${p}mqttsnQos must be 0 or 1`;
+    }
+    if (conn.mqttsnTopicPrefix !== undefined) {
+      if (typeof conn.mqttsnTopicPrefix !== "string" || conn.mqttsnTopicPrefix.length === 0) {
+        return `${p}mqttsnTopicPrefix must be a non-empty string`;
+      }
+      if (/[#+]/.test(conn.mqttsnTopicPrefix)) {
+        return `${p}mqttsnTopicPrefix must not contain MQTT wildcard characters (# or +)`;
+      }
+    }
+    if (conn.mqttsnKeepalive !== undefined) {
+      const ka = conn.mqttsnKeepalive;
+      if (!Number.isInteger(ka) || (ka as number) < 1 || (ka as number) > 65535) {
+        return `${p}mqttsnKeepalive must be an integer between 1 and 65535`;
+      }
+    }
+    if (conn.mqttsnGatewayId !== undefined) {
+      const gid = conn.mqttsnGatewayId;
+      if (!Number.isInteger(gid) || (gid as number) < 1 || (gid as number) > 255) {
+        return `${p}mqttsnGatewayId must be an integer between 1 and 255`;
+      }
+    }
+    if (conn.mqttsnCleanSession !== undefined && typeof conn.mqttsnCleanSession !== "boolean") {
+      return `${p}mqttsnCleanSession must be a boolean`;
+    }
+    if (conn.mqttsnPublishRetain !== undefined && typeof conn.mqttsnPublishRetain !== "boolean") {
+      return `${p}mqttsnPublishRetain must be a boolean`;
+    }
   }
   if (conn.useMsgpack !== undefined && typeof conn.useMsgpack !== "boolean") {
     return `${p}useMsgpack must be a boolean`;

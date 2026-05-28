@@ -116,9 +116,9 @@ describe("SignalK Data Connector Plugin", () => {
       expect(secretKey.pattern).toBe("^(?:[\\x21-\\x7E]{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$");
     });
 
-    test("should expose protocol versions 1, 2, and 3", () => {
+    test("should expose protocol versions 1, 2, 3, and 4", () => {
       const protocolVersion = itemSchema.properties.protocolVersion;
-      expect(protocolVersion.oneOf.map((entry) => entry.const)).toEqual([1, 2, 3]);
+      expect(protocolVersion.oneOf.map((entry) => entry.const)).toEqual([1, 2, 3, 4]);
     });
 
     test("should NOT have client-only fields in connection item main properties", () => {

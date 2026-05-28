@@ -316,6 +316,23 @@ export interface ConnectionConfig {
    * individual value changes to trickle in. Default false.
    */
   requestFullStatusOnRestart?: boolean;
+
+  // ── MQTT-SN (protocolVersion 4) fields ──────────────────────────────────────
+
+  /** Client ID sent in MQTT-SN CONNECT. Max 23 chars (MQTT-SN spec). Defaults to "sk-<name>". */
+  mqttsnClientId?: string;
+  /** Prefix prepended to SK paths when forming MQTT topic names. Default "sk". */
+  mqttsnTopicPrefix?: string;
+  /** QoS for MQTT-SN PUBLISH messages: 0 (fire-and-forget) or 1 (PUBACK). Default 0. */
+  mqttsnQos?: 0 | 1;
+  /** Keepalive interval in seconds sent in CONNECT Duration field. Default 60. */
+  mqttsnKeepalive?: number;
+  /** Send CleanSession flag in CONNECT. Default true. */
+  mqttsnCleanSession?: boolean;
+  /** Set RETAIN flag on every PUBLISH. Default false. */
+  mqttsnPublishRetain?: boolean;
+  /** Gateway ID broadcast in GWINFO responses to SEARCHGW. Server (gateway) mode only. Default 1. */
+  mqttsnGatewayId?: number;
 }
 
 // ── Metrics Types ───────────────────────────────────────────────────────────

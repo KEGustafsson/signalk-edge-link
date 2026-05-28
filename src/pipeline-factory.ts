@@ -9,6 +9,8 @@
 import createPipelineV1 = require("./pipeline");
 import { createPipelineV2Client } from "./pipeline-v2-client";
 import { createPipelineV2Server } from "./pipeline-v2-server";
+import { createPipelineMqttSnClient } from "./pipeline-mqttsn-client";
+import { createPipelineMqttSnServer } from "./pipeline-mqttsn-server";
 import type {
   SignalKApp,
   MetricsApi,
@@ -20,7 +22,7 @@ import type {
 /**
  * Create pipeline instance based on protocol version and mode
  *
- * @param version - Protocol version (1, 2, or 3)
+ * @param version - Protocol version (1, 2, 3, or 4)
  * @param mode - Operating mode ("client" or "server")
  * @param app - Signal K app instance (for logging)
  * @param state - Shared mutable state
@@ -50,9 +52,21 @@ export function createPipeline(
     throw new Error(`Invalid pipeline mode: "${mode}" (expected "client" or "server")`);
   }
 
+  if (version === 4) {
+    if (mode === "client") {
+      return createPipelineMqttSnClient(app, state, metricsApi);
+    }
+    if (mode === "server") {
+      return createPipelineMqttSnServer(app, state, metricsApi);
+    }
+    throw new Error(
+      `Invalid pipeline mode for MQTT-SN v4: "${mode}" (expected "client" or "server")`
+    );
+  }
+
   if (version === 1) {
     return createPipelineV1(app, state, metricsApi);
   }
 
-  throw new Error(`Unsupported pipeline version: ${version} (supported versions: 1, 2, 3)`);
+  throw new Error(`Unsupported pipeline version: ${version} (supported versions: 1, 2, 3, 4)`);
 }
