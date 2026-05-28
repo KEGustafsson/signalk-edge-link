@@ -18,6 +18,66 @@ describe("Webapp connection schema", () => {
     expect(schema.properties).toHaveProperty("bonding");
     expect(schema.properties).toHaveProperty("alertThresholds");
   });
+
+  test("v4 (MQTT-SN) client schema exposes all client-side MQTT-SN fields", () => {
+    const schema = buildWebappConnectionSchema(true, 4);
+    // Client-side fields present
+    expect(schema.properties).toHaveProperty("mqttsnClientId");
+    expect(schema.properties).toHaveProperty("mqttsnTopicPrefix");
+    expect(schema.properties).toHaveProperty("mqttsnQos");
+    expect(schema.properties).toHaveProperty("mqttsnKeepalive");
+    expect(schema.properties).toHaveProperty("mqttsnCleanSession");
+    expect(schema.properties).toHaveProperty("mqttsnPublishRetain");
+    // Server-only field absent
+    expect(schema.properties).not.toHaveProperty("mqttsnGatewayId");
+    // v2/v3-only fields absent
+    expect(schema.properties).not.toHaveProperty("reliability");
+    expect(schema.properties).not.toHaveProperty("congestionControl");
+    expect(schema.properties).not.toHaveProperty("bonding");
+  });
+
+  test("v4 (MQTT-SN) server schema exposes only gateway fields", () => {
+    const schema = buildWebappConnectionSchema(false, 4);
+    // Server-side fields present
+    expect(schema.properties).toHaveProperty("mqttsnTopicPrefix");
+    expect(schema.properties).toHaveProperty("mqttsnGatewayId");
+    // Client-only fields absent
+    expect(schema.properties).not.toHaveProperty("mqttsnClientId");
+    expect(schema.properties).not.toHaveProperty("mqttsnQos");
+    expect(schema.properties).not.toHaveProperty("mqttsnKeepalive");
+    expect(schema.properties).not.toHaveProperty("mqttsnCleanSession");
+    expect(schema.properties).not.toHaveProperty("mqttsnPublishRetain");
+    // v2/v3-only server fields absent
+    expect(schema.properties).not.toHaveProperty("requestFullStatusOnRestart");
+    expect(schema.properties).not.toHaveProperty("reliability");
+  });
+
+  test("v4 MQTT-SN fields have sensible defaults and ranges", () => {
+    const clientSchema = buildWebappConnectionSchema(true, 4);
+    expect(clientSchema.properties.mqttsnTopicPrefix.default).toBe("sk");
+    expect(clientSchema.properties.mqttsnQos.default).toBe(0);
+    expect(clientSchema.properties.mqttsnKeepalive.default).toBe(60);
+    expect(clientSchema.properties.mqttsnKeepalive.minimum).toBe(1);
+    expect(clientSchema.properties.mqttsnKeepalive.maximum).toBe(65535);
+    expect(clientSchema.properties.mqttsnCleanSession.default).toBe(true);
+    expect(clientSchema.properties.mqttsnPublishRetain.default).toBe(false);
+
+    const serverSchema = buildWebappConnectionSchema(false, 4);
+    expect(serverSchema.properties.mqttsnGatewayId.default).toBe(1);
+    expect(serverSchema.properties.mqttsnGatewayId.minimum).toBe(1);
+    expect(serverSchema.properties.mqttsnGatewayId.maximum).toBe(255);
+  });
+
+  test("switching client v2 → v4 swaps reliable fields for MQTT-SN fields", () => {
+    const v2Schema = buildWebappConnectionSchema(true, 2);
+    const v4Schema = buildWebappConnectionSchema(true, 4);
+    // v2 had reliable-protocol groups; v4 does not
+    expect(v2Schema.properties).toHaveProperty("reliability");
+    expect(v4Schema.properties).not.toHaveProperty("reliability");
+    // v4 has MQTT-SN groups; v2 does not
+    expect(v4Schema.properties).toHaveProperty("mqttsnClientId");
+    expect(v2Schema.properties).not.toHaveProperty("mqttsnClientId");
+  });
 });
 
 describe("Web UI Helper Functions", () => {

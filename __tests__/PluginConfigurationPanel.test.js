@@ -423,6 +423,117 @@ describe("PluginConfigurationPanel", () => {
     expect(saved.protocolVersion).toBe(3);
   });
 
+  test("switching client connection to MQTT-SN (v4) renders client-side MQTT-SN fields", async () => {
+    apiFetch.mockResolvedValueOnce(makeOk(ONE_SERVER));
+
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+    const initialFormData = currentRjsfFormData();
+
+    // Switch to client + protocolVersion 4 (MQTT-SN)
+    await act(async () => {
+      latestRjsfForm().onChange({
+        formData: {
+          ...initialFormData,
+          serverType: "client",
+          protocolVersion: 4
+        }
+      });
+    });
+
+    // The form is rebuilt with the new schema. Inspect what RJSF received.
+    await waitFor(() => expect(screen.getByText("Client")).toBeInTheDocument());
+    const renderedSchema = latestRjsfForm().schema;
+    expect(renderedSchema.properties).toHaveProperty("mqttsnClientId");
+    expect(renderedSchema.properties).toHaveProperty("mqttsnTopicPrefix");
+    expect(renderedSchema.properties).toHaveProperty("mqttsnQos");
+    expect(renderedSchema.properties).toHaveProperty("mqttsnKeepalive");
+    expect(renderedSchema.properties).toHaveProperty("mqttsnCleanSession");
+    expect(renderedSchema.properties).toHaveProperty("mqttsnPublishRetain");
+    // Gateway-only field must not appear on client form
+    expect(renderedSchema.properties).not.toHaveProperty("mqttsnGatewayId");
+    // v2/v3 reliable-protocol groups must not appear
+    expect(renderedSchema.properties).not.toHaveProperty("reliability");
+    expect(renderedSchema.properties).not.toHaveProperty("congestionControl");
+  });
+
+  test("switching server connection to MQTT-SN (v4) renders gateway-side MQTT-SN fields", async () => {
+    apiFetch.mockResolvedValueOnce(makeOk(ONE_SERVER));
+
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+    const initialFormData = currentRjsfFormData();
+
+    await act(async () => {
+      latestRjsfForm().onChange({
+        formData: { ...initialFormData, protocolVersion: 4 } // stays serverType=server
+      });
+    });
+
+    const renderedSchema = latestRjsfForm().schema;
+    expect(renderedSchema.properties).toHaveProperty("mqttsnTopicPrefix");
+    expect(renderedSchema.properties).toHaveProperty("mqttsnGatewayId");
+    // Client-only fields must not appear on server form
+    expect(renderedSchema.properties).not.toHaveProperty("mqttsnClientId");
+    expect(renderedSchema.properties).not.toHaveProperty("mqttsnQos");
+    expect(renderedSchema.properties).not.toHaveProperty("mqttsnKeepalive");
+  });
+
+  test("saving MQTT-SN v4 connection sends all configured fields to the API", async () => {
+    apiFetch
+      .mockResolvedValueOnce(makeOk(ONE_SERVER))
+      .mockResolvedValueOnce(makeOk({ success: true, message: "Saved." }));
+
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+    const initialFormData = currentRjsfFormData();
+
+    // Step 1: switch to client+v4 (mimicks user toggling serverType and protocol).
+    // SHARED_FIELDS-only carry over by design; MQTT-SN fields are added next.
+    await act(async () => {
+      latestRjsfForm().onChange({
+        formData: {
+          ...initialFormData,
+          serverType: "client",
+          protocolVersion: 4
+        }
+      });
+    });
+
+    // Step 2: user fills in the MQTT-SN fields the new v4 schema reveals.
+    const v4FormData = currentRjsfFormData();
+    await act(async () => {
+      latestRjsfForm().onChange({
+        formData: {
+          ...v4FormData,
+          udpAddress: "192.168.1.100",
+          mqttsnClientId: "sk-vessel",
+          mqttsnTopicPrefix: "sk",
+          mqttsnQos: 1,
+          mqttsnKeepalive: 30,
+          mqttsnCleanSession: true,
+          mqttsnPublishRetain: false
+        }
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("You have unsaved changes.")).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByText("Save Changes"));
+    });
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    const body = JSON.parse(apiFetch.mock.calls[1][1].body);
+    const saved = body.connections[0];
+    expect(saved.protocolVersion).toBe(4);
+    expect(saved.mqttsnClientId).toBe("sk-vessel");
+    expect(saved.mqttsnTopicPrefix).toBe("sk");
+    expect(saved.mqttsnQos).toBe(1);
+    expect(saved.mqttsnKeepalive).toBe(30);
+    expect(saved.mqttsnCleanSession).toBe(true);
+    expect(saved.mqttsnPublishRetain).toBe(false);
+  });
+
   test("Save includes managementApiToken in POST body", async () => {
     apiFetch
       .mockResolvedValueOnce(
