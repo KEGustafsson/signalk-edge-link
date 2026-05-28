@@ -1,0 +1,14 @@
+{
+  "connections": [
+    {
+      "name": "sensor-gateway",
+      "serverType": "server",
+      "udpPort": 1883,
+      "secretKey": "ChangeThisTo32CharASCIIKey123456",
+      "protocolVersion": 4,
+      "useMsgpack": false,
+      "mqttsnTopicPrefix": "sk",
+      "mqttsnGatewayId": 1
+    }
+  ]
+}

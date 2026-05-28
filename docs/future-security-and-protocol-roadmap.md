@@ -14,19 +14,21 @@ There is no online key agreement, online key rotation, or forward secrecy today.
 
 ## Non-Goals for the Current Release Line
 
-The current release line does not add a handshake protocol, automatic peer negotiation, dual-key receive windows, a distributed rate-limit store, database-backed metrics retention, or protocol-v4 wire behavior.
+The current release line does not add a handshake protocol, automatic peer negotiation, dual-key receive windows, a distributed rate-limit store, or database-backed metrics retention.
+
+> **Note on protocol version 4.** The version number `4` is now used by the MQTT-SN transport (see CHANGELOG and `docs/GUIDE.md`). MQTT-SN is a distinct transport family with its own wire format and key model — it is not the "v4 handshake" envisioned in earlier roadmap drafts. Any future capability-negotiation handshake for the existing v1/v2/v3 binary protocol would therefore land at protocol version 5 or later, with the same compatibility and migration rules described below.
 
 Future work must not weaken current protocol pinning. Any new security posture must be explicit, observable, and reversible by operators.
 
 ## Online Key Rotation and Key Agreement Options
 
-| Option                                | What it could solve                                                               | Design work required                                                                                                      | Current milestone stance                        |
-| ------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Coordinated offline rotation          | Keeps the existing operational model while documenting safer rollout steps.       | Operator runbooks, restart ordering, monitoring guidance, and incident-response timing.                                   | Safe baseline; no protocol change.              |
-| Dual-key grace window                 | Allows a receiver to accept old and new keys for a bounded migration period.      | Key identifiers, strict expiry, replay protection, downgrade resistance, telemetry, failure behavior, and rollback rules. | Future design only; not implemented.            |
-| Pre-shared-key ratchet                | Derives fresh traffic keys from the existing pre-shared secret over time.         | Ratchet state persistence, loss recovery, replay protection, peer authentication, desync handling, and observability.     | Future design only; requires protocol work.     |
-| Authenticated ephemeral key agreement | Adds forward secrecy by authenticating an ephemeral key exchange with peer trust. | Identity model, authenticated Diffie-Hellman pattern selection, downgrade resistance, replay protection, and mixed peers. | Future design only; do not hand-roll casually.  |
-| Protocol-v4 handshake                 | Provides a versioned place for capability negotiation and future crypto upgrades. | New version-gated handshake, explicit transcript binding, migration docs, rollback, metrics, and compatibility test plan. | Future protocol phase; disabled until designed. |
+| Option                                 | What it could solve                                                               | Design work required                                                                                                      | Current milestone stance                                                  |
+| -------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Coordinated offline rotation           | Keeps the existing operational model while documenting safer rollout steps.       | Operator runbooks, restart ordering, monitoring guidance, and incident-response timing.                                   | Safe baseline; no protocol change.                                        |
+| Dual-key grace window                  | Allows a receiver to accept old and new keys for a bounded migration period.      | Key identifiers, strict expiry, replay protection, downgrade resistance, telemetry, failure behavior, and rollback rules. | Future design only; not implemented.                                      |
+| Pre-shared-key ratchet                 | Derives fresh traffic keys from the existing pre-shared secret over time.         | Ratchet state persistence, loss recovery, replay protection, peer authentication, desync handling, and observability.     | Future design only; requires protocol work.                               |
+| Authenticated ephemeral key agreement  | Adds forward secrecy by authenticating an ephemeral key exchange with peer trust. | Identity model, authenticated Diffie-Hellman pattern selection, downgrade resistance, replay protection, and mixed peers. | Future design only; do not hand-roll casually.                            |
+| Capability-negotiation handshake (v5+) | Provides a versioned place for capability negotiation and future crypto upgrades. | New version-gated handshake, explicit transcript binding, migration docs, rollback, metrics, and compatibility test plan. | Future protocol phase; would land at v5+ since v4 is now used by MQTT-SN. |
 
 Future design work should consult primary protocol specifications such as TLS 1.3 and the Noise Protocol Framework before choosing any key schedule or handshake pattern.
 
@@ -38,7 +40,7 @@ Future designs must specify replay protection, peer authentication, mixed-versio
 
 Peer-matching settings that can break a link must remain explicit in migration docs: `protocolVersion`, `secretKey`, `stretchAsciiKey`, `useMsgpack`, `usePathDictionary`, UDP address, and UDP port.
 
-Protocol v3 currently reuses the v2 data packet format and adds authenticated control packets. Any protocol-v4 handshake should preserve a clear boundary between existing v1/v2/v3 behavior and new opt-in behavior.
+Protocol v3 currently reuses the v2 data packet format and adds authenticated control packets. Protocol v4 is a separate transport (MQTT-SN over UDP) and does not share the v1/v2/v3 binary wire format. Any future capability-negotiation handshake for the v1/v2/v3 family should preserve a clear boundary between existing v1/v2/v3 behavior and new opt-in behavior, and would be introduced as v5 or later.
 
 ## Scaling Limits and External Controls
 
@@ -58,9 +60,9 @@ Database-backed metrics history, cluster-wide rate-limit state, and distributed 
 
 Future work should be promoted only when the active milestone needs it and the design can satisfy the compatibility and security criteria above.
 
-| Deferred ID   | Future backlog candidate                           | Promotion trigger                                                                                  |
-| ------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| FUT-SEC-001   | 999.1 Online Key Rotation and Key Agreement Design | Promote when online rotation, key agreement, or forward secrecy is selected for design.            |
-| FUT-PROTO-001 | 999.2 Protocol-v4 Compatibility and Migration Plan | Promote before any major wire-format, negotiation, or protocol-version behavior change.            |
-| FUT-SCALE-001 | 999.3 Distributed Management Controls Architecture | Promote when deployments need global management rate limits or cross-process telemetry rollups.    |
-| FUT-OPS-001   | 999.4 Metrics History Storage Architecture         | Promote when built-in history beyond Prometheus/Grafana or external storage becomes a requirement. |
+| Deferred ID   | Future backlog candidate                                                      | Promotion trigger                                                                                  |
+| ------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| FUT-SEC-001   | 999.1 Online Key Rotation and Key Agreement Design                            | Promote when online rotation, key agreement, or forward secrecy is selected for design.            |
+| FUT-PROTO-001 | 999.2 Capability-Negotiation Handshake (v5+) Compatibility and Migration Plan | Promote before any major wire-format or negotiation change to the v1/v2/v3 binary protocol family. |
+| FUT-SCALE-001 | 999.3 Distributed Management Controls Architecture                            | Promote when deployments need global management rate limits or cross-process telemetry rollups.    |
+| FUT-OPS-001   | 999.4 Metrics History Storage Architecture                                    | Promote when built-in history beyond Prometheus/Grafana or external storage becomes a requirement. |

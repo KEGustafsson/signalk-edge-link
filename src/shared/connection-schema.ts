@@ -82,13 +82,86 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     type: "number",
     title: "Protocol Version",
     description:
-      "v1: encrypted UDP. v2 adds reliable delivery and metrics. v3 keeps the v2 data path and authenticates control packets (ACK/NAK/HEARTBEAT/HELLO). Must match on both ends.",
+      "v1: encrypted UDP. v2 adds reliable delivery and metrics. v3 keeps the v2 data path and authenticates control packets (ACK/NAK/HEARTBEAT/HELLO). v4: MQTT-SN over UDP (open standard, AES-256-GCM payload encryption). Must match on both ends.",
     default: 1,
     oneOf: [
       { const: 1, title: "v1 – Standard encrypted UDP" },
       { const: 2, title: "v2 – Reliability, congestion control, bonding, metrics" },
-      { const: 3, title: "v3 - v2 features with authenticated control packets" }
+      { const: 3, title: "v3 - v2 features with authenticated control packets" },
+      { const: 4, title: "v4 – MQTT-SN over UDP (open standard, AES-256-GCM payload encryption)" }
     ]
+  }
+};
+
+// ── MQTT-SN (protocolVersion 4) fields ───────────────────────────────────────
+
+export const mqttsnConnectionProperties: Record<string, SchemaFragment> = {
+  mqttsnClientId: {
+    type: "string",
+    title: "MQTT-SN Client ID",
+    description:
+      "Identifier sent in the MQTT-SN CONNECT frame. Max 23 characters (MQTT-SN spec limit). " +
+      "Defaults to 'sk-<connectionName>' if left blank. Client mode only.",
+    maxLength: 23,
+    pattern: "^[\\x21-\\x7E]{1,23}$"
+  },
+  mqttsnTopicPrefix: {
+    type: "string",
+    title: "MQTT Topic Prefix",
+    description:
+      "Prefix prepended to Signal K paths when forming MQTT topic names. " +
+      "Example: prefix 'sk', path 'navigation.speedOverGround' → topic 'sk/navigation/speedOverGround'. " +
+      "Must not contain MQTT wildcard characters (# or +). Must match on both ends.",
+    default: "sk",
+    minLength: 1,
+    pattern: "^[^#+]+$"
+  },
+  mqttsnQos: {
+    type: "number",
+    title: "QoS Level",
+    description:
+      "Quality of Service for PUBLISH messages. " +
+      "0 = fire-and-forget (no acknowledgment). 1 = at least once (PUBACK required). " +
+      "Client mode only.",
+    default: 0,
+    oneOf: [
+      { const: 0, title: "0 – At most once (no acknowledgment)" },
+      { const: 1, title: "1 – At least once (PUBACK required)" }
+    ]
+  },
+  mqttsnKeepalive: {
+    type: "number",
+    title: "Keepalive (seconds)",
+    description:
+      "Interval in seconds between PINGREQ messages sent to the gateway. " +
+      "Also sent as the Duration field in CONNECT. Range: 1–65535.",
+    default: 60,
+    minimum: 1,
+    maximum: 65535
+  },
+  mqttsnCleanSession: {
+    type: "boolean",
+    title: "Clean Session",
+    description:
+      "When enabled, the gateway discards any previous session state on CONNECT. " +
+      "Client mode only.",
+    default: true
+  },
+  mqttsnPublishRetain: {
+    type: "boolean",
+    title: "Retain Published Messages",
+    description: "Set the RETAIN flag on every PUBLISH. Gateway stores the last value per topic.",
+    default: false
+  },
+  mqttsnGatewayId: {
+    type: "number",
+    title: "Gateway ID",
+    description:
+      "Numeric identifier advertised in GWINFO responses to SEARCHGW broadcasts. " +
+      "Server (gateway) mode only. Range: 1–255.",
+    default: 1,
+    minimum: 1,
+    maximum: 255
   }
 };
 
@@ -544,7 +617,8 @@ export function buildConnectionItemSchema(): SchemaFragment {
             properties: {
               serverType: { enum: ["server"] },
               requestFullStatusOnRestart: requestFullStatusOnRestartProperty,
-              reliability: serverReliabilityProperty
+              reliability: serverReliabilityProperty,
+              ...mqttsnConnectionProperties
             }
           },
           {
@@ -557,7 +631,8 @@ export function buildConnectionItemSchema(): SchemaFragment {
               bonding: bondingProperty,
               enableNotifications: enableNotificationsProperty,
               skipOwnData: skipOwnDataProperty,
-              alertThresholds: alertThresholdsProperty
+              alertThresholds: alertThresholdsProperty,
+              ...mqttsnConnectionProperties
             },
             // testAddress/testPort/pingIntervalTime are validated as v1-only by
             // validateConnectionConfig — they are exposed in the schema so
@@ -584,6 +659,7 @@ export function buildWebappConnectionSchema(
   protocolVersion: number | undefined
 ): SchemaFragment {
   const isReliableProtocol = Number(protocolVersion) >= 2;
+  const isMqttSn = Number(protocolVersion) === 4;
   const props: Record<string, SchemaFragment> = { ...commonConnectionProperties };
   const required = ["serverType", "udpPort", "secretKey"];
 
@@ -592,7 +668,11 @@ export function buildWebappConnectionSchema(
     props.enableNotifications = enableNotificationsProperty;
     props.skipOwnData = skipOwnDataProperty;
     required.push("udpAddress");
-    if (isReliableProtocol) {
+    if (isMqttSn) {
+      // MQTT-SN client fields; gateway-only field not shown
+      const { mqttsnGatewayId: _gw, ...clientMqttSnProps } = mqttsnConnectionProperties;
+      Object.assign(props, clientMqttSnProps);
+    } else if (isReliableProtocol) {
       props.reliability = clientReliabilityProperty;
       props.congestionControl = congestionControlProperty;
       props.bonding = bondingProperty;
@@ -603,6 +683,17 @@ export function buildWebappConnectionSchema(
       Object.assign(props, v1ClientPingProperties);
       required.push("testAddress", "testPort");
     }
+  } else if (isMqttSn) {
+    // MQTT-SN gateway fields; client-only fields not shown
+    const {
+      mqttsnClientId: _cid,
+      mqttsnQos: _qos,
+      mqttsnKeepalive: _ka,
+      mqttsnCleanSession: _cs,
+      mqttsnPublishRetain: _pr,
+      ...serverMqttSnProps
+    } = mqttsnConnectionProperties;
+    Object.assign(props, serverMqttSnProps);
   } else if (isReliableProtocol) {
     props.requestFullStatusOnRestart = requestFullStatusOnRestartProperty;
     props.reliability = serverReliabilityProperty;

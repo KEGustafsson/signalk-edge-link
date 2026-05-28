@@ -22,6 +22,8 @@ import { createSourceRegistry } from "./source-replication";
 import createPipeline from "./pipeline";
 import { createPipelineV2Client } from "./pipeline-v2-client";
 import { createPipelineV2Server } from "./pipeline-v2-server";
+import { createPipelineMqttSnClient } from "./pipeline-mqttsn-client";
+import { createPipelineMqttSnServer } from "./pipeline-mqttsn-server";
 import {
   PacketLossTracker,
   PathLatencyTracker,
@@ -1338,9 +1340,27 @@ function createInstance(
         state.readyToSend = true;
       });
 
-      const useReliableProtocolServer = (options.protocolVersion ?? 0) >= 2;
+      const useReliableProtocolServer =
+        (options.protocolVersion ?? 0) >= 2 && options.protocolVersion !== 4;
+      const useMqttSnGateway = options.protocolVersion === 4;
       const reliableServerLabel = options.protocolVersion === 3 ? "v3" : "v2";
-      if (useReliableProtocolServer) {
+
+      if (useMqttSnGateway) {
+        const mqttSnServer = createPipelineMqttSnServer(appProxy, state, metricsApi);
+        state.pipelineServer = mqttSnServer;
+
+        state.socketUdp.on("message", (packet: Buffer, rinfo: dgram.RemoteInfo) => {
+          mqttSnServer.receivePacket(packet, options.secretKey, rinfo);
+        });
+
+        state.socketUdp.on("listening", () => {
+          if (!state.socketUdp) {
+            return;
+          }
+          mqttSnServer.startACKTimer(); // → gw.start()
+          app.debug(`[${instanceId}] [v4/mqtt-sn] Gateway pipeline initialized`);
+        });
+      } else if (useReliableProtocolServer) {
         const v2Server = createPipelineV2Server(appProxy, state, metricsApi);
         state.pipelineServer = v2Server;
 
@@ -1646,8 +1666,37 @@ function createInstance(
         });
       }
 
+      // MQTT-SN client pipeline (v4)
+      const useMqttSnClient = options.protocolVersion === 4;
+      if (useMqttSnClient) {
+        const mqttSnPipeline = createPipelineMqttSnClient(appProxy, state, metricsApi);
+        state.pipeline = mqttSnPipeline;
+
+        // All incoming UDP messages (CONNACK, REGACK, PUBACK, PINGRESP, DISCONNECT)
+        // are routed through handleControlPacket.
+        state.socketUdp.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+          mqttSnPipeline.handleControlPacket(msg, rinfo).catch((err: unknown) => {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            app.error(`[${instanceId}] [v4/mqtt-sn] Packet error: ${errMsg}`);
+          });
+        });
+
+        // Initiate CONNECT to the gateway (sends CONNECT frame; CONNACK starts keepalive).
+        await mqttSnPipeline.sendHello(options.udpAddress ?? "", options.udpPort);
+
+        // Store heartbeat handle so instance.ts cleanup can stop keepalive timer.
+        state.heartbeatHandle = mqttSnPipeline.startHeartbeat(
+          options.udpAddress ?? "",
+          options.udpPort,
+          { heartbeatInterval: options.heartbeatInterval }
+        );
+
+        app.debug(`[${instanceId}] [v4/mqtt-sn] MQTT-SN client pipeline initialized`);
+      }
+
       // Reliable client pipeline (v2/v3)
-      const useReliableProtocol = (options.protocolVersion ?? 0) >= 2;
+      const useReliableProtocol =
+        (options.protocolVersion ?? 0) >= 2 && options.protocolVersion !== 4;
       const reliableProtocolLabel = options.protocolVersion === 3 ? "v3" : "v2";
       if (useReliableProtocol) {
         state.monitoring = {

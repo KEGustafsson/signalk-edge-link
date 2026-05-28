@@ -65,9 +65,21 @@
           "maxLength": 64,
           "pattern": "^(?:.{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
         },
-        "protocolVersion": { "type": "number", "enum": [1, 2, 3], "default": 1 },
+        "protocolVersion": { "type": "number", "enum": [1, 2, 3, 4], "default": 1 },
         "useMsgpack": { "type": "boolean", "default": false },
         "usePathDictionary": { "type": "boolean", "default": false },
+        "mqttsnClientId": { "type": "string", "maxLength": 23, "pattern": "^[\\x21-\\x7E]{1,23}$" },
+        "mqttsnTopicPrefix": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^#+]+$",
+          "default": "sk"
+        },
+        "mqttsnQos": { "type": "number", "enum": [0, 1], "default": 0 },
+        "mqttsnKeepalive": { "type": "number", "minimum": 1, "maximum": 65535, "default": 60 },
+        "mqttsnCleanSession": { "type": "boolean", "default": true },
+        "mqttsnPublishRetain": { "type": "boolean", "default": false },
+        "mqttsnGatewayId": { "type": "number", "minimum": 1, "maximum": 255, "default": 1 },
         "bonding": {
           "type": "object",
           "additionalProperties": true,

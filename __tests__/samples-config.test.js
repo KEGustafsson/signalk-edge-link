@@ -11,7 +11,7 @@ function validateConnection(conn) {
   expect(typeof conn.secretKey).toBe("string");
   expect(conn.secretKey.length).toBe(32);
   if (conn.protocolVersion !== undefined) {
-    expect([1, 2, 3]).toContain(conn.protocolVersion);
+    expect([1, 2, 3, 4]).toContain(conn.protocolVersion);
   }
 }
 
