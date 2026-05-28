@@ -116,6 +116,19 @@ describe("validateConnectionConfig", () => {
       expect(error).toMatch(/protocolVersion/);
     });
 
+    test("accepts brotliQuality within 0..11", () => {
+      for (const q of [0, 1, 6, 11]) {
+        expect(validateConnectionConfig(makeValidClient({ brotliQuality: q }))).toBeNull();
+      }
+    });
+
+    test("rejects brotliQuality outside 0..11 or non-integer", () => {
+      for (const q of [-1, 12, 6.5, "high"]) {
+        const error = validateConnectionConfig(makeValidClient({ brotliQuality: q }));
+        expect(error).toMatch(/brotliQuality/);
+      }
+    });
+
     test("validates connectionId after trimming whitespace", () => {
       const paddedId = ` ${"a".repeat(80)} `;
       expect(validateConnectionConfig(makeValidClient({ connectionId: paddedId }))).toBeNull();
@@ -409,6 +422,11 @@ describe("sanitizeConnectionConfig", () => {
     expect(result.udpAddress).toBe("192.168.1.1");
     expect(result.useMsgpack).toBe(true);
     expect(result.reliability).toEqual({ retransmitQueueSize: 500 });
+  });
+
+  test("preserves brotliQuality through sanitize", () => {
+    const result = sanitizeConnectionConfig(makeValidClient({ brotliQuality: 11 }));
+    expect(result.brotliQuality).toBe(11);
   });
 
   test("drops per-connection managementApiToken when sanitizing connection config", () => {

@@ -72,6 +72,17 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     description: "Binary serialization for smaller payloads (must match on both ends).",
     default: false
   },
+  brotliQuality: {
+    type: "number",
+    title: "Brotli Quality (0-11)",
+    description:
+      "Compression quality for outbound packets. Higher values produce smaller packets at higher CPU cost. " +
+      "0 = fastest, 11 = highest ratio (~3-5× CPU vs default 6). " +
+      "Local-only setting — peers do not need to match. Default 6 (balanced).",
+    default: 6,
+    minimum: 0,
+    maximum: 11
+  },
   usePathDictionary: {
     type: "boolean",
     title: "Use Path Dictionary",

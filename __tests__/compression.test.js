@@ -86,6 +86,64 @@ describe("Compression and Encryption Pipeline", () => {
     });
   });
 
+  describe("compressPayload — configurable Brotli quality", () => {
+    const { compressPayload, brotliDecompressAsync } = require("../lib/pipeline-utils");
+    // Realistic batch-style payload: many similar deltas amplify quality differences
+    const sample = Buffer.from(
+      JSON.stringify(
+        Array.from({ length: 200 }, (_, i) => ({
+          context: "vessels.urn:mrn:imo:mmsi:230035780",
+          updates: [
+            {
+              source: { label: "GPS", type: "NMEA2000", pgn: 129029 },
+              timestamp: "2026-05-28T17:00:" + String(i % 60).padStart(2, "0") + ".000Z",
+              values: [{ path: "navigation.speedOverGround", value: 6.2 + i * 0.01 }]
+            }
+          ]
+        }))
+      ),
+      "utf8"
+    );
+
+    test("default quality (no override) matches BROTLI_QUALITY_HIGH = 6", async () => {
+      const a = await compressPayload(sample, false);
+      const b = await compressPayload(sample, false, 6);
+      expect(a.length).toBe(b.length);
+    });
+
+    test("quality 11 produces smaller output than quality 0", async () => {
+      const lo = await compressPayload(sample, false, 0);
+      const hi = await compressPayload(sample, false, 11);
+      expect(hi.length).toBeLessThan(lo.length);
+    });
+
+    test("output at every quality round-trips back to the original", async () => {
+      for (const q of [0, 3, 6, 9, 11]) {
+        const out = await compressPayload(sample, false, q);
+        const back = await brotliDecompressAsync(out);
+        expect(back.equals(sample)).toBe(true);
+      }
+    });
+
+    test("quality outside 0..11 is clamped, no error", async () => {
+      await expect(compressPayload(sample, false, -5)).resolves.toBeInstanceOf(Buffer);
+      await expect(compressPayload(sample, false, 99)).resolves.toBeInstanceOf(Buffer);
+      // Non-integer values are truncated
+      const q4 = await compressPayload(sample, false, 4);
+      const q47 = await compressPayload(sample, false, 4.7);
+      expect(q47.length).toBe(q4.length);
+    });
+
+    test("decoder reads any quality output without needing matching configuration", async () => {
+      // Decoder doesn't know which quality was used; round-trip proves it
+      const q0 = await compressPayload(sample, false, 0);
+      const q11 = await compressPayload(sample, false, 11);
+      const back0 = await brotliDecompressAsync(q0);
+      const back11 = await brotliDecompressAsync(q11);
+      expect(back0.equals(back11)).toBe(true);
+    });
+  });
+
   describe("Encryption with Compression", () => {
     test("should encrypt and decrypt successfully", () => {
       const originalData = "test data for encryption";
