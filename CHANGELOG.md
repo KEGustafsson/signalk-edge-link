@@ -2,7 +2,7 @@
 
 All notable changes to signalk-edge-link are documented here.
 
-## [Unreleased]
+## [3.0.0] - 2026-05-28
 
 ### Added
 
