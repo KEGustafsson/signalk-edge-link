@@ -295,6 +295,21 @@ export interface ConnectionConfig {
    * Paths not in the map are not throttled.
    */
   pathThrottle?: Record<string, { minIntervalMs?: number; deadband?: number }>;
+  /**
+   * Replace outbound values that are identical to the previously sent
+   * value for the same (context, path) with a small sentinel object. The
+   * receiver maintains the same per-(context, path) cache and restores
+   * the value before injecting into Signal K.
+   *
+   * **Peer-matching setting** — both ends must enable this. If only the
+   * client enables it, the receiver sees the sentinel as the value and
+   * downstream Signal K consumers will see broken data. The receiver
+   * applies expansion transparently when sentinels are seen in the
+   * incoming stream, so it is safe to enable on the receiver first.
+   *
+   * Effective only on protocolVersion 2/3 (the reliable transport).
+   */
+  useValueDedup?: boolean;
   /** Compress Signal K path strings with a shared dictionary to reduce packet size. Default false. */
   usePathDictionary?: boolean;
   /** Forward Signal K notification deltas over the link. Default false. */
