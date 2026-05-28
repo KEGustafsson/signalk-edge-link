@@ -48,13 +48,14 @@ Signal K Edge Link solves each of these with UDP transport, Brotli compression, 
 
 ### Protocol version at a glance
 
-| Version | Best for                                         | Key features                                                           |
-| ------- | ------------------------------------------------ | ---------------------------------------------------------------------- |
-| **v1**  | Stable local links, simplest setup               | Encrypted UDP, Brotli compression. No retransmission or metrics.       |
-| **v2**  | WAN links with packet loss or variable latency   | v1 + ACK/NAK reliability, congestion control, bonding, rich monitoring |
-| **v3**  | Untrusted WAN links (recommended for new setups) | v2 + HMAC-SHA256 authentication on all control packets                 |
+| Version | Best for                                                   | Key features                                                                                                                                                       |
+| ------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **v1**  | Stable local links, simplest setup                         | Encrypted UDP, Brotli compression. No retransmission or metrics.                                                                                                   |
+| **v2**  | WAN links with packet loss or variable latency             | v1 + ACK/NAK reliability, congestion control, bonding, rich monitoring                                                                                             |
+| **v3**  | Untrusted WAN links (recommended for new SK-to-SK setups)  | v2 + HMAC-SHA256 authentication on all control packets                                                                                                             |
+| **v4**  | MQTT-SN over UDP — open-standard publish to a gateway/sink | MQTT-SN v1.2 client (publisher) and gateway (sink). AES-256-GCM payload encryption, QoS 0/1, PINGREQ keepalive. No reliability layer; one Signal K path per topic. |
 
-**Recommendation:** Use **v3** for any new deployment. Fall back to v2 only when you need backward compatibility with an existing v2 peer that cannot be upgraded.
+**Recommendation:** Use **v3** for Signal K-to-Signal K links. Use **v4** when one end needs to speak MQTT-SN (either a third-party sensor talking to a Signal K gateway, or Signal K publishing to a peer-to-peer MQTT-SN sink). Fall back to v2 only when you need backward compatibility with an existing v2 peer that cannot be upgraded.
 
 ---
 
@@ -522,6 +523,101 @@ v3 closes all of these because forging requires knowledge of the shared secret. 
 3. Confirm data flow resumes — check `deltasSent` / `deltasReceived`
 4. Confirm ACK/NAK traffic is present in `GET /metrics`
 5. If the link does not recover, verify both sides use the same `protocolVersion` and `secretKey`
+
+---
+
+### v4 — MQTT-SN Over UDP
+
+v4 swaps the v1/v2/v3 binary wire format for **MQTT-SN v1.2** (the lightweight UDP-friendly variant of MQTT). It exists for two scenarios:
+
+- A Signal K instance needs to **publish** to an MQTT-SN gateway/sink (third-party or another signalk-edge-link).
+- A signalk-edge-link instance acts as a **gateway** that accepts MQTT-SN device connections and injects values into Signal K.
+
+#### v4 wire format
+
+Each frame is a length-prefixed MQTT-SN message:
+
+```
+Byte 0     : total length (1 byte; or 0x01 to indicate the 3-byte length form)
+Byte 1     : MsgType (CONNECT=0x04, CONNACK=0x05, REGISTER=0x0A, REGACK=0x0B,
+                      PUBLISH=0x0C, PUBACK=0x0D, PINGREQ=0x16, PINGRESP=0x17,
+                      DISCONNECT=0x18, SEARCHGW=0x01, GWINFO=0x02)
+Byte 2..N  : message-specific body
+```
+
+PUBLISH payload bytes are **AES-256-GCM encrypted** with the shared `secretKey` (same key model as v1/v2/v3). The plaintext is the Signal K value serialized as JSON (or MessagePack if `useMsgpack: true`).
+
+Topic mapping: a Signal K path is translated to an MQTT topic name by replacing dots with slashes and prepending `mqttsnTopicPrefix`. Example: path `navigation.speedOverGround` with prefix `sk` becomes topic `sk/navigation/speedOverGround`.
+
+#### v4 client flow (publisher)
+
+1. **CONNECT** → gateway responds **CONNACK(ACCEPTED)**
+2. On the first publish for any path: **REGISTER(topicName)** → gateway assigns a 2-byte topic ID and responds **REGACK(topicId)**; subsequent publishes for the same path reuse the ID
+3. **PUBLISH(topicId, encrypted-payload)** per delta value
+4. If `mqttsnQos: 1`: gateway responds **PUBACK**; the client retransmits with `DUP=1` on timeout (up to 3 attempts)
+5. **PINGREQ** every `mqttsnKeepalive` seconds; if **PINGRESP** does not arrive within 1.5× keepalive, the client declares the link broken and reconnects with exponential backoff (2s, 4s, 8s, … capped at 60s)
+
+#### v4 gateway flow
+
+1. Listens on the configured UDP port for any MQTT-SN client
+2. Each client is identified by `remoteAddress:remotePort` and gets its own topic-ID registry
+3. On **PUBLISH**: decrypts the payload, looks up the topic name, converts to a Signal K path, builds a delta, and calls `app.handleMessage(instanceId, delta)`
+4. A keepalive watchdog (1.5× `mqttsnKeepalive` from the device's CONNECT) deletes the session if no traffic arrives in time
+
+#### v4 limitations
+
+- **Send-only client**: the client publishes; it does not SUBSCRIBE or receive PUBLISH from the gateway. Use v3 if you need bidirectional Signal K delta sync.
+- **No reliability layer**: no ACK/NAK retransmission of arbitrary frames, no congestion control, no bonding. Use QoS 1 for per-publish acknowledgment but accept that lost CONNECTs trigger only the reconnect path.
+- **Shared-key requirement**: v4 payloads are encrypted, so a third-party MQTT-SN client cannot interoperate unless it knows the same `secretKey`. This is intentional — v4 is a peer-to-peer link, not an open IoT endpoint.
+- **One value per PUBLISH**: each Signal K delta value becomes its own MQTT-SN PUBLISH. No batching.
+
+#### v4 configuration example
+
+```json
+{
+  "connections": [
+    {
+      "name": "shore-gateway",
+      "serverType": "client",
+      "udpAddress": "192.168.1.100",
+      "udpPort": 1883,
+      "secretKey": "ChangeThisTo32CharASCIIKey123456",
+      "protocolVersion": 4,
+      "mqttsnClientId": "sk-vessel",
+      "mqttsnTopicPrefix": "sk",
+      "mqttsnQos": 1,
+      "mqttsnKeepalive": 60,
+      "mqttsnCleanSession": true,
+      "mqttsnPublishRetain": false
+    }
+  ]
+}
+```
+
+Gateway side:
+
+```json
+{
+  "connections": [
+    {
+      "name": "sensor-gateway",
+      "serverType": "server",
+      "udpPort": 1883,
+      "secretKey": "ChangeThisTo32CharASCIIKey123456",
+      "protocolVersion": 4,
+      "mqttsnTopicPrefix": "sk",
+      "mqttsnGatewayId": 1
+    }
+  ]
+}
+```
+
+#### v4 verification checklist
+
+1. Set `protocolVersion: 4` on both peers; ensure both have the same `secretKey` and `mqttsnTopicPrefix`
+2. Watch the gateway's plugin log for `CONNECT from "<clientId>"` and `REGISTER "<topic>" → topicId=<n>`
+3. Confirm Signal K values appear under `vessels.self` on the gateway side (source label `mqttsn-<clientId>`)
+4. If using QoS 1, confirm no `[mqttsn] PUBACK timeout` errors in the client log
 
 ---
 

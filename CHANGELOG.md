@@ -2,6 +2,31 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **Protocol v4: MQTT-SN over UDP** (new files
+  `src/mqttsn-protocol.ts`, `src/mqttsn-topic-registry.ts`,
+  `src/pipeline-mqttsn-client.ts`, `src/mqttsn-gateway.ts`,
+  `src/pipeline-mqttsn-server.ts`). Two roles:
+  - **Client (publisher)**: connects to an MQTT-SN gateway, registers
+    Signal K paths as MQTT topic names (`prefix/navigation/speedOverGround`),
+    and publishes deltas as MQTT-SN PUBLISH messages.
+  - **Gateway (server)**: accepts MQTT-SN device connections, handles
+    the CONNECT/REGISTER/PUBLISH/PINGREQ/DISCONNECT lifecycle, decrypts
+    payloads, and injects values into Signal K via `app.handleMessage()`.
+    Reuses the same AES-256-GCM payload encryption and `secretKey` model
+    as v1/v2/v3 — no new npm dependencies. Supports QoS 0 (fire-and-forget)
+    and QoS 1 (PUBACK with retransmit), PINGREQ keepalive with watchdog,
+    exponential-backoff reconnect, and per-device session topic registries.
+- Config schema additions: `mqttsnClientId`, `mqttsnTopicPrefix`,
+  `mqttsnQos`, `mqttsnKeepalive`, `mqttsnCleanSession`,
+  `mqttsnPublishRetain` (client mode), and `mqttsnGatewayId` (server mode).
+  Wired into both the backend item schema and the webapp form so they
+  appear when `protocolVersion: 4` is selected.
+- Sample configs: `samples/mqttsn-client.json`, `samples/mqttsn-gateway.json`.
+
 ## [2.8.0] - 2026-05-21
 
 ### Fixed

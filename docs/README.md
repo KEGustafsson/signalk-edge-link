@@ -44,7 +44,7 @@ Architecture and design notes retained for contributors and maintainers.
 
 ## Sample Configs
 
-- `../samples/` — Sample config files for minimal, development, and v2-bonding setups
+- `../samples/` — Sample config files for minimal, development, v2-bonding, v3-authenticated-control, and v4 MQTT-SN (client + gateway) setups
 
 ## Dashboard Assets
 

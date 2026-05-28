@@ -25,6 +25,11 @@ It is designed for links where latency, packet loss, and bandwidth usage matter 
   - values snapshot replay on subscribe, retry, and socket recovery
   - optional server-triggered full-state request on restart (`requestFullStatusOnRestart`)
   - Signal K path metadata transport (units, descriptions, zones)
+- **Protocol v4 (MQTT-SN over UDP)** for open-standard publish/subscribe:
+  - MQTT-SN v1.2 client (publisher) and transparent gateway (sink)
+  - AES-256-GCM payload encryption with the same shared-key model as v1/v2/v3
+  - QoS 0 / 1 with PUBACK retransmit, PINGREQ keepalive, exponential-backoff reconnect
+  - One MQTT topic per Signal K path; gateway injects values into Signal K via `app.handleMessage()`
 - **Multi-connection support** on one Signal K instance
 
 ## How data flows
@@ -113,13 +118,14 @@ Check that:
 
 ## Protocol version guidance
 
-| Version | Use when                                                  | Notes                                                                         |
-| ------- | --------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| v1      | stable local links, simplest setup                        | lower overhead, no ACK/NAK reliability, no metadata transport                 |
-| v2      | packet loss, variable latency, WAN links                  | adds retransmission, congestion control, bonding, metadata, richer monitoring |
-| v3      | same use cases as v2 when both peers can upgrade together | keeps v2 features and authenticates ACK/NAK/HEARTBEAT/HELLO control packets   |
+| Version | Use when                                                  | Notes                                                                                                           |
+| ------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| v1      | stable local links, simplest setup                        | lower overhead, no ACK/NAK reliability, no metadata transport                                                   |
+| v2      | packet loss, variable latency, WAN links                  | adds retransmission, congestion control, bonding, metadata, richer monitoring                                   |
+| v3      | same use cases as v2 when both peers can upgrade together | keeps v2 features and authenticates ACK/NAK/HEARTBEAT/HELLO control packets                                     |
+| v4      | publishing Signal K to/from an MQTT-SN gateway            | MQTT-SN v1.2 over UDP. AES-256-GCM payload encryption, QoS 0/1, PINGREQ keepalive. One topic per Signal K path. |
 
-For unstable links, start with **v3** when both peers support it; fall back to **v2** only when you need compatibility with an already deployed v2 peer.
+For Signal K-to-Signal K links on unstable networks, start with **v3** when both peers support it; fall back to **v2** only when you need compatibility with an already deployed v2 peer. Use **v4** when one end needs to speak MQTT-SN (either a third-party MQTT-SN sensor publishing into Signal K, or Signal K publishing out to an MQTT-SN sink).
 
 ## Runtime UI and API
 
@@ -173,6 +179,26 @@ Configuration is an array of independent connections:
 - Legacy single-object config is auto-normalized to one connection.
 - Client runtime JSON files (`delta_timer.json`, `subscription.json`, `sentence_filter.json`) are stored per connection and can be edited via API.
 - `requestFullStatusOnRestart` (server mode, v2/v3, default `false`): when enabled, the server sends a `FULL_STATUS_REQUEST` to each client on first contact after a (re)start; the client immediately replays its complete values snapshot so the server rebuilds state without waiting for incremental deltas. Client-side rate-limited to 10 s to prevent replay floods across rapid restarts.
+
+### MQTT-SN (v4) configuration
+
+When `protocolVersion: 4`, the connection speaks MQTT-SN v1.2 over UDP. See `samples/mqttsn-client.json` and `samples/mqttsn-gateway.json` for complete examples. Additional v4 fields:
+
+Client (publisher):
+
+- `mqttsnClientId` (max 23 printable ASCII chars, default `sk-<connectionName>`)
+- `mqttsnTopicPrefix` (default `sk`, must match on both ends, no `#` or `+`)
+- `mqttsnQos` (`0` = fire-and-forget, `1` = at-least-once with PUBACK)
+- `mqttsnKeepalive` (seconds, 1–65535, default `60`)
+- `mqttsnCleanSession` (default `true`)
+- `mqttsnPublishRetain` (default `false`)
+
+Gateway (server):
+
+- `mqttsnTopicPrefix` (must match clients)
+- `mqttsnGatewayId` (1–255, advertised in GWINFO responses to SEARCHGW broadcasts)
+
+Payloads are AES-256-GCM encrypted with the shared `secretKey` — both ends must use the same key. This makes v4 incompatible with third-party MQTT-SN clients that do not share the key; for cross-vendor MQTT-SN interoperability you would need to layer your own gateway translation.
 
 For complete setting definitions and ranges, use `docs/configuration-reference.md`.
 
