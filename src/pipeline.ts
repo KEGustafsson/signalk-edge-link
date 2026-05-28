@@ -3,7 +3,7 @@
 import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary, decryptBinary } from "./crypto";
 import { encodeDelta, decodeDelta } from "./pathDictionary";
-import { sanitizeDeltaForSignalK } from "./delta-sanitizer";
+import { quantizeDelta, sanitizeDeltaForSignalK } from "./delta-sanitizer";
 import { handleMessageBySource, normalizeDeltaSourceRefs } from "./source-dispatch";
 import {
   deltaBuffer,
@@ -61,12 +61,20 @@ function createPipeline(
         return;
       }
 
+      // Apply per-path numeric precision (bandwidth optimization, lossy)
+      const precisionMap = state.options.pathPrecision;
+      const quantized = precisionMap
+        ? Array.isArray(delta)
+          ? delta.map((d) => quantizeDelta(d, precisionMap))
+          : quantizeDelta(delta, precisionMap)
+        : delta;
+
       // Apply path dictionary encoding if enabled
       const processedDelta = state.options.usePathDictionary
-        ? Array.isArray(delta)
-          ? delta.map(encodeDelta)
-          : encodeDelta(delta)
-        : delta;
+        ? Array.isArray(quantized)
+          ? quantized.map(encodeDelta)
+          : encodeDelta(quantized)
+        : quantized;
 
       // Serialize to buffer (JSON or MessagePack)
       const serialized = deltaBuffer(processedDelta, state.options.useMsgpack);

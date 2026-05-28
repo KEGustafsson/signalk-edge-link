@@ -19,6 +19,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "useMsgpack",
   "usePathDictionary",
   "brotliQuality",
+  "pathPrecision",
   "enableNotifications",
   "skipOwnData",
   "protocolVersion",
@@ -124,6 +125,20 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     const q = conn.brotliQuality;
     if (!Number.isInteger(q) || (q as number) < 0 || (q as number) > 11) {
       return `${p}brotliQuality must be an integer between 0 and 11`;
+    }
+  }
+  if (conn.pathPrecision !== undefined) {
+    if (
+      typeof conn.pathPrecision !== "object" ||
+      conn.pathPrecision === null ||
+      Array.isArray(conn.pathPrecision)
+    ) {
+      return `${p}pathPrecision must be an object mapping path to integer 0..15`;
+    }
+    for (const [path, decimals] of Object.entries(conn.pathPrecision as Record<string, unknown>)) {
+      if (!Number.isInteger(decimals) || (decimals as number) < 0 || (decimals as number) > 15) {
+        return `${p}pathPrecision["${path}"] must be an integer between 0 and 15`;
+      }
     }
   }
   if (conn.usePathDictionary !== undefined && typeof conn.usePathDictionary !== "boolean") {

@@ -16,7 +16,11 @@
 import CircularBuffer from "./CircularBuffer";
 import { encryptBinary } from "./crypto";
 import { encodeDelta, encodeMetaEntry } from "./pathDictionary";
-import { sanitizeDeltaPayloadForSignalK, type DeltaPayload } from "./delta-sanitizer";
+import {
+  quantizeDeltaPayload,
+  sanitizeDeltaPayloadForSignalK,
+  type DeltaPayload
+} from "./delta-sanitizer";
 import {
   deltaBuffer,
   compressPayload,
@@ -393,10 +397,13 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         return;
       }
 
+      // Apply per-path numeric precision (bandwidth optimization, lossy)
+      const quantizedDelta = quantizeDeltaPayload(sanitizedDelta, state.options?.pathPrecision);
+
       // Apply path dictionary encoding if enabled
       const processedDelta = state.options.usePathDictionary
-        ? encodeDeltaPayload(sanitizedDelta)
-        : sanitizedDelta;
+        ? encodeDeltaPayload(quantizedDelta)
+        : quantizedDelta;
 
       // Serialize to buffer
       const serialized = deltaBuffer(processedDelta, state.options.useMsgpack);
