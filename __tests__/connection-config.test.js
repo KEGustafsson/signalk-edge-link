@@ -164,6 +164,42 @@ describe("validateConnectionConfig", () => {
       }
     });
 
+    test("accepts valid pathThrottle objects", () => {
+      expect(
+        validateConnectionConfig(
+          makeValidClient({
+            pathThrottle: {
+              "propulsion.main.revolutions": { minIntervalMs: 500 },
+              "electrical.batteries.house.voltage": { minIntervalMs: 5000, deadband: 0.05 },
+              "navigation.state": { deadband: 0 }
+            }
+          })
+        )
+      ).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ pathThrottle: {} }))).toBeNull();
+    });
+
+    test("rejects pathThrottle with invalid rule values", () => {
+      const cases = [
+        { rule: { minIntervalMs: -1 }, match: /minIntervalMs/ },
+        { rule: { minIntervalMs: 1.5 }, match: /minIntervalMs/ },
+        { rule: { minIntervalMs: "fast" }, match: /minIntervalMs/ },
+        { rule: { deadband: -0.1 }, match: /deadband/ },
+        { rule: { deadband: "wide" }, match: /deadband/ }
+      ];
+      for (const { rule, match } of cases) {
+        const error = validateConnectionConfig(makeValidClient({ pathThrottle: { p: rule } }));
+        expect(error).toMatch(match);
+      }
+    });
+
+    test("rejects pathThrottle that is not an object map", () => {
+      for (const bad of ["string", 1, ["array"]]) {
+        const error = validateConnectionConfig(makeValidClient({ pathThrottle: bad }));
+        expect(error).toMatch(/pathThrottle/);
+      }
+    });
+
     test("validates connectionId after trimming whitespace", () => {
       const paddedId = ` ${"a".repeat(80)} `;
       expect(validateConnectionConfig(makeValidClient({ connectionId: paddedId }))).toBeNull();
@@ -471,6 +507,17 @@ describe("sanitizeConnectionConfig", () => {
       })
     );
     expect(result.pathPrecision).toEqual({ "navigation.speedOverGround": 2 });
+  });
+
+  test("preserves pathThrottle through sanitize", () => {
+    const result = sanitizeConnectionConfig(
+      makeValidClient({
+        pathThrottle: { "propulsion.main.revolutions": { minIntervalMs: 500 } }
+      })
+    );
+    expect(result.pathThrottle).toEqual({
+      "propulsion.main.revolutions": { minIntervalMs: 500 }
+    });
   });
 
   test("drops per-connection managementApiToken when sanitizing connection config", () => {

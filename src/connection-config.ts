@@ -20,6 +20,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "usePathDictionary",
   "brotliQuality",
   "pathPrecision",
+  "pathThrottle",
   "enableNotifications",
   "skipOwnData",
   "protocolVersion",
@@ -138,6 +139,35 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     for (const [path, decimals] of Object.entries(conn.pathPrecision as Record<string, unknown>)) {
       if (!Number.isInteger(decimals) || (decimals as number) < 0 || (decimals as number) > 15) {
         return `${p}pathPrecision["${path}"] must be an integer between 0 and 15`;
+      }
+    }
+  }
+  if (conn.pathThrottle !== undefined) {
+    if (
+      typeof conn.pathThrottle !== "object" ||
+      conn.pathThrottle === null ||
+      Array.isArray(conn.pathThrottle)
+    ) {
+      return `${p}pathThrottle must be an object mapping path to a rule`;
+    }
+    for (const [path, rule] of Object.entries(conn.pathThrottle as Record<string, unknown>)) {
+      if (typeof rule !== "object" || rule === null || Array.isArray(rule)) {
+        return `${p}pathThrottle["${path}"] must be an object`;
+      }
+      const r = rule as Record<string, unknown>;
+      if (r.minIntervalMs !== undefined) {
+        if (
+          !Number.isInteger(r.minIntervalMs) ||
+          (r.minIntervalMs as number) < 0 ||
+          (r.minIntervalMs as number) > 3_600_000
+        ) {
+          return `${p}pathThrottle["${path}"].minIntervalMs must be an integer between 0 and 3600000`;
+        }
+      }
+      if (r.deadband !== undefined) {
+        if (!isFiniteNumber(r.deadband) || (r.deadband as number) < 0) {
+          return `${p}pathThrottle["${path}"].deadband must be a non-negative number`;
+        }
       }
     }
   }

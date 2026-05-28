@@ -17,8 +17,10 @@ import CircularBuffer from "./CircularBuffer";
 import { encryptBinary } from "./crypto";
 import { encodeDelta, encodeMetaEntry } from "./pathDictionary";
 import {
+  createPathThrottleState,
   quantizeDeltaPayload,
   sanitizeDeltaPayloadForSignalK,
+  throttleDeltaPayload,
   type DeltaPayload
 } from "./delta-sanitizer";
 import {
@@ -59,6 +61,7 @@ import {
 function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
   const { metrics, recordError, trackPathStats, updateBandwidthRates } = metricsApi;
   const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
+  const throttleState = createPathThrottleState();
   const protocolVersion = state.options && state.options.protocolVersion === 3 ? 3 : 2;
   const stretchAsciiKey = !!state.options?.stretchAsciiKey;
   const packetBuilder = new PacketBuilder({
@@ -400,10 +403,21 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       // Apply per-path numeric precision (bandwidth optimization, lossy)
       const quantizedDelta = quantizeDeltaPayload(sanitizedDelta, state.options?.pathPrecision);
 
+      // Apply per-path throttle / deadband (drops values that fail the rule)
+      const throttledDelta = throttleDeltaPayload(
+        quantizedDelta,
+        state.options?.pathThrottle,
+        throttleState
+      );
+      if (throttledDelta === null) {
+        app.debug("sendDelta skipped: all values dropped by pathThrottle");
+        return;
+      }
+
       // Apply path dictionary encoding if enabled
       const processedDelta = state.options.usePathDictionary
-        ? encodeDeltaPayload(quantizedDelta)
-        : quantizedDelta;
+        ? encodeDeltaPayload(throttledDelta)
+        : throttledDelta;
 
       // Serialize to buffer
       const serialized = deltaBuffer(processedDelta, state.options.useMsgpack);

@@ -3,7 +3,12 @@
 import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary, decryptBinary } from "./crypto";
 import { encodeDelta, decodeDelta } from "./pathDictionary";
-import { quantizeDelta, sanitizeDeltaForSignalK } from "./delta-sanitizer";
+import {
+  createPathThrottleState,
+  quantizeDelta,
+  sanitizeDeltaForSignalK,
+  throttleDelta
+} from "./delta-sanitizer";
 import { handleMessageBySource, normalizeDeltaSourceRefs } from "./source-dispatch";
 import {
   deltaBuffer,
@@ -43,6 +48,7 @@ function createPipeline(
 } {
   const { metrics, recordError, trackPathStats } = metricsApi;
   const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
+  const throttleState = createPathThrottleState();
 
   /**
    * Compresses, encrypts, and sends delta data via UDP.
@@ -69,12 +75,32 @@ function createPipeline(
           : quantizeDelta(delta, precisionMap)
         : delta;
 
+      // Apply per-path throttle / deadband (drops values that fail the rule)
+      const throttleMap = state.options.pathThrottle;
+      let throttled: Delta | Delta[] | null = quantized;
+      if (throttleMap) {
+        if (Array.isArray(quantized)) {
+          const kept: Delta[] = [];
+          for (const d of quantized) {
+            const t = throttleDelta(d, throttleMap, throttleState);
+            if (t !== null) kept.push(t);
+          }
+          throttled = kept.length > 0 ? kept : null;
+        } else {
+          throttled = throttleDelta(quantized, throttleMap, throttleState);
+        }
+      }
+      if (throttled === null) {
+        // Everything throttled out — nothing to send
+        return;
+      }
+
       // Apply path dictionary encoding if enabled
       const processedDelta = state.options.usePathDictionary
-        ? Array.isArray(quantized)
-          ? quantized.map(encodeDelta)
-          : encodeDelta(quantized)
-        : quantized;
+        ? Array.isArray(throttled)
+          ? throttled.map(encodeDelta)
+          : encodeDelta(throttled)
+        : throttled;
 
       // Serialize to buffer (JSON or MessagePack)
       const serialized = deltaBuffer(processedDelta, state.options.useMsgpack);

@@ -93,6 +93,25 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
       "LOSSY — the receiver sees the rounded value. Paths not listed are sent at full precision.",
     additionalProperties: { type: "integer", minimum: 0, maximum: 15 }
   },
+  pathThrottle: {
+    type: "object",
+    title: "Per-Path Throttle / Deadband",
+    description:
+      "Drop outbound values that arrive too quickly (minIntervalMs) or whose absolute " +
+      "change vs the previous sent value is below a threshold (deadband). Both rules " +
+      "apply independently — a value passes only if BOTH allow it. " +
+      'Example: { "propulsion.main.revolutions": { "minIntervalMs": 500 }, ' +
+      '"electrical.batteries.house.voltage": { "minIntervalMs": 5000, "deadband": 0.05 } }. ' +
+      "Paths not listed are not throttled.",
+    additionalProperties: {
+      type: "object",
+      properties: {
+        minIntervalMs: { type: "integer", minimum: 0, maximum: 3600000 },
+        deadband: { type: "number", minimum: 0 }
+      },
+      additionalProperties: false
+    }
+  },
   usePathDictionary: {
     type: "boolean",
     title: "Use Path Dictionary",
