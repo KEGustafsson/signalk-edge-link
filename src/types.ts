@@ -270,6 +270,17 @@ export interface ConnectionConfig {
    * Local-only setting; peers do not need to match. Default 6 (balanced).
    */
   brotliQuality?: number;
+  /**
+   * Per-path numeric precision (decimal places). Round outbound numeric
+   * values to N decimals at the configured path. Reduces bandwidth at the
+   * cost of precision. Nested object values use dotted paths
+   * (e.g. `"navigation.position.latitude": 5`).
+   *
+   * **Lossy by design** — the receiver gets the rounded value. Only use
+   * precision settings that match each sensor's actual reportable precision.
+   * Paths not in the map are sent at full precision.
+   */
+  pathPrecision?: Record<string, number>;
   /** Compress Signal K path strings with a shared dictionary to reduce packet size. Default false. */
   usePathDictionary?: boolean;
   /** Forward Signal K notification deltas over the link. Default false. */

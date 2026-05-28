@@ -83,6 +83,16 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     minimum: 0,
     maximum: 11
   },
+  pathPrecision: {
+    type: "object",
+    title: "Per-Path Numeric Precision",
+    description:
+      "Round outbound numeric values to N decimal places, per Signal K path. " +
+      'Example: { "navigation.speedOverGround": 2, "environment.outside.pressure": 0 }. ' +
+      'Use dotted paths for nested values (e.g. "navigation.position.latitude"). ' +
+      "LOSSY — the receiver sees the rounded value. Paths not listed are sent at full precision.",
+    additionalProperties: { type: "integer", minimum: 0, maximum: 15 }
+  },
   usePathDictionary: {
     type: "boolean",
     title: "Use Path Dictionary",

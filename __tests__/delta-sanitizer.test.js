@@ -207,3 +207,121 @@ describe("stripOwnDataFromDelta", () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("quantizeDelta — per-path numeric precision", () => {
+  const { quantizeDelta, quantizeDeltaPayload } = require("../lib/delta-sanitizer");
+
+  function makeDelta(values) {
+    return {
+      context: "vessels.self",
+      updates: [{ source: { label: "test" }, timestamp: "2026-05-28T00:00:00Z", values }]
+    };
+  }
+
+  test("rounds a configured numeric path to N decimals", () => {
+    const out = quantizeDelta(
+      makeDelta([{ path: "navigation.speedOverGround", value: 7.234567890123456 }]),
+      { "navigation.speedOverGround": 2 }
+    );
+    expect(out.updates[0].values[0].value).toBe(7.23);
+  });
+
+  test("leaves paths not in the map unchanged", () => {
+    const original = makeDelta([
+      { path: "navigation.speedOverGround", value: 7.234567 },
+      { path: "navigation.headingTrue", value: 1.523456 }
+    ]);
+    const out = quantizeDelta(original, { "navigation.speedOverGround": 2 });
+    expect(out.updates[0].values[0].value).toBe(7.23);
+    expect(out.updates[0].values[1].value).toBe(1.523456);
+  });
+
+  test("recurses into object values using dotted paths", () => {
+    const out = quantizeDelta(
+      makeDelta([
+        {
+          path: "navigation.position",
+          value: { latitude: 60.16958123, longitude: 24.93547651 }
+        }
+      ]),
+      {
+        "navigation.position.latitude": 5,
+        "navigation.position.longitude": 5
+      }
+    );
+    expect(out.updates[0].values[0].value).toEqual({
+      latitude: 60.16958,
+      longitude: 24.93548
+    });
+  });
+
+  test("returns the same object reference when no values change (no allocation)", () => {
+    const original = makeDelta([{ path: "navigation.headingTrue", value: 1.5 }]);
+    // Empty map → no-op
+    expect(quantizeDelta(original, {})).toBe(original);
+    // Path not in map → no-op
+    expect(quantizeDelta(original, { "environment.wind.speed": 1 })).toBe(original);
+  });
+
+  test("leaves non-numeric values untouched", () => {
+    const original = makeDelta([
+      { path: "navigation.state", value: "moored" },
+      { path: "design.aisShipType", value: { id: 36, name: "Sailing" } }
+    ]);
+    const out = quantizeDelta(original, { "navigation.state": 2 });
+    expect(out.updates[0].values[0].value).toBe("moored");
+  });
+
+  test("undefined or empty precisionMap → identity", () => {
+    const original = makeDelta([{ path: "p", value: 1.234 }]);
+    expect(quantizeDelta(original, undefined)).toBe(original);
+    expect(quantizeDelta(original, {})).toBe(original);
+  });
+
+  test("handles negative numbers and zero decimals", () => {
+    const out = quantizeDelta(
+      makeDelta([
+        { path: "p1", value: -7.876 },
+        { path: "p2", value: 12345.678 }
+      ]),
+      { p1: 1, p2: 0 }
+    );
+    expect(out.updates[0].values[0].value).toBe(-7.9);
+    expect(out.updates[0].values[1].value).toBe(12346);
+  });
+
+  test("non-finite numbers (NaN, Infinity) are passed through unchanged", () => {
+    const out = quantizeDelta(
+      makeDelta([
+        { path: "p1", value: NaN },
+        { path: "p2", value: Infinity }
+      ]),
+      { p1: 2, p2: 2 }
+    );
+    expect(Number.isNaN(out.updates[0].values[0].value)).toBe(true);
+    expect(out.updates[0].values[1].value).toBe(Infinity);
+  });
+
+  test("quantizeDeltaPayload handles array payloads", () => {
+    const out = quantizeDeltaPayload(
+      [makeDelta([{ path: "p", value: 1.234 }]), makeDelta([{ path: "p", value: 5.678 }])],
+      { p: 1 }
+    );
+    expect(out[0].updates[0].values[0].value).toBe(1.2);
+    expect(out[1].updates[0].values[0].value).toBe(5.7);
+  });
+
+  test("quantizeDeltaPayload handles Record-style payloads", () => {
+    const out = quantizeDeltaPayload(
+      {
+        alpha: makeDelta([{ path: "p", value: 1.234 }]),
+        beta: makeDelta([{ path: "p", value: 5.678 }])
+      },
+      { p: 1 }
+    );
+    expect(out.alpha.updates[0].values[0].value).toBe(1.2);
+    expect(out.beta.updates[0].values[0].value).toBe(5.7);
+  });
+});
