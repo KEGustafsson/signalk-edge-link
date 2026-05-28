@@ -57,11 +57,19 @@ function makeState(overrides = {}) {
   };
 }
 
+let _activePipelines = [];
+
+afterEach(() => {
+  for (const p of _activePipelines) {p.stopCongestionControl();}
+  _activePipelines = [];
+});
+
 function makeClient(optionOverrides = {}) {
   const app = makeApp();
   const state = makeState({ options: optionOverrides });
   const metricsApi = createMetrics();
   const pipeline = createPipeline(4, "client", app, state, metricsApi);
+  _activePipelines.push(pipeline);
   return { app, state, pipeline };
 }
 

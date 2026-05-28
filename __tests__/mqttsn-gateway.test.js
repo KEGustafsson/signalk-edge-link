@@ -50,11 +50,19 @@ function makeState(overrides = {}) {
   };
 }
 
+let _activeGateways = [];
+
+afterEach(() => {
+  for (const gw of _activeGateways) {gw.stop();}
+  _activeGateways = [];
+});
+
 function makeGateway(stateOverrides = {}) {
   const app = makeApp();
   const state = makeState(stateOverrides);
   const gw = createMqttSnGateway(app, state, {});
   gw.start();
+  _activeGateways.push(gw);
   return { gw, app, state, socket: state.socketUdp };
 }
 
