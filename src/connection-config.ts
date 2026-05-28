@@ -17,6 +17,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "secretKey",
   "stretchAsciiKey",
   "useMsgpack",
+  "useValueDedup",
   "usePathDictionary",
   "brotliQuality",
   "pathPrecision",
@@ -121,6 +122,9 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   }
   if (conn.useMsgpack !== undefined && typeof conn.useMsgpack !== "boolean") {
     return `${p}useMsgpack must be a boolean`;
+  }
+  if (conn.useValueDedup !== undefined && typeof conn.useValueDedup !== "boolean") {
+    return `${p}useValueDedup must be a boolean`;
   }
   if (conn.brotliQuality !== undefined) {
     const q = conn.brotliQuality;

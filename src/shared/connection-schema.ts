@@ -72,6 +72,16 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     description: "Binary serialization for smaller payloads (must match on both ends).",
     default: false
   },
+  useValueDedup: {
+    type: "boolean",
+    title: "Deduplicate Unchanged Values",
+    description:
+      "Replace outbound values that are identical to the previously sent value with a small " +
+      "sentinel. The receiver restores the value from its cache before injecting into Signal K. " +
+      "Big win on rarely-changing status paths (modes, states, enums). " +
+      "MUST MATCH on both ends — if only the sender enables this, downstream consumers will see broken values.",
+    default: false
+  },
   brotliQuality: {
     type: "number",
     title: "Brotli Quality (0-11)",

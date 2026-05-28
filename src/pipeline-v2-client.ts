@@ -23,6 +23,7 @@ import {
   throttleDeltaPayload,
   type DeltaPayload
 } from "./delta-sanitizer";
+import { createValueDedupState, dedupDeltaPayload } from "./value-dedup";
 import {
   deltaBuffer,
   compressPayload,
@@ -62,6 +63,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   const { metrics, recordError, trackPathStats, updateBandwidthRates } = metricsApi;
   const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
   const throttleState = createPathThrottleState();
+  const dedupState = createValueDedupState();
   const protocolVersion = state.options && state.options.protocolVersion === 3 ? 3 : 2;
   const stretchAsciiKey = !!state.options?.stretchAsciiKey;
   const packetBuilder = new PacketBuilder({
@@ -414,10 +416,16 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         return;
       }
 
+      // Same-as-last value deduplication (peer-matching). Replaces unchanged
+      // values with a small sentinel that the receiver restores from cache.
+      const dedupedDelta = state.options?.useValueDedup
+        ? dedupDeltaPayload(throttledDelta, dedupState)
+        : throttledDelta;
+
       // Apply path dictionary encoding if enabled
       const processedDelta = state.options.usePathDictionary
-        ? encodeDeltaPayload(throttledDelta)
-        : throttledDelta;
+        ? encodeDeltaPayload(dedupedDelta)
+        : dedupedDelta;
 
       // Serialize to buffer
       const serialized = deltaBuffer(processedDelta, state.options.useMsgpack);
