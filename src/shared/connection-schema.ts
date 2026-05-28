@@ -659,6 +659,7 @@ export function buildWebappConnectionSchema(
   protocolVersion: number | undefined
 ): SchemaFragment {
   const isReliableProtocol = Number(protocolVersion) >= 2;
+  const isMqttSn = Number(protocolVersion) === 4;
   const props: Record<string, SchemaFragment> = { ...commonConnectionProperties };
   const required = ["serverType", "udpPort", "secretKey"];
 
@@ -667,7 +668,11 @@ export function buildWebappConnectionSchema(
     props.enableNotifications = enableNotificationsProperty;
     props.skipOwnData = skipOwnDataProperty;
     required.push("udpAddress");
-    if (isReliableProtocol) {
+    if (isMqttSn) {
+      // MQTT-SN client fields; gateway-only field not shown
+      const { mqttsnGatewayId: _gw, ...clientMqttSnProps } = mqttsnConnectionProperties;
+      Object.assign(props, clientMqttSnProps);
+    } else if (isReliableProtocol) {
       props.reliability = clientReliabilityProperty;
       props.congestionControl = congestionControlProperty;
       props.bonding = bondingProperty;
@@ -678,6 +683,17 @@ export function buildWebappConnectionSchema(
       Object.assign(props, v1ClientPingProperties);
       required.push("testAddress", "testPort");
     }
+  } else if (isMqttSn) {
+    // MQTT-SN gateway fields; client-only fields not shown
+    const {
+      mqttsnClientId: _cid,
+      mqttsnQos: _qos,
+      mqttsnKeepalive: _ka,
+      mqttsnCleanSession: _cs,
+      mqttsnPublishRetain: _pr,
+      ...serverMqttSnProps
+    } = mqttsnConnectionProperties;
+    Object.assign(props, serverMqttSnProps);
   } else if (isReliableProtocol) {
     props.requestFullStatusOnRestart = requestFullStatusOnRestartProperty;
     props.reliability = serverReliabilityProperty;

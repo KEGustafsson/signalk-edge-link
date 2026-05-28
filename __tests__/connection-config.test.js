@@ -463,6 +463,38 @@ describe("requestFullStatusOnRestart sanitization", () => {
     );
     expect(sanitized.requestFullStatusOnRestart).toBe(true);
   });
+
+  test("sanitizeConnectionConfig preserves MQTT-SN fields for protocolVersion 4 client", () => {
+    const sanitized = sanitizeConnectionConfig(
+      makeValidClient({
+        protocolVersion: 4,
+        mqttsnClientId: "sk-vessel",
+        mqttsnTopicPrefix: "sk",
+        mqttsnQos: 1,
+        mqttsnKeepalive: 60,
+        mqttsnCleanSession: true,
+        mqttsnPublishRetain: false
+      })
+    );
+    expect(sanitized.mqttsnClientId).toBe("sk-vessel");
+    expect(sanitized.mqttsnTopicPrefix).toBe("sk");
+    expect(sanitized.mqttsnQos).toBe(1);
+    expect(sanitized.mqttsnKeepalive).toBe(60);
+    expect(sanitized.mqttsnCleanSession).toBe(true);
+    expect(sanitized.mqttsnPublishRetain).toBe(false);
+  });
+
+  test("sanitizeConnectionConfig preserves MQTT-SN fields for protocolVersion 4 server", () => {
+    const sanitized = sanitizeConnectionConfig(
+      makeValidServer({
+        protocolVersion: 4,
+        mqttsnTopicPrefix: "sk",
+        mqttsnGatewayId: 2
+      })
+    );
+    expect(sanitized.mqttsnTopicPrefix).toBe("sk");
+    expect(sanitized.mqttsnGatewayId).toBe(2);
+  });
 });
 
 describe("normalizeServerType", () => {

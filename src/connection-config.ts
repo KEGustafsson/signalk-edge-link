@@ -31,7 +31,14 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "reliability",
   "congestionControl",
   "bonding",
-  "alertThresholds"
+  "alertThresholds",
+  "mqttsnClientId",
+  "mqttsnTopicPrefix",
+  "mqttsnQos",
+  "mqttsnKeepalive",
+  "mqttsnCleanSession",
+  "mqttsnPublishRetain",
+  "mqttsnGatewayId"
 ];
 
 function isFiniteNumber(value: unknown): value is number {

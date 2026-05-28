@@ -22,8 +22,13 @@ export class TopicRegistry {
   assign(topicName: string): number {
     const existing = this.nameToId.get(topicName);
     if (existing !== undefined) return existing;
+    // Skip IDs already occupied by other topics (matters after wrap-around)
+    const start = this.nextId;
+    while (this.idToName.has(this.nextId)) {
+      this.nextId = this.nextId >= 0xfffe ? 1 : this.nextId + 1;
+      if (this.nextId === start) throw new Error("MQTT-SN topic ID space exhausted");
+    }
     const id = this.nextId;
-    // Advance counter, wrapping past 0xFFFE back to 1
     this.nextId = this.nextId >= 0xfffe ? 1 : this.nextId + 1;
     this.nameToId.set(topicName, id);
     this.idToName.set(id, topicName);
@@ -34,6 +39,10 @@ export class TopicRegistry {
    * Store a gateway-assigned mapping (client role, called on REGACK).
    */
   set(topicName: string, topicId: number): void {
+    const prevId = this.nameToId.get(topicName);
+    if (prevId !== undefined && prevId !== topicId) this.idToName.delete(prevId);
+    const prevName = this.idToName.get(topicId);
+    if (prevName !== undefined && prevName !== topicName) this.nameToId.delete(prevName);
     this.nameToId.set(topicName, topicId);
     this.idToName.set(topicId, topicName);
   }

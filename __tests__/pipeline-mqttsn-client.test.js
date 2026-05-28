@@ -60,7 +60,9 @@ function makeState(overrides = {}) {
 let _activePipelines = [];
 
 afterEach(() => {
-  for (const p of _activePipelines) {p.stopCongestionControl();}
+  for (const p of _activePipelines) {
+    p.stopCongestionControl();
+  }
   _activePipelines = [];
 });
 
@@ -118,17 +120,6 @@ async function doConnect(pipeline, state) {
   expect(connectFrame).toBeDefined();
   // Simulate CONNACK
   await deliver(pipeline, buildConnack(RC.ACCEPTED));
-}
-
-// Full register-topic sequence
-async function doRegister(pipeline, state, topicName, msgId = 1, topicId = 1) {
-  // Clear prior REGISTER sends
-  const before = allSent(state, "REGISTER").length;
-  // Call sendDelta which will trigger registration
-  const delta = makeDelta(topicName.replace(/^sk\//, "").replace(/\//g, "."), 99);
-  // We'll trigger it externally by calling processRegistration via sendDelta
-  // For the purposes of this helper, just wait for the REGISTER frame
-  return { topicId };
 }
 
 // ── API surface ───────────────────────────────────────────────────────────────

@@ -241,6 +241,25 @@ describe("malformed frames", () => {
     const buf = Buffer.from([0x02, 0xff]);
     expect(parseMessage(buf).type).toBe("UNKNOWN");
   });
+
+  test("3-byte header with declared length < offset (=4) returns UNKNOWN", () => {
+    // 0x01 = 3-byte indicator, totalLen=2 (< offset 4), msgType=PINGRESP
+    const buf = Buffer.from([0x01, 0x00, 0x02, MQTTSN.PINGRESP]);
+    expect(parseMessage(buf).type).toBe("UNKNOWN");
+  });
+
+  test("1-byte header with declared length < offset (=2) returns UNKNOWN", () => {
+    // len=1, which is less than the minimum 2-byte frame
+    const buf = Buffer.from([0x01, MQTTSN.PINGRESP]);
+    // buf[0]=0x01 is the 3-byte indicator — buf.length<4 → UNKNOWN
+    expect(parseMessage(buf).type).toBe("UNKNOWN");
+  });
+
+  test("CONNECT with invalid ProtocolId (not 0x01) returns UNKNOWN", () => {
+    // len=7, type=CONNECT, flags=0x04, protocolId=0x02 (invalid), duration=30, clientId="x"
+    const buf = Buffer.from([0x07, MQTTSN.CONNECT, 0x04, 0x02, 0x00, 0x1e, 0x78]);
+    expect(parseMessage(buf).type).toBe("UNKNOWN");
+  });
 });
 
 // ── SEARCHGW ──────────────────────────────────────────────────────────────────

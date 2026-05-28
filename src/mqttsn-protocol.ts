@@ -224,7 +224,7 @@ export function parseMessage(buf: Buffer): MqttSnMessage {
     offset = 2;
   }
 
-  if (buf.length < totalLen) return { type: "UNKNOWN", msgType };
+  if (totalLen < offset || buf.length < totalLen) return { type: "UNKNOWN", msgType };
 
   // Body is everything after the length+type prefix, up to totalLen
   const body = buf.slice(offset, totalLen);
@@ -269,6 +269,7 @@ export function parseMessage(buf: Buffer): MqttSnMessage {
     case MQTTSN.CONNECT: {
       if (body.length < 4) return { type: "UNKNOWN", msgType };
       const flags = body[0];
+      if (body[1] !== 0x01) return { type: "UNKNOWN", msgType }; // ProtocolId must be MQTT-SN v1.2
       const duration = body.readUInt16BE(2);
       const clientId = body.slice(4).toString("utf8");
       return {

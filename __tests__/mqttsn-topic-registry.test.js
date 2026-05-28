@@ -52,11 +52,13 @@ describe("TopicRegistry.set", () => {
     expect(r.getNameForId(42)).toBe("sk/nav/speed");
   });
 
-  test("set overwrites existing mapping", () => {
+  test("set overwrites existing mapping and removes stale reverse entry", () => {
     const r = new TopicRegistry();
     r.set("sk/nav/speed", 1);
     r.set("sk/nav/speed", 99);
     expect(r.getIdForName("sk/nav/speed")).toBe(99);
+    expect(r.getNameForId(99)).toBe("sk/nav/speed");
+    expect(r.getNameForId(1)).toBeUndefined();
   });
 });
 
