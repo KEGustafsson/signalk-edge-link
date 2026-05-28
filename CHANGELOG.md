@@ -2,6 +2,46 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [Unreleased]
+
+### Added — Outbound bandwidth optimizations (v2/v3)
+
+Three new opt-in connection config fields for reducing outbound bandwidth
+on the v2/v3 reliable transport. All fields are backward-compatible — when
+unset, behavior is unchanged from prior releases.
+
+- **`brotliQuality` (0..11)** — Configurable Brotli compression quality.
+  Default 6 (balanced). Quality 11 produces 3-8% smaller packets at
+  3-5× the CPU cost; useful for boat-side devices with surplus CPU and
+  tight uplink budgets. Local-only setting; peers do not need to match.
+
+- **`pathPrecision: Record<path, decimals>`** — Per-path numeric
+  precision quantization. Rounds outbound numeric values to N decimal
+  places. Supports dotted paths for nested object fields
+  (e.g. `"navigation.position.latitude": 5`). **Lossy by design** — the
+  receiver sees the rounded value. Set precision to match each sensor's
+  actual reportable resolution.
+
+- **`pathThrottle: Record<path, { minIntervalMs?, deadband? }>`** —
+  Per-path rate limit + deadband filter. Drops outbound values that
+  arrive too quickly or whose change vs the last sent value is below
+  a threshold. Both rules apply independently. Per-pipeline state, so
+  each connection has its own throttle history.
+
+Realistic gain on a high-rate vessel feed (50 paths × 10 Hz from a
+boat-side device): ~30-40% wire-byte reduction when all three are
+configured for the data set. Effects compound — quantization reduces
+each value's bytes, throttling cuts the volume, and Brotli at higher
+quality re-compresses what remains more tightly.
+
+### Notes on what was considered
+
+- A shared static Brotli dictionary (the biggest theoretical single
+  win) is not implemented in this release: Node.js's zlib does not
+  expose `BROTLI_PARAM_DICTIONARY`. Would require a new npm dependency.
+- Source-label deduplication does not apply at the Signal K data
+  model level — `$source` is already on the update, not per value.
+
 ## [2.8.0] - 2026-05-21
 
 ### Fixed
