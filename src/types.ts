@@ -281,6 +281,20 @@ export interface ConnectionConfig {
    * Paths not in the map are sent at full precision.
    */
   pathPrecision?: Record<string, number>;
+  /**
+   * Per-path throttle / deadband. Drops outbound values that arrive too
+   * quickly (`minIntervalMs`) or whose absolute change vs the last sent
+   * value is below a threshold (`deadband`). Both rules apply independently.
+   *
+   * Example:
+   *   "pathThrottle": {
+   *     "propulsion.main.revolutions":         { "minIntervalMs": 500 },
+   *     "electrical.batteries.house.voltage":  { "minIntervalMs": 5000, "deadband": 0.05 }
+   *   }
+   *
+   * Paths not in the map are not throttled.
+   */
+  pathThrottle?: Record<string, { minIntervalMs?: number; deadband?: number }>;
   /** Compress Signal K path strings with a shared dictionary to reduce packet size. Default false. */
   usePathDictionary?: boolean;
   /** Forward Signal K notification deltas over the link. Default false. */

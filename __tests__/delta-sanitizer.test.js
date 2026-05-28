@@ -325,3 +325,149 @@ describe("quantizeDelta — per-path numeric precision", () => {
     expect(out.beta.updates[0].values[0].value).toBe(5.7);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("throttleDelta — per-path rate limit + deadband", () => {
+  const {
+    throttleDelta,
+    throttleDeltaPayload,
+    createPathThrottleState
+  } = require("../lib/delta-sanitizer");
+
+  function makeDelta(path, value, timestamp = "2026-05-28T00:00:00Z") {
+    return {
+      context: "vessels.self",
+      updates: [{ source: { label: "test" }, timestamp, values: [{ path, value }] }]
+    };
+  }
+
+  test("first value through any path is always sent (state empty)", () => {
+    const state = createPathThrottleState();
+    const out = throttleDelta(
+      makeDelta("propulsion.main.revolutions", 1500),
+      { "propulsion.main.revolutions": { minIntervalMs: 500 } },
+      state,
+      0
+    );
+    expect(out.updates[0].values[0].value).toBe(1500);
+  });
+
+  test("minIntervalMs drops subsequent values within the window", () => {
+    const state = createPathThrottleState();
+    const rules = { "propulsion.main.revolutions": { minIntervalMs: 500 } };
+    expect(
+      throttleDelta(makeDelta("propulsion.main.revolutions", 1500), rules, state, 0)
+    ).not.toBeNull();
+    // 200 ms later — within window, dropped
+    expect(throttleDelta(makeDelta("propulsion.main.revolutions", 1505), rules, state, 200)).toBe(
+      null
+    );
+    // 600 ms after first — outside window, kept
+    const after = throttleDelta(makeDelta("propulsion.main.revolutions", 1510), rules, state, 600);
+    expect(after.updates[0].values[0].value).toBe(1510);
+  });
+
+  test("deadband drops values whose change is below the threshold", () => {
+    const state = createPathThrottleState();
+    const rules = { "electrical.batteries.house.voltage": { deadband: 0.05 } };
+    expect(
+      throttleDelta(makeDelta("electrical.batteries.house.voltage", 12.8), rules, state, 0)
+    ).not.toBeNull();
+    // 12.83 — change = 0.03 < 0.05 → dropped
+    expect(
+      throttleDelta(makeDelta("electrical.batteries.house.voltage", 12.83), rules, state, 100)
+    ).toBe(null);
+    // 12.9 — change = 0.1 ≥ 0.05 → kept
+    const after = throttleDelta(
+      makeDelta("electrical.batteries.house.voltage", 12.9),
+      rules,
+      state,
+      200
+    );
+    expect(after.updates[0].values[0].value).toBe(12.9);
+  });
+
+  test("both filters apply — value passes only if BOTH allow", () => {
+    const state = createPathThrottleState();
+    const rules = { p: { minIntervalMs: 500, deadband: 1 } };
+    expect(throttleDelta(makeDelta("p", 100), rules, state, 0)).not.toBeNull();
+    // 600ms later, but only +0.5 change → deadband drops it
+    expect(throttleDelta(makeDelta("p", 100.5), rules, state, 600)).toBe(null);
+    // 600ms later, +5 change → passes
+    expect(throttleDelta(makeDelta("p", 105), rules, state, 1200)).not.toBeNull();
+  });
+
+  test("paths not in the map are never throttled", () => {
+    const state = createPathThrottleState();
+    const rules = { p1: { minIntervalMs: 1000 } };
+    // p2 has no rule → always passes
+    const d = {
+      context: "vessels.self",
+      updates: [
+        {
+          source: { label: "t" },
+          values: [
+            { path: "p1", value: 1 },
+            { path: "p2", value: 2 }
+          ]
+        }
+      ]
+    };
+    const out1 = throttleDelta(d, rules, state, 0);
+    expect(out1.updates[0].values.length).toBe(2);
+    // 100ms later — p1 dropped, p2 still passes
+    const out2 = throttleDelta(d, rules, state, 100);
+    expect(out2.updates[0].values.length).toBe(1);
+    expect(out2.updates[0].values[0].path).toBe("p2");
+  });
+
+  test("returns null when every value in the delta is throttled out", () => {
+    const state = createPathThrottleState();
+    const rules = { p: { minIntervalMs: 1000 } };
+    throttleDelta(makeDelta("p", 1), rules, state, 0);
+    // Same path within window — drops everything → null
+    expect(throttleDelta(makeDelta("p", 2), rules, state, 100)).toBeNull();
+  });
+
+  test("identity when throttleMap is undefined or empty (no allocation)", () => {
+    const state = createPathThrottleState();
+    const d = makeDelta("p", 1);
+    expect(throttleDelta(d, undefined, state, 0)).toBe(d);
+    expect(throttleDelta(d, {}, state, 0)).toBe(d);
+  });
+
+  test("deadband ignored when current value is non-numeric", () => {
+    const state = createPathThrottleState();
+    const rules = { "navigation.state": { deadband: 0.5 } };
+    expect(throttleDelta(makeDelta("navigation.state", "moored"), rules, state, 0)).not.toBeNull();
+    // Second time — same string value, deadband can't compare strings → passes
+    const out = throttleDelta(makeDelta("navigation.state", "moored"), rules, state, 1);
+    expect(out.updates[0].values[0].value).toBe("moored");
+  });
+
+  test("throttleDeltaPayload handles array payloads", () => {
+    const state = createPathThrottleState();
+    const rules = { p: { minIntervalMs: 500 } };
+    const out = throttleDeltaPayload(
+      [makeDelta("p", 1), makeDelta("p", 2), makeDelta("p", 3)],
+      rules,
+      state,
+      0
+    );
+    // First passes; second and third are within window → dropped
+    expect(out.length).toBe(1);
+    expect(out[0].updates[0].values[0].value).toBe(1);
+  });
+
+  test("throttleDeltaPayload returns null when all deltas are throttled out", () => {
+    const state = createPathThrottleState();
+    const rules = { p: { minIntervalMs: 500 } };
+    // Prime state
+    throttleDeltaPayload([makeDelta("p", 1)], rules, state, 0);
+    // All subsequent within window → null
+    expect(
+      throttleDeltaPayload([makeDelta("p", 2), makeDelta("p", 3)], rules, state, 100)
+    ).toBeNull();
+  });
+});
