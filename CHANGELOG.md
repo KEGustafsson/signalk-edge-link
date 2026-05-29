@@ -2,7 +2,7 @@
 
 All notable changes to signalk-edge-link are documented here.
 
-## [Unreleased]
+## [2.9.0] - 2026-05-29
 
 ### Added — Outbound bandwidth optimizations (v2/v3)
 
