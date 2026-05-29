@@ -20,6 +20,8 @@ import * as msgpack from "@msgpack/msgpack";
 import { decryptBinary } from "./crypto";
 import { decodeDelta, decodeMetaEntry } from "./pathDictionary";
 import { sanitizeDeltaForSignalK } from "./delta-sanitizer";
+import { createValueDedupState, undedupDelta, type ValueDedupState } from "./value-dedup";
+import { isCompactDeltaArray, decodeCompactDeltaArray } from "./compact-delta";
 import { handleMessageBySource, normalizeDeltaSourceRefs } from "./source-dispatch";
 import { mergeSourceSnapshot } from "./source-snapshot";
 import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "./packet";
@@ -87,6 +89,9 @@ interface ClientSession {
   lastSourceEnvSeq: number | null;
   /** Chunk indexes already applied for `lastSourceEnvSeq`. */
   seenSourceChunkIdx: Set<number>;
+  /** Per-(context, path) cache for same-as-last value dedup expansion.
+   *  Created lazily on first sentinel/absolute-value receipt. */
+  valueDedupState: ValueDedupState | null;
 }
 
 function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
@@ -219,7 +224,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         lastMetaEnvSeq: null,
         seenMetaChunkIdx: new Set<number>(),
         lastSourceEnvSeq: null,
-        seenSourceChunkIdx: new Set<number>()
+        seenSourceChunkIdx: new Set<number>(),
+        valueDedupState: null
       };
     }
 
@@ -257,7 +263,9 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       lastMetaEnvSeq: null,
       seenMetaChunkIdx: new Set<number>(),
       lastSourceEnvSeq: null,
-      seenSourceChunkIdx: new Set<number>()
+      seenSourceChunkIdx: new Set<number>(),
+      // Same-as-last value dedup expansion (created lazily when needed)
+      valueDedupState: null
     };
     clientSessions.set(key, session);
     app.debug(`[v2-server] new client session: ${key}`);
@@ -1224,10 +1232,17 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         return;
       }
 
-      // Process deltas: payload may be an Array of deltas or an indexed object
-      const deltas: Delta[] = Array.isArray(jsonContent)
-        ? (jsonContent as Delta[])
-        : Object.values(jsonContent as Record<string, Delta>);
+      // Process deltas: payload may be compact-encoded, a plain Array, a bare Delta, or an indexed object
+      let deltas: Delta[];
+      if (isCompactDeltaArray(jsonContent)) {
+        deltas = decodeCompactDeltaArray(jsonContent);
+      } else if (Array.isArray(jsonContent)) {
+        deltas = jsonContent as Delta[];
+      } else if (Array.isArray((jsonContent as Delta).updates)) {
+        deltas = [jsonContent as Delta];
+      } else {
+        deltas = Object.values(jsonContent as Record<string, Delta>);
+      }
       const deltaCount = Math.min(deltas.length, MAX_DELTAS_PER_PACKET);
 
       if (deltas.length > MAX_DELTAS_PER_PACKET) {
@@ -1249,6 +1264,18 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         if (deltaMessage === null || deltaMessage === undefined) {
           app.debug(`v2 skipping null delta after decoding at index ${i}`);
           continue;
+        }
+
+        // Expand same-as-last sentinels using the per-session cache. The
+        // sender opts in via useValueDedup; the receiver applies expansion
+        // for any session that has seen a sentinel — the cache state is
+        // populated transparently from absolute values, so this is a no-op
+        // for senders that never opt in.
+        if (session) {
+          if (!session.valueDedupState) {
+            session.valueDedupState = createValueDedupState();
+          }
+          deltaMessage = undedupDelta(deltaMessage, session.valueDedupState);
         }
 
         const sanitizedDelta = sanitizeDeltaForSignalK(deltaMessage);

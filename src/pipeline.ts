@@ -3,7 +3,13 @@
 import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary, decryptBinary } from "./crypto";
 import { encodeDelta, decodeDelta } from "./pathDictionary";
-import { sanitizeDeltaForSignalK } from "./delta-sanitizer";
+import {
+  createPathThrottleState,
+  filterDeltaPayload,
+  quantizeDelta,
+  sanitizeDeltaForSignalK,
+  throttleDelta
+} from "./delta-sanitizer";
 import { handleMessageBySource, normalizeDeltaSourceRefs } from "./source-dispatch";
 import {
   deltaBuffer,
@@ -17,7 +23,8 @@ import {
   MAX_PARSE_PAYLOAD_SIZE,
   MAX_DELTAS_PER_PACKET,
   SMART_BATCH_SMOOTHING,
-  calculateMaxDeltasPerBatch
+  calculateMaxDeltasPerBatch,
+  clampBytesPerDeltaSample
 } from "./constants";
 import type { SignalKApp, MetricsApi, InstanceState, Delta } from "./types";
 
@@ -43,6 +50,7 @@ function createPipeline(
 } {
   const { metrics, recordError, trackPathStats } = metricsApi;
   const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
+  const throttleState = createPathThrottleState();
 
   /**
    * Compresses, encrypts, and sends delta data via UDP.
@@ -61,12 +69,52 @@ function createPipeline(
         return;
       }
 
+      // Drop paths excluded by the path filter
+      const filterConfig = state.options.pathFilter;
+      const filtered = filterConfig
+        ? (filterDeltaPayload(Array.isArray(delta) ? delta : delta, filterConfig) as
+            | Delta
+            | Delta[]
+            | null)
+        : (delta as Delta | Delta[]);
+      if (filtered === null) {
+        return;
+      }
+
+      // Apply per-path numeric precision (bandwidth optimization, lossy)
+      const precisionMap = state.options.pathPrecision;
+      const quantized = precisionMap
+        ? Array.isArray(filtered)
+          ? filtered.map((d) => quantizeDelta(d, precisionMap))
+          : quantizeDelta(filtered, precisionMap)
+        : filtered;
+
+      // Apply per-path throttle / deadband (drops values that fail the rule)
+      const throttleMap = state.options.pathThrottle;
+      let throttled: Delta | Delta[] | null = quantized;
+      if (throttleMap) {
+        if (Array.isArray(quantized)) {
+          const kept: Delta[] = [];
+          for (const d of quantized) {
+            const t = throttleDelta(d, throttleMap, throttleState);
+            if (t !== null) kept.push(t);
+          }
+          throttled = kept.length > 0 ? kept : null;
+        } else {
+          throttled = throttleDelta(quantized, throttleMap, throttleState);
+        }
+      }
+      if (throttled === null) {
+        // Everything throttled out — nothing to send
+        return;
+      }
+
       // Apply path dictionary encoding if enabled
       const processedDelta = state.options.usePathDictionary
-        ? Array.isArray(delta)
-          ? delta.map(encodeDelta)
-          : encodeDelta(delta)
-        : delta;
+        ? Array.isArray(throttled)
+          ? throttled.map(encodeDelta)
+          : encodeDelta(throttled)
+        : throttled;
 
       // Serialize to buffer (JSON or MessagePack)
       const serialized = deltaBuffer(processedDelta, state.options.useMsgpack);
@@ -74,15 +122,18 @@ function createPipeline(
       // Track raw bytes for compression ratio calculation
       metrics.bandwidth.bytesOutRaw += serialized.length;
 
-      // Track path stats AFTER serialization (reuse size for efficiency)
-      if (Array.isArray(delta)) {
-        delta.forEach((d) => trackPathStats(d, serialized.length / delta.length));
-      } else {
-        trackPathStats(delta, serialized.length);
+      // Track path stats using the filtered/throttled payload actually sent
+      const _sentItems = Array.isArray(throttled) ? throttled : [throttled as Delta];
+      for (const d of _sentItems) {
+        trackPathStats(d, serialized.length / _sentItems.length);
       }
 
       // Single compression stage (before encryption)
-      const compressed = await compressPayload(serialized, state.options.useMsgpack || false);
+      const compressed = await compressPayload(
+        serialized,
+        state.options.useMsgpack || false,
+        state.options.brotliQuality
+      );
 
       // Encrypt with AES-256-GCM (binary format with built-in authentication)
       const packet = encryptBinary(compressed, secretKey, {
@@ -107,8 +158,8 @@ function createPipeline(
       metrics.deltasSent++;
 
       // Update smart batching model after successful send
-      const deltaCount = Array.isArray(delta) ? Math.max(delta.length, 1) : 1;
-      const bytesPerDelta = packet.length / deltaCount;
+      const deltaCount = Math.max(_sentItems.length, 1);
+      const bytesPerDelta = clampBytesPerDeltaSample(packet.length / deltaCount);
 
       // Update rolling average using exponential smoothing
       state.avgBytesPerDelta =

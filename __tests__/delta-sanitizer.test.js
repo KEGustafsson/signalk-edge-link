@@ -207,3 +207,273 @@ describe("stripOwnDataFromDelta", () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("quantizeDelta — per-path numeric precision", () => {
+  const { quantizeDelta, quantizeDeltaPayload } = require("../lib/delta-sanitizer");
+
+  function makeDelta(values) {
+    return {
+      context: "vessels.self",
+      updates: [{ source: { label: "test" }, timestamp: "2026-05-28T00:00:00Z", values }]
+    };
+  }
+
+  test("rounds a configured numeric path to N decimals", () => {
+    const out = quantizeDelta(
+      makeDelta([{ path: "navigation.speedOverGround", value: 7.234567890123456 }]),
+      { "navigation.speedOverGround": 2 }
+    );
+    expect(out.updates[0].values[0].value).toBe(7.23);
+  });
+
+  test("leaves paths not in the map unchanged", () => {
+    const original = makeDelta([
+      { path: "navigation.speedOverGround", value: 7.234567 },
+      { path: "navigation.headingTrue", value: 1.523456 }
+    ]);
+    const out = quantizeDelta(original, { "navigation.speedOverGround": 2 });
+    expect(out.updates[0].values[0].value).toBe(7.23);
+    expect(out.updates[0].values[1].value).toBe(1.523456);
+  });
+
+  test("recurses into object values using dotted paths", () => {
+    const out = quantizeDelta(
+      makeDelta([
+        {
+          path: "navigation.position",
+          value: { latitude: 60.16958123, longitude: 24.93547651 }
+        }
+      ]),
+      {
+        "navigation.position.latitude": 5,
+        "navigation.position.longitude": 5
+      }
+    );
+    expect(out.updates[0].values[0].value).toEqual({
+      latitude: 60.16958,
+      longitude: 24.93548
+    });
+  });
+
+  test("returns the same object reference when no values change (no allocation)", () => {
+    const original = makeDelta([{ path: "navigation.headingTrue", value: 1.5 }]);
+    expect(quantizeDelta(original, {})).toBe(original);
+    expect(quantizeDelta(original, { "environment.wind.speed": 1 })).toBe(original);
+  });
+
+  test("leaves non-numeric values untouched", () => {
+    const original = makeDelta([
+      { path: "navigation.state", value: "moored" },
+      { path: "design.aisShipType", value: { id: 36, name: "Sailing" } }
+    ]);
+    const out = quantizeDelta(original, { "navigation.state": 2 });
+    expect(out.updates[0].values[0].value).toBe("moored");
+  });
+
+  test("undefined or empty precisionMap → identity", () => {
+    const original = makeDelta([{ path: "p", value: 1.234 }]);
+    expect(quantizeDelta(original, undefined)).toBe(original);
+    expect(quantizeDelta(original, {})).toBe(original);
+  });
+
+  test("handles negative numbers and zero decimals", () => {
+    const out = quantizeDelta(
+      makeDelta([
+        { path: "p1", value: -7.876 },
+        { path: "p2", value: 12345.678 }
+      ]),
+      { p1: 1, p2: 0 }
+    );
+    expect(out.updates[0].values[0].value).toBe(-7.9);
+    expect(out.updates[0].values[1].value).toBe(12346);
+  });
+
+  test("non-finite numbers (NaN, Infinity) are passed through unchanged", () => {
+    const out = quantizeDelta(
+      makeDelta([
+        { path: "p1", value: NaN },
+        { path: "p2", value: Infinity }
+      ]),
+      { p1: 2, p2: 2 }
+    );
+    expect(Number.isNaN(out.updates[0].values[0].value)).toBe(true);
+    expect(out.updates[0].values[1].value).toBe(Infinity);
+  });
+
+  test("quantizeDeltaPayload handles array payloads", () => {
+    const out = quantizeDeltaPayload(
+      [makeDelta([{ path: "p", value: 1.234 }]), makeDelta([{ path: "p", value: 5.678 }])],
+      { p: 1 }
+    );
+    expect(out[0].updates[0].values[0].value).toBe(1.2);
+    expect(out[1].updates[0].values[0].value).toBe(5.7);
+  });
+
+  test("quantizeDeltaPayload handles Record-style payloads", () => {
+    const out = quantizeDeltaPayload(
+      {
+        alpha: makeDelta([{ path: "p", value: 1.234 }]),
+        beta: makeDelta([{ path: "p", value: 5.678 }])
+      },
+      { p: 1 }
+    );
+    expect(out.alpha.updates[0].values[0].value).toBe(1.2);
+    expect(out.beta.updates[0].values[0].value).toBe(5.7);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("throttleDelta — per-path rate limit + deadband", () => {
+  const {
+    throttleDelta,
+    throttleDeltaPayload,
+    createPathThrottleState
+  } = require("../lib/delta-sanitizer");
+
+  function makeDelta(path, value, timestamp = "2026-05-28T00:00:00Z") {
+    return {
+      context: "vessels.self",
+      updates: [{ source: { label: "test" }, timestamp, values: [{ path, value }] }]
+    };
+  }
+
+  test("first value through any path is always sent (state empty)", () => {
+    const state = createPathThrottleState();
+    const out = throttleDelta(
+      makeDelta("propulsion.main.revolutions", 1500),
+      { "propulsion.main.revolutions": { minIntervalMs: 500 } },
+      state,
+      0
+    );
+    expect(out.updates[0].values[0].value).toBe(1500);
+  });
+
+  test("minIntervalMs drops subsequent values within the window", () => {
+    const state = createPathThrottleState();
+    const rules = { "propulsion.main.revolutions": { minIntervalMs: 500 } };
+    expect(
+      throttleDelta(makeDelta("propulsion.main.revolutions", 1500), rules, state, 0)
+    ).not.toBeNull();
+    expect(throttleDelta(makeDelta("propulsion.main.revolutions", 1505), rules, state, 200)).toBe(
+      null
+    );
+    // 600 ms after first — outside window, kept
+    const after = throttleDelta(makeDelta("propulsion.main.revolutions", 1510), rules, state, 600);
+    expect(after.updates[0].values[0].value).toBe(1510);
+  });
+
+  test("deadband drops values whose change is below the threshold", () => {
+    const state = createPathThrottleState();
+    const rules = { "electrical.batteries.house.voltage": { deadband: 0.05 } };
+    expect(
+      throttleDelta(makeDelta("electrical.batteries.house.voltage", 12.8), rules, state, 0)
+    ).not.toBeNull();
+    expect(
+      throttleDelta(makeDelta("electrical.batteries.house.voltage", 12.83), rules, state, 100)
+    ).toBe(null);
+    // change 0.1 ≥ 0.05 deadband → kept
+    const after = throttleDelta(
+      makeDelta("electrical.batteries.house.voltage", 12.9),
+      rules,
+      state,
+      200
+    );
+    expect(after.updates[0].values[0].value).toBe(12.9);
+  });
+
+  test("both filters apply — value passes only if BOTH allow", () => {
+    const state = createPathThrottleState();
+    const rules = { p: { minIntervalMs: 500, deadband: 1 } };
+    expect(throttleDelta(makeDelta("p", 100), rules, state, 0)).not.toBeNull();
+    expect(throttleDelta(makeDelta("p", 100.5), rules, state, 600)).toBe(null);
+    // interval elapsed AND change exceeds deadband → passes
+    expect(throttleDelta(makeDelta("p", 105), rules, state, 1200)).not.toBeNull();
+  });
+
+  test("paths not in the map are never throttled", () => {
+    const state = createPathThrottleState();
+    const rules = { p1: { minIntervalMs: 1000 } };
+    // p2 has no rule → always passes
+    const d = {
+      context: "vessels.self",
+      updates: [
+        {
+          source: { label: "t" },
+          values: [
+            { path: "p1", value: 1 },
+            { path: "p2", value: 2 }
+          ]
+        }
+      ]
+    };
+    const out1 = throttleDelta(d, rules, state, 0);
+    expect(out1.updates[0].values.length).toBe(2);
+    // 100ms later — p1 dropped, p2 still passes
+    const out2 = throttleDelta(d, rules, state, 100);
+    expect(out2.updates[0].values.length).toBe(1);
+    expect(out2.updates[0].values[0].path).toBe("p2");
+  });
+
+  test("returns null when every value in the delta is throttled out", () => {
+    const state = createPathThrottleState();
+    const rules = { p: { minIntervalMs: 1000 } };
+    throttleDelta(makeDelta("p", 1), rules, state, 0);
+    expect(throttleDelta(makeDelta("p", 2), rules, state, 100)).toBeNull();
+  });
+
+  test("identity when throttleMap is undefined or empty (no allocation)", () => {
+    const state = createPathThrottleState();
+    const d = makeDelta("p", 1);
+    expect(throttleDelta(d, undefined, state, 0)).toBe(d);
+    expect(throttleDelta(d, {}, state, 0)).toBe(d);
+  });
+
+  test("deadband ignored when current value is non-numeric", () => {
+    const state = createPathThrottleState();
+    const rules = { "navigation.state": { deadband: 0.5 } };
+    expect(throttleDelta(makeDelta("navigation.state", "moored"), rules, state, 0)).not.toBeNull();
+    // Second time — same string value, deadband can't compare strings → passes
+    const out = throttleDelta(makeDelta("navigation.state", "moored"), rules, state, 1);
+    expect(out.updates[0].values[0].value).toBe("moored");
+  });
+
+  test("throttleDeltaPayload handles array payloads", () => {
+    const state = createPathThrottleState();
+    const rules = { p: { minIntervalMs: 500 } };
+    const out = throttleDeltaPayload(
+      [makeDelta("p", 1), makeDelta("p", 2), makeDelta("p", 3)],
+      rules,
+      state,
+      0
+    );
+    expect(out.length).toBe(1);
+    expect(out[0].updates[0].values[0].value).toBe(1);
+  });
+
+  test("throttleDeltaPayload returns null when all deltas are throttled out", () => {
+    const state = createPathThrottleState();
+    const rules = { p: { minIntervalMs: 500 } };
+    // Prime state
+    throttleDeltaPayload([makeDelta("p", 1)], rules, state, 0);
+    // All subsequent within window → null
+    expect(
+      throttleDeltaPayload([makeDelta("p", 2), makeDelta("p", 3)], rules, state, 100)
+    ).toBeNull();
+  });
+
+  test("lastSent state is bounded by LRU eviction", () => {
+    const { PATH_THROTTLE_STATE_MAX } = require("../lib/constants");
+    const state = createPathThrottleState();
+    // A rule that matches every path; deadband is irrelevant since each path
+    // is seen once, so every entry is recorded in lastSent.
+    const rule = { minIntervalMs: 500 };
+    for (let i = 0; i < PATH_THROTTLE_STATE_MAX + 500; i++) {
+      const path = `p.${i}`;
+      throttleDelta(makeDelta(path, i), { [path]: rule }, state, i);
+    }
+    expect(state.lastSent.size).toBe(PATH_THROTTLE_STATE_MAX);
+  });
+});

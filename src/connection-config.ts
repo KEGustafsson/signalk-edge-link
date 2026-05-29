@@ -17,7 +17,13 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "secretKey",
   "stretchAsciiKey",
   "useMsgpack",
+  "useValueDedup",
+  "useCompactDeltas",
+  "pathFilter",
   "usePathDictionary",
+  "brotliQuality",
+  "pathPrecision",
+  "pathThrottle",
   "enableNotifications",
   "skipOwnData",
   "protocolVersion",
@@ -118,6 +124,106 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   }
   if (conn.useMsgpack !== undefined && typeof conn.useMsgpack !== "boolean") {
     return `${p}useMsgpack must be a boolean`;
+  }
+  if (conn.useValueDedup !== undefined && typeof conn.useValueDedup !== "boolean") {
+    return `${p}useValueDedup must be a boolean`;
+  }
+  if (conn.useCompactDeltas !== undefined && typeof conn.useCompactDeltas !== "boolean") {
+    return `${p}useCompactDeltas must be a boolean`;
+  }
+  const _pv = conn.protocolVersion ?? 1;
+  if (conn.useValueDedup === true && _pv < 2) {
+    return `${p}useValueDedup is only supported on protocolVersion 2 or 3`;
+  }
+  if (conn.useCompactDeltas === true) {
+    if (_pv < 2) {
+      return `${p}useCompactDeltas is only supported on protocolVersion 2 or 3`;
+    }
+    if (conn.useMsgpack !== true) {
+      return `${p}useCompactDeltas requires useMsgpack to be enabled`;
+    }
+  }
+  if (conn.pathFilter !== undefined) {
+    if (
+      typeof conn.pathFilter !== "object" ||
+      conn.pathFilter === null ||
+      Array.isArray(conn.pathFilter)
+    ) {
+      return `${p}pathFilter must be an object`;
+    }
+    const pf = conn.pathFilter as Record<string, unknown>;
+    for (const key of Object.keys(pf)) {
+      if (key !== "allow" && key !== "deny") {
+        return `${p}pathFilter.${key} is not a supported property`;
+      }
+    }
+    for (const key of ["allow", "deny"] as const) {
+      if (pf[key] !== undefined) {
+        if (!Array.isArray(pf[key])) {
+          return `${p}pathFilter.${key} must be an array of strings`;
+        }
+        const arr = pf[key] as unknown[];
+        for (let i = 0; i < arr.length; i++) {
+          if (typeof arr[i] !== "string" || (arr[i] as string).length === 0) {
+            return `${p}pathFilter.${key}[${i}] must be a non-empty string`;
+          }
+        }
+      }
+    }
+  }
+  if (conn.brotliQuality !== undefined) {
+    const q = conn.brotliQuality;
+    if (!Number.isInteger(q) || (q as number) < 0 || (q as number) > 11) {
+      return `${p}brotliQuality must be an integer between 0 and 11`;
+    }
+  }
+  if (conn.pathPrecision !== undefined) {
+    if (
+      typeof conn.pathPrecision !== "object" ||
+      conn.pathPrecision === null ||
+      Array.isArray(conn.pathPrecision)
+    ) {
+      return `${p}pathPrecision must be an object mapping path to integer 0..15`;
+    }
+    for (const [path, decimals] of Object.entries(conn.pathPrecision as Record<string, unknown>)) {
+      if (!Number.isInteger(decimals) || (decimals as number) < 0 || (decimals as number) > 15) {
+        return `${p}pathPrecision["${path}"] must be an integer between 0 and 15`;
+      }
+    }
+  }
+  if (conn.pathThrottle !== undefined) {
+    if (
+      typeof conn.pathThrottle !== "object" ||
+      conn.pathThrottle === null ||
+      Array.isArray(conn.pathThrottle)
+    ) {
+      return `${p}pathThrottle must be an object mapping path to a rule`;
+    }
+    for (const [path, rule] of Object.entries(conn.pathThrottle as Record<string, unknown>)) {
+      if (typeof rule !== "object" || rule === null || Array.isArray(rule)) {
+        return `${p}pathThrottle["${path}"] must be an object`;
+      }
+      const r = rule as Record<string, unknown>;
+      for (const key of Object.keys(r)) {
+        if (key !== "minIntervalMs" && key !== "deadband") {
+          return `${p}pathThrottle["${path}"].${key} is not a supported property`;
+        }
+      }
+      if (r.minIntervalMs !== undefined) {
+        if (
+          !Number.isInteger(r.minIntervalMs) ||
+          (r.minIntervalMs as number) < 0 ||
+          (r.minIntervalMs as number) > 3_600_000
+        ) {
+          return `${p}pathThrottle["${path}"].minIntervalMs must be an integer between 0 and 3600000`;
+        }
+      }
+      if (r.deadband !== undefined) {
+        if (!isFiniteNumber(r.deadband) || (r.deadband as number) < 0) {
+          return `${p}pathThrottle["${path}"].deadband must be a non-negative number`;
+        }
+      }
+    }
   }
   if (conn.usePathDictionary !== undefined && typeof conn.usePathDictionary !== "boolean") {
     return `${p}usePathDictionary must be a boolean`;

@@ -116,6 +116,90 @@ describe("validateConnectionConfig", () => {
       expect(error).toMatch(/protocolVersion/);
     });
 
+    test("accepts brotliQuality within 0..11", () => {
+      for (const q of [0, 1, 6, 11]) {
+        expect(validateConnectionConfig(makeValidClient({ brotliQuality: q }))).toBeNull();
+      }
+    });
+
+    test("rejects brotliQuality outside 0..11 or non-integer", () => {
+      for (const q of [-1, 12, 6.5, "high"]) {
+        const error = validateConnectionConfig(makeValidClient({ brotliQuality: q }));
+        expect(error).toMatch(/brotliQuality/);
+      }
+    });
+
+    test("accepts valid pathPrecision objects", () => {
+      expect(
+        validateConnectionConfig(
+          makeValidClient({
+            pathPrecision: {
+              "navigation.speedOverGround": 2,
+              "navigation.position.latitude": 5,
+              "environment.outside.pressure": 0
+            }
+          })
+        )
+      ).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ pathPrecision: {} }))).toBeNull();
+    });
+
+    test("rejects pathPrecision with non-integer or out-of-range values", () => {
+      const cases = [
+        { p: { foo: -1 }, match: /pathPrecision/ },
+        { p: { foo: 16 }, match: /pathPrecision/ },
+        { p: { foo: 1.5 }, match: /pathPrecision/ },
+        { p: { foo: "two" }, match: /pathPrecision/ }
+      ];
+      for (const { p, match } of cases) {
+        const error = validateConnectionConfig(makeValidClient({ pathPrecision: p }));
+        expect(error).toMatch(match);
+      }
+    });
+
+    test("rejects pathPrecision that is not an object", () => {
+      for (const bad of ["string", 1, true, ["array"]]) {
+        const error = validateConnectionConfig(makeValidClient({ pathPrecision: bad }));
+        expect(error).toMatch(/pathPrecision/);
+      }
+    });
+
+    test("accepts valid pathThrottle objects", () => {
+      expect(
+        validateConnectionConfig(
+          makeValidClient({
+            pathThrottle: {
+              "propulsion.main.revolutions": { minIntervalMs: 500 },
+              "electrical.batteries.house.voltage": { minIntervalMs: 5000, deadband: 0.05 },
+              "navigation.state": { deadband: 0 }
+            }
+          })
+        )
+      ).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ pathThrottle: {} }))).toBeNull();
+    });
+
+    test("rejects pathThrottle with invalid rule values", () => {
+      const cases = [
+        { rule: { minIntervalMs: -1 }, match: /minIntervalMs/ },
+        { rule: { minIntervalMs: 1.5 }, match: /minIntervalMs/ },
+        { rule: { minIntervalMs: "fast" }, match: /minIntervalMs/ },
+        { rule: { deadband: -0.1 }, match: /deadband/ },
+        { rule: { deadband: "wide" }, match: /deadband/ }
+      ];
+      for (const { rule, match } of cases) {
+        const error = validateConnectionConfig(makeValidClient({ pathThrottle: { p: rule } }));
+        expect(error).toMatch(match);
+      }
+    });
+
+    test("rejects pathThrottle that is not an object map", () => {
+      for (const bad of ["string", 1, ["array"]]) {
+        const error = validateConnectionConfig(makeValidClient({ pathThrottle: bad }));
+        expect(error).toMatch(/pathThrottle/);
+      }
+    });
+
     test("validates connectionId after trimming whitespace", () => {
       const paddedId = ` ${"a".repeat(80)} `;
       expect(validateConnectionConfig(makeValidClient({ connectionId: paddedId }))).toBeNull();
@@ -409,6 +493,31 @@ describe("sanitizeConnectionConfig", () => {
     expect(result.udpAddress).toBe("192.168.1.1");
     expect(result.useMsgpack).toBe(true);
     expect(result.reliability).toEqual({ retransmitQueueSize: 500 });
+  });
+
+  test("preserves brotliQuality through sanitize", () => {
+    const result = sanitizeConnectionConfig(makeValidClient({ brotliQuality: 11 }));
+    expect(result.brotliQuality).toBe(11);
+  });
+
+  test("preserves pathPrecision through sanitize", () => {
+    const result = sanitizeConnectionConfig(
+      makeValidClient({
+        pathPrecision: { "navigation.speedOverGround": 2 }
+      })
+    );
+    expect(result.pathPrecision).toEqual({ "navigation.speedOverGround": 2 });
+  });
+
+  test("preserves pathThrottle through sanitize", () => {
+    const result = sanitizeConnectionConfig(
+      makeValidClient({
+        pathThrottle: { "propulsion.main.revolutions": { minIntervalMs: 500 } }
+      })
+    );
+    expect(result.pathThrottle).toEqual({
+      "propulsion.main.revolutions": { minIntervalMs: 500 }
+    });
   });
 
   test("drops per-connection managementApiToken when sanitizing connection config", () => {

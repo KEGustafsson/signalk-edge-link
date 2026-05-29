@@ -2,6 +2,29 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [2.9.0] - 2026-05-29
+
+### Added — Outbound bandwidth optimizations (v2/v3)
+
+Six new opt-in connection fields reduce outbound UDP bandwidth on v2/v3
+connections. All are backward-compatible — when unset, behaviour is unchanged.
+See the connection schema for field definitions, defaults, and valid ranges.
+
+- **`pathFilter`** — Drop unwanted paths before any other processing
+- **`pathThrottle`** — Per-path rate limit and deadband filter
+- **`pathPrecision`** — Per-path numeric rounding (lossy)
+- **`useValueDedup`** — Skip values unchanged since the last sent packet (peer-matching required)
+- **`useCompactDeltas`** — Positional msgpack encoding; eliminates repeated field-name overhead (requires `useMsgpack: true`; peer-matching required)
+- **`brotliQuality`** — Tune Brotli compression effort (0–11)
+
+Compounding effects on a high-rate vessel feed (50 paths × 10 Hz): ~30–40%
+wire-byte reduction when all six are configured appropriately.
+
+### Notes
+
+- Node.js's zlib does not expose `BROTLI_PARAM_DICTIONARY`, so a shared static Brotli dictionary is not used; per-packet Brotli compression applies only.
+- `$source` is attached to the update, not per value, in the Signal K data model.
+
 ## [2.8.0] - 2026-05-21
 
 ### Fixed

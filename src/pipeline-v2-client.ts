@@ -14,9 +14,19 @@
  */
 
 import CircularBuffer from "./CircularBuffer";
+import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary } from "./crypto";
 import { encodeDelta, encodeMetaEntry } from "./pathDictionary";
-import { sanitizeDeltaPayloadForSignalK, type DeltaPayload } from "./delta-sanitizer";
+import {
+  createPathThrottleState,
+  filterDeltaPayload,
+  quantizeDeltaPayload,
+  sanitizeDeltaPayloadForSignalK,
+  throttleDeltaPayload,
+  type DeltaPayload
+} from "./delta-sanitizer";
+import { createValueDedupState, dedupDeltaPayload } from "./value-dedup";
+import { encodeCompactPayload } from "./compact-delta";
 import {
   deltaBuffer,
   compressPayload,
@@ -42,7 +52,8 @@ import {
   MAX_SAFE_UDP_PAYLOAD,
   SMART_BATCH_SMOOTHING,
   METRICS_PUBLISH_INTERVAL,
-  calculateMaxDeltasPerBatch
+  calculateMaxDeltasPerBatch,
+  clampBytesPerDeltaSample
 } from "./constants";
 
 /**
@@ -55,6 +66,8 @@ import {
 function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
   const { metrics, recordError, trackPathStats, updateBandwidthRates } = metricsApi;
   const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
+  const throttleState = createPathThrottleState();
+  const dedupState = createValueDedupState();
   const protocolVersion = state.options && state.options.protocolVersion === 3 ? 3 : 2;
   const stretchAsciiKey = !!state.options?.stretchAsciiKey;
   const packetBuilder = new PacketBuilder({
@@ -393,24 +406,59 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         return;
       }
 
+      // Drop paths excluded by the path filter (applied early to save all
+      // downstream work on filtered paths)
+      const filteredDelta = filterDeltaPayload(sanitizedDelta, state.options?.pathFilter);
+      if (filteredDelta === null) {
+        app.debug("sendDelta skipped: all values removed by pathFilter");
+        return;
+      }
+
+      // Apply per-path numeric precision (bandwidth optimization, lossy)
+      const quantizedDelta = quantizeDeltaPayload(filteredDelta, state.options?.pathPrecision);
+
+      // Apply per-path throttle / deadband (drops values that fail the rule)
+      const throttledDelta = throttleDeltaPayload(
+        quantizedDelta,
+        state.options?.pathThrottle,
+        throttleState
+      );
+      if (throttledDelta === null) {
+        app.debug("sendDelta skipped: all values dropped by pathThrottle");
+        return;
+      }
+
+      // Same-as-last value deduplication (peer-matching). Replaces unchanged
+      // values with a small sentinel that the receiver restores from cache.
+      const dedupedDelta = state.options?.useValueDedup
+        ? dedupDeltaPayload(throttledDelta, dedupState)
+        : throttledDelta;
+
       // Apply path dictionary encoding if enabled
       const processedDelta = state.options.usePathDictionary
-        ? encodeDeltaPayload(sanitizedDelta)
-        : sanitizedDelta;
+        ? encodeDeltaPayload(dedupedDelta)
+        : dedupedDelta;
 
-      // Serialize to buffer
-      const serialized = deltaBuffer(processedDelta, state.options.useMsgpack);
+      // Serialize to buffer — compact mode requires msgpack (no gain in JSON)
+      const serialized =
+        state.options?.useCompactDeltas && state.options?.useMsgpack
+          ? Buffer.from(msgpack.encode(encodeCompactPayload(processedDelta)))
+          : deltaBuffer(processedDelta, state.options.useMsgpack);
 
       metrics.bandwidth.bytesOutRaw += serialized.length;
 
-      const sanitizedItems = deltaPayloadItems(sanitizedDelta);
-      for (const item of sanitizedItems) {
-        trackPathStats(item, serialized.length / sanitizedItems.length);
+      const sentItems = deltaPayloadItems(dedupedDelta);
+      for (const item of sentItems) {
+        trackPathStats(item, serialized.length / sentItems.length);
       }
-      recordPathLatencies(sanitizedDelta);
+      recordPathLatencies(dedupedDelta);
 
       // Compress
-      const compressed = await compressPayload(serialized, state.options?.useMsgpack ?? false);
+      const compressed = await compressPayload(
+        serialized,
+        state.options?.useMsgpack ?? false,
+        state.options?.brotliQuality
+      );
 
       // Encrypt
       const encrypted = encryptBinary(compressed, secretKey, {
@@ -469,8 +517,8 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
 
       // Update smart batching model
       // Guard against empty array: treat 0 as 1 to avoid Infinity in bytesPerDelta.
-      const deltaCount = Math.max(1, sanitizedItems.length);
-      const bytesPerDelta = packet.length / deltaCount;
+      const deltaCount = Math.max(1, sentItems.length);
+      const bytesPerDelta = clampBytesPerDeltaSample(packet.length / deltaCount);
 
       state.avgBytesPerDelta =
         (1 - SMART_BATCH_SMOOTHING) * state.avgBytesPerDelta +
@@ -567,7 +615,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       sources
     };
     const serialized = deltaBuffer(envelope, useMsgpack);
-    const compressed = await compressPayload(serialized, useMsgpack);
+    const compressed = await compressPayload(serialized, useMsgpack, state.options?.brotliQuality);
     const encrypted = encryptBinary(compressed, secretKey, { stretchAsciiKey });
     return packetBuilder.buildMetadataPacket(encrypted, {
       compressed: true,
@@ -708,7 +756,11 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         const envelope = buildMetaEnvelope(processedEntries, kind, envelopeSeq, i, chunks.length);
 
         const serialized = deltaBuffer(envelope, useMsgpack);
-        const compressed = await compressPayload(serialized, useMsgpack);
+        const compressed = await compressPayload(
+          serialized,
+          useMsgpack,
+          state.options?.brotliQuality
+        );
         const encrypted = encryptBinary(compressed, secretKey, { stretchAsciiKey });
         const packet = packetBuilder.buildMetadataPacket(encrypted, {
           compressed: true,

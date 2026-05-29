@@ -16,6 +16,8 @@ export const WATCHER_RECOVERY_DELAY = 5000; // milliseconds
 // UDP and network
 export const MAX_SAFE_UDP_PAYLOAD = 1400; // Maximum safe UDP payload size (avoid fragmentation)
 export const BROTLI_QUALITY_HIGH = 6; // Balanced quality: ~90% of max compression at ~10% of the CPU cost
+export const BROTLI_QUALITY_MIN = 0; // Fastest, lowest ratio
+export const BROTLI_QUALITY_MAX = 11; // Highest ratio, ~3-5× more CPU than quality 6
 export const UDP_RETRY_MAX = 3; // Maximum UDP send retries
 export const UDP_RETRY_DELAY = 100; // milliseconds - base retry delay
 export const UDP_SEND_TIMEOUT_MS = 5000; // Maximum ms to wait for socket.send() callback
@@ -73,6 +75,14 @@ export const METRICS_PUBLISH_INTERVAL = 1000; // Interval (ms) for publishing me
 export const BANDWIDTH_HISTORY_MAX = 60; // Keep 60 data points (5 minutes at 5s intervals)
 export const PATH_STATS_MAX_SIZE = 500; // Max tracked paths in pathStats Map (prevent unbounded growth)
 
+// Outbound bandwidth-optimization per-(context,path) caches. Bounded with
+// LRU eviction so a link that sees many distinct paths (e.g. N2K source-address
+// churn or many vessel contexts) cannot grow these maps without limit. The
+// cap is far above the unique-path count of a normal boat, so eviction is a
+// safety valve rather than a routine event.
+export const VALUE_DEDUP_CACHE_MAX = 10000; // Max (context,path) entries in the dedup cache
+export const PATH_THROTTLE_STATE_MAX = 10000; // Max (context,path) entries in the throttle state
+
 // Outbound delta deduplication. signalk-server's subscriptionmanager can
 // deliver the same cached/live pair about one fixed-policy window apart;
 // 1500 ms catches that without suppressing legitimate periodic resends.
@@ -126,4 +136,22 @@ export const PACKET_INSPECTOR_MAX_CLIENTS = 5; // Max concurrent WebSocket inspe
 export function calculateMaxDeltasPerBatch(avgBytes: number): number {
   const raw = Math.floor((MAX_SAFE_UDP_PAYLOAD * SMART_BATCH_SAFETY_MARGIN) / avgBytes);
   return Math.max(SMART_BATCH_MIN_DELTAS, Math.min(SMART_BATCH_MAX_DELTAS, raw));
+}
+
+/**
+ * Clamp a single bytes-per-delta observation before it feeds the smart-batch
+ * EMA. Aggressive per-path throttling/dedup can collapse a batch to a single
+ * delta whose packet is dominated by fixed overhead (compression header,
+ * crypto IV + auth tag) or that is itself oversized. Without a bound, one such
+ * outlier sample can drag the rolling average to an extreme and keep the
+ * batcher mis-sized long after the burst passes. Clamping each sample to
+ * [1, MAX_SAFE_UDP_PAYLOAD] keeps the EMA stable while still letting it track
+ * genuine payload-size shifts.
+ *
+ * @param bytesPerDelta - Raw observation (packet bytes / deltas in packet)
+ * @returns Sample clamped to a sane range
+ */
+export function clampBytesPerDeltaSample(bytesPerDelta: number): number {
+  if (!Number.isFinite(bytesPerDelta) || bytesPerDelta < 1) return 1;
+  return Math.min(MAX_SAFE_UDP_PAYLOAD, bytesPerDelta);
 }

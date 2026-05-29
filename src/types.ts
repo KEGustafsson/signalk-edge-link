@@ -241,6 +241,20 @@ export interface AlertThresholds {
   queueDepth?: AlertThresholdPair;
 }
 
+/**
+ * Path filter configuration.
+ *
+ * `allow`: paths matching at least one pattern are forwarded.
+ * `deny`:  paths matching any pattern are dropped (evaluated after allow).
+ *
+ * Glob syntax: `"navigation.*"` matches any path whose first segment is
+ * `navigation`; `"*"` matches all paths; exact strings are matched literally.
+ */
+export interface PathFilterConfig {
+  allow?: string[];
+  deny?: string[];
+}
+
 /** Per-connection configuration. */
 export interface ConnectionConfig {
   /** Stable per-connection identity used for config editing and secret restoration. */
@@ -265,6 +279,72 @@ export interface ConnectionConfig {
   protocolVersion?: number;
   /** Serialize deltas with MessagePack instead of JSON (smaller, faster). Default false. */
   useMsgpack?: boolean;
+  /**
+   * Brotli compression quality (0..11). Higher = smaller payload, more CPU.
+   * Local-only setting; peers do not need to match. Default 6 (balanced).
+   */
+  brotliQuality?: number;
+  /**
+   * Per-path numeric precision (decimal places). Round outbound numeric
+   * values to N decimals at the configured path. Reduces bandwidth at the
+   * cost of precision. Nested object values use dotted paths
+   * (e.g. `"navigation.position.latitude": 5`).
+   *
+   * **Lossy by design** — the receiver gets the rounded value. Only use
+   * precision settings that match each sensor's actual reportable precision.
+   * Paths not in the map are sent at full precision.
+   */
+  pathPrecision?: Record<string, number>;
+  /**
+   * Per-path throttle / deadband. Drops outbound values that arrive too
+   * quickly (`minIntervalMs`) or whose absolute change vs the last sent
+   * value is below a threshold (`deadband`). Both rules apply independently.
+   *
+   * Example:
+   *   "pathThrottle": {
+   *     "propulsion.main.revolutions":         { "minIntervalMs": 500 },
+   *     "electrical.batteries.house.voltage":  { "minIntervalMs": 5000, "deadband": 0.05 }
+   *   }
+   *
+   * Paths not in the map are not throttled.
+   */
+  pathThrottle?: Record<string, { minIntervalMs?: number; deadband?: number }>;
+  /**
+   * Allowlist and/or blocklist of Signal K paths to forward over the link.
+   * Applied before quantize/throttle, so filtered paths incur zero per-packet
+   * overhead.
+   *
+   * `allow`: only paths matching at least one pattern are forwarded.
+   * `deny`:  paths matching any pattern are dropped (evaluated after allow).
+   *
+   * Glob syntax: `"navigation.*"` matches any path whose first segment is
+   * `navigation`; `"*"` matches all paths; exact strings are matched literally.
+   * Local-only setting — does not affect the receiver.
+   */
+  pathFilter?: PathFilterConfig;
+  /**
+   * Replace outbound values that are identical to the previously sent
+   * value for the same (context, path) with a small sentinel object. The
+   * receiver maintains the same per-(context, path) cache and restores
+   * the value before injecting into Signal K.
+   *
+   * **Peer-matching setting** — both ends must enable this. If only the
+   * client enables it, the receiver sees the sentinel as the value and
+   * downstream Signal K consumers will see broken data. The receiver
+   * applies expansion transparently when sentinels are seen in the
+   * incoming stream, so it is safe to enable on the receiver first.
+   *
+   * Effective only on protocolVersion 2/3 (the reliable transport).
+   */
+  useValueDedup?: boolean;
+  /**
+   * Encode outbound delta arrays as positional msgpack arrays instead of
+   * field-name JSON objects. Drops ~70-100 bytes per delta in repeated field
+   * names. Requires `useMsgpack: true`. MUST MATCH on both ends.
+   *
+   * Effective only on protocolVersion 2/3.
+   */
+  useCompactDeltas?: boolean;
   /** Compress Signal K path strings with a shared dictionary to reduce packet size. Default false. */
   usePathDictionary?: boolean;
   /** Forward Signal K notification deltas over the link. Default false. */

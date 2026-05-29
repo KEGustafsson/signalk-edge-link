@@ -72,6 +72,90 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     description: "Binary serialization for smaller payloads (must match on both ends).",
     default: false
   },
+  useValueDedup: {
+    type: "boolean",
+    title: "Deduplicate Unchanged Values",
+    description:
+      "Replace outbound values that are identical to the previously sent value with a small " +
+      "sentinel. The receiver restores the value from its cache before injecting into Signal K. " +
+      "Big win on rarely-changing status paths (modes, states, enums). " +
+      "MUST MATCH on both ends — if only the sender enables this, downstream consumers will see broken values.",
+    default: false
+  },
+  useCompactDeltas: {
+    type: "boolean",
+    title: "Use Compact Delta Encoding",
+    description:
+      "Encode delta arrays as positional msgpack arrays instead of named JSON objects, " +
+      "eliminating 70-100 bytes of repeated field names per delta. " +
+      "Requires useMsgpack: true. MUST MATCH on both ends.",
+    default: false
+  },
+  pathFilter: {
+    type: "object",
+    title: "Path Filter",
+    description:
+      "Allowlist and/or blocklist of Signal K paths to forward over the link. " +
+      "Filtered paths are dropped before any other processing, so they incur zero per-packet overhead. " +
+      "allow: only paths matching at least one pattern are forwarded. " +
+      "deny: paths matching any pattern are dropped (evaluated after allow). " +
+      'Glob: "navigation.*" matches any path starting with "navigation."; ' +
+      '"*" matches all paths; exact strings are matched literally. ' +
+      "Local-only — the receiver is not affected.",
+    properties: {
+      allow: {
+        type: "array",
+        title: "Allow patterns",
+        items: { type: "string", minLength: 1 }
+      },
+      deny: {
+        type: "array",
+        title: "Deny patterns",
+        items: { type: "string", minLength: 1 }
+      }
+    },
+    additionalProperties: false
+  },
+  brotliQuality: {
+    type: "number",
+    title: "Brotli Quality (0-11)",
+    description:
+      "Compression quality for outbound packets. Higher values produce smaller packets at higher CPU cost. " +
+      "0 = fastest, 11 = highest ratio (~3-5× CPU vs default 6). " +
+      "Local-only setting — peers do not need to match. Default 6 (balanced).",
+    default: 6,
+    minimum: 0,
+    maximum: 11
+  },
+  pathPrecision: {
+    type: "object",
+    title: "Per-Path Numeric Precision",
+    description:
+      "Round outbound numeric values to N decimal places, per Signal K path. " +
+      'Example: { "navigation.speedOverGround": 2, "environment.outside.pressure": 0 }. ' +
+      'Use dotted paths for nested values (e.g. "navigation.position.latitude"). ' +
+      "LOSSY — the receiver sees the rounded value. Paths not listed are sent at full precision.",
+    additionalProperties: { type: "integer", minimum: 0, maximum: 15 }
+  },
+  pathThrottle: {
+    type: "object",
+    title: "Per-Path Throttle / Deadband",
+    description:
+      "Drop outbound values that arrive too quickly (minIntervalMs) or whose absolute " +
+      "change vs the previous sent value is below a threshold (deadband). Both rules " +
+      "apply independently — a value passes only if BOTH allow it. " +
+      'Example: { "propulsion.main.revolutions": { "minIntervalMs": 500 }, ' +
+      '"electrical.batteries.house.voltage": { "minIntervalMs": 5000, "deadband": 0.05 } }. ' +
+      "Paths not listed are not throttled.",
+    additionalProperties: {
+      type: "object",
+      properties: {
+        minIntervalMs: { type: "integer", minimum: 0, maximum: 3600000 },
+        deadband: { type: "number", minimum: 0 }
+      },
+      additionalProperties: false
+    }
+  },
   usePathDictionary: {
     type: "boolean",
     title: "Use Path Dictionary",
