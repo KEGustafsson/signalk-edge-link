@@ -19,6 +19,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "useMsgpack",
   "useValueDedup",
   "useCompactDeltas",
+  "pathFilter",
   "usePathDictionary",
   "brotliQuality",
   "pathPrecision",
@@ -129,6 +130,29 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   }
   if (conn.useCompactDeltas !== undefined && typeof conn.useCompactDeltas !== "boolean") {
     return `${p}useCompactDeltas must be a boolean`;
+  }
+  if (conn.pathFilter !== undefined) {
+    if (
+      typeof conn.pathFilter !== "object" ||
+      conn.pathFilter === null ||
+      Array.isArray(conn.pathFilter)
+    ) {
+      return `${p}pathFilter must be an object`;
+    }
+    const pf = conn.pathFilter as Record<string, unknown>;
+    for (const key of ["allow", "deny"] as const) {
+      if (pf[key] !== undefined) {
+        if (!Array.isArray(pf[key])) {
+          return `${p}pathFilter.${key} must be an array of strings`;
+        }
+        const arr = pf[key] as unknown[];
+        for (let i = 0; i < arr.length; i++) {
+          if (typeof arr[i] !== "string" || (arr[i] as string).length === 0) {
+            return `${p}pathFilter.${key}[${i}] must be a non-empty string`;
+          }
+        }
+      }
+    }
   }
   if (conn.brotliQuality !== undefined) {
     const q = conn.brotliQuality;

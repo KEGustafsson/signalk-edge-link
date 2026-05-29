@@ -5,6 +5,7 @@ import { encryptBinary, decryptBinary } from "./crypto";
 import { encodeDelta, decodeDelta } from "./pathDictionary";
 import {
   createPathThrottleState,
+  filterDeltaPayload,
   quantizeDelta,
   sanitizeDeltaForSignalK,
   throttleDelta
@@ -67,13 +68,25 @@ function createPipeline(
         return;
       }
 
+      // Drop paths excluded by the path filter
+      const filterConfig = state.options.pathFilter;
+      const filtered = filterConfig
+        ? (filterDeltaPayload(Array.isArray(delta) ? delta : delta, filterConfig) as
+            | Delta
+            | Delta[]
+            | null)
+        : (delta as Delta | Delta[]);
+      if (filtered === null) {
+        return;
+      }
+
       // Apply per-path numeric precision (bandwidth optimization, lossy)
       const precisionMap = state.options.pathPrecision;
       const quantized = precisionMap
-        ? Array.isArray(delta)
-          ? delta.map((d) => quantizeDelta(d, precisionMap))
-          : quantizeDelta(delta, precisionMap)
-        : delta;
+        ? Array.isArray(filtered)
+          ? filtered.map((d) => quantizeDelta(d, precisionMap))
+          : quantizeDelta(filtered, precisionMap)
+        : filtered;
 
       // Apply per-path throttle / deadband (drops values that fail the rule)
       const throttleMap = state.options.pathThrottle;

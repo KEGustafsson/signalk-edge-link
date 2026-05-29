@@ -19,6 +19,7 @@ import { encryptBinary } from "./crypto";
 import { encodeDelta, encodeMetaEntry } from "./pathDictionary";
 import {
   createPathThrottleState,
+  filterDeltaPayload,
   quantizeDeltaPayload,
   sanitizeDeltaPayloadForSignalK,
   throttleDeltaPayload,
@@ -404,8 +405,16 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         return;
       }
 
+      // Drop paths excluded by the path filter (applied early to save all
+      // downstream work on filtered paths)
+      const filteredDelta = filterDeltaPayload(sanitizedDelta, state.options?.pathFilter);
+      if (filteredDelta === null) {
+        app.debug("sendDelta skipped: all values removed by pathFilter");
+        return;
+      }
+
       // Apply per-path numeric precision (bandwidth optimization, lossy)
-      const quantizedDelta = quantizeDeltaPayload(sanitizedDelta, state.options?.pathPrecision);
+      const quantizedDelta = quantizeDeltaPayload(filteredDelta, state.options?.pathPrecision);
 
       // Apply per-path throttle / deadband (drops values that fail the rule)
       const throttledDelta = throttleDeltaPayload(

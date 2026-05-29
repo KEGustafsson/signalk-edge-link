@@ -91,6 +91,31 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
       "Requires useMsgpack: true. MUST MATCH on both ends.",
     default: false
   },
+  pathFilter: {
+    type: "object",
+    title: "Path Filter",
+    description:
+      "Allowlist and/or blocklist of Signal K paths to forward over the link. " +
+      "Filtered paths are dropped before any other processing, so they incur zero per-packet overhead. " +
+      "allow: only paths matching at least one pattern are forwarded. " +
+      "deny: paths matching any pattern are dropped (evaluated after allow). " +
+      'Glob: "navigation.*" matches any path starting with "navigation."; ' +
+      '"*" matches all paths; exact strings are matched literally. ' +
+      "Local-only — the receiver is not affected.",
+    properties: {
+      allow: {
+        type: "array",
+        title: "Allow patterns",
+        items: { type: "string", minLength: 1 }
+      },
+      deny: {
+        type: "array",
+        title: "Deny patterns",
+        items: { type: "string", minLength: 1 }
+      }
+    },
+    additionalProperties: false
+  },
   brotliQuality: {
     type: "number",
     title: "Brotli Quality (0-11)",

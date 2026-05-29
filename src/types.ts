@@ -241,6 +241,20 @@ export interface AlertThresholds {
   queueDepth?: AlertThresholdPair;
 }
 
+/**
+ * Path filter configuration.
+ *
+ * `allow`: paths matching at least one pattern are forwarded.
+ * `deny`:  paths matching any pattern are dropped (evaluated after allow).
+ *
+ * Glob syntax: `"navigation.*"` matches any path whose first segment is
+ * `navigation`; `"*"` matches all paths; exact strings are matched literally.
+ */
+export interface PathFilterConfig {
+  allow?: string[];
+  deny?: string[];
+}
+
 /** Per-connection configuration. */
 export interface ConnectionConfig {
   /** Stable per-connection identity used for config editing and secret restoration. */
@@ -295,6 +309,19 @@ export interface ConnectionConfig {
    * Paths not in the map are not throttled.
    */
   pathThrottle?: Record<string, { minIntervalMs?: number; deadband?: number }>;
+  /**
+   * Allowlist and/or blocklist of Signal K paths to forward over the link.
+   * Applied before quantize/throttle, so filtered paths incur zero per-packet
+   * overhead.
+   *
+   * `allow`: only paths matching at least one pattern are forwarded.
+   * `deny`:  paths matching any pattern are dropped (evaluated after allow).
+   *
+   * Glob syntax: `"navigation.*"` matches any path whose first segment is
+   * `navigation`; `"*"` matches all paths; exact strings are matched literally.
+   * Local-only setting — does not affect the receiver.
+   */
+  pathFilter?: PathFilterConfig;
   /**
    * Replace outbound values that are identical to the previously sent
    * value for the same (context, path) with a small sentinel object. The

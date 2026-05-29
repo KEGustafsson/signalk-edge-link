@@ -28,11 +28,31 @@ unset, behavior is unchanged from prior releases.
   a threshold. Both rules apply independently. Per-pipeline state, so
   each connection has its own throttle history.
 
+- **`useValueDedup: boolean`** — Same-as-last value deduplication.
+  Replaces outbound values identical to the previous sent value with a
+  compact sentinel. The receiver restores the original from its cache.
+  Large win for slowly-changing paths (state strings, mode enums).
+  **Peer-matching** — both ends must enable it.
+
+- **`useCompactDeltas: boolean`** — Positional msgpack delta encoding.
+  Replaces named-field JSON/msgpack objects with positional arrays,
+  eliminating 70-100 bytes of repeated field names per delta.
+  Requires `useMsgpack: true`. **Peer-matching** — both ends must
+  enable it. The receiver auto-detects the format so it is safe to
+  enable sender-first; the flag only controls the send path.
+
+- **`pathFilter: { allow?, deny? }`** — Static path allowlist /
+  blocklist. Paths matching a `deny` pattern or absent from `allow`
+  are dropped before any other processing, so filtered paths incur
+  zero per-packet overhead. Supports prefix globs (`navigation.*`).
+  Local-only — does not affect the receiver.
+
 Realistic gain on a high-rate vessel feed (50 paths × 10 Hz from a
-boat-side device): ~30-40% wire-byte reduction when all three are
-configured for the data set. Effects compound — quantization reduces
-each value's bytes, throttling cuts the volume, and Brotli at higher
-quality re-compresses what remains more tightly.
+boat-side device): ~30-40% wire-byte reduction when all six are
+configured for the data set. Effects compound — filter cuts unwanted
+paths entirely, throttle reduces update rate, quantization shrinks
+each value, dedup drops repeated values, compact removes field-name
+overhead, and Brotli re-compresses what remains.
 
 ### Notes on what was considered
 
