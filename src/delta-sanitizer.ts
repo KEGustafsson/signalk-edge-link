@@ -1,6 +1,6 @@
 "use strict";
 
-import type { Delta, DeltaUpdate, DeltaValue } from "./types";
+import type { Delta, DeltaUpdate, DeltaValue, PathFilterConfig } from "./types";
 
 export type DeltaPayload = Delta | Delta[] | Record<string, Delta>;
 
@@ -444,4 +444,129 @@ export function sanitizeDeltaPayloadForSignalK(delta: DeltaPayload): DeltaPayloa
   }
 
   return sanitizedEntries.length > 0 ? Object.fromEntries(sanitizedEntries) : null;
+}
+
+// ── Path filtering (allowlist / blocklist) ────────────────────────────────────
+
+/**
+ * Test whether `path` matches a glob pattern.
+ *
+ * Supported forms:
+ *   `*`                    — match any path
+ *   `navigation.*`         — match any path that starts with `navigation.`
+ *   `navigation.speed*`    — NOT supported; use prefix-glob only
+ *   `navigation.speedOverGround` — exact match
+ *
+ * Dots are Signal K path separators; a trailing `.*` means "this node and
+ * all its children".
+ */
+function pathMatchesGlob(path: string, pattern: string): boolean {
+  if (pattern === "*") return true;
+  if (pattern.endsWith(".*")) {
+    const prefix = pattern.slice(0, -1); // e.g. "navigation."
+    return path.startsWith(prefix);
+  }
+  return path === pattern;
+}
+
+/**
+ * Returns true if `path` passes through the filter configuration.
+ *
+ * Semantics:
+ * - If `allow` is non-empty, the path must match at least one allow pattern.
+ * - If `deny` is non-empty, the path must not match any deny pattern.
+ * - `deny` is evaluated after `allow`, so it can narrow an allow-list down.
+ */
+export function isPathAllowed(path: string, config: PathFilterConfig): boolean {
+  if (config.allow && config.allow.length > 0) {
+    if (!config.allow.some((p) => pathMatchesGlob(path, p))) return false;
+  }
+  if (config.deny && config.deny.length > 0) {
+    if (config.deny.some((p) => pathMatchesGlob(path, p))) return false;
+  }
+  return true;
+}
+
+/**
+ * Remove value entries that fail the path filter.  Updates that become empty
+ * after filtering are dropped; returns `null` when the entire delta becomes
+ * empty.  Returns the original reference when nothing is removed (no
+ * allocation).
+ */
+export function filterDelta(delta: Delta, config: PathFilterConfig): Delta | null {
+  if (!Array.isArray(delta.updates)) return null;
+  let deltaChanged = false;
+  const updates: DeltaUpdate[] = [];
+
+  for (const update of delta.updates) {
+    if (!Array.isArray(update.values)) {
+      updates.push(update);
+      continue;
+    }
+    let valuesChanged = false;
+    const values: DeltaValue[] = [];
+    for (const entry of update.values) {
+      if (entry === null || typeof entry !== "object") {
+        values.push(entry as DeltaValue);
+        continue;
+      }
+      const v = entry as DeltaValue;
+      if (typeof v.path !== "string") {
+        values.push(entry as DeltaValue);
+        continue;
+      }
+      if (isPathAllowed(v.path, config)) {
+        values.push(entry as DeltaValue);
+      } else {
+        valuesChanged = true;
+      }
+    }
+    if (!valuesChanged) {
+      updates.push(update);
+      continue;
+    }
+    deltaChanged = true;
+    if (values.length > 0) {
+      updates.push({ ...update, values });
+    }
+    // updates with no remaining values are dropped
+  }
+
+  if (!deltaChanged) return delta;
+  if (updates.length === 0) return null;
+  return { ...delta, updates };
+}
+
+/**
+ * Apply {@link filterDelta} to a `Delta`, `Delta[]`, or `Record<string, Delta>`.
+ * Returns `null` when everything is filtered out.  Short-circuits and returns
+ * the original reference when the config has no rules.
+ */
+export function filterDeltaPayload(
+  payload: DeltaPayload,
+  config: PathFilterConfig | undefined | null
+): DeltaPayload | null {
+  if (!config || (!config.allow?.length && !config.deny?.length)) return payload;
+
+  if (Array.isArray(payload)) {
+    const out: Delta[] = [];
+    for (const d of payload) {
+      const f = filterDelta(d, config);
+      if (f !== null) out.push(f);
+    }
+    return out.length > 0 ? out : null;
+  }
+  if (isDeltaLike(payload)) {
+    return filterDelta(payload, config);
+  }
+  const out: Record<string, Delta> = {};
+  let anyKept = false;
+  for (const [k, v] of Object.entries(payload as Record<string, Delta>)) {
+    const f = filterDelta(v, config);
+    if (f !== null) {
+      out[k] = f;
+      anyKept = true;
+    }
+  }
+  return anyKept ? out : null;
 }
