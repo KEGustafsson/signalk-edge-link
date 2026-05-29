@@ -21,6 +21,7 @@ import { decryptBinary } from "./crypto";
 import { decodeDelta, decodeMetaEntry } from "./pathDictionary";
 import { sanitizeDeltaForSignalK } from "./delta-sanitizer";
 import { createValueDedupState, undedupDelta, type ValueDedupState } from "./value-dedup";
+import { isCompactDeltaArray, decodeCompactDeltaArray } from "./compact-delta";
 import { handleMessageBySource, normalizeDeltaSourceRefs } from "./source-dispatch";
 import { mergeSourceSnapshot } from "./source-snapshot";
 import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "./packet";
@@ -1231,10 +1232,15 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         return;
       }
 
-      // Process deltas: payload may be an Array of deltas or an indexed object
-      const deltas: Delta[] = Array.isArray(jsonContent)
-        ? (jsonContent as Delta[])
-        : Object.values(jsonContent as Record<string, Delta>);
+      // Process deltas: payload may be compact-encoded, a plain Array, or an indexed object
+      let deltas: Delta[];
+      if (isCompactDeltaArray(jsonContent)) {
+        deltas = decodeCompactDeltaArray(jsonContent);
+      } else if (Array.isArray(jsonContent)) {
+        deltas = jsonContent as Delta[];
+      } else {
+        deltas = Object.values(jsonContent as Record<string, Delta>);
+      }
       const deltaCount = Math.min(deltas.length, MAX_DELTAS_PER_PACKET);
 
       if (deltas.length > MAX_DELTAS_PER_PACKET) {

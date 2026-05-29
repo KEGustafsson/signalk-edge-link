@@ -82,6 +82,15 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
       "MUST MATCH on both ends — if only the sender enables this, downstream consumers will see broken values.",
     default: false
   },
+  useCompactDeltas: {
+    type: "boolean",
+    title: "Use Compact Delta Encoding",
+    description:
+      "Encode delta arrays as positional msgpack arrays instead of named JSON objects, " +
+      "eliminating 70-100 bytes of repeated field names per delta. " +
+      "Requires useMsgpack: true. MUST MATCH on both ends.",
+    default: false
+  },
   brotliQuality: {
     type: "number",
     title: "Brotli Quality (0-11)",
