@@ -48,7 +48,6 @@ describe("dedupDelta — sender side", () => {
     const state = createValueDedupState();
     const d = makeDelta([{ path: "navigation.state", value: "moored" }]);
     const out = dedupDelta(d, state);
-    // No change yet — cache was empty
     expect(out).toBe(d);
     expect(out.updates[0].values[0].value).toBe("moored");
   });
@@ -74,7 +73,6 @@ describe("dedupDelta — sender side", () => {
   test("contexts are independent — same path in different vessels does not collide", () => {
     const state = createValueDedupState();
     dedupDelta(makeDelta([{ path: "navigation.state", value: "X" }], "vessels.A"), state);
-    // Same path+value but different context → still absolute
     const other = dedupDelta(
       makeDelta([{ path: "navigation.state", value: "X" }], "vessels.B"),
       state

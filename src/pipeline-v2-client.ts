@@ -446,11 +446,11 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
 
       metrics.bandwidth.bytesOutRaw += serialized.length;
 
-      const sanitizedItems = deltaPayloadItems(sanitizedDelta);
-      for (const item of sanitizedItems) {
-        trackPathStats(item, serialized.length / sanitizedItems.length);
+      const sentItems = deltaPayloadItems(dedupedDelta);
+      for (const item of sentItems) {
+        trackPathStats(item, serialized.length / sentItems.length);
       }
-      recordPathLatencies(sanitizedDelta);
+      recordPathLatencies(dedupedDelta);
 
       // Compress
       const compressed = await compressPayload(
@@ -516,7 +516,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
 
       // Update smart batching model
       // Guard against empty array: treat 0 as 1 to avoid Infinity in bytesPerDelta.
-      const deltaCount = Math.max(1, sanitizedItems.length);
+      const deltaCount = Math.max(1, sentItems.length);
       const bytesPerDelta = packet.length / deltaCount;
 
       state.avgBytesPerDelta =

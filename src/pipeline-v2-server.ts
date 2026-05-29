@@ -1232,12 +1232,14 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         return;
       }
 
-      // Process deltas: payload may be compact-encoded, a plain Array, or an indexed object
+      // Process deltas: payload may be compact-encoded, a plain Array, a bare Delta, or an indexed object
       let deltas: Delta[];
       if (isCompactDeltaArray(jsonContent)) {
         deltas = decodeCompactDeltaArray(jsonContent);
       } else if (Array.isArray(jsonContent)) {
         deltas = jsonContent as Delta[];
+      } else if (Array.isArray((jsonContent as Delta).updates)) {
+        deltas = [jsonContent as Delta];
       } else {
         deltas = Object.values(jsonContent as Record<string, Delta>);
       }

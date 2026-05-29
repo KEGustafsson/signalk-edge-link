@@ -259,9 +259,7 @@ describe("quantizeDelta — per-path numeric precision", () => {
 
   test("returns the same object reference when no values change (no allocation)", () => {
     const original = makeDelta([{ path: "navigation.headingTrue", value: 1.5 }]);
-    // Empty map → no-op
     expect(quantizeDelta(original, {})).toBe(original);
-    // Path not in map → no-op
     expect(quantizeDelta(original, { "environment.wind.speed": 1 })).toBe(original);
   });
 
@@ -359,7 +357,6 @@ describe("throttleDelta — per-path rate limit + deadband", () => {
     expect(
       throttleDelta(makeDelta("propulsion.main.revolutions", 1500), rules, state, 0)
     ).not.toBeNull();
-    // 200 ms later — within window, dropped
     expect(throttleDelta(makeDelta("propulsion.main.revolutions", 1505), rules, state, 200)).toBe(
       null
     );
@@ -374,11 +371,10 @@ describe("throttleDelta — per-path rate limit + deadband", () => {
     expect(
       throttleDelta(makeDelta("electrical.batteries.house.voltage", 12.8), rules, state, 0)
     ).not.toBeNull();
-    // 12.83 — change = 0.03 < 0.05 → dropped
     expect(
       throttleDelta(makeDelta("electrical.batteries.house.voltage", 12.83), rules, state, 100)
     ).toBe(null);
-    // 12.9 — change = 0.1 ≥ 0.05 → kept
+    // change 0.1 ≥ 0.05 deadband → kept
     const after = throttleDelta(
       makeDelta("electrical.batteries.house.voltage", 12.9),
       rules,
@@ -392,9 +388,8 @@ describe("throttleDelta — per-path rate limit + deadband", () => {
     const state = createPathThrottleState();
     const rules = { p: { minIntervalMs: 500, deadband: 1 } };
     expect(throttleDelta(makeDelta("p", 100), rules, state, 0)).not.toBeNull();
-    // 600ms later, but only +0.5 change → deadband drops it
     expect(throttleDelta(makeDelta("p", 100.5), rules, state, 600)).toBe(null);
-    // 600ms later, +5 change → passes
+    // interval elapsed AND change exceeds deadband → passes
     expect(throttleDelta(makeDelta("p", 105), rules, state, 1200)).not.toBeNull();
   });
 
@@ -426,7 +421,6 @@ describe("throttleDelta — per-path rate limit + deadband", () => {
     const state = createPathThrottleState();
     const rules = { p: { minIntervalMs: 1000 } };
     throttleDelta(makeDelta("p", 1), rules, state, 0);
-    // Same path within window — drops everything → null
     expect(throttleDelta(makeDelta("p", 2), rules, state, 100)).toBeNull();
   });
 
@@ -455,7 +449,6 @@ describe("throttleDelta — per-path rate limit + deadband", () => {
       state,
       0
     );
-    // First passes; second and third are within window → dropped
     expect(out.length).toBe(1);
     expect(out[0].updates[0].values[0].value).toBe(1);
   });

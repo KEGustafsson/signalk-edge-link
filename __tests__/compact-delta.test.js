@@ -33,12 +33,11 @@ describe("encodeCompactDelta", () => {
     const enc = encodeCompactDelta(d);
     const update = enc[1][0];
     expect(update).toHaveLength(5);
-    // slot 0: source, slot 1: $source, slot 2: timestamp, slot 3: values, slot 4: meta
     expect(update[0]).toEqual({ label: "test" });
     expect(update[1]).toBe("test.0");
     expect(update[2]).toBe("2026-05-29T00:00:00Z");
     expect(Array.isArray(update[3])).toBe(true);
-    expect(update[4]).toBeNull(); // no meta
+    expect(update[4]).toBeNull();
   });
 
   test("values are encoded as [path, value] pairs", () => {
@@ -81,9 +80,9 @@ describe("encodeCompactDelta", () => {
     const d = { context: "vessels.self", updates: [{ values: [{ path: "p", value: 1 }] }] };
     const enc = encodeCompactDelta(d);
     const update = enc[1][0];
-    expect(update[0]).toBeNull(); // source
-    expect(update[1]).toBeNull(); // $source
-    expect(update[2]).toBeNull(); // timestamp
+    expect(update[0]).toBeNull();
+    expect(update[1]).toBeNull();
+    expect(update[2]).toBeNull();
   });
 });
 

@@ -1,6 +1,6 @@
 "use strict";
 
-import type { Delta, DeltaUpdate, DeltaValue, PathFilterConfig } from "./types";
+import type { Delta, DeltaMeta, DeltaUpdate, DeltaValue, PathFilterConfig } from "./types";
 
 export type DeltaPayload = Delta | Delta[] | Record<string, Delta>;
 
@@ -349,7 +349,8 @@ export function throttleDelta(
         kept.push(v);
         continue;
       }
-      const last = state.lastSent.get(v.path);
+      const stateKey = `${delta.context}\0${v.path}`;
+      const last = state.lastSent.get(stateKey);
       let drop = false;
       if (last !== undefined) {
         if (rule.minIntervalMs !== undefined && nowMs - last.atMs < rule.minIntervalMs) {
@@ -370,7 +371,7 @@ export function throttleDelta(
         continue;
       }
       kept.push(v);
-      state.lastSent.set(v.path, {
+      state.lastSent.set(stateKey, {
         atMs: nowMs,
         value: typeof v.value === "number" ? v.value : undefined
       });
@@ -521,15 +522,33 @@ export function filterDelta(delta: Delta, config: PathFilterConfig): Delta | nul
         valuesChanged = true;
       }
     }
-    if (!valuesChanged) {
+    // Apply the same filter to meta entries
+    let metaChanged = false;
+    let filteredMeta: DeltaMeta[] | undefined;
+    if (Array.isArray(update.meta)) {
+      filteredMeta = update.meta.filter(
+        (m) => typeof m.path !== "string" || isPathAllowed(m.path, config)
+      );
+      if (filteredMeta.length !== update.meta.length) metaChanged = true;
+    }
+
+    if (!valuesChanged && !metaChanged) {
       updates.push(update);
       continue;
     }
     deltaChanged = true;
-    if (values.length > 0) {
-      updates.push({ ...update, values });
+    if (values.length > 0 || (filteredMeta && filteredMeta.length > 0)) {
+      const next: DeltaUpdate = { ...update, values };
+      if (metaChanged) {
+        if (filteredMeta && filteredMeta.length > 0) {
+          next.meta = filteredMeta;
+        } else {
+          delete next.meta;
+        }
+      }
+      updates.push(next);
     }
-    // updates with no remaining values are dropped
+    // updates with no remaining values or meta are dropped
   }
 
   if (!deltaChanged) return delta;

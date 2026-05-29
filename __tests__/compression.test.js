@@ -108,7 +108,7 @@ describe("Compression and Encryption Pipeline", () => {
     test("default quality (no override) matches BROTLI_QUALITY_HIGH = 6", async () => {
       const a = await compressPayload(sample, false);
       const b = await compressPayload(sample, false, 6);
-      expect(a.length).toBe(b.length);
+      expect(a.equals(b)).toBe(true);
     });
 
     test("quality 11 produces smaller output than quality 0", async () => {

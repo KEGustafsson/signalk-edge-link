@@ -131,6 +131,18 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   if (conn.useCompactDeltas !== undefined && typeof conn.useCompactDeltas !== "boolean") {
     return `${p}useCompactDeltas must be a boolean`;
   }
+  const _pv = conn.protocolVersion ?? 1;
+  if (conn.useValueDedup === true && _pv < 2) {
+    return `${p}useValueDedup is only supported on protocolVersion 2 or 3`;
+  }
+  if (conn.useCompactDeltas === true) {
+    if (_pv < 2) {
+      return `${p}useCompactDeltas is only supported on protocolVersion 2 or 3`;
+    }
+    if (conn.useMsgpack !== true) {
+      return `${p}useCompactDeltas requires useMsgpack to be enabled`;
+    }
+  }
   if (conn.pathFilter !== undefined) {
     if (
       typeof conn.pathFilter !== "object" ||
@@ -140,6 +152,11 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
       return `${p}pathFilter must be an object`;
     }
     const pf = conn.pathFilter as Record<string, unknown>;
+    for (const key of Object.keys(pf)) {
+      if (key !== "allow" && key !== "deny") {
+        return `${p}pathFilter.${key} is not a supported property`;
+      }
+    }
     for (const key of ["allow", "deny"] as const) {
       if (pf[key] !== undefined) {
         if (!Array.isArray(pf[key])) {
@@ -187,6 +204,11 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
         return `${p}pathThrottle["${path}"] must be an object`;
       }
       const r = rule as Record<string, unknown>;
+      for (const key of Object.keys(r)) {
+        if (key !== "minIntervalMs" && key !== "deadband") {
+          return `${p}pathThrottle["${path}"].${key} is not a supported property`;
+        }
+      }
       if (r.minIntervalMs !== undefined) {
         if (
           !Number.isInteger(r.minIntervalMs) ||

@@ -6,61 +6,24 @@ All notable changes to signalk-edge-link are documented here.
 
 ### Added — Outbound bandwidth optimizations (v2/v3)
 
-Three new opt-in connection config fields for reducing outbound bandwidth
-on the v2/v3 reliable transport. All fields are backward-compatible — when
-unset, behavior is unchanged from prior releases.
+Six new opt-in connection fields reduce outbound UDP bandwidth on v2/v3
+connections. All are backward-compatible — when unset, behaviour is unchanged.
+See the connection schema for field definitions, defaults, and valid ranges.
 
-- **`brotliQuality` (0..11)** — Configurable Brotli compression quality.
-  Default 6 (balanced). Quality 11 produces 3-8% smaller packets at
-  3-5× the CPU cost; useful for boat-side devices with surplus CPU and
-  tight uplink budgets. Local-only setting; peers do not need to match.
+- **`pathFilter`** — Drop unwanted paths before any other processing
+- **`pathThrottle`** — Per-path rate limit and deadband filter
+- **`pathPrecision`** — Per-path numeric rounding (lossy)
+- **`useValueDedup`** — Skip values unchanged since the last sent packet (peer-matching required)
+- **`useCompactDeltas`** — Positional msgpack encoding; eliminates repeated field-name overhead (requires `useMsgpack: true`; peer-matching required)
+- **`brotliQuality`** — Tune Brotli compression effort (0–11)
 
-- **`pathPrecision: Record<path, decimals>`** — Per-path numeric
-  precision quantization. Rounds outbound numeric values to N decimal
-  places. Supports dotted paths for nested object fields
-  (e.g. `"navigation.position.latitude": 5`). **Lossy by design** — the
-  receiver sees the rounded value. Set precision to match each sensor's
-  actual reportable resolution.
+Compounding effects on a high-rate vessel feed (50 paths × 10 Hz): ~30–40%
+wire-byte reduction when all six are configured appropriately.
 
-- **`pathThrottle: Record<path, { minIntervalMs?, deadband? }>`** —
-  Per-path rate limit + deadband filter. Drops outbound values that
-  arrive too quickly or whose change vs the last sent value is below
-  a threshold. Both rules apply independently. Per-pipeline state, so
-  each connection has its own throttle history.
+### Notes
 
-- **`useValueDedup: boolean`** — Same-as-last value deduplication.
-  Replaces outbound values identical to the previous sent value with a
-  compact sentinel. The receiver restores the original from its cache.
-  Large win for slowly-changing paths (state strings, mode enums).
-  **Peer-matching** — both ends must enable it.
-
-- **`useCompactDeltas: boolean`** — Positional msgpack delta encoding.
-  Replaces named-field JSON/msgpack objects with positional arrays,
-  eliminating 70-100 bytes of repeated field names per delta.
-  Requires `useMsgpack: true`. **Peer-matching** — both ends must
-  enable it. The receiver auto-detects the format so it is safe to
-  enable sender-first; the flag only controls the send path.
-
-- **`pathFilter: { allow?, deny? }`** — Static path allowlist /
-  blocklist. Paths matching a `deny` pattern or absent from `allow`
-  are dropped before any other processing, so filtered paths incur
-  zero per-packet overhead. Supports prefix globs (`navigation.*`).
-  Local-only — does not affect the receiver.
-
-Realistic gain on a high-rate vessel feed (50 paths × 10 Hz from a
-boat-side device): ~30-40% wire-byte reduction when all six are
-configured for the data set. Effects compound — filter cuts unwanted
-paths entirely, throttle reduces update rate, quantization shrinks
-each value, dedup drops repeated values, compact removes field-name
-overhead, and Brotli re-compresses what remains.
-
-### Notes on what was considered
-
-- A shared static Brotli dictionary (the biggest theoretical single
-  win) is not implemented in this release: Node.js's zlib does not
-  expose `BROTLI_PARAM_DICTIONARY`. Would require a new npm dependency.
-- Source-label deduplication does not apply at the Signal K data
-  model level — `$source` is already on the update, not per value.
+- Node.js's zlib does not expose `BROTLI_PARAM_DICTIONARY`, so a shared static Brotli dictionary is not used; per-packet Brotli compression applies only.
+- `$source` is attached to the update, not per value, in the Signal K data model.
 
 ## [2.8.0] - 2026-05-21
 

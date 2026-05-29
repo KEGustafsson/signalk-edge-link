@@ -121,11 +121,10 @@ function createPipeline(
       // Track raw bytes for compression ratio calculation
       metrics.bandwidth.bytesOutRaw += serialized.length;
 
-      // Track path stats AFTER serialization (reuse size for efficiency)
-      if (Array.isArray(delta)) {
-        delta.forEach((d) => trackPathStats(d, serialized.length / delta.length));
-      } else {
-        trackPathStats(delta, serialized.length);
+      // Track path stats using the filtered/throttled payload actually sent
+      const _sentItems = Array.isArray(throttled) ? throttled : [throttled as Delta];
+      for (const d of _sentItems) {
+        trackPathStats(d, serialized.length / _sentItems.length);
       }
 
       // Single compression stage (before encryption)
@@ -158,7 +157,7 @@ function createPipeline(
       metrics.deltasSent++;
 
       // Update smart batching model after successful send
-      const deltaCount = Array.isArray(delta) ? Math.max(delta.length, 1) : 1;
+      const deltaCount = Math.max(_sentItems.length, 1);
       const bytesPerDelta = packet.length / deltaCount;
 
       // Update rolling average using exponential smoothing
