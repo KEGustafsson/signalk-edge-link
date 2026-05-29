@@ -220,3 +220,31 @@ describe("undedupDeltaArray", () => {
     expect(recv[1].updates[0].values[0].value).toBe(42);
   });
 });
+
+describe("cache is bounded (LRU eviction)", () => {
+  const { VALUE_DEDUP_CACHE_MAX } = require("../lib/constants");
+
+  test("cache size never exceeds the configured maximum", () => {
+    const state = createValueDedupState();
+    // Insert well past the cap with distinct paths.
+    for (let i = 0; i < VALUE_DEDUP_CACHE_MAX + 500; i++) {
+      dedupDelta(makeDelta([{ path: `p.${i}`, value: i }]), state);
+    }
+    expect(state.cache.size).toBe(VALUE_DEDUP_CACHE_MAX);
+  });
+
+  test("a hot path stays cached while cold paths are evicted", () => {
+    const state = createValueDedupState();
+    // Prime the hot path's baseline.
+    dedupDelta(makeDelta([{ path: "hot", value: 1 }]), state);
+    // Repeatedly re-send the hot path (sentinel hits refresh LRU position)
+    // interleaved with a flood of unique cold paths that triggers eviction.
+    for (let i = 0; i < VALUE_DEDUP_CACHE_MAX + 500; i++) {
+      dedupDelta(makeDelta([{ path: "hot", value: 1 }]), state);
+      dedupDelta(makeDelta([{ path: `cold.${i}`, value: i }]), state);
+    }
+    // The hot path's baseline survived, so an unchanged value still dedups.
+    const out = dedupDelta(makeDelta([{ path: "hot", value: 1 }]), state);
+    expect(isDupSentinel(out.updates[0].values[0].value)).toBe(true);
+  });
+});

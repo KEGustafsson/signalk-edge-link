@@ -23,7 +23,8 @@ import {
   MAX_PARSE_PAYLOAD_SIZE,
   MAX_DELTAS_PER_PACKET,
   SMART_BATCH_SMOOTHING,
-  calculateMaxDeltasPerBatch
+  calculateMaxDeltasPerBatch,
+  clampBytesPerDeltaSample
 } from "./constants";
 import type { SignalKApp, MetricsApi, InstanceState, Delta } from "./types";
 
@@ -158,7 +159,7 @@ function createPipeline(
 
       // Update smart batching model after successful send
       const deltaCount = Math.max(_sentItems.length, 1);
-      const bytesPerDelta = packet.length / deltaCount;
+      const bytesPerDelta = clampBytesPerDeltaSample(packet.length / deltaCount);
 
       // Update rolling average using exponential smoothing
       state.avgBytesPerDelta =

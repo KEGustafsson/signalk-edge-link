@@ -463,4 +463,17 @@ describe("throttleDelta — per-path rate limit + deadband", () => {
       throttleDeltaPayload([makeDelta("p", 2), makeDelta("p", 3)], rules, state, 100)
     ).toBeNull();
   });
+
+  test("lastSent state is bounded by LRU eviction", () => {
+    const { PATH_THROTTLE_STATE_MAX } = require("../lib/constants");
+    const state = createPathThrottleState();
+    // A rule that matches every path; deadband is irrelevant since each path
+    // is seen once, so every entry is recorded in lastSent.
+    const rule = { minIntervalMs: 500 };
+    for (let i = 0; i < PATH_THROTTLE_STATE_MAX + 500; i++) {
+      const path = `p.${i}`;
+      throttleDelta(makeDelta(path, i), { [path]: rule }, state, i);
+    }
+    expect(state.lastSent.size).toBe(PATH_THROTTLE_STATE_MAX);
+  });
 });

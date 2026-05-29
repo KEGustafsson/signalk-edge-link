@@ -277,6 +277,40 @@ describe("Smart Batching", () => {
     });
   });
 
+  describe("clampBytesPerDeltaSample (EMA stability guard)", () => {
+    const { clampBytesPerDeltaSample } = require("../lib/constants");
+
+    test("passes through in-range samples unchanged", () => {
+      expect(clampBytesPerDeltaSample(200)).toBe(200);
+      expect(clampBytesPerDeltaSample(1)).toBe(1);
+      expect(clampBytesPerDeltaSample(MAX_SAFE_UDP_PAYLOAD)).toBe(MAX_SAFE_UDP_PAYLOAD);
+    });
+
+    test("caps oversized single-delta packets at the safe MTU", () => {
+      // A single delta whose packet exceeds the MTU must not drag the EMA
+      // beyond MAX_SAFE_UDP_PAYLOAD.
+      expect(clampBytesPerDeltaSample(5000)).toBe(MAX_SAFE_UDP_PAYLOAD);
+    });
+
+    test("floors degenerate samples at 1", () => {
+      expect(clampBytesPerDeltaSample(0)).toBe(1);
+      expect(clampBytesPerDeltaSample(-10)).toBe(1);
+      // Non-finite samples cannot occur (deltaCount >= 1, packet length finite)
+      // but are floored defensively rather than propagated into the EMA.
+      expect(clampBytesPerDeltaSample(Infinity)).toBe(1);
+      expect(clampBytesPerDeltaSample(NaN)).toBe(1);
+    });
+
+    test("keeps the EMA bounded under a burst of oversized samples", () => {
+      let avg = SMART_BATCH_INITIAL_ESTIMATE;
+      for (let i = 0; i < 50; i++) {
+        const sample = clampBytesPerDeltaSample(10000); // pathological outlier
+        avg = (1 - SMART_BATCH_SMOOTHING) * avg + SMART_BATCH_SMOOTHING * sample;
+      }
+      expect(avg).toBeLessThanOrEqual(MAX_SAFE_UDP_PAYLOAD);
+    });
+  });
+
   describe("End-to-End with Smart Batching", () => {
     test("should successfully send and receive batched deltas", () => {
       const batchSizes = [1, 3, 5, 7];

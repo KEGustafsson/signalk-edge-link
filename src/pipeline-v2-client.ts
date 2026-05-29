@@ -52,7 +52,8 @@ import {
   MAX_SAFE_UDP_PAYLOAD,
   SMART_BATCH_SMOOTHING,
   METRICS_PUBLISH_INTERVAL,
-  calculateMaxDeltasPerBatch
+  calculateMaxDeltasPerBatch,
+  clampBytesPerDeltaSample
 } from "./constants";
 
 /**
@@ -517,7 +518,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       // Update smart batching model
       // Guard against empty array: treat 0 as 1 to avoid Infinity in bytesPerDelta.
       const deltaCount = Math.max(1, sentItems.length);
-      const bytesPerDelta = packet.length / deltaCount;
+      const bytesPerDelta = clampBytesPerDeltaSample(packet.length / deltaCount);
 
       state.avgBytesPerDelta =
         (1 - SMART_BATCH_SMOOTHING) * state.avgBytesPerDelta +

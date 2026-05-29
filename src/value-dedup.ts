@@ -22,6 +22,7 @@
 
 import type { Delta, DeltaValue } from "./types";
 import type { DeltaPayload } from "./delta-sanitizer";
+import { VALUE_DEDUP_CACHE_MAX } from "./constants";
 
 /**
  * Sentinel object that replaces unchanged values on the wire.
@@ -41,6 +42,23 @@ export function createValueDedupState(): ValueDedupState {
 
 function cacheKey(context: string | undefined, path: string): string {
   return `${context || "*"}\u0000${path}`;
+}
+
+/**
+ * Insert or refresh a cache entry with LRU eviction. On a Map (which
+ * preserves insertion order) a delete-then-set moves the key to the tail,
+ * so the least-recently-written key is always at the head and evicted
+ * first when the cache is full. Bounds memory for links that see a very
+ * large number of distinct (context, path) pairs.
+ */
+function cacheSet(cache: Map<string, unknown>, key: string, value: unknown): void {
+  if (cache.has(key)) {
+    cache.delete(key);
+  } else if (cache.size >= VALUE_DEDUP_CACHE_MAX) {
+    const oldest = cache.keys().next();
+    if (!oldest.done) cache.delete(oldest.value);
+  }
+  cache.set(key, value);
 }
 
 function isSentinel(value: unknown): boolean {
@@ -98,10 +116,13 @@ export function dedupDelta(delta: Delta, state: ValueDedupState): Delta {
       const currentRepr = stableRepr(v.value);
       if (cachedRepr !== undefined && cachedRepr === currentRepr) {
         valuesChanged = true;
+        // Refresh LRU position so a stable path that only ever emits
+        // sentinels is not evicted ahead of churnier ones.
+        cacheSet(state.cache, key, cached);
         return { ...v, value: DUP_SENTINEL };
       }
       // First occurrence or value changed — cache the absolute value
-      state.cache.set(key, v.value);
+      cacheSet(state.cache, key, v.value);
       return entry;
     });
     if (!valuesChanged) return update;
@@ -196,10 +217,13 @@ export function undedupDelta(delta: Delta, state: ValueDedupState): Delta {
           continue;
         }
         valuesChanged = true;
+        // Refresh LRU position so a stable path is not evicted ahead of
+        // churnier ones (mirrors the sender-side dedup behaviour).
+        cacheSet(state.cache, key, cached);
         values.push({ ...v, value: cached });
       } else {
         // Absolute value — update cache and pass through
-        state.cache.set(key, v.value);
+        cacheSet(state.cache, key, v.value);
         values.push(entry as DeltaValue);
       }
     }

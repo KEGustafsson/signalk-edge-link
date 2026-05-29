@@ -1,6 +1,7 @@
 "use strict";
 
 import type { Delta, DeltaMeta, DeltaUpdate, DeltaValue, PathFilterConfig } from "./types";
+import { PATH_THROTTLE_STATE_MAX } from "./constants";
 
 export type DeltaPayload = Delta | Delta[] | Record<string, Delta>;
 
@@ -371,6 +372,15 @@ export function throttleDelta(
         continue;
       }
       kept.push(v);
+      // LRU-bounded insert: delete-then-set moves the key to the tail so the
+      // least-recently-sent (context,path) is evicted first when the map is
+      // full. Caps memory under high path/context cardinality.
+      if (state.lastSent.has(stateKey)) {
+        state.lastSent.delete(stateKey);
+      } else if (state.lastSent.size >= PATH_THROTTLE_STATE_MAX) {
+        const oldest = state.lastSent.keys().next();
+        if (!oldest.done) state.lastSent.delete(oldest.value);
+      }
       state.lastSent.set(stateKey, {
         atMs: nowMs,
         value: typeof v.value === "number" ? v.value : undefined
