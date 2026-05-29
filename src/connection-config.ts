@@ -18,6 +18,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "stretchAsciiKey",
   "useMsgpack",
   "useValueDedup",
+  "useCompactDeltas",
   "usePathDictionary",
   "brotliQuality",
   "pathPrecision",
@@ -125,6 +126,9 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   }
   if (conn.useValueDedup !== undefined && typeof conn.useValueDedup !== "boolean") {
     return `${p}useValueDedup must be a boolean`;
+  }
+  if (conn.useCompactDeltas !== undefined && typeof conn.useCompactDeltas !== "boolean") {
+    return `${p}useCompactDeltas must be a boolean`;
   }
   if (conn.brotliQuality !== undefined) {
     const q = conn.brotliQuality;

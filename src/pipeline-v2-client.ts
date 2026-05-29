@@ -14,6 +14,7 @@
  */
 
 import CircularBuffer from "./CircularBuffer";
+import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary } from "./crypto";
 import { encodeDelta, encodeMetaEntry } from "./pathDictionary";
 import {
@@ -24,6 +25,7 @@ import {
   type DeltaPayload
 } from "./delta-sanitizer";
 import { createValueDedupState, dedupDeltaPayload } from "./value-dedup";
+import { encodeCompactPayload } from "./compact-delta";
 import {
   deltaBuffer,
   compressPayload,
@@ -427,8 +429,11 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         ? encodeDeltaPayload(dedupedDelta)
         : dedupedDelta;
 
-      // Serialize to buffer
-      const serialized = deltaBuffer(processedDelta, state.options.useMsgpack);
+      // Serialize to buffer — compact mode requires msgpack (no gain in JSON)
+      const serialized =
+        state.options?.useCompactDeltas && state.options?.useMsgpack
+          ? Buffer.from(msgpack.encode(encodeCompactPayload(processedDelta)))
+          : deltaBuffer(processedDelta, state.options.useMsgpack);
 
       metrics.bandwidth.bytesOutRaw += serialized.length;
 

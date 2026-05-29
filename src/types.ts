@@ -310,6 +310,14 @@ export interface ConnectionConfig {
    * Effective only on protocolVersion 2/3 (the reliable transport).
    */
   useValueDedup?: boolean;
+  /**
+   * Encode outbound delta arrays as positional msgpack arrays instead of
+   * field-name JSON objects. Drops ~70-100 bytes per delta in repeated field
+   * names. Requires `useMsgpack: true`. MUST MATCH on both ends.
+   *
+   * Effective only on protocolVersion 2/3.
+   */
+  useCompactDeltas?: boolean;
   /** Compress Signal K path strings with a shared dictionary to reduce packet size. Default false. */
   usePathDictionary?: boolean;
   /** Forward Signal K notification deltas over the link. Default false. */
