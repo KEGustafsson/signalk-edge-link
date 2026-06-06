@@ -40,7 +40,7 @@ on:
       node-versions:
         description: 'JSON array of Node versions for desktop platforms (default: ["22", "24"])'
         type: string
-        default: '["24"]'
+        default: '["24", "24"]'
 
       # ── armv7 / Cerbo GX options ────────────────────────────
       enable-armv7:
