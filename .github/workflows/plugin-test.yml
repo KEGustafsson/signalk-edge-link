@@ -34,7 +34,7 @@ on:
       enable-armv7:
         description: 'Run armv7 (Cerbo GX) tests via QEMU emulation'
         type: boolean
-        default: true
+        default: false
 
       # ── SignalK integration test ────────────────────────────
       enable-signalk-integration:
