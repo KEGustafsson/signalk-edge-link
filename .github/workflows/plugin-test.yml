@@ -1,11 +1,23 @@
+# SignalK Plugin CI - Reusable Workflow
+#
+# This workflow lives in the SignalK/signalk-server repository.
+# Plugin developers reference it with a single line in their own workflow.
+#
+# Platforms tested:
+#   - Linux x64    (Node 22, 24)
+#   - Linux arm64  (Node 22, 24) — Raspberry Pi 4/5
+#   - macOS        (Node 22, 24)
+#   - Windows      (Node 22, 24)
+#   - armv7/armhf  (Node 20 — matches Venus OS 3.70 on Cerbo GX)
+#                    Runs under QEMU emulation with python3, make, g++
+#
+# Usage in your plugin repo:
+#   See docs/develop/plugins/examples/plugin-caller-example.yml
+
 name: SignalK Plugin CI
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
   workflow_call:
     inputs:
       # ── Test configuration ──────────────────────────────────
@@ -28,7 +40,7 @@ on:
       node-versions:
         description: 'JSON array of Node versions for desktop platforms (default: ["22", "24"])'
         type: string
-        default: '["24","24"]'
+        default: '["24"]'
 
       # ── armv7 / Cerbo GX options ────────────────────────────
       enable-armv7:
