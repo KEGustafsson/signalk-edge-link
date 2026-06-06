@@ -147,20 +147,63 @@ describe("handleMessageBySource", () => {
     expect(app.calls[0].delta.updates[0].$source).toBe("signalk-edge-link.42");
   });
 
-  test("keeps a stale signalk-edge-link.* $source when no usable source object is present", () => {
+  test("keeps a stale signalk-edge-link.* $source when no usable source object is present (non-edgeLink path)", () => {
     const app = makeAppCapturer();
     handleMessageBySource(app, {
       context: "vessels.self",
       updates: [
         {
           $source: "signalk-edge-link.42",
-          values: [{ path: "p", value: 1 }]
+          values: [{ path: "navigation.speedOverGround", value: 1 }]
         }
       ]
     });
-    // We have nothing better to fall back to — drop $source entirely would
-    // leave the value un-attributed, which is worse.
+    // Non-edgeLink path: we have nothing better to fall back to — keep stale.
     expect(app.calls[0].delta.updates[0].$source).toBe("signalk-edge-link.42");
+  });
+
+  test("normalises signalk-edge-link.XX to canonical signalk-edge-link for networking.edgeLink.* values", () => {
+    const app = makeAppCapturer();
+    handleMessageBySource(app, {
+      context: "vessels.self",
+      updates: [
+        {
+          $source: "signalk-edge-link.XX",
+          values: [{ path: "networking.edgeLink.arabella.rtt", value: 105.8 }]
+        }
+      ]
+    });
+    // Old plugin versions produce .XX from a label-only source object;
+    // normalise to the canonical base label so both ends store the same key.
+    expect(app.calls[0].delta.updates[0].$source).toBe("signalk-edge-link");
+  });
+
+  test("normalises qualified signalk-edge-link:instanceId to canonical for networking.edgeLink.* values", () => {
+    const app = makeAppCapturer();
+    handleMessageBySource(app, {
+      context: "vessels.self",
+      updates: [
+        {
+          $source: "signalk-edge-link:arabella",
+          values: [{ path: "networking.edgeLink.arabella.rtt", value: 102.1 }]
+        }
+      ]
+    });
+    expect(app.calls[0].delta.updates[0].$source).toBe("signalk-edge-link");
+  });
+
+  test("does not alter the base signalk-edge-link $source for networking.edgeLink.* values", () => {
+    const app = makeAppCapturer();
+    handleMessageBySource(app, {
+      context: "vessels.self",
+      updates: [
+        {
+          $source: "signalk-edge-link",
+          values: [{ path: "networking.edgeLink.proxyin.rtt", value: 126.6 }]
+        }
+      ]
+    });
+    expect(app.calls[0].delta.updates[0].$source).toBe("signalk-edge-link");
   });
 
   test("drops $source entirely when neither a usable source object nor a $source string is present", () => {

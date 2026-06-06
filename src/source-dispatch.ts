@@ -98,6 +98,21 @@ function resolveSourceRef(update: DeltaUpdate): string {
 }
 
 /**
+ * Return true when at least one value in the update targets a
+ * `networking.edgeLink.*` path (own-data namespace owned by this plugin).
+ */
+function hasEdgeLinkOwnDataValues(update: DeltaUpdate): boolean {
+  if (!Array.isArray(update.values)) {
+    return false;
+  }
+  return (update.values as DeltaValue[]).some(
+    (v) =>
+      typeof (v as DeltaValue).path === "string" &&
+      ((v as DeltaValue).path as string).startsWith("networking.edgeLink.")
+  );
+}
+
+/**
  * Build the update object actually handed to `app.handleMessage`.
  *
  * Critically, the structured `source` object is dropped — signalk-server's
@@ -117,7 +132,22 @@ function resolveSourceRef(update: DeltaUpdate): string {
  * available under `/signalk/v1/api/sources`.
  */
 function prepareUpdateForDispatch(update: DeltaUpdate): DeltaUpdate {
-  const sourceRef = resolveSourceRef(update);
+  let sourceRef = resolveSourceRef(update);
+
+  // Normalise stale qualified signalk-edge-link refs (e.g. ".XX",
+  // ":instanceId") to the canonical base label for networking.edgeLink.*
+  // values. Old plugin versions used a label-only `source` object which
+  // signalk-server converts to "${label}.XX" via getSourceId; normalising
+  // here collapses that spurious bucket into the same key the receiver's
+  // own MetricsPublisher uses, preventing the dual-source appearance.
+  if (
+    sourceRef !== "signalk-edge-link" &&
+    isStaleEdgeLinkRef(sourceRef) &&
+    hasEdgeLinkOwnDataValues(update)
+  ) {
+    sourceRef = "signalk-edge-link";
+  }
+
   const prepared: DeltaUpdate = {
     values: Array.isArray(update.values)
       ? update.values.map((value) => ({ ...(value as DeltaValue) }))
