@@ -224,12 +224,14 @@ describe("MetricsPublisher", () => {
       expect(values.length).toBe(13);
     });
 
-    test("publishes with correct source label", () => {
+    test("publishes with canonical $source string (no structured source object)", () => {
       publisher.publish({ rtt: 50 });
 
-      const source = publishedMessages[0].updates[0].source;
-      expect(source.label).toBe("signalk-edge-link");
-      expect(source.type).toBe("plugin");
+      const update = publishedMessages[0].updates[0];
+      // A structured `source` object would make signalk-server derive
+      // `signalk-edge-link.XX`; emit a `$source` string instead.
+      expect(update.source).toBeUndefined();
+      expect(update.$source).toBe("signalk-edge-link");
     });
 
     test("publishes with ISO timestamp", () => {
@@ -582,8 +584,9 @@ describe("MetricsPublisher", () => {
         retransmitRate: 0
       });
 
-      const source = publishedMessages[0].updates[0].source;
-      expect(source.label).toBe("signalk-edge-link");
+      const update = publishedMessages[0].updates[0];
+      expect(update.source).toBeUndefined();
+      expect(update.$source).toBe("signalk-edge-link");
     });
   });
 

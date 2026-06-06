@@ -710,14 +710,15 @@ export class BondingManager {
       return;
     }
     try {
+      // Emit a `$source` string rather than a structured `source` object:
+      // signalk-server derives `${label}.XX` from a label-only source object,
+      // which would split this notification across a spurious
+      // `signalk-edge-link.XX` bucket. See src/source-dispatch.ts.
       this.app.handleMessage(this.sourceLabel, {
         context: "vessels.self",
         updates: [
           {
-            source: {
-              label: this.sourceLabel,
-              type: "plugin"
-            },
+            $source: "signalk-edge-link",
             timestamp: new Date().toISOString(),
             values: [
               {

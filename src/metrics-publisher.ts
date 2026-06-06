@@ -159,14 +159,17 @@ class MetricsPublisher {
 
     // Only publish if values changed
     if (this._hasChanged(values)) {
+      // Use a `$source` string rather than a structured `source` object.
+      // signalk-server's getSourceId() turns a label-only source object into
+      // `${label}.XX` (and rewrites our `signalk-edge-link:<instanceId>` label
+      // to the plugin id first), which would create a spurious
+      // `signalk-edge-link.XX` source bucket alongside the canonical one. A
+      // plain `$source` string is stored verbatim. See src/source-dispatch.ts.
       this.app.handleMessage(this.sourceLabel, {
         context: "vessels.self",
         updates: [
           {
-            source: {
-              label: this.sourceLabel,
-              type: "plugin"
-            },
+            $source: "signalk-edge-link",
             timestamp: new Date().toISOString(),
             values: values
           }
@@ -246,11 +249,13 @@ class MetricsPublisher {
       }
     ];
 
+    // See publish() above: emit a `$source` string so the leaf lands on the
+    // canonical `signalk-edge-link` bucket instead of `signalk-edge-link.XX`.
     this.app.handleMessage(this.sourceLabel, {
       context: "vessels.self",
       updates: [
         {
-          source: { label: this.sourceLabel, type: "plugin" },
+          $source: "signalk-edge-link",
           timestamp: new Date().toISOString(),
           values: values
         }
