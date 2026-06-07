@@ -56,7 +56,7 @@ Before any rewrite code:
    vectors (sanity), then later that the new code does too.
 3. **Add an interop test harness** that can run the OLD compiled build and
    the NEW build against each other over a loopback `dgram` (or the
-   simulated socket pair) for v1/v2/v3 — data, control, metadata, source
+   simulated socket pair) for v1/v3 — data, control, metadata, source
    snapshot, both directions.
 
 ### 6.2 Port the suite to TypeScript
@@ -78,7 +78,7 @@ Each extracted module gets focused unit tests with injected `clock`/mocks:
 - L1 codec: pure round-trip + golden-vector + property/fuzz (extend the
   existing `fuzz-packet-parser` approach to all codecs).
 - L2 transport: `SequenceTracker`, `RetransmitQueue`, `CongestionControl`,
-  `UdpSocketManager` (mock dgram), pipeline v1/v2/v3 against vectors.
+  `UdpSocketManager` (mock dgram), pipeline v1/v3 against vectors.
 - L3 domain: each service (subscription/batcher/keepalive/metadata/
   snapshot/monitoring/metrics/bonding) tested in isolation — newly possible
   because they're no longer trapped in the closure.
@@ -121,6 +121,6 @@ The rewrite is acceptable only when:
 
 1. every ported test passes against the new `src/`,
 2. all golden vectors reproduce byte-for-byte,
-3. old↔new interop passes for v1/v2/v3,
+3. old↔new interop passes for v1/v3,
 4. coverage ≥ targets including webapp,
 5. `npm run verify` is green in CI.

@@ -64,11 +64,16 @@ Tasks:
 - `transport/reliability/{sequence,retransmit-queue,ack-nak}`,
   `transport/congestion`, `transport/udp-socket-manager` (dedupes the 3×
   socket setup; absorbs `udpSendAsync`).
-- `transport/pipeline/{pipeline (interface),factory,v1,v2-client/*,
-v2-server/*}`; factory is the ONLY constructor.
-- Port v2 protocol + integration + reliability tests; run against
+- `transport/pipeline/{pipeline (interface),factory,v1,reliable-client/*,
+reliable-server/*}`; factory is the ONLY constructor.
+- **Remove v2 (doc 08 Q3):** the reliable pipelines implement v3 only; drop
+  the CRC control-trailer path and `usesAuthenticatedControl`; parser rejects
+  header version `0x02`. The reliability machinery (sequence/retransmit/
+  congestion/bonding/metadata) is reused unchanged — v3 keeps all of it.
+- Port the existing v2 protocol/integration/reliability tests **retargeted to
+  v3** (HMAC control); add v2-version-byte rejection tests; run against
   `network-simulator`.
-- **Old↔new interop** passes for v1/v2/v3 (data/control/metadata/sources).
+- **Old↔new interop** passes for v1/v3 (data/control/metadata/sources).
 
 **Exit criteria:** all transport/protocol/reliability/interop tests green;
 verify green.
@@ -136,17 +141,20 @@ tests + a contract snapshot test green); verify green.
 
 ## Phase 6 — Security/protocol hardening (within frozen wire) (effort: M)
 
-**Goal:** close the two posture gaps additively.
+**Goal:** close the remaining posture gap additively. (The forgeable-v2
+posture issue is already resolved by removal in Phase 2.)
 
 Tasks:
 
-- Formal v2 deprecation: schema warning + explicit opt-in to use v2; default
-  new connections to v3 (doc 08 Q3 decides hard-remove vs opt-in).
+- v2 config rejection: validator rejects `protocolVersion: 2`; startup
+  detects a stored `2` and refuses that connection with an actionable error
+  (name it; tell operator to set 3 on both ends or 1). `migrate-config`
+  warns on `2` (doc 04 §2.1).
 - `stretchAsciiKey` capability/version signal so mismatch yields typed
   `DecryptError` + clear log/metric/UI message — without changing the bytes
   of a correctly matched exchange (golden vectors stay valid).
 - Run bundled `/security-review` over the full diff; address findings.
-- Add forgery-rejection and key-mismatch-diagnostic tests.
+- Add v2-rejection and key-mismatch-diagnostic tests.
 
 **Exit criteria:** golden vectors still valid; new security tests green;
 security review clean; verify green.
@@ -182,7 +190,7 @@ Tasks:
 - Point `package.json` main/bin and webpack entries at new modules.
 - Delete all superseded old `src/` files; remove any temporary shims.
 - Full regression: ported suite + golden vectors + old↔new interop + manual
-  smoke against a live SignalK pair (client↔server, v1/v2/v3).
+  smoke against a live SignalK pair (client↔server, v1/v3).
 - Version bump (major) + CHANGELOG + migration note (doc 08 Q1).
 
 **Exit criteria:** no old modules remain; all gates green; manual smoke

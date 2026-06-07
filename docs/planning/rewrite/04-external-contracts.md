@@ -109,28 +109,49 @@ base64, pattern-validated)`, `stretchAsciiKey (bool)`, `useMsgpack`,
 `useValueDedup`, `useCompactDeltas (requires useMsgpack)`, `pathFilter
 {allow[],deny[]}`, `brotliQuality (0–11, default 6)`, `pathPrecision
 {path:int 0–15}`, `pathThrottle {path:{minIntervalMs,deadband}}`,
-`usePathDictionary`, `protocolVersion (1|2|3, default 1)`.
+`usePathDictionary`, `protocolVersion (1|3, default 1; v2 REMOVED — see
+§2.1)`.
 
 Client-only: `udpAddress (default 127.0.0.1)`, `helloMessageSender (10–3600s,
 default 60)`, `heartbeatInterval (5000–120000ms, default 25000)`,
 `testAddress`/`testPort`/`pingIntervalTime` (v1 only),
-`reliability {…}` (v2/v3), `congestionControl {…}` (v2/v3),
+`reliability {…}` (v3), `congestionControl {…}` (v3),
 `bonding {enabled, mode "main-backup", primary/backup {address,port,
-interface?}, failover {…}}` (v2/v3), `enableNotifications`, `skipOwnData`,
+interface?}, failover {…}}` (v3), `enableNotifications`, `skipOwnData`,
 `alertThresholds {rtt,packetLoss,retransmitRate,jitter,queueDepth →
 {warning,critical}}`.
 
-Server-only: `requestFullStatusOnRestart (v2/v3, default false)`,
-`reliability {ackInterval, ackResendInterval, nakTimeout}` (v2/v3).
+Server-only: `requestFullStatusOnRestart (v3, default false)`,
+`reliability {ackInterval, ackResendInterval, nakTimeout}` (v3).
 
 Protocol constraints: v1 forbids reliability/congestion/bonding/
-alertThresholds; v2/v3 forbid the v1 ping-monitor fields
+alertThresholds; v3 forbids the v1 ping-monitor fields
 (`testAddress/testPort/pingIntervalTime`). The plugin strips ping fields on
-startup; validator rejects them on v2/v3 save.
+startup; validator rejects them on v3 save.
 
 > This schema is the single source of truth (doc 02 `app/config/schema.ts`)
 > feeding the SignalK admin form, HTTP validation, CLI, and the webapp RJSF
 > form. A parity test (`config-docs-parity`) keeps docs in sync.
+
+### 2.1 v2 removal (decision, doc 08 Q3) — BREAKING
+
+`protocolVersion` enum is `{1, 3}`; value `2` is **rejected** by the
+validator. v3 retains every v2 feature (reliability, congestion, bonding,
+metadata, snapshot replay) plus authenticated control packets — there is no
+feature loss, only the forgeable CRC control plane is gone.
+
+Migration for existing deployments:
+
+- v1 ↔ v1 and v3 ↔ v3 are unaffected.
+- A connection currently configured as `protocolVersion: 2` must be changed
+  to `3` on **both** peers (upgrade together) or fall back to `1`.
+- On startup, the rewrite should detect a stored `protocolVersion: 2`,
+  refuse to start that connection with a clear, actionable error (name the
+  connection, tell the operator to set 3 on both ends or 1), rather than
+  silently downgrading. Document in the migration guide and CHANGELOG; this
+  is a major-version (cutover) breaking change.
+- `migrate-config` should warn (not auto-bump) when it encounters
+  `protocolVersion: 2`, since changing it requires coordinating the peer.
 
 ## 3. CLI surface (`bin/edge-link-cli.ts`)
 

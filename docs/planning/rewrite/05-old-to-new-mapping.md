@@ -26,6 +26,12 @@ phase that touches it (doc 07).
 
 ## Transport (reuse algorithms, rewrite composition)
 
+> Per doc 08 Q3 (remove v2): the target `v2-client`/`v2-server` directories
+> are named `reliable-client`/`reliable-server` (they implement protocol v3,
+> the reliable binary stack). The shared reliability machinery (sequence,
+> retransmit, congestion, bonding, metadata) is reused unchanged — only the
+> v2 CRC control path is dropped.
+
 | Current file (LOC)             | → Target                                                                           | Action | Notes                                                          |
 | ------------------------------ | ---------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------- |
 | `sequence.ts` (287)            | `transport/reliability/sequence.ts`                                                | ♻      |                                                                |

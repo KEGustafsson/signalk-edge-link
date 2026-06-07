@@ -8,6 +8,15 @@ budget, and where it derives from. "Reuse" = move nearly verbatim;
 
 Legend for **Derive**: ♻ Reuse · 🔎 Reference · ✏ Rewrite.
 
+> **Protocol scope (decision, doc 08 Q3): keep v1 + v3, remove v2.** Two
+> consequences for this catalog: (1) the `transport/pipeline/v2-client/*` and
+> `v2-server/*` modules below are renamed `reliable-client/*` and
+> `reliable-server/*` — they serve protocol v3 on the wire (v3 = the reliable
+> binary stack with authenticated control), and no longer need to branch on
+> v2; (2) `codec/packet-codec.ts` drops the CRC control-trailer branch and
+> the now-vestigial `usesAuthenticatedControl` helper — control packets are
+> always HMAC-authenticated. `transport/pipeline/v1.ts` is unchanged.
+
 ## L0 — Foundation
 
 | Module                          | Responsibility                                                                                                                                | Public API (key)                                         | Budget  | Derive  | From                |
@@ -36,18 +45,18 @@ Legend for **Derive**: ♻ Reuse · 🔎 Reference · ✏ Rewrite.
 
 ## L2 — Transport
 
-| Module                                      | Responsibility                                                                             | Public API (key)                                                                 | Budget  | Derive                          | From                           |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- | ------- | ------------------------------- | ------------------------------ |
-| `transport/reliability/sequence.ts`         | Sequence tracking, NAK timers                                                              | `SequenceTracker`                                                                | ~287    | ♻                               | `sequence.ts`                  |
-| `transport/reliability/retransmit-queue.ts` | Bounded retransmit store                                                                   | `RetransmitQueue`                                                                | ~310    | ♻                               | `retransmit-queue.ts`          |
-| `transport/reliability/ack-nak.ts`          | ACK/NAK scheduling helpers (extracted)                                                     | `AckScheduler`                                                                   | ~150    | ✏ extract                       | from v2 pipelines              |
-| `transport/congestion.ts`                   | AIMD controller                                                                            | `CongestionControl`, `createCongestionControl`                                   | ~298    | ♻                               | `congestion.ts`                |
-| `transport/udp-socket-manager.ts`           | One socket: create/bind/recover/close                                                      | `UdpSocketManager` (events: message/error/listening; `send`, `recover`, `close`) | ~250    | ✏ new (dedupes 3× socket setup) | `instance.ts` socket code      |
-| `transport/pipeline/pipeline.ts`            | Transport interface                                                                        | `ClientPipelineApi`, `ServerPipelineApi` (unchanged)                             | ~80     | ♻ contract                      | `types.ts`                     |
-| `transport/pipeline/factory.ts`             | Sole pipeline constructor                                                                  | `createPipeline(version, mode, deps)`                                            | ~70     | ♻/✏ (now actually used)         | `pipeline-factory.ts`          |
-| `transport/pipeline/v1.ts`                  | v1 pack/unpack                                                                             | `packCrypt`, `unpackDecrypt`                                                     | ~380    | 🔎                              | `pipeline.ts`                  |
-| `transport/pipeline/v2-client/*`            | v2/v3 client, split: `send-path.ts`, `reliability.ts`, `metrics.ts`, `index.ts`            | `ClientPipelineApi`                                                              | ≤400 ea | ✏ split                         | `pipeline-v2-client.ts` (1490) |
-| `transport/pipeline/v2-server/*`            | v2/v3 server, split: `session-manager.ts`, `handlers.ts`, `metadata-ingest.ts`, `index.ts` | `ServerPipelineApi`                                                              | ≤400 ea | ✏ split                         | `pipeline-v2-server.ts` (1515) |
+| Module                                      | Responsibility                                                                          | Public API (key)                                                                 | Budget  | Derive                          | From                           |
+| ------------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------- | ------------------------------- | ------------------------------ |
+| `transport/reliability/sequence.ts`         | Sequence tracking, NAK timers                                                           | `SequenceTracker`                                                                | ~287    | ♻                               | `sequence.ts`                  |
+| `transport/reliability/retransmit-queue.ts` | Bounded retransmit store                                                                | `RetransmitQueue`                                                                | ~310    | ♻                               | `retransmit-queue.ts`          |
+| `transport/reliability/ack-nak.ts`          | ACK/NAK scheduling helpers (extracted)                                                  | `AckScheduler`                                                                   | ~150    | ✏ extract                       | from v2 pipelines              |
+| `transport/congestion.ts`                   | AIMD controller                                                                         | `CongestionControl`, `createCongestionControl`                                   | ~298    | ♻                               | `congestion.ts`                |
+| `transport/udp-socket-manager.ts`           | One socket: create/bind/recover/close                                                   | `UdpSocketManager` (events: message/error/listening; `send`, `recover`, `close`) | ~250    | ✏ new (dedupes 3× socket setup) | `instance.ts` socket code      |
+| `transport/pipeline/pipeline.ts`            | Transport interface                                                                     | `ClientPipelineApi`, `ServerPipelineApi` (unchanged)                             | ~80     | ♻ contract                      | `types.ts`                     |
+| `transport/pipeline/factory.ts`             | Sole pipeline constructor                                                               | `createPipeline(version, mode, deps)`                                            | ~70     | ♻/✏ (now actually used)         | `pipeline-factory.ts`          |
+| `transport/pipeline/v1.ts`                  | v1 pack/unpack                                                                          | `packCrypt`, `unpackDecrypt`                                                     | ~380    | 🔎                              | `pipeline.ts`                  |
+| `transport/pipeline/reliable-client/*`      | v3 client, split: `send-path.ts`, `reliability.ts`, `metrics.ts`, `index.ts`            | `ClientPipelineApi`                                                              | ≤400 ea | ✏ split                         | `pipeline-v2-client.ts` (1490) |
+| `transport/pipeline/reliable-server/*`      | v3 server, split: `session-manager.ts`, `handlers.ts`, `metadata-ingest.ts`, `index.ts` | `ServerPipelineApi`                                                              | ≤400 ea | ✏ split                         | `pipeline-v2-server.ts` (1515) |
 
 ## L3 — Domain services
 

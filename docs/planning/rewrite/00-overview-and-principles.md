@@ -91,7 +91,7 @@ public API.
 - All 11 README-referenced docs exist; a doc-existence test prevents
   re-drift. Node version reconciled.
 - Wire interop verified against the _old_ build (old client ↔ new server
-  and vice-versa) for v1, v2, v3.
+  and vice-versa) for v1 and v3 (v2 is removed — doc 08 Q3).
 
 ## Non-goals / explicitly deferred
 

@@ -31,6 +31,15 @@
   Node 16 is past upstream EOL — accepted to support older SignalK/marine
   installs; revisit if a dependency forces a higher floor (Phase 0 verifies
   the current code and full test suite actually run on Node 16).
+- **Q3 RESOLVED — keep v1 and v3, REMOVE v2.** v3 = v2 + authenticated
+  control packets, so the entire reliable binary stack survives in v3; only
+  the unauthenticated CRC control-plane variant is removed. This also
+  resolves risk R-security (forgeable v2 control) by removal and simplifies
+  the codec (one control trailer: HMAC). `protocolVersion` enum becomes
+  `{1, 3}`; `2` is rejected with an actionable error. Breaking change for
+  on-the-wire v2 peers — see doc 03 §Protocol scope and doc 04 §2.1 for the
+  migration. v3 is the recommended default for new secure deployments; v1
+  remains for simple local links.
 
 ## Open questions (need maintainer answer before/early in execution)
 
@@ -41,13 +50,10 @@ wanted before flipping the npm `latest` tag?
 **Q2 — Minimum Node version.** ✅ RESOLVED: Node `>=16` (see Decisions
 above).
 
-**Q3 — v1 and v2 fate.** Three sub-decisions:
-
-- Keep v1 (legacy pipeline + ping monitor) or drop it?
-- Hard-remove v2 (CRC control, forgeable) or keep it behind an explicit
-  opt-in deprecation flag with v3 as default?
-- Either way, what is the migration/communication for existing v1/v2
-  deployments?
+**Q3 — v1 and v2 fate.** ✅ RESOLVED: keep v1 and v3, remove v2 (see
+Decisions above; migration in doc 04 §2.1). Remaining minor follow-up: the
+default `protocolVersion` for new connections stays `1` (no behavior change)
+with v3 recommended — revisit if you'd prefer v3 as the out-of-box default.
 
 **Q4 — Config form tech.** Keep `@rjsf/*` (React JSON Schema Form) for the
 plugin config panel, or move to a custom React form? RJSF couples the UI to
@@ -71,5 +77,5 @@ but UI tests have diminishing returns)?
 
 Proceed phase 0 → 1 first regardless of the open questions: the conformance
 harness and the pure codec layer are valuable and decision-independent. Q2
-(Node `>=16`) is now settled; pin Q3 (v1/v2 fate) before phase 2, and Q1/Q4
+(Node `>=16`) and Q3 (keep v1/v3, remove v2) are now settled; Q1/Q4 remain
 before phase 7/8.

@@ -23,7 +23,7 @@ check in CI.
 │   services        MetadataStreamer · SourceSnapshotService             │
 │                   MonitoringService · MetricsRegistry · BondingManager │
 ├──────────────────────────────────────────────────────────────────────┤
-│ L2 Transport      Pipeline interface  →  v1 | v2 | v3 implementations  │
+│ L2 Transport      Pipeline interface  →  v1 | v3 implementations       │
 │                   ReliabilityEngine (sequence · ack-nak · retransmit)  │
 │                   CongestionController · UdpSocketManager              │
 ├──────────────────────────────────────────────────────────────────────┤
@@ -91,13 +91,13 @@ callbacks; it contains orchestration only, no protocol/transport logic:
 
 - `UdpSocketManager` — create / bind / recover / close one socket; emits
   `message` / `error` / `listening`; owns the recovery timer.
-- `Pipeline` (v1|v2|v3 via factory) — the only construction path; encode/
+- `Pipeline` (v1|v3 via factory) — the only construction path; encode/
   decode/send/receive + transport metrics.
 - `SubscriptionManager` — subscribe/unsubscribe, normalize subscription
   config, exponential-backoff retry, staged meta-config commit on success.
 - `DeltaBatcher` — buffer, smart-batch sizing, schedule/flush, retry,
   high-water-mark + drop accounting.
-- `KeepaliveManager` — HELLO interval (v2/v3 `sendHello`, v1 empty-delta),
+- `KeepaliveManager` — HELLO interval (v3 `sendHello`, v1 empty-delta),
   heartbeat handle.
 - `MetadataStreamer` — snapshot/diff scheduling, MetaCache diff, envelope
   build, rate-limit; responds to META_REQUEST.
@@ -142,8 +142,8 @@ src/
                    delta-sanitizer.ts metadata-codec.ts source-codec.ts
   transport/       udp-socket-manager.ts congestion.ts
                    reliability/ sequence.ts ack-nak.ts retransmit-queue.ts
-                   pipeline/ pipeline.ts (interface) v1.ts v2-client.ts
-                             v2-server.ts factory.ts
+                   pipeline/ pipeline.ts (interface) v1.ts
+                             reliable-client/ reliable-server/ factory.ts
   domain/          subscription-manager.ts delta-batcher.ts
                    keepalive-manager.ts metadata-streamer.ts
                    source-snapshot-service.ts monitoring/ ...
