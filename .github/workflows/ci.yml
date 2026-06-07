@@ -53,19 +53,21 @@ jobs:
             npm install
           fi
 
-      - name: Lint
-        run: npm run lint
+      # Single required gate: type-check (backend) + lint + full test suite.
+      # Tests run against src/ via ts-jest (no stale lib/ artifact).
+      - name: Verify (check:ts + lint + test)
+        run: npm run verify
 
-      - name: Type-check (backend and webapp)
-        run: |
-          npm run check:ts
-          npx tsc -p tsconfig.webapp.json --noEmit
+      - name: Type-check (webapp)
+        run: npx tsc -p tsconfig.webapp.json --noEmit
 
       - name: Build
         run: npm run build
 
-      - name: Test
-        run: npm test
+      - name: Conformance vectors are reproducible from source
+        run: |
+          npm run conformance:generate
+          git diff --exit-code -- __conformance__/vectors/golden.json
 
       - name: Release documentation and package truth
         run: npm run check:release-docs

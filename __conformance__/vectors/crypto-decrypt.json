@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "description": "Frozen AES-256-GCM ciphertext. Random IV is baked in. The current code must DECRYPT these to plaintextUtf8. Do not regenerate without a reviewed protocol decision (delete the file to force regeneration).",
+  "cases": [
+    {
+      "name": "hex-key",
+      "key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "options": {},
+      "plaintextUtf8": "conformance-plaintext: the quick brown fox ⚓",
+      "ciphertextB64": "iOCm7SGFsN+kB+guZvkuD6ysl8h4twvY83X42C/5XFnKP41Vj6nKOUYaoIs0JAaqpNMnl0uIqjGbJaKk2D3tAV1IjCyrwbBaQY4="
+    },
+    {
+      "name": "base64-key",
+      "key": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+      "options": {},
+      "plaintextUtf8": "conformance-plaintext: the quick brown fox ⚓",
+      "ciphertextB64": "OFvmZdKKX27A1wsq09Zm9abtRi7kEOX0CFhYow/I5DTcdY5RiDdAYnjAwmg9DdMTZv1Exoo4TXlGIW8Kwmh45bOLOJtNTHjXjJ0="
+    },
+    {
+      "name": "ascii-key-raw",
+      "key": "edge-link-conformance-ascii-key!",
+      "options": {},
+      "plaintextUtf8": "conformance-plaintext: the quick brown fox ⚓",
+      "ciphertextB64": "XoQ1CFhY5408HSy26yaPyEuIfTybrmEdYwg+W9WkZjJgQmzyWDHh2q++sEgNreUfp70TKbrYlnkwN4l0Shh6gH+RZPlHOSJn+X8="
+    },
+    {
+      "name": "ascii-key-stretched",
+      "key": "edge-link-conformance-ascii-key!",
+      "options": {
+        "stretchAsciiKey": true
+      },
+      "plaintextUtf8": "conformance-plaintext: the quick brown fox ⚓",
+      "ciphertextB64": "HcyweAGAGgBRzjiW5khurD4qChy43ObC4JPv9SbvQUY7jLcA7nVgUG6a/7mEMitOA6bm/kiBjiyx5vY0HS6GIsYMs264xE5pVgM="
+    }
+  ]
+}
