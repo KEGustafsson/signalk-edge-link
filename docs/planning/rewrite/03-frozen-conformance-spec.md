@@ -13,7 +13,7 @@ refactor.
 | Offset | Size | Field          | Notes                            |
 | ------ | ---- | -------------- | -------------------------------- |
 | 0      | 2    | Magic          | `0x53 0x4B` ("SK")               |
-| 2      | 1    | Version        | `0x02` (v2) or `0x03` (v3)       |
+| 2      | 1    | Version        | `0x03` (v3); `0x02` rejected     |
 | 3      | 1    | Type           | see PacketType                   |
 | 4      | 1    | Flags          | bitmask, see PacketFlags         |
 | 5      | 4    | Sequence       | uint32 BE, wraps at `0xFFFFFFFF` |
