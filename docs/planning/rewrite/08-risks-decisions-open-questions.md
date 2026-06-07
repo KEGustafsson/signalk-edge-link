@@ -36,16 +36,26 @@
   the unauthenticated CRC control-plane variant is removed. This also
   resolves risk R-security (forgeable v2 control) by removal and simplifies
   the codec (one control trailer: HMAC). `protocolVersion` enum becomes
-  `{1, 3}`; `2` is rejected with an actionable error. Breaking change for
-  on-the-wire v2 peers — see doc 03 §Protocol scope and doc 04 §2.1 for the
-  migration. v3 is the recommended default for new secure deployments; v1
+  `{1, 3}` for new selections, but a stored `2` is ACCEPTED and coerced to
+  `3` (config back-compat — see below and doc 04 §2.1). At the wire level the
+  node speaks v3 only; an incoming `0x02` packet is rejected, so this is a
+  breaking change for un-upgraded on-the-wire v2 peers (doc 03 §Protocol
+  scope). v3 is the recommended default for new secure deployments; v1
   remains for simple local links.
+- **Q1 RESOLVED — target version `3.0.0`** for the cutover (major bump;
+  CHANGELOG + migration note). Release-channel choice (beta/RC before
+  flipping npm `latest`) still open under Q1 below.
+- **Config backwards compatibility (decision).** Existing config files must
+  keep loading with no manual edits. Stored `protocolVersion: 2` (and `3`)
+  resolves to v3 at load (coerced `2 → 3`); `1` stays v1. Legacy single-
+  object config and boolean `serverType` normalizations are also preserved.
+  See doc 04 §2.1.
 
 ## Open questions (need maintainer answer before/early in execution)
 
-**Q1 — Release & versioning.** Current version is 2.9.1. Target major
-version for cutover (3.0.0?) and release cadence? Is a beta/RC channel
-wanted before flipping the npm `latest` tag?
+**Q1 — Release & versioning.** ✅ RESOLVED: target **`3.0.0`** (from 2.9.1).
+Remaining sub-question: is a beta/RC channel wanted before flipping the npm
+`latest` tag, or publish 3.0.0 directly?
 
 **Q2 — Minimum Node version.** ✅ RESOLVED: Node `>=16` (see Decisions
 above).
@@ -76,6 +86,7 @@ but UI tests have diminishing returns)?
 ## Recommendation
 
 Proceed phase 0 → 1 first regardless of the open questions: the conformance
-harness and the pure codec layer are valuable and decision-independent. Q2
-(Node `>=16`) and Q3 (keep v1/v3, remove v2) are now settled; Q1/Q4 remain
-before phase 7/8.
+harness and the pure codec layer are valuable and decision-independent. Q1
+(3.0.0), Q2 (Node `>=16`), and Q3 (keep v1/v3, remove v2) are settled, plus
+config back-compat (2→3 coercion). Remaining: Q4 (RJSF vs custom form) and
+the Q1 release-channel sub-question — both needed only by phase 7/8.

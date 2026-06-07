@@ -42,10 +42,11 @@ Before any rewrite code:
 1. **Generate golden vectors from the CURRENT code.** Write a one-off
    generator that uses the present `PacketBuilder`/`crypto`/codecs to emit
    fixed byte arrays + their decoded forms into `__conformance__/vectors/`:
-   - DATA/METADATA packets (v2 & v3) with each flag combination
+   - DATA/METADATA packets (v3) with each flag combination
      (compressed, encrypted, messagepack, pathDictionary),
-   - ACK/NAK/HEARTBEAT/HELLO/META_REQUEST/FULL_STATUS_REQUEST for v2 (CRC)
-     and v3 (HMAC), incl. empty-payload control packets,
+   - ACK/NAK/HEARTBEAT/HELLO/META_REQUEST/FULL_STATUS_REQUEST for v3 (HMAC),
+     incl. empty-payload control packets (v2 vectors are NOT generated —
+     v2 is removed),
    - encrypted blobs for hex/base64/ASCII keys, with and without
      `stretchAsciiKey`,
    - compact-delta, value-dedup, path-dictionary, metadata-envelope, and
@@ -99,7 +100,8 @@ Each extracted module gets focused unit tests with injected `clock`/mocks:
 - Feedback-loop / own-data stripping end-to-end (today 1 describe).
 - `stretchAsciiKey` mismatch → typed `DecryptError` surfaced (the
   hardening in doc 03 §2 / doc 07 phase 6).
-- v2-control-forgery rejection on v3; v2↔v3 interop boundaries.
+- wire-level rejection of `0x02` version-byte packets; config `2 → 3`
+  coercion preserves a backwards-compatible load.
 - Old↔new wire interop (6.1.3) per protocol version.
 
 ### 6.5 CI gates & coverage

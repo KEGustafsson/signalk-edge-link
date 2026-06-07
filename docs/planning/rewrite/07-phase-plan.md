@@ -146,15 +146,16 @@ posture issue is already resolved by removal in Phase 2.)
 
 Tasks:
 
-- v2 config rejection: validator rejects `protocolVersion: 2`; startup
-  detects a stored `2` and refuses that connection with an actionable error
-  (name it; tell operator to set 3 on both ends or 1). `migrate-config`
-  warns on `2` (doc 04 §2.1).
+- v2→v3 config coercion (back-compat, doc 04 §2.1): sanitizer accepts a
+  stored `protocolVersion: 2` and normalizes it to `3` (no operator edit, no
+  refuse-to-start); admin UI offers only `{1, 3}`; `migrate-config` bumps
+  `2 → 3`; a coerced connection logs a one-time info note.
 - `stretchAsciiKey` capability/version signal so mismatch yields typed
   `DecryptError` + clear log/metric/UI message — without changing the bytes
   of a correctly matched exchange (golden vectors stay valid).
 - Run bundled `/security-review` over the full diff; address findings.
-- Add v2-rejection and key-mismatch-diagnostic tests.
+- Add config-coercion (2→3) and key-mismatch-diagnostic tests (wire-level
+  `0x02` rejection is already tested in Phase 2).
 
 **Exit criteria:** golden vectors still valid; new security tests green;
 security review clean; verify green.
@@ -191,7 +192,9 @@ Tasks:
 - Delete all superseded old `src/` files; remove any temporary shims.
 - Full regression: ported suite + golden vectors + old↔new interop + manual
   smoke against a live SignalK pair (client↔server, v1/v3).
-- Version bump (major) + CHANGELOG + migration note (doc 08 Q1).
+- Version bump to **3.0.0** + CHANGELOG + migration note documenting the
+  v3-only wire (breaking for un-upgraded v2 peers) and the automatic
+  `protocolVersion: 2 → 3` config coercion (doc 04 §2.1).
 
 **Exit criteria:** no old modules remain; all gates green; manual smoke
 passes; release artifacts build.

@@ -109,8 +109,8 @@ base64, pattern-validated)`, `stretchAsciiKey (bool)`, `useMsgpack`,
 `useValueDedup`, `useCompactDeltas (requires useMsgpack)`, `pathFilter
 {allow[],deny[]}`, `brotliQuality (0–11, default 6)`, `pathPrecision
 {path:int 0–15}`, `pathThrottle {path:{minIntervalMs,deadband}}`,
-`usePathDictionary`, `protocolVersion (1|3, default 1; v2 REMOVED — see
-§2.1)`.
+`usePathDictionary`, `protocolVersion (accepts 1|2|3 for back-compat; 2
+coerced to 3; UI offers 1|3; default 1 — see §2.1)`.
 
 Client-only: `udpAddress (default 127.0.0.1)`, `helloMessageSender (10–3600s,
 default 60)`, `heartbeatInterval (5000–120000ms, default 25000)`,
@@ -133,25 +133,34 @@ startup; validator rejects them on v3 save.
 > feeding the SignalK admin form, HTTP validation, CLI, and the webapp RJSF
 > form. A parity test (`config-docs-parity`) keeps docs in sync.
 
-### 2.1 v2 removal (decision, doc 08 Q3) — BREAKING
+### 2.1 v2 → v3 config compatibility (decisions, doc 08 Q1/Q3)
 
-`protocolVersion` enum is `{1, 3}`; value `2` is **rejected** by the
-validator. v3 retains every v2 feature (reliability, congestion, bonding,
-metadata, snapshot replay) plus authenticated control packets — there is no
-feature loss, only the forgeable CRC control plane is gone.
+**Configs are backwards compatible — no operator edits required.** A stored
+`protocolVersion: 2` (or `3`) resolves to **v3** at load; a stored `1` stays
+v1. v3 retains every v2 feature (reliability, congestion, bonding, metadata,
+snapshot replay) plus authenticated control packets — there is no feature
+loss, only the forgeable CRC control plane is gone.
 
-Migration for existing deployments:
+Rules:
 
-- v1 ↔ v1 and v3 ↔ v3 are unaffected.
-- A connection currently configured as `protocolVersion: 2` must be changed
-  to `3` on **both** peers (upgrade together) or fall back to `1`.
-- On startup, the rewrite should detect a stored `protocolVersion: 2`,
-  refuse to start that connection with a clear, actionable error (name the
-  connection, tell the operator to set 3 on both ends or 1), rather than
-  silently downgrading. Document in the migration guide and CHANGELOG; this
-  is a major-version (cutover) breaking change.
-- `migrate-config` should warn (not auto-bump) when it encounters
-  `protocolVersion: 2`, since changing it requires coordinating the peer.
+- **Accepted input values:** `1`, `2`, `3`. The sanitizer/normalizer coerces
+  `2 → 3` (alongside the existing legacy normalizations — single-object →
+  `connections[]`, boolean `serverType` → string). This coercion is the only
+  effect; the connection otherwise loads unchanged and starts normally.
+- **Admin UI / schema enum offered for NEW selections:** `{1, 3}` (the form
+  no longer offers 2), but the validator still ACCEPTS a stored `2` so
+  existing saved configs never error.
+- **`migrate-config`** bumps `protocolVersion: 2 → 3` in its output (no
+  longer just a warning), since both directions are now v3.
+- A connection loaded as `2` should emit a one-time info log noting it is now
+  running as v3.
+
+**Wire-level (runtime) is still v3-only and breaking for un-upgraded peers:**
+once a node runs 3.0.0, it speaks v3 on the wire (HMAC control). An incoming
+packet with version byte `0x02` is rejected (doc 03). So a peer still running
+an older release configured for v2 will not interop — both ends must be on
+3.0.0 (which auto-resolves their `2` configs to v3) or both on v1. Document
+in the migration guide and CHANGELOG as the 3.0.0 breaking change.
 
 ## 3. CLI surface (`bin/edge-link-cli.ts`)
 
@@ -172,8 +181,9 @@ global flags: --baseUrl (default http://localhost:3000/plugins/signalk-edge-link
 
 `migrate-config` detects legacy flat config (root `serverType`/`udpPort`/
 `secretKey`), wraps into `connections[]`, preserves non-connection fields,
-validates, writes 2-space JSON + trailing newline. Token resolution:
-env → arg → default; string "undefined"/"null" normalized to null.
+bumps any `protocolVersion: 2 → 3` (§2.1), validates, writes 2-space JSON +
+trailing newline. Token resolution: env → arg → default; string
+"undefined"/"null" normalized to null.
 
 ## 4. Per-connection runtime config files
 

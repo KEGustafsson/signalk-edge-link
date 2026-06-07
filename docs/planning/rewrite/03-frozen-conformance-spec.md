@@ -39,6 +39,9 @@ Constants: `HEADER_SIZE = 15`, `MAGIC = [0x53,0x4B]`,
 > - Golden vectors are generated for v1 and v3 only; v2 vectors are not
 >   produced. This is a breaking change for any peer still speaking v2 (see
 >   doc 04 §migration).
+> - Config-level back-compat is separate from the wire: a stored
+>   `protocolVersion: 2` is ACCEPTED and coerced to v3 at load (doc 04 §2.1).
+>   The `0x02` rejection here is about packets on the wire, not config.
 
 ### PacketType
 
