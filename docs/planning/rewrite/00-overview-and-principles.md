@@ -69,7 +69,8 @@ public API.
 6. **Documentation drift:** README advertises 11 docs; all 11 are missing.
    Content is in one 2349-line `GUIDE.md`.
 7. **Config inconsistency:** `package.json engines.node` says `>=24`,
-   README badge says `>=16` — must be reconciled.
+   README badge says `>=16` — reconciled to **`>=16`** (decision: support
+   Node 16+; the `engines` field is the bug, fixed in Phase 0).
 8. **Scattered validation:** logic spread across `connection-config.ts`,
    `routes/config-validation.ts`, `metadata.ts` with a mirrored constant.
 

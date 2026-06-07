@@ -18,8 +18,10 @@ Tasks:
 - Add `npm run verify` = `check:ts && lint && test`; wire into CI on PRs.
 - Fix Jest: `collectCoverageFrom: src/**`, remove webapp exclusions, keep
   ts-jest so tests run against source (no stale `lib/`).
-- Reconcile Node version: pick one (`engines.node` vs README badge) — see
-  doc 08 Q2.
+- Reconcile Node version to **`>=16`** (decision recorded, doc 08 Q2): set
+  `package.json engines.node` to `">=16"`, add a CI Node matrix starting at
+  16, and verify the current code + full suite actually run on Node 16
+  (flag any dependency or API that forces a higher floor).
 - Add import-boundary ESLint rule scaffold (no-op until layers exist) and
   max-lines / max-statements / complexity caps (warn now, error later).
 - Build `__conformance__/` golden-vector generator from current code; commit

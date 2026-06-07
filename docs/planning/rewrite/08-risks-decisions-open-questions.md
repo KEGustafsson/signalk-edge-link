@@ -24,6 +24,13 @@
   (doc 01).
 - Tests ported to TypeScript, retargeted at `src/`; new golden-vector
   conformance suite created (doc 06).
+- **Q2 RESOLVED — Minimum Node version is `>=16`.** The README badge is
+  authoritative; `package.json engines.node` (`>=24`) is the bug and is
+  reconciled to `>=16` in Phase 0. The rewrite must restrict itself to APIs
+  available on Node 16, and CI runs a matrix starting at Node 16. Caveat:
+  Node 16 is past upstream EOL — accepted to support older SignalK/marine
+  installs; revisit if a dependency forces a higher floor (Phase 0 verifies
+  the current code and full test suite actually run on Node 16).
 
 ## Open questions (need maintainer answer before/early in execution)
 
@@ -31,9 +38,8 @@
 version for cutover (3.0.0?) and release cadence? Is a beta/RC channel
 wanted before flipping the npm `latest` tag?
 
-**Q2 — Minimum Node version.** `package.json engines.node` says `>=24`;
-README badge says `>=16`. These contradict. Which is the real floor? (Picks
-the test matrix in CI and affects available APIs.)
+**Q2 — Minimum Node version.** ✅ RESOLVED: Node `>=16` (see Decisions
+above).
 
 **Q3 — v1 and v2 fate.** Three sub-decisions:
 
@@ -64,5 +70,6 @@ but UI tests have diminishing returns)?
 ## Recommendation
 
 Proceed phase 0 → 1 first regardless of the open questions: the conformance
-harness and the pure codec layer are valuable and decision-independent. Pin
-Q2 (Node) and Q3 (v1/v2 fate) before phase 2, and Q1/Q4 before phase 7/8.
+harness and the pure codec layer are valuable and decision-independent. Q2
+(Node `>=16`) is now settled; pin Q3 (v1/v2 fate) before phase 2, and Q1/Q4
+before phase 7/8.
