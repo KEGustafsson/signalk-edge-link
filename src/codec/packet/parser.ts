@@ -1,6 +1,6 @@
 "use strict";
 
-/** L1 codec — packet parsing + control-payload decoders (rewrite plan doc 02 split). */
+/** L1 codec — packet parsing + control-payload decoders. */
 
 import {
   MAGIC,

@@ -1,14 +1,8 @@
 "use strict";
 
-/** L1 codec — per-path throttling / deadband (rewrite plan doc 02 split). */
+/** L1 codec — per-path throttling / deadband. */
 
-import type {
-  Delta,
-  DeltaMeta,
-  DeltaUpdate,
-  DeltaValue,
-  PathFilterConfig
-} from "../../foundation/types";
+import type { Delta, DeltaUpdate, DeltaValue } from "../../foundation/types";
 import { PATH_THROTTLE_STATE_MAX } from "../../foundation/constants";
 import type { DeltaPayload } from "./internal";
 import { isDeltaLike } from "./internal";

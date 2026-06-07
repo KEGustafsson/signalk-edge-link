@@ -1,14 +1,8 @@
 "use strict";
 
-/** L1 codec — value quantization (rewrite plan doc 02 split). */
+/** L1 codec — value quantization. */
 
-import type {
-  Delta,
-  DeltaMeta,
-  DeltaUpdate,
-  DeltaValue,
-  PathFilterConfig
-} from "../../foundation/types";
+import type { Delta, DeltaUpdate, DeltaValue } from "../../foundation/types";
 import type { DeltaPayload } from "./internal";
 import { isObject, isDeltaLike } from "./internal";
 

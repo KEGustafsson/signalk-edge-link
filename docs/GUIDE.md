@@ -266,7 +266,7 @@ sudo systemctl restart signalk
 
 ### Requirements
 
-- Node.js 16 or later (`node --version`)
+- Node.js 20 or later (`node --version`)
 - UDP reachability from client to server on your chosen port
 - Shared encryption key configured on both ends
 

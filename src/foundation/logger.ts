@@ -2,8 +2,8 @@
  * L0 foundation — prefixed logger over a Signal K `app`-like sink.
  *
  * One small wrapper so every module logs with a consistent `[prefix]` tag
- * instead of ad-hoc string concatenation or stray `console` calls
- * (rewrite plan doc 01 "Logging", doc 02 L0). Pure and dependency-free: it
+ * instead of ad-hoc string concatenation or stray `console` calls.
+ * Pure and dependency-free: it
  * takes only a minimal `{ debug, error }` sink, so the foundation layer does
  * not depend on the full `SignalKApp` type.
  */

@@ -2,9 +2,9 @@
 
 /**
  * Shared crypto constants that must stay in sync between the backend crypto
- * module and any UI copy that describes key-derivation behaviour. Kept under
- * `src/shared/` so both the server-side build and the webapp bundle can
- * reference the same value.
+ * module and any UI copy that describes key-derivation behaviour. Kept in the
+ * shared L0 foundation layer so both the server-side build and the webapp
+ * bundle can reference the same value.
  */
 
 /**

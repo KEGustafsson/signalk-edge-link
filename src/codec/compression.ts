@@ -3,8 +3,8 @@
 /**
  * L1 codec — Brotli compression + delta serialization.
  *
- * Pure, deterministic payload codec extracted from the old `pipeline-utils.ts`
- * (rewrite plan doc 02/05). The matching socket I/O helper (`udpSendAsync`)
+ * Pure, deterministic payload codec extracted from the old `pipeline-utils.ts`.
+ * The matching socket I/O helper (`udpSendAsync`)
  * stays out of the codec layer and moves to the transport layer in Phase 2.
  *
  * @module codec/compression

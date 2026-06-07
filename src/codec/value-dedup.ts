@@ -179,9 +179,10 @@ export function dedupDeltaPayload(payload: DeltaPayload, state: ValueDedupState)
 /**
  * Walk a delta and replace each {@link DUP_SENTINEL} value with the cached
  * value for that path. Updates the cache with absolute (non-sentinel)
- * values as they arrive. Sentinel values for paths the receiver has
- * never seen are passed through as-is (caller decides whether to drop
- * them); this should not happen in practice once the link is steady.
+ * values as they arrive. Sentinel values for paths the receiver has never
+ * seen (no cached baseline) are dropped rather than forwarded, so the raw
+ * sentinel never leaks downstream; the sender resyncs on the next absolute
+ * value. This should not happen in practice once the link is steady.
  *
  * Robust to malformed entries (null/non-object/missing path) — they pass
  * through untouched so the downstream sanitize step can reject them.

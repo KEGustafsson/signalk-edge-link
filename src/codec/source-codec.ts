@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * L1 codec — source handling public surface (rewrite plan doc 02/05).
+ * L1 codec — source handling public surface.
  *
  * Barrels the two cohesive, deliberately-separate source concerns:
  *   - source-dispatch.ts — RECEIVER-SIDE delta source normalization.

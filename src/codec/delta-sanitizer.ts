@@ -1,20 +1,14 @@
 "use strict";
 
 /**
- * L1 codec — delta sanitization public surface (rewrite plan doc 02/05).
+ * L1 codec — delta sanitization public surface.
  * Composes own-data stripping + core SignalK sanitize with the split
  * quantize / throttle / filter concerns.
  *
  * @module codec/delta-sanitizer
  */
 
-import type {
-  Delta,
-  DeltaMeta,
-  DeltaUpdate,
-  DeltaValue,
-  PathFilterConfig
-} from "../foundation/types";
+import type { Delta, DeltaUpdate, DeltaValue } from "../foundation/types";
 import type { DeltaPayload } from "./delta-sanitizer/internal";
 import { isObject, isDeltaLike } from "./delta-sanitizer/internal";
 
@@ -82,9 +76,7 @@ export function stripOwnDataFromDelta(delta: Delta | null | undefined): Delta | 
     const valuesChanged = values.length !== rawValues.length;
 
     const rawMeta = Array.isArray(update.meta) ? update.meta : null;
-    const meta = rawMeta
-      ? rawMeta.filter((m) => !isOwnDataPath((m as { path?: unknown })?.path))
-      : null;
+    const meta = rawMeta ? rawMeta.filter((m) => !isOwnDataPath(m?.path)) : null;
     const metaChanged = rawMeta !== null && meta !== null && meta.length !== rawMeta.length;
 
     if (values.length === 0 && (!meta || meta.length === 0)) {

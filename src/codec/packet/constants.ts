@@ -1,9 +1,9 @@
 "use strict";
 
 /**
- * L1 codec — packet wire constants, enums, CRC16 and protocol-version helpers
- * (rewrite plan doc 02 split). Shared by the builder and parser; the public
- * subset is re-exported by packet-codec.ts.
+ * L1 codec — packet wire constants, enums, CRC16 and protocol-version helpers.
+ * Shared by the builder and parser; the public subset is re-exported by
+ * packet-codec.ts.
  */
 
 // --- Constants ---
@@ -129,16 +129,17 @@ export function crc16(data: Buffer): number {
  * @param {number} type - Packet type value
  * @returns {string} Type name
  */
+const TYPE_NAMES: Record<number, string> = {
+  [PacketType.DATA]: "DATA",
+  [PacketType.ACK]: "ACK",
+  [PacketType.NAK]: "NAK",
+  [PacketType.HEARTBEAT]: "HEARTBEAT",
+  [PacketType.HELLO]: "HELLO",
+  [PacketType.METADATA]: "METADATA",
+  [PacketType.META_REQUEST]: "META_REQUEST",
+  [PacketType.FULL_STATUS_REQUEST]: "FULL_STATUS_REQUEST"
+};
+
 export function getTypeName(type: number): string {
-  const names: Record<number, string> = {
-    [PacketType.DATA]: "DATA",
-    [PacketType.ACK]: "ACK",
-    [PacketType.NAK]: "NAK",
-    [PacketType.HEARTBEAT]: "HEARTBEAT",
-    [PacketType.HELLO]: "HELLO",
-    [PacketType.METADATA]: "METADATA",
-    [PacketType.META_REQUEST]: "META_REQUEST",
-    [PacketType.FULL_STATUS_REQUEST]: "FULL_STATUS_REQUEST"
-  };
-  return names[type] || "UNKNOWN";
+  return TYPE_NAMES[type] || "UNKNOWN";
 }

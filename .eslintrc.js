@@ -63,11 +63,10 @@ module.exports = {
         "no-constant-condition": "warn"
       }
     },
-    // ── Layer guardrails (rewrite plan doc 01) ──────────────────────────────
-    // Scaffold for the target layered tree. These globs match no files today,
-    // so the rules are a NO-OP until the rewrite creates the layer directories
-    // — at which point the size/complexity caps activate (warn now, error
-    // later) and the import-boundary rule enforces dependency-inward layering.
+    // ── Layer guardrails ────────────────────────────────────────────────────
+    // Size/complexity caps for the layered tree (foundation/codec are live;
+    // transport/domain/app/interface land in later phases). Warn now, error
+    // later. The import-boundary rule below enforces dependency-inward layering.
     {
       files: [
         "src/foundation/**/*.{ts,tsx}",
@@ -85,10 +84,11 @@ module.exports = {
         complexity: ["warn", 15]
       }
     },
-    // Import-boundary scaffold: a module may import only its own layer or
-    // layers BELOW it (foundation < codec < transport < domain < app <
-    // interface). Encoded as no-restricted-imports patterns per layer. No-op
-    // until the directories exist; flip to "error" once the rewrite lands.
+    // Import-boundary rule: a module may import only its own layer or layers
+    // BELOW it (foundation < codec < transport < domain < app < interface).
+    // Encoded as no-restricted-imports patterns per layer (warn now, error
+    // later). Patterns for not-yet-created layers are inert until those
+    // directories exist.
     {
       files: ["src/foundation/**/*.{ts,tsx}"],
       rules: {

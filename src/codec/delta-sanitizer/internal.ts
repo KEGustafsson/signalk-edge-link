@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * L1 codec — delta-sanitizer shared primitives (rewrite plan doc 02 split):
+ * L1 codec — delta-sanitizer shared primitives:
  * the DeltaPayload shape and the small type guards used across the
  * quantize/throttle/filter/sanitize concerns. Imported by the sibling modules
  * to keep the dependency graph acyclic.

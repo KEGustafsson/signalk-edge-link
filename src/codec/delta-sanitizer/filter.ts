@@ -1,6 +1,6 @@
 "use strict";
 
-/** L1 codec — path allow/deny glob filtering (rewrite plan doc 02 split). */
+/** L1 codec — path allow/deny glob filtering. */
 
 import type {
   Delta,
@@ -23,8 +23,9 @@ import { isDeltaLike } from "./internal";
  *   `navigation.speed*`    — NOT supported; use prefix-glob only
  *   `navigation.speedOverGround` — exact match
  *
- * Dots are Signal K path separators; a trailing `.*` means "this node and
- * all its children".
+ * Dots are Signal K path separators; a trailing `.*` matches all descendant
+ * paths under the prefix. The parent node itself (e.g. `navigation` for
+ * `navigation.*`) is deliberately NOT matched — only its children.
  */
 function pathMatchesGlob(path: string, pattern: string): boolean {
   if (pattern === "*") return true;
@@ -92,7 +93,7 @@ export function filterDelta(delta: Delta, config: PathFilterConfig): Delta | nul
     let filteredMeta: DeltaMeta[] | undefined;
     if (Array.isArray(update.meta)) {
       filteredMeta = update.meta.filter(
-        (m) => typeof m.path !== "string" || isPathAllowed(m.path, config)
+        (m) => typeof m?.path !== "string" || isPathAllowed(m.path, config)
       );
       if (filteredMeta.length !== update.meta.length) metaChanged = true;
     }

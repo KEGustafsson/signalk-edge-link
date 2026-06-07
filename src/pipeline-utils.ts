@@ -7,7 +7,7 @@
  * (`codec/compression.ts`) during the rewrite and are re-exported here so the
  * existing `./pipeline-utils` imports keep working. `udpSendAsync` is socket
  * I/O and stays here until it moves into the transport layer's
- * `UdpSocketManager` in Phase 2 (rewrite plan doc 05).
+ * `UdpSocketManager` in Phase 2.
  *
  * @module lib/pipeline-utils
  */

@@ -1,9 +1,9 @@
 "use strict";
 
 /**
- * L1 codec — meta change-detection cache (rewrite plan doc 02; split out of
- * metadata-codec.ts). Tracks the last-sent hashed meta value per context+path
- * so periodic snapshot re-broadcasts only carry what changed.
+ * L1 codec — meta change-detection cache. Tracks the last-sent hashed meta
+ * value per context+path so periodic snapshot re-broadcasts only carry what
+ * changed.
  */
 
 import { createHash } from "crypto";

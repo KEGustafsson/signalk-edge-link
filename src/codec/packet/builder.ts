@@ -1,6 +1,6 @@
 "use strict";
 
-/** L1 codec — packet construction (rewrite plan doc 02 split). */
+/** L1 codec — packet construction. */
 
 import {
   MAGIC,
@@ -296,6 +296,11 @@ export class PacketBuilder {
         if (!secretKey) {
           throw new Error("Protocol v3 control packets require a secretKey");
         }
+        // Write the final payload length (payload + auth tag) into header bytes
+        // 9-12 BEFORE computing the HMAC, since the tag is authenticated over
+        // header.subarray(0, 13). The later writeUInt32BE(finalPayload.length, 9)
+        // re-writes the same value, so this is not a dead write — removing it
+        // would change the bytes the HMAC covers and break the wire format.
         header.writeUInt32BE(payloadBuffer.length + CONTROL_AUTH_TAG_LENGTH, 9);
         const authTag = createControlPacketAuthTag(
           header.subarray(0, 13),

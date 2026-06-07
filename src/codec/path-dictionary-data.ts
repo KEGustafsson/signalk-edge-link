@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * L1 codec — static Signal K path dictionary table (rewrite plan doc 02/05).
+ * L1 codec — static Signal K path dictionary table.
  *
  * The encode table only. Derived maps (ID_TO_PATH, category groupings) and the
  * encode/decode functions live in path-dictionary.ts. Split out so the codec

@@ -2,8 +2,8 @@
  * L0 foundation — `Result<T, E>` and typed errors.
  *
  * A small, dependency-free discriminated union for module-boundary error
- * handling, plus a typed-error hierarchy (rewrite plan doc 01 "Errors",
- * doc 02 L0). The goal is to replace silent failures — notably the
+ * handling, plus a typed-error hierarchy. The goal is to replace silent
+ * failures — notably the
  * `stretchAsciiKey` mismatch that today causes total decrypt failure with no
  * actionable diagnostic — with explicit, surfaced results.
  *

@@ -83,7 +83,7 @@
     "webpack-cli": "^5.1.4"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.9.0"
   },
   "author": "Karl-Erik Gustafsson",
   "repository": "https://github.com/KEGustafsson/signalk-edge-link",
@@ -168,7 +168,8 @@
       "eslint --fix"
     ],
     "*.ts": [
-      "prettier --write"
+      "prettier --write",
+      "eslint --fix"
     ],
     "*.{json,md}": [
       "prettier --write"
