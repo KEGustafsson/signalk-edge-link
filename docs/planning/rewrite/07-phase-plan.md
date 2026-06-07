@@ -146,10 +146,12 @@ posture issue is already resolved by removal in Phase 2.)
 
 Tasks:
 
-- v2→v3 config coercion (back-compat, doc 04 §2.1): sanitizer accepts a
-  stored `protocolVersion: 2` and normalizes it to `3` (no operator edit, no
-  refuse-to-start); admin UI offers only `{1, 3}`; `migrate-config` bumps
-  `2 → 3`; a coerced connection logs a one-time info note.
+- v2→v3 config coercion + naming aliases (back-compat, doc 04 §2.1):
+  sanitizer accepts `protocolVersion` as `1|2|3` or `"basic"|"advanced"` and
+  normalizes to numeric (`1|"basic"`→1, `2|3|"advanced"`→3) — no operator
+  edit, no refuse-to-start; admin UI shows `Basic`(1) / `Advanced`(3);
+  `migrate-config` bumps `2 → 3`; a coerced connection logs a one-time info
+  note.
 - `stretchAsciiKey` capability/version signal so mismatch yields typed
   `DecryptError` + clear log/metric/UI message — without changing the bytes
   of a correctly matched exchange (golden vectors stay valid).
@@ -214,7 +216,9 @@ Tasks:
 - Generate configuration-reference + api-reference from the single schema /
   route table where feasible.
 - Enable the doc-existence test (un-skip from phase 0).
-- Update README quick-start, Node version, protocol guidance.
+- Update README quick-start, Node version (`>=16`), and protocol guidance —
+  end-user docs refer to **Basic** (v1) / **Advanced** (v3); numeric values
+  shown only as a parenthetical (doc 08 Q8).
 
 **Exit criteria:** all referenced docs exist; doc-existence + config-docs-
 parity tests green; verify green.

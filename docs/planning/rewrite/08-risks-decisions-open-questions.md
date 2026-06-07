@@ -50,6 +50,12 @@
   resolves to v3 at load (coerced `2 → 3`); `1` stays v1. Legacy single-
   object config and boolean `serverType` normalizations are also preserved.
   See doc 04 §2.1.
+- **Q8 RESOLVED — user-facing protocol naming.** v1 is presented to end
+  users as **"Basic"** and v3 as **"Advanced"** in the UI and human-facing
+  config/docs. Internally the code keeps numeric v1/v3 and the canonical
+  stored value stays numeric (`1`/`3`); the config also accepts the string
+  aliases `"basic"`/`"advanced"` for hand edits (normalized to numeric).
+  See doc 04 §2.1 / §6.3.
 
 ## Open questions (need maintainer answer before/early in execution)
 

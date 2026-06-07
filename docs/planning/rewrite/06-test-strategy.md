@@ -100,8 +100,9 @@ Each extracted module gets focused unit tests with injected `clock`/mocks:
 - Feedback-loop / own-data stripping end-to-end (today 1 describe).
 - `stretchAsciiKey` mismatch → typed `DecryptError` surfaced (the
   hardening in doc 03 §2 / doc 07 phase 6).
-- wire-level rejection of `0x02` version-byte packets; config `2 → 3`
-  coercion preserves a backwards-compatible load.
+- wire-level rejection of `0x02` version-byte packets; config normalization
+  (`2 → 3`, and `"basic"`→1 / `"advanced"`→3 aliases) preserves a
+  backwards-compatible load and canonical numeric storage.
 - Old↔new wire interop (6.1.3) per protocol version.
 
 ### 6.5 CI gates & coverage

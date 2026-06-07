@@ -109,8 +109,9 @@ base64, pattern-validated)`, `stretchAsciiKey (bool)`, `useMsgpack`,
 `useValueDedup`, `useCompactDeltas (requires useMsgpack)`, `pathFilter
 {allow[],deny[]}`, `brotliQuality (0–11, default 6)`, `pathPrecision
 {path:int 0–15}`, `pathThrottle {path:{minIntervalMs,deadband}}`,
-`usePathDictionary`, `protocolVersion (accepts 1|2|3 for back-compat; 2
-coerced to 3; UI offers 1|3; default 1 — see §2.1)`.
+`usePathDictionary`, `protocolVersion (accepts 1|2|3 + "basic"/"advanced"
+for back-compat; normalized to numeric 1|3 — 2→3; UI shows "Basic"(1) /
+"Advanced"(3); default 1 — see §2.1)`.
 
 Client-only: `udpAddress (default 127.0.0.1)`, `helloMessageSender (10–3600s,
 default 60)`, `heartbeatInterval (5000–120000ms, default 25000)`,
@@ -141,19 +142,33 @@ v1. v3 retains every v2 feature (reliability, congestion, bonding, metadata,
 snapshot replay) plus authenticated control packets — there is no feature
 loss, only the forgeable CRC control plane is gone.
 
+**User-facing naming (decision, doc 08 Q8): v1 = "Basic", v3 = "Advanced".**
+The UI and human-facing config/docs use these friendly labels; the code and
+the canonical stored value stay numeric (`1` / `3`).
+
 Rules:
 
-- **Accepted input values:** `1`, `2`, `3`. The sanitizer/normalizer coerces
-  `2 → 3` (alongside the existing legacy normalizations — single-object →
-  `connections[]`, boolean `serverType` → string). This coercion is the only
+- **Accepted input values:** numbers `1`, `2`, `3` AND the string aliases
+  `"basic"` and `"advanced"`. The sanitizer/normalizer maps:
+  - `1` / `"basic"` → v1,
+  - `2` / `3` / `"advanced"` → v3 (the `2 → 3` coercion),
+
+  alongside the existing legacy normalizations (single-object →
+  `connections[]`, boolean `serverType` → string). Normalization is the only
   effect; the connection otherwise loads unchanged and starts normally.
-- **Admin UI / schema enum offered for NEW selections:** `{1, 3}` (the form
-  no longer offers 2), but the validator still ACCEPTS a stored `2` so
-  existing saved configs never error.
+
+- **Canonical stored value is numeric** (`1` or `3`). String aliases exist so
+  hand-edited configs can read naturally; on save the UI writes the numeric
+  value.
+- **Admin UI / schema** offers two choices for NEW selections — `Basic`
+  (value `1`) and `Advanced` (value `3`) — via JSON Schema `enum: [1,3]` +
+  `enumNames: ["Basic","Advanced"]` (RJSF `ui:` labels). The validator still
+  ACCEPTS a stored `2` and the string aliases so existing saved configs never
+  error.
 - **`migrate-config`** bumps `protocolVersion: 2 → 3` in its output (no
-  longer just a warning), since both directions are now v3.
-- A connection loaded as `2` should emit a one-time info log noting it is now
-  running as v3.
+  longer just a warning) and may normalize string aliases to numeric.
+- A connection loaded as `2` (or `"advanced"`) emits a one-time info log
+  noting it is running as v3 / "Advanced".
 
 **Wire-level (runtime) is still v3-only and breaking for un-upgraded peers:**
 once a node runs 3.0.0, it speaks v3 on the wire (HMAC control). An incoming
@@ -264,6 +279,12 @@ Hooks: `useApi` (wraps `apiFetch`), `useMetricsPolling`, `useAuthToken`,
 `useConnections`. The 40+ `renderX` string helpers become these components;
 `escapeHtml`/`innerHTML` disappear (React escapes by default → removes the
 XSS surface).
+
+The protocol selector in `PluginConfigForm` presents two options labeled
+**"Basic"** (v1) and **"Advanced"** (v3) — driven by the schema's
+`enumNames` (doc 08 Q8); it writes numeric `1`/`3`. Anywhere the UI shows a
+connection's protocol (dashboards, instance lists, status) it displays
+Basic/Advanced, not the raw number.
 
 ### 6.4 Auth token injection (preserve)
 
