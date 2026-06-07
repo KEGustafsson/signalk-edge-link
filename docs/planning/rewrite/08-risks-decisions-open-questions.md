@@ -59,9 +59,11 @@
 
 ## Open questions (need maintainer answer before/early in execution)
 
-**Q1 — Release & versioning.** ✅ RESOLVED: target **`3.0.0`** (from 2.9.1).
-Remaining sub-question: is a beta/RC channel wanted before flipping the npm
-`latest` tag, or publish 3.0.0 directly?
+**Q1 — Release & versioning.** ✅ RESOLVED: target **`3.0.0`** (from 2.9.1),
+published as a **manual (human-gated) release** — no separate beta/RC
+channel. The publish step is triggered by a person (manual run /
+`workflow_dispatch`, not auto-publish on merge/tag), and 3.0.0 goes out for
+testing and wider usage directly.
 
 **Q2 — Minimum Node version.** ✅ RESOLVED: Node `>=16` (see Decisions
 above).
@@ -92,7 +94,8 @@ but UI tests have diminishing returns)?
 ## Recommendation
 
 Proceed phase 0 → 1 first regardless of the open questions: the conformance
-harness and the pure codec layer are valuable and decision-independent. Q1
-(3.0.0), Q2 (Node `>=16`), and Q3 (keep v1/v3, remove v2) are settled, plus
-config back-compat (2→3 coercion). Remaining: Q4 (RJSF vs custom form) and
-the Q1 release-channel sub-question — both needed only by phase 7/8.
+harness and the pure codec layer are valuable and decision-independent.
+Settled: Q1 (3.0.0, manual release), Q2 (Node `>=16`), Q3 (keep v1/v3,
+remove v2), Q8 (Basic/Advanced naming), and config back-compat (2→3
+coercion). The only remaining open item is **Q4 (RJSF vs custom config
+form)**, needed at phase 7.

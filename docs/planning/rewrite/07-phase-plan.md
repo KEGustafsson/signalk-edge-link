@@ -197,6 +197,11 @@ Tasks:
 - Version bump to **3.0.0** + CHANGELOG + migration note documenting the
   v3-only wire (breaking for un-upgraded v2 peers) and the automatic
   `protocolVersion: 2 → 3` config coercion (doc 04 §2.1).
+- Publish 3.0.0 as a **manual (human-gated) release** — no beta/RC channel
+  (doc 08 Q1). The existing `publish-packages.yml` is already
+  `workflow_dispatch`-only (GitHub Packages scoped snapshots); keep public
+  release manual too. Fix that workflow's stale header comment ("on every
+  push to main or dev" — the trigger is actually `workflow_dispatch`).
 
 **Exit criteria:** no old modules remain; all gates green; manual smoke
 passes; release artifacts build.
