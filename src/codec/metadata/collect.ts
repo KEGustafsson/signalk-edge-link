@@ -412,7 +412,7 @@ function buildPathFilter(pattern: string | null | undefined): (path: string) => 
   if (!pattern) {
     return () => true;
   }
-  if (pattern.length > MAX_PATH_FILTER_PATTERN_LENGTH) {
+  if (pattern.length > MAX_PATH_FILTER_PATTERN_LENGTH || isLikelyUnsafePathFilter(pattern)) {
     return () => true;
   }
   try {
