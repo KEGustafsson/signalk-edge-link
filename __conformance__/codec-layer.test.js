@@ -24,9 +24,7 @@ const codecMods = {
   compactDelta: require("../lib/codec/compact-delta"),
   valueDedup: require("../lib/codec/value-dedup"),
   pathDict: require("../lib/codec/path-dictionary"),
-  // metadata-codec is re-homed in a later Phase 1 batch; until then the
-  // metadata envelope vector is produced by the (still-flat) metadata module.
-  metadata: require("../lib/metadata")
+  metadata: require("../lib/codec/metadata-codec")
 };
 
 describe("Conformance: new codec layer reproduces golden vectors", () => {
