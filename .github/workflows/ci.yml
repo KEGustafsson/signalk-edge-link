@@ -68,7 +68,13 @@ jobs:
       - name: Type-check (webapp)
         run: npx tsc -p tsconfig.webapp.json --noEmit
 
+      # The published-package RUNTIME floor is Node 18 (@msgpack/msgpack@3);
+      # verify + type-check above prove the plugin runs there. The webpack
+      # BUNDLE build is a maintainer/release task whose tooling needs newer
+      # Node — copy-webpack-plugin@14 uses Array.prototype.toSorted (Node 20+)
+      # — so it runs on >=20 only. This does not narrow runtime support.
       - name: Build
+        if: matrix.node-version != 18
         run: npm run build
 
       - name: Conformance vectors are reproducible from source
