@@ -9,7 +9,7 @@
 | R3  | Schedule overrun (rewrite scope is large)                                                 | High       | Med      | Strangler phases, each shippable; old tree stays live until phase 8                                          |
 | R4  | Route/CLI/metrics contract drift                                                          | Low        | High     | Doc 04 contract snapshots + ported route tests + frozen Prometheus names                                     |
 | R5  | UI rewrite breaks SignalK admin embedding                                                 | Med        | Med      | Phase 7 isolated; federation (remote name/exposed module/shared singletons) preserved + verified             |
-| R6  | React 16→18 fallout (RJSF compat, lifecycle warnings)                                     | Med        | Low      | Done inside phase 7 behind RTL tests; decide RJSF vs custom (Q4)                                             |
+| R6  | React 16→18 fallout (RJSF compat, lifecycle warnings)                                     | Med        | Low      | Done inside phase 7 behind RTL tests; keep RJSF (Q4) → pin React-18-compatible `@rjsf/*` versions            |
 | R7  | Coverage regresses while moving tests                                                     | Med        | Med      | Coverage gate from `src/`; thresholds never lowered; raise incrementally                                     |
 | R8  | `stretchAsciiKey` hardening accidentally changes matched-exchange bytes                   | Low        | High     | Additive capability signal only; golden vectors must stay valid (phase 6 exit)                               |
 | R9  | Splitting large codec files (delta-sanitizer, metadata) introduces subtle behavior change | Low        | Med      | Pure layer + round-trip/property tests catch divergence                                                      |
@@ -73,10 +73,11 @@ Decisions above; migration in doc 04 §2.1). Remaining minor follow-up: the
 default `protocolVersion` for new connections stays `1` (no behavior change)
 with v3 recommended — revisit if you'd prefer v3 as the out-of-box default.
 
-**Q4 — Config form tech.** Keep `@rjsf/*` (React JSON Schema Form) for the
-plugin config panel, or move to a custom React form? RJSF couples the UI to
-the JSON Schema (nice for the single-source-of-truth goal) but adds bundle
-size and React-version constraints.
+**Q4 — Config form tech.** ✅ RESOLVED: **keep `@rjsf/*` (React JSON Schema
+Form).** It binds the form to the single JSON-Schema source of truth (doc 02
+`app/config/schema.ts`), which is exactly the Basic/Advanced `enumNames`
+approach (doc 04 §6.3). Phase 7 must therefore pick `@rjsf/*` versions
+compatible with React 18 and re-verify the federated mount.
 
 **Q5 — Migration mechanics.** Parallel `src2/` tree, or in-place module-by-
 module replacement on the feature branch? (This plan assumes in-place under
@@ -95,7 +96,9 @@ but UI tests have diminishing returns)?
 
 Proceed phase 0 → 1 first regardless of the open questions: the conformance
 harness and the pure codec layer are valuable and decision-independent.
-Settled: Q1 (3.0.0, manual release), Q2 (Node `>=16`), Q3 (keep v1/v3,
-remove v2), Q8 (Basic/Advanced naming), and config back-compat (2→3
-coercion). The only remaining open item is **Q4 (RJSF vs custom config
-form)**, needed at phase 7.
+All decisions are settled: Q1 (3.0.0, manual release), Q2 (Node `>=16`),
+Q3 (keep v1/v3, remove v2), Q4 (keep RJSF), Q8 (Basic/Advanced naming), and
+config back-compat (2→3 coercion). Q5–Q7 are execution-style preferences
+this plan already defaults sensibly (in-place strangler; future features out
+of scope; ~80% webapp coverage target) — adjust if desired, but none block
+starting Phase 0.

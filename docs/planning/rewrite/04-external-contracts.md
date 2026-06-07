@@ -274,7 +274,7 @@ Tabs/views (today built by the 2341-line string engine):
 `App` → `ConnectionTabs` → (`ServerDashboard` | `ClientDashboard`) composed
 of presentational cards: `StatusCard`, `BandwidthCard`, `PathAnalyticsCard`,
 `NetworkQualityCard`, `BondingCard`, `AlertsCard`, `CaptureCard`,
-`ConfigFileEditor`, `PluginConfigForm` (RJSF or custom — see doc 08 Q4).
+`ConfigFileEditor`, `PluginConfigForm` (RJSF / `@rjsf/*`, kept — doc 08 Q4).
 Hooks: `useApi` (wraps `apiFetch`), `useMetricsPolling`, `useAuthToken`,
 `useConnections`. The 40+ `renderX` string helpers become these components;
 `escapeHtml`/`innerHTML` disappear (React escapes by default → removes the

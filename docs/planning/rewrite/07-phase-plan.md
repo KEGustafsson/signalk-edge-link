@@ -172,6 +172,9 @@ Tasks:
 
 - Upgrade React 16→18 + matching `@types/react`; validate Module Federation
   still mounts `PluginConfigurationPanel` in SignalK admin.
+- Keep RJSF (doc 08 Q4): pin `@rjsf/*` (core/utils/validator-ajv8) versions
+  compatible with React 18; the form renders from the single JSON-Schema
+  source (Basic/Advanced via `enumNames`, doc 04 §6.3).
 - Build component tree + hooks (doc 04 §6.3); reproduce every tab/view.
 - Preserve `apiFetch` token-injection contract.
 - React Testing Library coverage per component/hook; include webapp in
