@@ -2,6 +2,11 @@
 
 > Status: Proposal for review. No code changes accompany this document.
 > Decision recorded: **full rewrite** approach, plan-only deliverable.
+>
+> This file is the executive summary. The **full detailed plan** lives in
+> [`rewrite/`](./rewrite/README.md) — architecture, per-module catalog,
+> frozen conformance spec, external-contract inventory, old→new file map,
+> test strategy, phase-by-phase execution, and the open questions.
 
 ## 0. Purpose and guiding principle
 
