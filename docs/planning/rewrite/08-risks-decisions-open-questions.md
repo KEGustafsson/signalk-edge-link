@@ -79,26 +79,43 @@ Form).** It binds the form to the single JSON-Schema source of truth (doc 02
 approach (doc 04 §6.3). Phase 7 must therefore pick `@rjsf/*` versions
 compatible with React 18 and re-verify the federated mount.
 
-**Q5 — Migration mechanics.** Parallel `src2/` tree, or in-place module-by-
-module replacement on the feature branch? (This plan assumes in-place under
-new `src/` subdirectories with the old flat files coexisting until cutover.)
+**Q5 — Migration mechanics.** ✅ RESOLVED: **in-place strangler.** New
+layered modules are added under `src/` subdirectories (`foundation/`,
+`codec/`, `transport/`, `domain/`, `app/`, `interface/`); the old flat files
+coexist and stay live until the Phase 8 cutover, then are deleted. One
+branch, small reviewable diffs per phase, `main` always ships a working
+plugin. No `src2/` tree, no up-front `src/legacy/` move.
 
-**Q6 — Scope of "everything."** Are the deferred future features (active-
-active bonding, multi-hop relay, SSE metrics streaming, constant-time key
-compare) explicitly OUT of this rewrite (recommended), or should any be
-folded in?
+**Q6 — Scope of "everything."** ✅ RESOLVED: **all future features OUT.** The
+rewrite is structure-only. Active-active bonding, multi-hop relay, SSE
+metrics streaming, and constant-time key/HMAC comparison are tracked as
+separate post-3.0.0 work (see Future work below) — not folded in.
 
-**Q7 — Webapp coverage bar.** The UI is essentially untested today. What
-coverage bar is acceptable for the new React tree (this plan targets ~80%
-but UI tests have diminishing returns)?
+**Q7 — Webapp coverage bar.** ✅ RESOLVED: **~80%, matching the backend.**
+The new React tree is held to the same ~80% lines/functions target as the
+rest of the rewrite; the webapp is included in `collectCoverageFrom` (it is
+excluded today).
+
+## Future work (post-3.0.0, OUT of this rewrite — Q6)
+
+Tracked separately; not implemented during the rewrite. Each becomes much
+more tractable once the layered architecture exists:
+
+- **Constant-time key/HMAC comparison** — small security hardening; revisit
+  once the codec layer is stable.
+- **SSE (Server-Sent Events) live-metrics streaming** — push metrics to the
+  UI instead of 15s polling; needs a new API endpoint + UI hook.
+- **Active-active bonding** — load-balance across links (today: main/backup
+  failover only).
+- **Multi-hop relay** — forward deltas across more than two hops.
 
 ## Recommendation
 
-Proceed phase 0 → 1 first regardless of the open questions: the conformance
-harness and the pure codec layer are valuable and decision-independent.
-All decisions are settled: Q1 (3.0.0, manual release), Q2 (Node `>=16`),
-Q3 (keep v1/v3, remove v2), Q4 (keep RJSF), Q8 (Basic/Advanced naming), and
-config back-compat (2→3 coercion). Q5–Q7 are execution-style preferences
-this plan already defaults sensibly (in-place strangler; future features out
-of scope; ~80% webapp coverage target) — adjust if desired, but none block
-starting Phase 0.
+The plan is decision-complete; Phase 0 (guardrails + conformance harness) is
+the natural, decision-independent starting point.
+
+**Every open question is now settled:** Q1 (3.0.0, manual release), Q2 (Node
+`>=16`), Q3 (keep v1/v3, remove v2), Q4 (keep RJSF), Q5 (in-place strangler),
+Q6 (future features out), Q7 (~80% webapp coverage), Q8 (Basic/Advanced
+naming), plus config back-compat (2→3 coercion). The plan is decision-
+complete; Phase 0 (guardrails + conformance harness) can begin.
