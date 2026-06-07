@@ -75,8 +75,14 @@
           "GPS1.RMC",
           "2026-06-07T09:00:00.000Z",
           [
-            ["navigation.speedOverGround", 3.21],
-            ["navigation.courseOverGroundTrue", 1.5708]
+            [
+              "navigation.speedOverGround",
+              3.21
+            ],
+            [
+              "navigation.courseOverGroundTrue",
+              1.5708
+            ]
           ],
           null
         ]

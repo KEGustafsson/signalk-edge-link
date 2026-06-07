@@ -83,7 +83,7 @@
     "webpack-cli": "^5.1.4"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=18"
   },
   "author": "Karl-Erik Gustafsson",
   "repository": "https://github.com/KEGustafsson/signalk-edge-link",
