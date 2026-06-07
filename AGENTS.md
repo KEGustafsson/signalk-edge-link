@@ -18,13 +18,16 @@ Signal K Edge Link is a Signal K plugin that transfers vessel deltas between Sig
 
 ## Core principles
 
-1. **Prefer the smallest complete change.** Solve the user request without unrelated refactors.
-2. **Protect compatibility.** Do not break existing protocol v1/v2/v3 behavior, configuration migration, public REST routes, CLI behavior, or documented operator workflows unless the task explicitly requires a breaking change.
-3. **Treat security as a design constraint.** Preserve AES-GCM confidentiality, v3 control-packet authentication, token handling, redaction, fail-closed management auth behavior, and secret-free logs/docs.
-4. **Treat reliability as a design constraint.** Preserve ACK/NAK, retransmission, congestion control, bonding, snapshot replay, lifecycle cleanup, and socket recovery behavior.
-5. **Treat observability as a design constraint.** Keep JSON metrics, Prometheus output, alerts, packet capture, and operator docs consistent when behavior changes.
-6. **Keep docs and schemas synchronized.** Configuration changes usually require updates to `src/index.ts`, `src/shared/connection-schema.ts`, docs, samples, tests, and possibly migration helpers.
-7. **Validate before finalizing.** Run the narrowest relevant checks first, then broader checks when scope warrants it.
+1. **Start with intent.** Restate the request in concrete terms, then map the likely files, tests, docs, and operator surfaces before editing.
+2. **Prefer the smallest complete change.** Solve the user request without unrelated refactors.
+3. **Execute incrementally.** Make small edits, check the diff frequently, and avoid hidden behavior changes.
+4. **Protect compatibility.** Do not break existing protocol v1/v2/v3 behavior, configuration migration, public REST routes, CLI behavior, or documented operator workflows unless the task explicitly requires a breaking change.
+5. **Treat security as a design constraint.** Preserve AES-GCM confidentiality, v3 control-packet authentication, token handling, redaction, fail-closed management auth behavior, and secret-free logs/docs.
+6. **Treat reliability as a design constraint.** Preserve ACK/NAK, retransmission, congestion control, bonding, snapshot replay, lifecycle cleanup, and socket recovery behavior.
+7. **Treat observability as a design constraint.** Keep JSON metrics, Prometheus output, alerts, packet capture, logs, error paths, and operator docs consistent when behavior changes.
+8. **Keep docs and schemas synchronized.** Configuration changes usually require updates to `src/index.ts`, `src/shared/connection-schema.ts`, docs, samples, tests, and possibly migration helpers.
+9. **Validate before finalizing.** Run the narrowest relevant checks first, then broader checks when scope warrants it.
+10. **Finish with evidence.** Report exact commands run, observed outcomes, known limitations, residual risks, and any deferred follow-up.
 
 ## Required startup workflow for every task
 
@@ -351,6 +354,12 @@ Use this map to route work to the right files.
 ## Testing and validation guide
 
 Choose commands based on touched areas. Prefer targeted checks first, then broad checks for larger changes.
+
+**Scope-based selection:**
+
+- **Small local changes:** run targeted tests or checks for the touched module(s).
+- **Behavior changes across module, process, protocol, route, UI, or config boundaries:** run targeted checks plus the related integration or end-to-end coverage.
+- **Cross-cutting refactors, release preparation, or package-facing changes:** run full static checks and the full relevant test suite when practical.
 
 | Change area             | Suggested validation                                                                                                    |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
