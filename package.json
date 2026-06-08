@@ -163,11 +163,11 @@
     "edge-link-cli": "lib/bin/edge-link-cli.js"
   },
   "lint-staged": {
-    "*.js": [
+    "*.{js,jsx}": [
       "prettier --write",
       "eslint --fix"
     ],
-    "*.ts": [
+    "*.{ts,tsx}": [
       "prettier --write",
       "eslint --fix"
     ],
