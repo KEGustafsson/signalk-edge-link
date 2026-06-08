@@ -266,7 +266,7 @@ sudo systemctl restart signalk
 
 ### Requirements
 
-- Node.js 16 or later (`node --version`)
+- Node.js 20.9.0 or later (`node --version`; matches `engines.node` in package.json / CI)
 - UDP reachability from client to server on your chosen port
 - Shared encryption key configured on both ends
 
@@ -1283,7 +1283,7 @@ A starter Grafana dashboard is included at `grafana/dashboards/edge-link.json`.
 
 **Base path:** `/plugins/signalk-edge-link`  
 **Rate limit:** 120 requests/minute/IP → HTTP 429  
-**API version tracked (current: 2.9.0)** — for endpoint changes between releases, see `docs/pr-records/`
+**API version tracked (current: 2.9.1)** — for endpoint changes between releases, see `docs/pr-records/`
 
 ### 14.1 Core data endpoints
 
@@ -2102,7 +2102,7 @@ Also add `sentence_filter.json` excluding `GSV`, `GSA`, `VTG`.
 2. Encryption keys identical on both sides? (32 ASCII, 64 hex, or 44 base64)
 3. UDP port open in firewall? (`ufw status` or `iptables -L`)
 4. Plugin enabled in Signal K Admin UI?
-5. Node.js ≥ 16? (`node --version`)
+5. Node.js ≥ 20.9.0? (`node --version`)
 
 ### Encryption / decryption errors
 

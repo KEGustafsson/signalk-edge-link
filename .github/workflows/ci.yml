@@ -17,6 +17,14 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Matrix starts at the supported floor (package.json engines: >=20).
+        # 20 is the real minimum: Node 18 is EOL and the build toolchain
+        # (copy-webpack-plugin@14 uses Array.prototype.toSorted) requires
+        # Node >=20.9. 24 (current) is included for forward coverage.
+        node-version: [20, 22, 24]
     permissions:
       contents: read
 
@@ -41,7 +49,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: ${{ steps.lockfile.outputs.exists == 'true' && 'npm' || '' }}
 
       - name: Install dependencies
@@ -53,19 +61,21 @@ jobs:
             npm install
           fi
 
-      - name: Lint
-        run: npm run lint
+      # Single required gate: type-check (backend) + lint + full test suite.
+      # Tests run against src/ via ts-jest (no stale lib/ artifact).
+      - name: Verify (check:ts + lint + test)
+        run: npm run verify
 
-      - name: Type-check (backend and webapp)
-        run: |
-          npm run check:ts
-          npx tsc -p tsconfig.webapp.json --noEmit
+      - name: Type-check (webapp)
+        run: npx tsc -p tsconfig.webapp.json --noEmit
 
       - name: Build
         run: npm run build
 
-      - name: Test
-        run: npm test
+      - name: Conformance vectors are reproducible from source
+        run: |
+          npm run conformance:generate
+          git diff --exit-code -- __conformance__/vectors/golden.json
 
       - name: Release documentation and package truth
         run: npm run check:release-docs

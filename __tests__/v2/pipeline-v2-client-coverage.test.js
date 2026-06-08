@@ -76,7 +76,9 @@ function sourcePayload(seed) {
 
 describe("sendDelta – compression error", () => {
   let origCompress;
-  const pipelineUtils = require("../../lib/pipeline-utils");
+  // compressPayload was re-homed to the codec layer; patch it where the
+  // writable implementation lives (the pipeline reads it live via re-export).
+  const pipelineUtils = require("../../lib/codec/compression");
 
   beforeEach(() => {
     origCompress = pipelineUtils.compressPayload;
@@ -106,7 +108,9 @@ describe("sendDelta – compression error", () => {
 
 describe("sendDelta – encryption error", () => {
   let origEncrypt;
-  const crypto = require("../../lib/crypto");
+  // encryptBinary was re-homed to the codec layer; patch it where the writable
+  // implementation lives (the pipeline reads it live via re-export).
+  const crypto = require("../../lib/codec/crypto");
 
   beforeEach(() => {
     origEncrypt = crypto.encryptBinary;

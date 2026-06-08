@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/signalk-edge-link)](https://www.npmjs.com/package/signalk-edge-link)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D16-brightgreen)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
 Signal K Edge Link is a Signal K plugin that transfers vessel deltas between Signal K servers over encrypted UDP.
 
@@ -50,7 +50,7 @@ Server Signal K
 - Two Signal K instances (source and destination)
 - UDP reachability from client to server on your chosen port
 - Shared encryption key on both ends (32-character ASCII, 64-character hex, or 44-character base64)
-- Node.js 16+ (if installing from source: dev dependencies including TypeScript are installed automatically via `npm install`)
+- Node.js 20.9.0+ (if installing from source: dev dependencies including TypeScript are installed automatically via `npm install`)
 
 ## Installation
 

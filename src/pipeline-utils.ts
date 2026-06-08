@@ -3,69 +3,24 @@
 /**
  * Shared pipeline utilities used by both v1 and v2 client pipelines.
  *
+ * The Brotli/serialization helpers were re-homed to the L1 codec layer
+ * (`codec/compression.ts`) during the rewrite and are re-exported here so the
+ * existing `./pipeline-utils` imports keep working. `udpSendAsync` is socket
+ * I/O and stays here until it moves into the transport layer's
+ * `UdpSocketManager` in Phase 2.
+ *
  * @module lib/pipeline-utils
  */
 
-import { promisify } from "util";
-import * as zlib from "zlib";
-import * as msgpack from "@msgpack/msgpack";
-import {
-  BROTLI_QUALITY_HIGH,
-  UDP_RETRY_MAX,
-  UDP_RETRY_DELAY,
-  UDP_SEND_TIMEOUT_MS
-} from "./constants";
+import { UDP_RETRY_MAX, UDP_RETRY_DELAY, UDP_SEND_TIMEOUT_MS } from "./constants";
 import type * as dgram from "dgram";
 
-export const brotliCompressAsync = promisify(zlib.brotliCompress);
-export const brotliDecompressAsync = promisify(zlib.brotliDecompress);
-
-/**
- * Converts delta object to buffer (JSON or MessagePack)
- * @param delta - Delta object or array to convert
- * @param useMsgpack - Whether to use MessagePack serialization
- * @returns Encoded buffer
- */
-export function deltaBuffer(delta: unknown, useMsgpack = false): Buffer {
-  if (useMsgpack) {
-    return Buffer.from(msgpack.encode(delta));
-  }
-  return Buffer.from(JSON.stringify(delta), "utf8");
-}
-
-/**
- * Compress data using Brotli with mode-appropriate settings.
- *
- * Brotli quality is local-only: higher values produce smaller output at
- * higher CPU cost. The decompressor reads any quality level transparently,
- * so peers are not required to match. Range 0..11, default
- * {@link BROTLI_QUALITY_HIGH} = 6.
- *
- * @param data - Data to compress
- * @param useMsgpack - Whether the data is MessagePack (generic) or JSON (text)
- * @param brotliQuality - Optional override; clamped to 0..11. Defaults to
- *                       BROTLI_QUALITY_HIGH (6) when undefined.
- * @returns Compressed data
- */
-export function compressPayload(
-  data: Buffer,
-  useMsgpack: boolean,
-  brotliQuality?: number
-): Promise<Buffer> {
-  const quality =
-    brotliQuality === undefined
-      ? BROTLI_QUALITY_HIGH
-      : Math.max(0, Math.min(11, Math.trunc(brotliQuality)));
-  return brotliCompressAsync(data, {
-    params: {
-      [zlib.constants.BROTLI_PARAM_MODE]: useMsgpack
-        ? zlib.constants.BROTLI_MODE_GENERIC
-        : zlib.constants.BROTLI_MODE_TEXT,
-      [zlib.constants.BROTLI_PARAM_QUALITY]: quality,
-      [zlib.constants.BROTLI_PARAM_SIZE_HINT]: data.length
-    }
-  }) as Promise<Buffer>;
-}
+export {
+  brotliCompressAsync,
+  brotliDecompressAsync,
+  deltaBuffer,
+  compressPayload
+} from "./codec/compression";
 
 interface UdpSendCallbacks {
   onRetry?: (retryCount: number, error: NodeJS.ErrnoException) => void;

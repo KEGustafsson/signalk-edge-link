@@ -1,0 +1,10 @@
+{
+  "//": "Single ts-jest tsconfig for the test run. Enables jsx so webapp .tsx and backend .ts share one transpile config (avoids ts-jest dual-config bleed under coverage). Transpile-only via ts-jest isolatedModules; type-checking is the separate `check:ts` gate.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react",
+    "noEmit": false
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "__tests__/**/*.ts", "__tests__/**/*.tsx"],
+  "exclude": ["node_modules", "public", "lib"]
+}
