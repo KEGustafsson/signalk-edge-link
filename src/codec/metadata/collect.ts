@@ -2,8 +2,7 @@
 
 /**
  * L1 codec — meta collection: snapshot/live extraction, config parsing
- * (incl. ReDoS guard), packet splitting and envelope build (rewrite plan
- * doc 02; split out of metadata-codec.ts).
+ * (incl. ReDoS guard), packet splitting and envelope build.
  */
 
 import type {

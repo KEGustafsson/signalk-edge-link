@@ -2102,7 +2102,7 @@ Also add `sentence_filter.json` excluding `GSV`, `GSA`, `VTG`.
 2. Encryption keys identical on both sides? (32 ASCII, 64 hex, or 44 base64)
 3. UDP port open in firewall? (`ufw status` or `iptables -L`)
 4. Plugin enabled in Signal K Admin UI?
-5. Node.js ≥ 16? (`node --version`)
+5. Node.js ≥ 20? (`node --version`)
 
 ### Encryption / decryption errors
 
