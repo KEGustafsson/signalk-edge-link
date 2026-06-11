@@ -1,5 +1,7 @@
 "use strict";
 
+const SECRET_KEY = "12345678901234567890123456789012";
+
 const zlib = require("node:zlib");
 const { createPipelineV2Server } = require("../../lib/pipeline-v2-server");
 const { PacketBuilder, PacketParser, PacketType } = require("../../lib/packet");
@@ -43,7 +45,7 @@ function makeMetricsApi() {
   };
 }
 
-function buildDataPacket(sequence, payloadObj, key, protocolVersion = 2) {
+function buildDataPacket(sequence, payloadObj, key, protocolVersion = 3) {
   const builder = new PacketBuilder({ initialSequence: sequence, protocolVersion });
   const json = Buffer.from(JSON.stringify([payloadObj]));
   const compressed = zlib.brotliCompressSync(json);
@@ -54,7 +56,7 @@ function buildDataPacket(sequence, payloadObj, key, protocolVersion = 2) {
   });
 }
 
-function buildMetadataPacket(envelope, key, protocolVersion = 2) {
+function buildMetadataPacket(envelope, key, protocolVersion = 3) {
   const builder = new PacketBuilder({ protocolVersion });
   const json = Buffer.from(JSON.stringify(envelope));
   const compressed = zlib.brotliCompressSync(json);
@@ -198,8 +200,8 @@ describe("pipeline-v2-server", () => {
     };
     const metricsApi = makeMetricsApi();
     const pipeline = createPipelineV2Server(app, state, metricsApi);
-    const builder = new PacketBuilder({ protocolVersion: 2 });
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const hello = builder.buildHelloPacket({
       clientId: "edge-a",
       capabilities: ["compression", "encryption", "reliability"]
@@ -361,7 +363,9 @@ describe("pipeline-v2-server", () => {
     };
     const send = jest.fn((_pkt, _port, _addr, cb) => cb && cb(null));
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      // v3 control packets (the NAK the server schedules) are HMAC-authenticated,
+      // so the server needs the secret key to build them.
+      options: { secretKey, reliability: { nakTimeout: 10 } },
       socketUdp: { send },
       instanceId: "test"
     };
@@ -391,7 +395,7 @@ describe("pipeline-v2-server", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 30));
 
-    const parser = new PacketParser();
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const nakPackets = send.mock.calls
       .map((c) => c[0])
       .filter((pkt) => {

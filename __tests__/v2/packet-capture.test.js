@@ -1,5 +1,7 @@
 "use strict";
 
+const SECRET_KEY = "12345678901234567890123456789012";
+
 const { PacketCapture, PacketInspector } = require("../../lib/packet-capture");
 const { PacketBuilder } = require("../../lib/packet");
 
@@ -154,7 +156,7 @@ describe("PacketCapture", () => {
 
     test("exports v2 protocol packets correctly", () => {
       capture.start();
-      const builder = new PacketBuilder();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
       const v2Packet = builder.buildHeartbeatPacket();
       capture.capture(v2Packet, "send");
 
@@ -312,16 +314,16 @@ describe("PacketInspector", () => {
       expect(msg.timestamp).toBeDefined();
     });
 
-    test("parses v2 packet header in summary", () => {
+    test("parses v3 packet header in summary", () => {
       const ws = createMockWS();
       inspector.addClient(ws);
 
-      const builder = new PacketBuilder();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
       const heartbeat = builder.buildHeartbeatPacket();
       inspector.inspect(heartbeat, "recv");
 
       const msg = JSON.parse(ws.messages[0]);
-      expect(msg.protocol).toBe("v2");
+      expect(msg.protocol).toBe("v3");
       expect(msg.type).toBe("HEARTBEAT");
       expect(msg.sequence).toBeDefined();
     });

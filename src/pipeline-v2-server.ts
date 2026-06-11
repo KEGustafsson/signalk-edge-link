@@ -96,7 +96,9 @@ interface ClientSession {
 
 function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
   const { metrics, recordError, trackPathStats, updateBandwidthRates } = metricsApi;
-  const protocolVersion = state.options && state.options.protocolVersion === 3 ? 3 : 2;
+  // The reliable pipeline serves protocol v3 only (v2 was removed); control
+  // packets are always HMAC-authenticated.
+  const protocolVersion = 3;
   const stretchAsciiKey = !!state.options?.stretchAsciiKey;
   const packetParser = new PacketParser({
     secretKey: state.options?.secretKey ?? undefined,

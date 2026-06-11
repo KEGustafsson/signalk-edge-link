@@ -27,7 +27,7 @@ function makeState(overrides = {}) {
       secretKey: SECRET_KEY,
       udpAddress: "127.0.0.1",
       udpPort: 12345,
-      protocolVersion: 2,
+      protocolVersion: 3,
       useMsgpack: false,
       usePathDictionary: false,
       reliability: {},
@@ -209,7 +209,7 @@ describe("setMonitoring", () => {
 describe("receiveACK", () => {
   test("handles an ACK packet built by PacketBuilder", () => {
     const { pipeline } = makeClient();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const ackPacket = builder.buildACKPacket(0);
     expect(() =>
       pipeline.receiveACK(ackPacket, { address: "127.0.0.1", port: 12345 })

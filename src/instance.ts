@@ -1345,7 +1345,7 @@ function createInstance(
       });
 
       const useReliableProtocolServer = (options.protocolVersion ?? 0) >= 2;
-      const reliableServerLabel = options.protocolVersion === 3 ? "v3" : "v2";
+      const reliableServerLabel = "v3";
       if (useReliableProtocolServer) {
         const v2Server = createPipelineV2Server(appProxy, state, metricsApi);
         state.pipelineServer = v2Server;
@@ -1654,7 +1654,7 @@ function createInstance(
 
       // Reliable client pipeline (v2/v3)
       const useReliableProtocol = (options.protocolVersion ?? 0) >= 2;
-      const reliableProtocolLabel = options.protocolVersion === 3 ? "v3" : "v2";
+      const reliableProtocolLabel = "v3";
       if (useReliableProtocol) {
         state.monitoring = {
           packetLossTracker: new PacketLossTracker(),

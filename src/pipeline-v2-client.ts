@@ -68,7 +68,9 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   const setStatus = app.setPluginStatus || app.setProviderStatus || (() => {});
   const throttleState = createPathThrottleState();
   const dedupState = createValueDedupState();
-  const protocolVersion = state.options && state.options.protocolVersion === 3 ? 3 : 2;
+  // The reliable pipeline serves protocol v3 only (v2 was removed); control
+  // packets are always HMAC-authenticated.
+  const protocolVersion = 3;
   const stretchAsciiKey = !!state.options?.stretchAsciiKey;
   const packetBuilder = new PacketBuilder({
     protocolVersion,

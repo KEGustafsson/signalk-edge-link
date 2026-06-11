@@ -440,6 +440,28 @@ describe("sanitizeConnectionConfig", () => {
     expect(sanitizeConnectionConfig(null)).toEqual({});
   });
 
+  test("coerces stored protocolVersion 2 to 3 (v2 removed; config back-compat)", () => {
+    const result = sanitizeConnectionConfig({
+      serverType: "client",
+      udpAddress: "192.168.1.1",
+      udpPort: 4567,
+      secretKey: "aB3$dEf7gH9!jKlMnO1pQrStUvWxYz0#",
+      protocolVersion: 2
+    });
+    expect(result.protocolVersion).toBe(3);
+  });
+
+  test("leaves protocolVersion 1 and 3 unchanged", () => {
+    const base = {
+      serverType: "client",
+      udpAddress: "192.168.1.1",
+      udpPort: 4567,
+      secretKey: "aB3$dEf7gH9!jKlMnO1pQrStUvWxYz0#"
+    };
+    expect(sanitizeConnectionConfig({ ...base, protocolVersion: 1 }).protocolVersion).toBe(1);
+    expect(sanitizeConnectionConfig({ ...base, protocolVersion: 3 }).protocolVersion).toBe(3);
+  });
+
   test("server mode removes client-only fields", () => {
     const config = {
       serverType: "server",

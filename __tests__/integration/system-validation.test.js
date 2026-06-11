@@ -91,8 +91,8 @@ async function parsePacket(parser, packet) {
 describe("System Validation - Reliability", () => {
   test("achieves >99% delivery at 5% packet loss with retransmission", () => {
     const sim = new NetworkSimulator({ packetLoss: 0.05 });
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const queue = new RetransmitQueue({ maxSize: 5000, maxRetransmits: 5 });
 
     const TOTAL_PACKETS = 500;
@@ -143,8 +143,8 @@ describe("System Validation - Reliability", () => {
 
   test("achieves >95% delivery at 20% packet loss with retransmission", () => {
     const sim = new NetworkSimulator({ packetLoss: 0.2 });
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const queue = new RetransmitQueue({ maxSize: 5000, maxRetransmits: 10 });
 
     const TOTAL_PACKETS = 200;
@@ -193,8 +193,8 @@ describe("System Validation - Reliability", () => {
 describe("System Validation - Sequence Tracking", () => {
   test("handles out-of-order delivery correctly", async () => {
     const sim = new NetworkSimulator({ reorderRate: 0.3, reorderDelay: 20, latency: 10 });
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const tracker = new SequenceTracker();
 
     const TOTAL = 50;
@@ -233,8 +233,8 @@ describe("System Validation - Sequence Tracking", () => {
   });
 
   test("detects and reports duplicate packets", async () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const tracker = new SequenceTracker();
 
     const delta = generateDelta(0);
@@ -389,8 +389,8 @@ describe("System Validation - Monitoring", () => {
 
 describe("System Validation - Protocol Round-Trip", () => {
   test("data integrity through full TX→RX pipeline", async () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const originalDelta = generateDelta(42);
     const packet = await buildPacket(builder, originalDelta);
@@ -404,8 +404,8 @@ describe("System Validation - Protocol Round-Trip", () => {
   });
 
   test("100 deltas round-trip preserves all data", async () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     for (let i = 0; i < 100; i++) {
       const originalDelta = generateDelta(i);
@@ -421,8 +421,8 @@ describe("System Validation - Protocol Round-Trip", () => {
   });
 
   test("v2 packets are correctly identified", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const dataPacket = builder.buildDataPacket(Buffer.from("test"));
     const heartbeat = builder.buildHeartbeatPacket();
@@ -445,8 +445,8 @@ describe("System Validation - Protocol Round-Trip", () => {
 describe("System Validation - Network Transitions", () => {
   test("survives WiFi → cellular transition", async () => {
     const sim = new NetworkSimulator({ latency: 5, packetLoss: 0 });
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const queue = new RetransmitQueue({ maxSize: 5000, maxRetransmits: 5 });
     const received = new Set();
 
@@ -511,8 +511,8 @@ describe("System Validation - Network Transitions", () => {
 
   test("recovers from brief link outage", async () => {
     const sim = new NetworkSimulator({ latency: 10 });
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const queue = new RetransmitQueue({ maxSize: 5000, maxRetransmits: 5 });
     const received = new Set();
 

@@ -9,7 +9,6 @@ import {
   PacketFlags,
   MAX_SEQUENCE,
   normalizeProtocolVersion,
-  usesAuthenticatedControl,
   crc16
 } from "./constants";
 import { createControlPacketAuthTag, CONTROL_AUTH_TAG_LENGTH } from "../crypto";
@@ -192,11 +191,12 @@ export class PacketBuilder {
       protocolVersion,
       clientId: info.clientId || "",
       timestamp: Date.now(),
-      capabilities:
-        info.capabilities ||
-        (usesAuthenticatedControl(protocolVersion)
-          ? ["compression", "encryption", "reliability", "authenticated-control"]
-          : ["compression", "encryption", "reliability"])
+      capabilities: info.capabilities || [
+        "compression",
+        "encryption",
+        "reliability",
+        "authenticated-control"
+      ]
     };
     if (info.instanceId) {
       payload.instanceId = info.instanceId;
@@ -287,33 +287,24 @@ export class PacketBuilder {
     let finalPayload = payloadBuffer;
 
     // DATA and METADATA packets are authenticated by AES-256-GCM (their payload
-    // is already an AEAD ciphertext). v2 control packets use a trailing CRC for
-    // corruption detection; v3 control packets use an HMAC tag so
-    // ACK/NAK/HEARTBEAT/HELLO/META_REQUEST cannot be forged off-path.
+    // is already an AEAD ciphertext). Control packets (ACK/NAK/HEARTBEAT/HELLO/
+    // META_REQUEST/FULL_STATUS_REQUEST) carry an HMAC tag so they cannot be
+    // forged off-path.
     if (type !== PacketType.DATA && type !== PacketType.METADATA) {
-      if (usesAuthenticatedControl(protocolVersion)) {
-        const secretKey = options.secretKey || this._secretKey;
-        if (!secretKey) {
-          throw new Error("Protocol v3 control packets require a secretKey");
-        }
-        // Write the final payload length (payload + auth tag) into header bytes
-        // 9-12 BEFORE computing the HMAC, since the tag is authenticated over
-        // header.subarray(0, 13). The later writeUInt32BE(finalPayload.length, 9)
-        // re-writes the same value, so this is not a dead write — removing it
-        // would change the bytes the HMAC covers and break the wire format.
-        header.writeUInt32BE(payloadBuffer.length + CONTROL_AUTH_TAG_LENGTH, 9);
-        const authTag = createControlPacketAuthTag(
-          header.subarray(0, 13),
-          payloadBuffer,
-          secretKey,
-          { stretchAsciiKey: this._stretchAsciiKey }
-        );
-        finalPayload = Buffer.concat([payloadBuffer, authTag]);
-      } else if (payloadBuffer.length > 0) {
-        const payloadCrc = Buffer.alloc(2);
-        payloadCrc.writeUInt16BE(crc16(payloadBuffer), 0);
-        finalPayload = Buffer.concat([payloadBuffer, payloadCrc]);
+      const secretKey = options.secretKey || this._secretKey;
+      if (!secretKey) {
+        throw new Error("Control packets require a secretKey");
       }
+      // Write the final payload length (payload + auth tag) into header bytes
+      // 9-12 BEFORE computing the HMAC, since the tag is authenticated over
+      // header.subarray(0, 13). The later writeUInt32BE(finalPayload.length, 9)
+      // re-writes the same value, so this is not a dead write — removing it
+      // would change the bytes the HMAC covers and break the wire format.
+      header.writeUInt32BE(payloadBuffer.length + CONTROL_AUTH_TAG_LENGTH, 9);
+      const authTag = createControlPacketAuthTag(header.subarray(0, 13), payloadBuffer, secretKey, {
+        stretchAsciiKey: this._stretchAsciiKey
+      });
+      finalPayload = Buffer.concat([payloadBuffer, authTag]);
     }
 
     // Payload length (uint32 big-endian)
