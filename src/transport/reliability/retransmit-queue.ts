@@ -6,7 +6,7 @@
  * Stores recently sent packets for potential retransmission.
  * Implements bounded map with automatic expiration.
  *
- * @module lib/retransmit-queue
+ * @module transport/reliability/retransmit-queue
  */
 
 interface QueueEntry {

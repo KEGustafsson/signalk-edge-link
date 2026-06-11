@@ -11,7 +11,7 @@
  * - Periodic ACK generation for reliability
  * - NAK generation on packet loss detection
  *
- * @module lib/pipeline-v2-server
+ * @module transport/pipeline/reliable-server
  */
 
 import { promisify } from "util";
@@ -873,13 +873,9 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
    * server can rebuild state immediately after a restart.
    */
   async function _sendFullStatusRequest(session: ClientSession, secretKey: string): Promise<void> {
-    try {
-      const packet = packetBuilder.buildFullStatusRequestPacket({ secretKey });
-      await _sendUDP(packet, { address: session.address, port: session.port });
-      app.debug(`[v2-server] FULL_STATUS_REQUEST sent to ${session.key}`);
-    } catch (err: unknown) {
-      throw err;
-    }
+    const packet = packetBuilder.buildFullStatusRequestPacket({ secretKey });
+    await _sendUDP(packet, { address: session.address, port: session.port });
+    app.debug(`[v2-server] FULL_STATUS_REQUEST sent to ${session.key}`);
   }
 
   /**

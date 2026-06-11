@@ -14,7 +14,7 @@
  * remain with the caller for now; fuller lifecycle ownership (event forwarding
  * and a combined recover step) lands with the Phase 4 `connection.ts` rewrite.
  *
- * @module lib/transport/udp-socket-manager
+ * @module transport/udp-socket-manager
  */
 
 import * as dgram from "dgram";

@@ -258,7 +258,7 @@ describe("receivePacket – wrong decryption key", () => {
   test("logs an auth error when the wrong key is used", async () => {
     const { pipeline, app } = makeServer();
 
-    // Build a valid v2 packet with the correct key
+    // Build a valid v3 packet with the correct key
     const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     // We need a minimal brotli-compressed + encrypted payload
     const payload = JSON.stringify([{ context: "vessels.self", updates: [] }]);

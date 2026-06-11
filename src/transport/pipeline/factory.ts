@@ -3,7 +3,7 @@
 /**
  * Pipeline Factory - Creates appropriate pipeline based on protocol version
  *
- * @module lib/pipeline-factory
+ * @module transport/pipeline/factory
  */
 
 import createPipelineV1 = require("./v1");

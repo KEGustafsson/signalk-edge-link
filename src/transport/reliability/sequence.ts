@@ -6,7 +6,7 @@
  * Tracks received sequence numbers to detect packet loss
  * and handle out-of-order delivery.
  *
- * @module lib/sequence
+ * @module transport/reliability/sequence
  */
 
 interface SequenceTrackerConfig {

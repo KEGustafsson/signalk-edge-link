@@ -10,7 +10,7 @@
  * (increasing send rate). When congestion is detected (high RTT or loss),
  * the timer increases (decreasing send rate) more aggressively.
  *
- * @module lib/congestion
+ * @module transport/congestion
  */
 
 import {

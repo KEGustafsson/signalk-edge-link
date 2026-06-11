@@ -10,7 +10,7 @@
  * - Retransmission queue for reliability
  * - ACK/NAK handling for packet delivery confirmation
  *
- * @module lib/pipeline-v2-client
+ * @module transport/pipeline/reliable-client
  */
 
 import CircularBuffer from "../../CircularBuffer";

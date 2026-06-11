@@ -154,11 +154,11 @@ describe("PacketCapture", () => {
       expect(firstDirByte).toBe(0); // send
     });
 
-    test("exports v2 protocol packets correctly", () => {
+    test("exports v3 protocol packets correctly", () => {
       capture.start();
       const builder = new PacketBuilder({ secretKey: SECRET_KEY });
-      const v2Packet = builder.buildHeartbeatPacket();
-      capture.capture(v2Packet, "send");
+      const v3Packet = builder.buildHeartbeatPacket();
+      capture.capture(v3Packet, "send");
 
       const pcap = capture.exportPcap();
       expect(pcap.length).toBeGreaterThan(24 + 16);
