@@ -104,5 +104,43 @@ describe("transport/udp-socket-manager", () => {
       ).rejects.toThrow("nope");
       expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: "ECONNREFUSED" }), 0);
     });
+
+    test("a socket callback after the hard timeout does not retry or fire callbacks", async () => {
+      jest.useFakeTimers();
+      try {
+        let storedCb;
+        // A socket whose send never calls back synchronously — it hangs, so the
+        // hard timeout wins the race.
+        const hangingSocket = {
+          send(_msg, _port, _host, cb) {
+            storedCb = cb;
+          }
+        };
+        const onRetry = jest.fn();
+        const onError = jest.fn();
+
+        const sendPromise = udpSendAsync(hangingSocket, Buffer.from("x"), "127.0.0.1", 1234, {
+          onRetry,
+          onError
+        });
+        const rejection = expect(sendPromise).rejects.toThrow(/timed out/);
+
+        // Fire the hard send timeout (UDP_SEND_TIMEOUT_MS).
+        jest.advanceTimersByTime(5000);
+        await rejection;
+
+        // A late callback arrives after the caller already timed out: it must
+        // not schedule a retry or invoke onRetry/onError.
+        const eagain = new Error("late EAGAIN");
+        eagain.code = "EAGAIN";
+        storedCb(eagain);
+        await Promise.resolve();
+
+        expect(onRetry).not.toHaveBeenCalled();
+        expect(onError).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 });

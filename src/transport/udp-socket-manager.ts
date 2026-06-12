@@ -42,7 +42,11 @@ export function udpSendAsync(
   host: string,
   port: number,
   callbacks: UdpSendCallbacks = {},
-  retryCount = 0
+  retryCount = 0,
+  // Internal: shared cancellation flag. When the hard timeout fires it is set
+  // so any pending back-off stops retrying and callbacks are suppressed.
+  // Recursive retries share one object; top-level callers get a fresh one.
+  cancellation: { aborted: boolean } = { aborted: false }
 ): Promise<void> {
   if (!socket) {
     throw new Error("UDP socket not initialized, cannot send message");
@@ -54,14 +58,32 @@ export function udpSendAsync(
     socket.send(message, port, host, async (error) => {
       if (error) {
         const err = error as NodeJS.ErrnoException;
+        // If the caller already timed out, stop here: no retry, no callbacks.
+        if (cancellation.aborted) {
+          reject(err);
+          return;
+        }
         if (retryCount < UDP_RETRY_MAX && (err.code === "EAGAIN" || err.code === "ENOBUFS")) {
           if (callbacks.onRetry) {
             callbacks.onRetry(retryCount + 1, err);
           }
           // Exponential back-off: 100ms, 200ms, 400ms for attempts 0, 1, 2.
           await new Promise((res) => setTimeout(res, UDP_RETRY_DELAY * Math.pow(2, retryCount)));
+          // Re-check after the back-off — the timeout may have fired meanwhile.
+          if (cancellation.aborted) {
+            reject(err);
+            return;
+          }
           try {
-            await udpSendAsync(socket, message, host, port, callbacks, retryCount + 1);
+            await udpSendAsync(
+              socket,
+              message,
+              host,
+              port,
+              callbacks,
+              retryCount + 1,
+              cancellation
+            );
             resolve();
           } catch (retryError) {
             reject(retryError);
@@ -80,10 +102,10 @@ export function udpSendAsync(
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<void>((_, reject) => {
-    timeoutHandle = setTimeout(
-      () => reject(new Error(`UDP send timed out after ${UDP_SEND_TIMEOUT_MS}ms`)),
-      UDP_SEND_TIMEOUT_MS
-    );
+    timeoutHandle = setTimeout(() => {
+      cancellation.aborted = true;
+      reject(new Error(`UDP send timed out after ${UDP_SEND_TIMEOUT_MS}ms`));
+    }, UDP_SEND_TIMEOUT_MS);
   });
 
   return Promise.race([sendPromise, timeoutPromise]).finally(() => {
