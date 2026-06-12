@@ -1,6 +1,7 @@
 "use strict";
 
 const { UdpSocketManager, udpSendAsync } = require("../../lib/transport/udp-socket-manager");
+const { UDP_SEND_TIMEOUT_MS } = require("../../lib/foundation/constants");
 
 describe("transport/udp-socket-manager", () => {
   describe("UdpSocketManager lifecycle", () => {
@@ -126,7 +127,7 @@ describe("transport/udp-socket-manager", () => {
         const rejection = expect(sendPromise).rejects.toThrow(/timed out/);
 
         // Fire the hard send timeout (UDP_SEND_TIMEOUT_MS).
-        jest.advanceTimersByTime(5000);
+        jest.advanceTimersByTime(UDP_SEND_TIMEOUT_MS);
         await rejection;
 
         // A late callback arrives after the caller already timed out: it must

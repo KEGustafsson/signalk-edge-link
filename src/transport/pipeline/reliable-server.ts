@@ -1,9 +1,9 @@
 "use strict";
 
 /**
- * Signal K Edge Link v2.0 - Server Pipeline
+ * Signal K Edge Link - Reliable Server Pipeline
  *
- * Handles delta reception with v2 protocol:
+ * Handles delta reception over the v3 reliable transport:
  * - Packet parsing and validation
  * - Sequence tracking with loss detection
  * - Decryption and decompression (reuses v1 pipeline logic)
@@ -44,7 +44,7 @@ import {
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
 /**
- * Creates the v2 server pipeline
+ * Creates the v3 reliable server pipeline
  * @param app       - SignalK app object (for logging)
  * @param state     - Shared mutable state
  * @param metricsApi - Metrics API from lib/metrics.js

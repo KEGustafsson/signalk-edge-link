@@ -1,9 +1,9 @@
 "use strict";
 
 /**
- * Signal K Edge Link v2.0 - Client Pipeline
+ * Signal K Edge Link - Reliable Client Pipeline
  *
- * Handles delta transmission with v2 protocol:
+ * Handles delta transmission over the v3 reliable transport:
  * - Packet building with sequence numbers
  * - Encryption and compression (reuses v1 pipeline logic)
  * - UDP transmission

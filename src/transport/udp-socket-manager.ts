@@ -42,16 +42,32 @@ export function udpSendAsync(
   host: string,
   port: number,
   callbacks: UdpSendCallbacks = {},
-  retryCount = 0,
-  // Internal: shared cancellation flag. When the hard timeout fires it is set
-  // so any pending back-off stops retrying and callbacks are suppressed.
-  // Recursive retries share one object; top-level callers get a fresh one.
-  cancellation: { aborted: boolean } = { aborted: false }
+  retryCount = 0
 ): Promise<void> {
   if (!socket) {
     throw new Error("UDP socket not initialized, cannot send message");
   }
+  // The cancellation flag is retry-control state internal to the module, so it
+  // is kept out of the public signature: each top-level send starts a fresh one
+  // and shares it across the retry chain via sendWithRetry.
+  return sendWithRetry(socket, message, host, port, callbacks, retryCount, { aborted: false });
+}
 
+/**
+ * Internal retry/timeout engine for {@link udpSendAsync}. The `cancellation`
+ * flag is shared across the retry chain; the hard timeout sets it so any
+ * pending back-off stops retrying and callbacks are suppressed once the caller
+ * has given up.
+ */
+function sendWithRetry(
+  socket: dgram.Socket,
+  message: Buffer,
+  host: string,
+  port: number,
+  callbacks: UdpSendCallbacks,
+  retryCount: number,
+  cancellation: { aborted: boolean }
+): Promise<void> {
   // Race the real send against a hard timeout so a blocked or saturated OS
   // send buffer doesn't stall the pipeline indefinitely.
   const sendPromise = new Promise<void>((resolve, reject) => {
@@ -75,7 +91,7 @@ export function udpSendAsync(
             return;
           }
           try {
-            await udpSendAsync(
+            await sendWithRetry(
               socket,
               message,
               host,
