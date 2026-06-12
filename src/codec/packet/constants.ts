@@ -8,15 +8,20 @@
 
 // --- Constants ---
 
-/** Magic bytes identifying a v2 packet: "SK" */
+/** Magic bytes identifying a reliable-transport packet: "SK" */
 export const MAGIC = Buffer.from([0x53, 0x4b]);
 
-/** Default reliable transport protocol version */
-export const PROTOCOL_VERSION = 0x02;
+/**
+ * Reliable transport protocol version. Protocol v2 (the unauthenticated
+ * CRC-only control plane) was removed; on the wire the node speaks v3 only —
+ * the reliable binary stack with HMAC-authenticated control packets.
+ */
+export const PROTOCOL_VERSION = 0x03;
 
+/** Alias kept for back-compat with existing imports; identical to PROTOCOL_VERSION. */
 export const PROTOCOL_VERSION_V3 = 0x03;
 
-export const SUPPORTED_PROTOCOL_VERSIONS = new Set([PROTOCOL_VERSION, PROTOCOL_VERSION_V3]);
+export const SUPPORTED_PROTOCOL_VERSIONS = new Set([PROTOCOL_VERSION_V3]);
 
 /** Total header size in bytes */
 export const HEADER_SIZE = 15;
@@ -70,25 +75,9 @@ export function normalizeProtocolVersion(version: number | undefined | null): nu
     return PROTOCOL_VERSION;
   }
   if (!SUPPORTED_PROTOCOL_VERSIONS.has(version)) {
-    throw new Error("Packet protocol version must be 2 or 3");
+    throw new Error("Packet protocol version must be 3");
   }
   return version;
-}
-
-/**
- * Whether control packets (ACK/NAK/HEARTBEAT/HELLO/META_REQUEST/
- * FULL_STATUS_REQUEST) carry an HMAC tag instead of a CRC-only trailer.
- *
- * v3 requires HMAC. v2 control packets carry only a CRC16 trailer (or no
- * trailer at all for HEARTBEAT / META_REQUEST / FULL_STATUS_REQUEST) — a
- * CRC is not a security primitive, so v2 control frames are forgeable by
- * any host that can reach the UDP port. Operators MUST deploy v3 for any
- * configuration where the UDP port is exposed to untrusted networks; the
- * server emits a loud warning at startup whenever a v2 connection is
- * configured. See src/index.ts and docs/protocol-v2-spec.md §5.
- */
-export function usesAuthenticatedControl(version: number | undefined | null): boolean {
-  return normalizeProtocolVersion(version) >= PROTOCOL_VERSION_V3;
 }
 
 // --- CRC16-CCITT ---

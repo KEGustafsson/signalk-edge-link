@@ -183,8 +183,8 @@ async function v1Unpack(packet, key, useMsgpack = false) {
 // ============================================================
 
 function createV2ClientPipeline(opts = {}) {
-  const builder = new PacketBuilder();
-  const parser = new PacketParser();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+  const parser = new PacketParser({ secretKey: SECRET_KEY });
   const retransmitQueue = new RetransmitQueue({ maxRetransmits: opts.maxRetransmits || 3 });
 
   return {
@@ -208,8 +208,8 @@ function createV2ClientPipeline(opts = {}) {
 }
 
 function createV2ServerPipeline(opts = {}) {
-  const parser = new PacketParser();
-  const builder = new PacketBuilder();
+  const parser = new PacketParser({ secretKey: SECRET_KEY });
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
   const naks = [];
   const tracker = new SequenceTracker({
     nakTimeout: opts.nakTimeout || 50,
@@ -636,21 +636,23 @@ describe("E2E Pipeline Tests", () => {
 
     test("heartbeat packet round-trip", () => {
       const client = createV2ClientPipeline();
-      const parser = new PacketParser();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
 
       const heartbeat = client.builder.buildHeartbeatPacket();
       const parsed = parser.parseHeader(heartbeat);
 
       expect(parsed.type).toBe(PacketType.HEARTBEAT);
-      expect(parsed.payloadLength).toBe(0);
+      // v3 control packets carry a trailing HMAC tag; the logical payload
+      // (after the parser strips the tag) is still empty.
+      expect(parsed.payload.length).toBe(0);
     });
 
     test("hello packet round-trip", () => {
-      const builder = new PacketBuilder();
-      const parser = new PacketParser();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
 
       const hello = builder.buildHelloPacket({
-        protocolVersion: 2,
+        protocolVersion: 3,
         clientId: "vessel-230035780"
       });
       const parsed = parser.parseHeader(hello);
@@ -658,7 +660,7 @@ describe("E2E Pipeline Tests", () => {
       expect(parsed.type).toBe(PacketType.HELLO);
       const info = JSON.parse(parsed.payload.toString());
       expect(info.clientId).toBe("vessel-230035780");
-      expect(info.protocolVersion).toBe(2);
+      expect(info.protocolVersion).toBe(3);
     });
   });
 
@@ -1219,7 +1221,7 @@ describe("E2E Pipeline Tests", () => {
       const sim = new NetworkSimulator({ packetLoss: 0 });
 
       const receivedSet = new Set();
-      const parser = new PacketParser();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
 
       const allPackets = [];
       for (let i = 0; i < 20; i++) {
@@ -1283,8 +1285,8 @@ describe("E2E Pipeline Tests", () => {
       const s2c = new NetworkSimulator({ packetLoss: 0 });
       const { clientSocket, serverSocket } = createSimulatedSockets(c2s, s2c);
 
-      const builder = new PacketBuilder();
-      const parser = new PacketParser();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const tracker = new SequenceTracker();
       const receivedDeltas = [];
 
@@ -1304,7 +1306,7 @@ describe("E2E Pipeline Tests", () => {
           receivedDeltas.push(content);
 
           // Send ACK back
-          const ack = new PacketBuilder().buildACKPacket(parsed.sequence);
+          const ack = new PacketBuilder({ secretKey: SECRET_KEY }).buildACKPacket(parsed.sequence);
           serverSocket.send(ack, 5555, "127.0.0.1");
         } catch (err) {
           // ignore parse errors
@@ -1363,7 +1365,7 @@ describe("E2E Pipeline Tests", () => {
 
       const v1Size = encrypted.length;
 
-      const builder = new PacketBuilder();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
       const v2Packet = builder.buildDataPacket(encrypted, { compressed: true, encrypted: true });
       const v2Size = v2Packet.length;
 
@@ -1372,7 +1374,7 @@ describe("E2E Pipeline Tests", () => {
     });
 
     test("isV2Packet correctly distinguishes v1 and v2 packets", async () => {
-      const parser = new PacketParser();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const delta = { 0: makeNavigationDelta() };
 
       // V1 packet (raw encrypted data)
@@ -1498,7 +1500,7 @@ describe("E2E Pipeline Tests", () => {
     test("scenario: high-frequency updates under packet loss with retransmission", async () => {
       const client = createV2ClientPipeline({ maxRetransmits: 5 });
       const sim = new NetworkSimulator({ packetLoss: 0.1 });
-      const parser = new PacketParser();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const receivedSet = new Set();
 
       // 5Hz updates for 10 seconds = 50 packets
@@ -1564,7 +1566,7 @@ describe("E2E Pipeline Tests", () => {
       expect(encrypted.length).toBeLessThan(MAX_SAFE_UDP_PAYLOAD);
 
       // V2 packet size
-      const builder = new PacketBuilder();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
       const v2Packet = builder.buildDataPacket(encrypted, { compressed: true, encrypted: true });
       expect(v2Packet.length).toBeLessThan(MAX_SAFE_UDP_PAYLOAD);
     });
@@ -1748,7 +1750,7 @@ describe("E2E Pipeline Tests", () => {
     });
 
     test("v2 packet building overhead is minimal", () => {
-      const builder = new PacketBuilder();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
       const iterations = 10000;
 
       const payload = Buffer.alloc(100, 0x42);
@@ -1778,7 +1780,7 @@ describe("E2E Pipeline Tests", () => {
 
     test("retransmit queue bounded memory with eviction", () => {
       const queue = new RetransmitQueue({ maxSize: 100, maxRetransmits: 3 });
-      const builder = new PacketBuilder();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 
       for (let i = 0; i < 200; i++) {
         queue.add(i, builder.buildDataPacket(Buffer.from(`data ${i}`)));
@@ -1835,14 +1837,14 @@ describe("E2E Pipeline Tests", () => {
     });
 
     test("v2: truncated packet is rejected", () => {
-      const parser = new PacketParser();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const truncated = Buffer.alloc(10); // Less than HEADER_SIZE
 
       expect(() => parser.parseHeader(truncated)).toThrow(/too small/);
     });
 
     test("v2: non-v2 data is rejected by isV2Packet", () => {
-      const parser = new PacketParser();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const randomData = Buffer.from("this is not a v2 packet at all!");
 
       expect(parser.isV2Packet(randomData)).toBe(false);

@@ -15,6 +15,7 @@
  */
 
 import dgram from "dgram";
+import { UdpSocketManager } from "./transport/udp-socket-manager";
 import { validateSecretKey } from "./crypto";
 import Monitor from "ping-monitor";
 import createMetrics from "./metrics";
@@ -237,6 +238,11 @@ function createInstance(
     lastFullStatusRequestAt: 0,
     sourceRegistry: createSourceRegistry(app)
   };
+
+  // Owns the udp4 socket lifecycle (create/bind/close), consolidating what
+  // were three inline dgram.createSocket sites. The created socket is mirrored
+  // into state.socketUdp so the pipelines keep sending over it directly.
+  const socketManager = new UdpSocketManager();
 
   const metricsApi = createMetrics();
   const { metrics, recordError, resetMetrics } = metricsApi;
@@ -1307,7 +1313,7 @@ function createInstance(
     if (derivedIsServerMode(options)) {
       // ── Server mode ──
       app.debug(`[${instanceId}] Starting server on port ${options.udpPort}`);
-      state.socketUdp = dgram.createSocket({ type: "udp4", reuseAddr: true });
+      state.socketUdp = socketManager.create();
 
       state.socketUdp.on("error", (err: NodeJS.ErrnoException) => {
         app.error(`[${instanceId}] UDP socket error: ${err.message}`);
@@ -1323,7 +1329,7 @@ function createInstance(
           _setStatus(`UDP socket error: ${err.code || err.message}`, false);
         }
         if (state.socketUdp) {
-          state.socketUdp.close();
+          socketManager.close();
           state.socketUdp = null;
         }
       });
@@ -1339,7 +1345,7 @@ function createInstance(
       });
 
       const useReliableProtocolServer = (options.protocolVersion ?? 0) >= 2;
-      const reliableServerLabel = options.protocolVersion === 3 ? "v3" : "v2";
+      const reliableServerLabel = "v3";
       if (useReliableProtocolServer) {
         const v2Server = createPipelineV2Server(appProxy, state, metricsApi);
         state.pipelineServer = v2Server;
@@ -1399,7 +1405,7 @@ function createInstance(
 
         startupSocket.once("listening", onStartupListening);
         startupSocket.once("error", onStartupError);
-        startupSocket.bind(options.udpPort);
+        socketManager.bind(options.udpPort);
       });
     } else {
       // ── Client mode ──
@@ -1486,7 +1492,7 @@ function createInstance(
         }
       }, helloInterval);
 
-      state.socketUdp = dgram.createSocket({ type: "udp4", reuseAddr: true });
+      state.socketUdp = socketManager.create();
       state.readyToSend = true;
       _setStatus("Connected", true);
 
@@ -1511,7 +1517,7 @@ function createInstance(
         _setStatus(`UDP socket error: ${err.code || err.message} — recovering`, false);
         if (state.socketUdp) {
           try {
-            state.socketUdp.close();
+            socketManager.close();
           } catch (_e) {
             /* already closed */
           }
@@ -1529,7 +1535,7 @@ function createInstance(
             }
             app.debug(`[${instanceId}] Attempting UDP socket recovery`);
             try {
-              state.socketUdp = dgram.createSocket({ type: "udp4", reuseAddr: true });
+              state.socketUdp = socketManager.create();
               // Reuse the same handler so errors on the recovered socket also
               // trigger recovery rather than only logging and staying broken.
               state.socketUdp.on("error", handleClientSocketError);
@@ -1648,7 +1654,7 @@ function createInstance(
 
       // Reliable client pipeline (v2/v3)
       const useReliableProtocol = (options.protocolVersion ?? 0) >= 2;
-      const reliableProtocolLabel = options.protocolVersion === 3 ? "v3" : "v2";
+      const reliableProtocolLabel = "v3";
       if (useReliableProtocol) {
         state.monitoring = {
           packetLossTracker: new PacketLossTracker(),
@@ -1950,7 +1956,7 @@ function createInstance(
 
     // Close UDP socket(s)
     if (state.socketUdp) {
-      state.socketUdp.close();
+      socketManager.close();
       state.socketUdp = null;
       app.debug(`[${instanceId}] Stopped`);
     }

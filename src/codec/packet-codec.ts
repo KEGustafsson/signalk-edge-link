@@ -20,7 +20,6 @@ export {
   SUPPORTED_PROTOCOL_VERSIONS,
   MAGIC,
   MAX_SEQUENCE,
-  usesAuthenticatedControl,
   crc16,
   getTypeName
 } from "./packet/constants";

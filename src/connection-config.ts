@@ -517,6 +517,13 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
     }
   }
 
+  // Config back-compat (doc 08 Q3): protocol v2 was removed from the wire. A
+  // stored protocolVersion of 2 is accepted and coerced to v3 so existing
+  // config files keep loading and speak the HMAC-authenticated v3 protocol.
+  if (out.protocolVersion === 2) {
+    out.protocolVersion = 3;
+  }
+
   if (typeof out.connectionId === "string") {
     out.connectionId = out.connectionId.trim();
   }

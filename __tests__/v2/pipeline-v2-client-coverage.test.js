@@ -30,7 +30,7 @@ function makeState(overrides = {}) {
       secretKey: SECRET_KEY,
       udpAddress: "127.0.0.1",
       udpPort: 12345,
-      protocolVersion: 2,
+      protocolVersion: 3,
       useMsgpack: false,
       usePathDictionary: false,
       reliability: {},
@@ -168,7 +168,7 @@ describe("receiveACK – Karn's algorithm", () => {
   test("does NOT sample RTT for retransmitted packets, DOES for fresh ones", async () => {
     jest.useFakeTimers();
     const { pipeline, metricsApi } = makeClient();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     // Send a delta to populate the retransmit queue at seq=0
     await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
@@ -218,7 +218,7 @@ describe("receiveACK – Karn's algorithm", () => {
 describe("receiveACK – out-of-order ACK", () => {
   test("does not regress lastAckedSeq on older ACK", async () => {
     const { pipeline, metricsApi } = makeClient();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
 
     // Send two deltas (seq 0 and 1)
@@ -245,7 +245,7 @@ describe("receiveACK – out-of-order ACK", () => {
 
   test("stale out-of-order ACK does not drain newer queue entries", async () => {
     const { pipeline } = makeClient();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
 
     await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
@@ -291,7 +291,7 @@ describe("receiveACK – parse error", () => {
 describe("receiveNAK – retransmission", () => {
   test("retransmits packets for requested sequences", async () => {
     const { pipeline, state, metricsApi } = makeClient();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
 
     // Send 3 deltas: seq 0, 1, 2
@@ -353,14 +353,14 @@ describe("recovery burst guards", () => {
         secretKey: SECRET_KEY,
         udpAddress: "127.0.0.1",
         udpPort: 12345,
-        protocolVersion: 2,
+        protocolVersion: 3,
         useMsgpack: false,
         usePathDictionary: false,
         reliability: { recoveryBurstEnabled: false },
         congestionControl: {}
       }
     });
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
 
     await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
@@ -380,7 +380,7 @@ describe("recovery burst guards", () => {
   test("does NOT fire when queue is empty", async () => {
     jest.useFakeTimers();
     const { pipeline, state } = makeClient();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
 
     await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
@@ -400,7 +400,7 @@ describe("recovery burst guards", () => {
   test("does NOT fire when ACK gap is below threshold", async () => {
     jest.useFakeTimers();
     const { pipeline, state } = makeClient();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
 
     await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
@@ -424,7 +424,7 @@ describe("recovery burst guards", () => {
         secretKey: SECRET_KEY,
         udpAddress: "127.0.0.1",
         udpPort: 12345,
-        protocolVersion: 2,
+        protocolVersion: 3,
         useMsgpack: false,
         usePathDictionary: false,
         reliability: {
@@ -434,7 +434,7 @@ describe("recovery burst guards", () => {
         congestionControl: {}
       }
     });
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
 
     await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
@@ -513,7 +513,7 @@ describe("force drain after ACK idle", () => {
         secretKey: SECRET_KEY,
         udpAddress: "127.0.0.1",
         udpPort: 12345,
-        protocolVersion: 2,
+        protocolVersion: 3,
         useMsgpack: false,
         usePathDictionary: false,
         reliability: {
@@ -555,7 +555,7 @@ describe("packet loss calculation", () => {
 
   test("returns 0 when all sends are clean", async () => {
     const { pipeline, metricsApi } = makeClient();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
 
     // Send 5 deltas - each records a clean send in the loss window
@@ -579,7 +579,7 @@ describe("packet loss calculation", () => {
 
   test("returns >0 when there are retransmissions (losses)", async () => {
     const { pipeline, metricsApi } = makeClient();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
 
     // Send 3 deltas
@@ -645,7 +645,7 @@ describe("handleControlPacket – non-v2 packet", () => {
 describe("handleControlPacket – ignored types", () => {
   test("ignores a HEARTBEAT packet (only ACK/NAK handled on client)", async () => {
     const { pipeline, app } = makeClient();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     const heartbeat = builder.buildHeartbeatPacket();
     await expect(pipeline.handleControlPacket(heartbeat, rinfo)).resolves.toBeUndefined();
@@ -656,7 +656,7 @@ describe("handleControlPacket – ignored types", () => {
 
   test("ignores a HELLO packet on client side", async () => {
     const { pipeline, app } = makeClient();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     const hello = builder.buildHelloPacket({ clientId: "test" });
     await expect(pipeline.handleControlPacket(hello, rinfo)).resolves.toBeUndefined();

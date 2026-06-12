@@ -1,12 +1,14 @@
 "use strict";
 
+const SECRET_KEY = "12345678901234567890123456789012";
+
 const { PacketBuilder, PacketParser, PacketType, getTypeName } = require("../../lib/packet");
 
 describe("PacketBuilder.buildMetadataPacket", () => {
   let builder;
 
   beforeEach(() => {
-    builder = new PacketBuilder();
+    builder = new PacketBuilder({ secretKey: SECRET_KEY });
   });
 
   test("emits packet type 0x06 METADATA", () => {
@@ -40,7 +42,7 @@ describe("PacketBuilder.buildMetadataPacket", () => {
       messagepack: true,
       pathDictionary: true
     });
-    const parser = new PacketParser();
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const parsed = parser.parseHeader(packet);
     expect(parsed.type).toBe(PacketType.METADATA);
     expect(parsed.typeName).toBe("METADATA");
@@ -58,16 +60,16 @@ describe("PacketBuilder.buildMetadataPacket", () => {
 
 describe("PacketBuilder.buildMetaRequestPacket", () => {
   test("emits packet type 0x07 META_REQUEST with empty payload (v2)", () => {
-    const builder = new PacketBuilder();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
     const packet = builder.buildMetaRequestPacket();
     expect(packet[3]).toBe(PacketType.META_REQUEST);
     expect(PacketType.META_REQUEST).toBe(0x07);
   });
 
   test("parses back cleanly on v2", () => {
-    const builder = new PacketBuilder();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
     const packet = builder.buildMetaRequestPacket();
-    const parser = new PacketParser();
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const parsed = parser.parseHeader(packet);
     expect(parsed.type).toBe(PacketType.META_REQUEST);
     expect(parsed.payload.length).toBe(0);

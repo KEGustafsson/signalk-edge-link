@@ -13,12 +13,13 @@ const {
   getTypeName
 } = require("../../lib/packet");
 const { CONTROL_AUTH_TAG_LENGTH } = require("../../lib/crypto");
+const SECRET_KEY = "12345678901234567890123456789012";
 
 describe("PacketBuilder", () => {
   let builder;
 
   beforeEach(() => {
-    builder = new PacketBuilder();
+    builder = new PacketBuilder({ secretKey: SECRET_KEY });
   });
 
   describe("construction", () => {
@@ -45,7 +46,7 @@ describe("PacketBuilder", () => {
       expect(packet[1]).toBe(0x4b); // 'K'
     });
 
-    test("sets protocol version to 0x02", () => {
+    test("sets protocol version to 0x03", () => {
       const packet = builder.buildDataPacket(Buffer.from("test"));
       expect(packet[2]).toBe(PROTOCOL_VERSION);
     });
@@ -144,7 +145,7 @@ describe("PacketBuilder", () => {
 
     test("encodes acked sequence in payload", () => {
       const packet = builder.buildACKPacket(42);
-      const parser = new PacketParser();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const parsed = parser.parseHeader(packet);
       expect(parser.parseACKPayload(parsed.payload)).toBe(42);
     });
@@ -163,19 +164,20 @@ describe("PacketBuilder", () => {
 
     test("encodes missing sequences in payload", () => {
       const packet = builder.buildNAKPacket([5, 10, 15]);
-      const parser = new PacketParser();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const parsed = parser.parseHeader(packet);
       expect(parser.parseNAKPayload(parsed.payload)).toEqual([5, 10, 15]);
     });
 
     test("handles empty missing list", () => {
       const packet = builder.buildNAKPacket([]);
-      expect(packet.length).toBe(HEADER_SIZE);
+      // v3 control packets always carry a trailing HMAC auth tag.
+      expect(packet.length).toBe(HEADER_SIZE + CONTROL_AUTH_TAG_LENGTH);
     });
 
     test("handles single missing sequence", () => {
       const packet = builder.buildNAKPacket([99]);
-      const parser = new PacketParser();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const parsed = parser.parseHeader(packet);
       expect(parser.parseNAKPayload(parsed.payload)).toEqual([99]);
     });
@@ -187,10 +189,14 @@ describe("PacketBuilder", () => {
       expect(packet[3]).toBe(PacketType.HEARTBEAT);
     });
 
-    test("heartbeat has no payload", () => {
+    test("heartbeat carries only the auth tag (empty logical payload)", () => {
       const packet = builder.buildHeartbeatPacket();
-      expect(packet.length).toBe(HEADER_SIZE);
-      expect(packet.readUInt32BE(9)).toBe(0);
+      // v3 control packets always carry a trailing HMAC auth tag; the logical
+      // payload (after the parser strips the tag) is still empty.
+      expect(packet.length).toBe(HEADER_SIZE + CONTROL_AUTH_TAG_LENGTH);
+      expect(packet.readUInt32BE(9)).toBe(CONTROL_AUTH_TAG_LENGTH);
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
+      expect(parser.parseHeader(packet).payload.length).toBe(0);
     });
   });
 
@@ -202,7 +208,7 @@ describe("PacketBuilder", () => {
 
     test("encodes hello info as JSON payload", () => {
       const packet = builder.buildHelloPacket({ clientId: "test-client" });
-      const parser = new PacketParser();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const parsed = parser.parseHeader(packet);
       const info = JSON.parse(parsed.payload.toString());
       expect(info.clientId).toBe("test-client");
@@ -271,8 +277,8 @@ describe("PacketParser", () => {
   let builder;
 
   beforeEach(() => {
-    parser = new PacketParser();
-    builder = new PacketBuilder();
+    parser = new PacketParser({ secretKey: SECRET_KEY });
+    builder = new PacketBuilder({ secretKey: SECRET_KEY });
   });
 
   describe("parseHeader", () => {
@@ -316,6 +322,14 @@ describe("PacketParser", () => {
       expect(() => parser.parseHeader(packet)).toThrow("Unsupported protocol version");
     });
 
+    test("rejects a legacy protocol v2 (0x02) version byte", () => {
+      // v2 was removed from the wire; an incoming 0x02 packet must be rejected.
+      // The version check runs before CRC validation, so no CRC fix-up needed.
+      const packet = builder.buildDataPacket(Buffer.from("legacy"));
+      packet[2] = 0x02;
+      expect(() => parser.parseHeader(packet)).toThrow("Unsupported protocol version: 2");
+    });
+
     test("throws on unknown packet type", () => {
       const packet = builder.buildDataPacket(Buffer.from("test"));
       packet[3] = 0xff;
@@ -349,7 +363,7 @@ describe("PacketParser", () => {
       ];
 
       for (const flags of flagCombinations) {
-        const b = new PacketBuilder();
+        const b = new PacketBuilder({ secretKey: SECRET_KEY });
         const packet = b.buildDataPacket(Buffer.from("test"), flags);
         const parsed = parser.parseHeader(packet);
         expect(parsed.flags.compressed).toBe(!!flags.compressed);
@@ -473,8 +487,8 @@ describe("getTypeName", () => {
 
 describe("ACK/NAK Parsing Integration", () => {
   test("parses ACK with cumulative sequence", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const ackPacket = builder.buildACKPacket(100);
     const parsed = parser.parseHeader(ackPacket);
@@ -486,8 +500,8 @@ describe("ACK/NAK Parsing Integration", () => {
   });
 
   test("parses ACK for sequence 0", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const ackPacket = builder.buildACKPacket(0);
     const parsed = parser.parseHeader(ackPacket);
@@ -497,8 +511,8 @@ describe("ACK/NAK Parsing Integration", () => {
   });
 
   test("parses ACK for large sequence number", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const ackPacket = builder.buildACKPacket(MAX_SEQUENCE);
     const parsed = parser.parseHeader(ackPacket);
@@ -508,8 +522,8 @@ describe("ACK/NAK Parsing Integration", () => {
   });
 
   test("parses NAK with multiple missing sequences", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const missing = [50, 52, 54];
     const nakPacket = builder.buildNAKPacket(missing);
@@ -522,8 +536,8 @@ describe("ACK/NAK Parsing Integration", () => {
   });
 
   test("parses NAK with single missing sequence", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const nakPacket = builder.buildNAKPacket([42]);
     const parsed = parser.parseHeader(nakPacket);
@@ -533,8 +547,8 @@ describe("ACK/NAK Parsing Integration", () => {
   });
 
   test("parses NAK with many missing sequences", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const missing = Array.from({ length: 50 }, (_, i) => i * 2);
     const nakPacket = builder.buildNAKPacket(missing);
@@ -546,7 +560,7 @@ describe("ACK/NAK Parsing Integration", () => {
   });
 
   test("ACK does not advance builder sequence", () => {
-    const builder = new PacketBuilder();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 
     builder.buildDataPacket(Buffer.from("data")); // seq 0 -> 1
     builder.buildACKPacket(100);
@@ -555,7 +569,7 @@ describe("ACK/NAK Parsing Integration", () => {
   });
 
   test("NAK does not advance builder sequence", () => {
-    const builder = new PacketBuilder();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 
     builder.buildDataPacket(Buffer.from("data")); // seq 0 -> 1
     builder.buildNAKPacket([5, 10]);
@@ -564,8 +578,8 @@ describe("ACK/NAK Parsing Integration", () => {
   });
 
   test("ACK and NAK packets have valid CRC", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     // These should not throw (CRC validation happens in parseHeader)
     expect(() => {
@@ -578,8 +592,8 @@ describe("ACK/NAK Parsing Integration", () => {
   });
 
   test("corrupted ACK packet throws CRC error", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const ackPacket = builder.buildACKPacket(100);
     // Corrupt a header byte
@@ -591,8 +605,8 @@ describe("ACK/NAK Parsing Integration", () => {
 
 describe("Integration scenarios", () => {
   test("round-trip: build and parse DATA packet", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const payload = Buffer.from(JSON.stringify({ test: "data", value: 42 }));
 
     const packet = builder.buildDataPacket(payload, {
@@ -608,8 +622,8 @@ describe("Integration scenarios", () => {
   });
 
   test("round-trip: build and parse ACK packet", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const packet = builder.buildACKPacket(99);
     const parsed = parser.parseHeader(packet);
@@ -618,8 +632,8 @@ describe("Integration scenarios", () => {
   });
 
   test("round-trip: build and parse NAK packet", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const packet = builder.buildNAKPacket([3, 7, 11]);
     const parsed = parser.parseHeader(packet);
@@ -628,8 +642,8 @@ describe("Integration scenarios", () => {
   });
 
   test("multiple packets maintain sequence ordering", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const packets = [];
     for (let i = 0; i < 10; i++) {
@@ -643,8 +657,8 @@ describe("Integration scenarios", () => {
   });
 
   test("detects v1 vs v2 packets", () => {
-    const parser = new PacketParser();
-    const builder = new PacketBuilder();
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 
     // v2 packet
     const v2Packet = builder.buildDataPacket(Buffer.from("v2 data"));
@@ -657,7 +671,7 @@ describe("Integration scenarios", () => {
 
   test("handles sequence wraparound correctly", () => {
     const builder = new PacketBuilder({ initialSequence: MAX_SEQUENCE - 1 });
-    const parser = new PacketParser();
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const p1 = builder.buildDataPacket(Buffer.from("before wrap"));
     const p2 = builder.buildDataPacket(Buffer.from("at max"));
@@ -669,8 +683,8 @@ describe("Integration scenarios", () => {
   });
 
   test("binary payload integrity", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     // Create binary payload with all byte values
     const payload = Buffer.alloc(256);

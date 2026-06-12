@@ -10,8 +10,6 @@ import {
   MAX_SEQUENCE,
   SUPPORTED_PROTOCOL_VERSIONS,
   VALID_PACKET_TYPES,
-  normalizeProtocolVersion,
-  usesAuthenticatedControl,
   crc16,
   getTypeName
 } from "./constants";
@@ -21,7 +19,7 @@ import { verifyControlPacketAuthTag, CONTROL_AUTH_TAG_LENGTH } from "../crypto";
 // --- PacketParser ---
 
 /**
- * Parses v2 protocol packets
+ * Parses reliable-transport (v3) protocol packets
  */
 export class PacketParser {
   _secretKey: string | null;
@@ -105,47 +103,24 @@ export class PacketParser {
     // Extract payload
     let payload = packet.subarray(HEADER_SIZE);
 
+    // Control packets (ACK/NAK/HEARTBEAT/HELLO/META_REQUEST/FULL_STATUS_REQUEST)
+    // are HMAC-authenticated: verify the trailing auth tag and strip it so the
+    // caller sees only the logical payload. DATA/METADATA are AEAD ciphertext.
     if (type !== PacketType.DATA && type !== PacketType.METADATA) {
-      if (usesAuthenticatedControl(version)) {
-        if (payload.length < CONTROL_AUTH_TAG_LENGTH) {
-          throw new Error("Control packet authentication tag missing");
-        }
-        const payloadData = payload.subarray(0, payload.length - CONTROL_AUTH_TAG_LENGTH);
-        const authTag = payload.subarray(payload.length - CONTROL_AUTH_TAG_LENGTH);
-        const secretKey = options.secretKey || this._secretKey;
-        if (!secretKey) {
-          throw new Error("Control packet authentication requires secretKey");
-        }
-        const stretchAsciiKey = options.stretchAsciiKey ?? this._stretchAsciiKey;
-        verifyControlPacketAuthTag(packet.subarray(0, 13), payloadData, authTag, secretKey, {
-          stretchAsciiKey
-        });
-        payload = payloadData;
-      } else {
-        // HEARTBEAT, META_REQUEST, and FULL_STATUS_REQUEST carry a 0-byte
-        // payload with no CRC — accept as-is. ACK / NAK / HELLO must include
-        // a 2-byte CRC16 trailer; reject undersized payloads so forged control
-        // frames cannot slip through unverified.
-        if (
-          type !== PacketType.HEARTBEAT &&
-          type !== PacketType.META_REQUEST &&
-          type !== PacketType.FULL_STATUS_REQUEST
-        ) {
-          if (payload.length < 2) {
-            throw new Error(`Control packet payload too short for CRC: ${payload.length} byte(s)`);
-          }
-          const payloadData = payload.subarray(0, payload.length - 2);
-          const expectedPayloadCrc = crc16(payloadData);
-          const actualPayloadCrc = payload.readUInt16BE(payload.length - 2);
-          if (expectedPayloadCrc !== actualPayloadCrc) {
-            throw new Error(
-              `Payload CRC mismatch: expected 0x${expectedPayloadCrc.toString(16)}, ` +
-                `got 0x${actualPayloadCrc.toString(16)}`
-            );
-          }
-          payload = payloadData;
-        }
+      if (payload.length < CONTROL_AUTH_TAG_LENGTH) {
+        throw new Error("Control packet authentication tag missing");
       }
+      const payloadData = payload.subarray(0, payload.length - CONTROL_AUTH_TAG_LENGTH);
+      const authTag = payload.subarray(payload.length - CONTROL_AUTH_TAG_LENGTH);
+      const secretKey = options.secretKey || this._secretKey;
+      if (!secretKey) {
+        throw new Error("Control packet authentication requires secretKey");
+      }
+      const stretchAsciiKey = options.stretchAsciiKey ?? this._stretchAsciiKey;
+      verifyControlPacketAuthTag(packet.subarray(0, 13), payloadData, authTag, secretKey, {
+        stretchAsciiKey
+      });
+      payload = payloadData;
     }
 
     return {
@@ -160,7 +135,7 @@ export class PacketParser {
   }
 
   /**
-   * Check if a buffer looks like a supported reliable packet (v2 or v3)
+   * Check if a buffer looks like a supported reliable packet (v3)
    * @param {Buffer} data - Data to check
    * @returns {boolean} True if data starts with a supported packet header
    */

@@ -70,8 +70,8 @@ describe("V2 Pipeline End-to-End", () => {
 
   describe("V2 Packet Round-Trip (manual pipeline)", () => {
     test("transmits delta through v2 protocol: build → parse → verify", async () => {
-      const builder = new PacketBuilder();
-      const parser = new PacketParser();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const tracker = new SequenceTracker();
 
       const testDelta = {
@@ -123,8 +123,8 @@ describe("V2 Pipeline End-to-End", () => {
     });
 
     test("handles multiple sequential packets correctly", async () => {
-      const builder = new PacketBuilder();
-      const parser = new PacketParser();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const tracker = new SequenceTracker();
 
       const receivedValues = [];
@@ -165,8 +165,8 @@ describe("V2 Pipeline End-to-End", () => {
     });
 
     test("detects packet loss in v2 stream", async () => {
-      const builder = new PacketBuilder();
-      const parser = new PacketParser();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const tracker = new SequenceTracker();
 
       // Build 5 packets
@@ -196,8 +196,8 @@ describe("V2 Pipeline End-to-End", () => {
     });
 
     test("detects duplicate packets in v2 stream", async () => {
-      const builder = new PacketBuilder();
-      const parser = new PacketParser();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const tracker = new SequenceTracker();
 
       const serialized = Buffer.from(JSON.stringify({ value: "test" }), "utf8");
@@ -219,7 +219,7 @@ describe("V2 Pipeline End-to-End", () => {
 
   describe("V2 Packet Overhead", () => {
     test("v2 header adds exactly HEADER_SIZE bytes", async () => {
-      const builder = new PacketBuilder();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 
       const serialized = Buffer.from(JSON.stringify({ test: "data" }), "utf8");
       const compressed = await brotliCompressAsync(serialized);
@@ -236,20 +236,22 @@ describe("V2 Pipeline End-to-End", () => {
 
   describe("V2 Packet Type Handling", () => {
     test("heartbeat packets are recognized", () => {
-      const builder = new PacketBuilder();
-      const parser = new PacketParser();
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
 
       const heartbeat = builder.buildHeartbeatPacket();
       const parsed = parser.parseHeader(heartbeat);
 
       expect(parsed.type).toBe(PacketType.HEARTBEAT);
-      expect(parsed.payloadLength).toBe(0);
+      // v3 control packets carry a trailing HMAC tag; the logical payload
+      // (after the parser strips the tag) is still empty.
+      expect(parsed.payload.length).toBe(0);
     });
 
     test("ACK/NAK round-trip for loss recovery", () => {
-      const clientBuilder = new PacketBuilder();
-      const serverBuilder = new PacketBuilder();
-      const parser = new PacketParser();
+      const clientBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
+      const serverBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const tracker = new SequenceTracker();
 
       // Client sends seq 0, 1, 3 (missing 2)
@@ -287,8 +289,8 @@ describe("V2 Pipeline End-to-End", () => {
     });
 
     test("isV2Packet distinguishes v2 from v1 packets", () => {
-      const parser = new PacketParser();
-      const builder = new PacketBuilder();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
+      const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 
       // v2 packet
       const v2 = builder.buildDataPacket(Buffer.from("v2"));
