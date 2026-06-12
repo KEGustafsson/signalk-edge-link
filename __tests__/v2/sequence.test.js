@@ -346,13 +346,13 @@ describe("SequenceTracker", () => {
       tracker.processSequence(0);
       tracker.processSequence(3);
       const missing = tracker.getMissingSequences();
-      // expectedSeq is still 1 (since 1 was not received)
-      // getMissingSequences checks from max(0, expectedSeq - maxOutOfOrder) to expectedSeq
-      // expectedSeq is 1, so it checks seq 0 (received) → nothing missing
-      // Actually, let me reconsider: after processing 0 and 3, expectedSeq = 1
-      // getMissingSequences looks from 0 to 1 → seq 0 is received → []
-      // The "missing" sequences (1, 2) are above expectedSeq so not in getMissingSequences range
-      expect(missing).toEqual([]);
+      // After processSequence(0): expectedSeq=1, receivedSeqs={0}
+      // After processSequence(3): gap detected for 1,2; expectedSeq stays 1, receivedSeqs={0,3}
+      // Forward window: furthestAhead = distanceForward(1, 3) = 2
+      // Checks seqs 1 (missing) and 2 (missing) → [1, 2]
+      expect(missing).toContain(1);
+      expect(missing).toContain(2);
+      expect(missing).toHaveLength(2);
     });
 
     test("returns missing after partial fill", () => {
@@ -579,18 +579,29 @@ describe("SequenceTracker", () => {
   });
 
   describe("getMissingSequences edge cases", () => {
-    test("finds missing sequences in tracking window", () => {
-      // Directly set up state to simulate lost packets
-      tracker.expectedSeq = 10;
-      for (let i = 0; i < 10; i++) {
-        if (i !== 3 && i !== 7) {
+    test("finds forward-gap sequences in tracking window", () => {
+      // Simulate a gap where seqs 3 and 7 are missing but later seqs were buffered.
+      // expectedSeq=3 means we received 0,1,2 in-order and are waiting for 3.
+      // Buffered ahead: 4,5,6,8,9 received but 3 and 7 are missing.
+      tracker.expectedSeq = 3;
+      for (let i = 4; i <= 9; i++) {
+        if (i !== 7) {
           tracker.receivedSeqs.add(i);
         }
       }
       const missing = tracker.getMissingSequences();
+      // Forward window: furthestAhead = distanceForward(3, 9) = 6
+      // Checks seqs 3,4,5,6,7,8 → 3 (missing) and 7 (missing)
       expect(missing).toContain(3);
       expect(missing).toContain(7);
       expect(missing).toHaveLength(2);
+    });
+
+    test("returns empty when no sequences are buffered ahead", () => {
+      tracker.processSequence(0);
+      tracker.processSequence(1);
+      // expectedSeq=2, no buffered-ahead sequences → no forward gaps
+      expect(tracker.getMissingSequences()).toEqual([]);
     });
   });
 });

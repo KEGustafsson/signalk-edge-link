@@ -175,21 +175,31 @@ export class SequenceTracker {
   }
 
   /**
-   * Get list of known missing sequences in the tracking window
+   * Get list of sequences that are missing in the forward tracking window:
+   * sequences between `expectedSeq` and the furthest buffered-ahead sequence
+   * that have not yet been received.
+   *
    * @returns Array of missing sequence numbers
    */
   getMissingSequences(): number[] {
     if (this.expectedSeq === null) {
       return [];
     }
+    // Find how far ahead the furthest buffered sequence is.
+    let furthestAhead = 0;
+    for (const seq of this.receivedSeqs) {
+      const distance = this._distanceForward(this.expectedSeq, seq);
+      if (distance > 0 && distance < 0x80000000) {
+        furthestAhead = Math.max(furthestAhead, distance);
+      }
+    }
+    if (furthestAhead === 0) {
+      return [];
+    }
     const missing: number[] = [];
-    const trackingSpan =
-      this._firstSeq !== null
-        ? this._distanceForward(this._firstSeq, this.expectedSeq)
-        : this.expectedSeq;
-    const windowSize = Math.min(this.maxOutOfOrder, trackingSpan);
-    for (let i = 1; i <= windowSize; i++) {
-      const seq = (this.expectedSeq - i) >>> 0;
+    const windowSize = Math.min(this.maxOutOfOrder, furthestAhead);
+    for (let i = 0; i < windowSize; i++) {
+      const seq = (this.expectedSeq + i) >>> 0;
       if (!this.receivedSeqs.has(seq)) {
         missing.push(seq);
       }
