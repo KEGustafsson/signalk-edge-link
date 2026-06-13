@@ -6,6 +6,7 @@ import { isLikelyUnsafePathFilter } from "../codec/metadata-codec";
  *  allow-all. */
 const META_FILTER_MAX_LENGTH = 256;
 
+/** Validate a runtime config body submitted via the REST API; returns an error string or null. */
 function validateRuntimeConfigBody(filename: string, body: Record<string, unknown>): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return "Request body must be a JSON object";

@@ -29,6 +29,7 @@ const SUBSCRIPTION_RETRY_MAX_ATTEMPTS = 10;
 // After the fast-retry window, keep trying at this interval indefinitely.
 const SUBSCRIPTION_RETRY_SLOW_DELAY = 5 * 60 * 1000; // 5 minutes
 
+/** Injected dependencies for `createSubscriptionManager`. */
 export interface SubscriptionManagerDeps {
   state: InstanceState;
   app: SignalKApp;
@@ -46,6 +47,7 @@ export interface SubscriptionManagerDeps {
   replayValuesSnapshot: (reason: string) => void;
 }
 
+/** Public API returned by `createSubscriptionManager`. */
 export interface SubscriptionManager {
   /** Debounced subscription-config handler (callable; `.flush()` runs now). */
   handleSubscriptionChange: DebouncedConfigHandler;
@@ -53,6 +55,7 @@ export interface SubscriptionManager {
   invalidateGeneration(): void;
 }
 
+/** Create the Signal K subscription lifecycle manager (subscribe, retry, delta delivery). */
 export function createSubscriptionManager(deps: SubscriptionManagerDeps): SubscriptionManager {
   const {
     state,

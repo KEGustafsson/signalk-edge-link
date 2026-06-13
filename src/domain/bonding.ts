@@ -938,8 +938,10 @@ export class BondingManager {
   }
 }
 
+/** Create and return a `BondingManager` for the given bonding configuration. */
 export function createBondingManager(config: BondingConfig, app: SignalKApp): BondingManager {
   return new BondingManager(config, app);
 }
 
+/** Frozen enum objects for link-status and bonding-mode string values. */
 export { LinkStatus, BondingMode };

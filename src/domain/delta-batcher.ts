@@ -37,6 +37,7 @@ interface V1PipelineLike {
   ): Promise<void>;
 }
 
+/** Injected dependencies for `createDeltaBatcher`. */
 export interface DeltaBatcherDeps {
   /** Shared per-instance state (mutated in place). */
   state: InstanceState;
@@ -50,6 +51,7 @@ export interface DeltaBatcherDeps {
   getV1Pipeline: () => V1PipelineLike;
 }
 
+/** Public API returned by `createDeltaBatcher`. */
 export interface DeltaBatcher {
   /** (Re)arm the periodic timer that flips `state.timer` to force a flush. */
   scheduleDeltaTimer(): void;
@@ -57,6 +59,7 @@ export interface DeltaBatcher {
   flushDeltaBatch(batchSize?: number, retryCount?: number): Promise<void>;
 }
 
+/** Create the outbound delta send loop: periodic flush timer and batch-flush state machine. */
 export function createDeltaBatcher(deps: DeltaBatcherDeps): DeltaBatcher {
   const { state, metrics, app, options, instanceId, recordError, getV1Pipeline } = deps;
 

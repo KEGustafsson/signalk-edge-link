@@ -63,6 +63,7 @@ export interface DebouncedConfigHandler {
   flush(): Promise<void>;
 }
 
+/** Create a debounced handler that reloads and applies a config file on change. */
 export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): DebouncedConfigHandler {
   const { name, getFilePath, processConfig, state, instanceId, app, readFallback } = opts;
 

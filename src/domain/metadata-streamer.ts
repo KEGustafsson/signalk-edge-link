@@ -33,6 +33,7 @@ const META_DIFF_DEBOUNCE_MS = 500;
  *  or malicious receiver from forcing snapshots on every delta. */
 const META_REQUEST_RATE_LIMIT_MS = 5000;
 
+/** Injected dependencies for `createMetadataStreamer`. */
 export interface MetadataStreamerDeps {
   state: InstanceState;
   options: ConnectionConfig;
@@ -45,6 +46,7 @@ export interface MetadataStreamerDeps {
   metaCache: MetaCache;
 }
 
+/** Public API returned by `createMetadataStreamer`. */
 export interface MetadataStreamer {
   sendMetadataSnapshot(): Promise<void>;
   enqueueMetaDiff(entries: MetaEntry[]): void;
@@ -53,6 +55,7 @@ export interface MetadataStreamer {
   handleMetaRequest(): void;
 }
 
+/** Create the outbound metadata streaming service (full snapshots and live diffs). */
 export function createMetadataStreamer(deps: MetadataStreamerDeps): MetadataStreamer {
   const { state, options, app, appProxy, instanceId, recordError, metaCache } = deps;
 

@@ -37,6 +37,7 @@ import { collectValuesSnapshot } from "../codec/values-snapshot";
  *  restarting or misconfigured server from flooding the link. */
 const FULL_STATUS_REQUEST_RATE_LIMIT_MS = 10000;
 
+/** Injected dependencies for `createSourceSnapshotService`. */
 export interface SourceSnapshotServiceDeps {
   state: InstanceState;
   options: ConnectionConfig;
@@ -49,6 +50,7 @@ export interface SourceSnapshotServiceDeps {
   getFullStatusCascadeHandler: () => (() => void) | null;
 }
 
+/** Public API returned by `createSourceSnapshotService`. */
 export interface SourceSnapshotService {
   handleFullStatusRequest(): void;
   sendSourceSnapshot(): Promise<void>;
@@ -56,6 +58,7 @@ export interface SourceSnapshotService {
   restartSourceSnapshotTimer(): void;
 }
 
+/** Create the source/values snapshot service (full replay, source snapshot, FULL_STATUS_REQUEST). */
 export function createSourceSnapshotService(
   deps: SourceSnapshotServiceDeps
 ): SourceSnapshotService {

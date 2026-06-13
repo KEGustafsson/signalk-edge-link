@@ -9,6 +9,7 @@ import type {
   AlertThresholds
 } from "./foundation/types";
 
+/** All recognised top-level keys for a ConnectionConfig object; unknown keys are stripped on sanitize. */
 export const VALID_CONNECTION_KEYS: string[] = [
   "connectionId",
   "name",
@@ -67,6 +68,7 @@ function numberRangeError(
   return null;
 }
 
+/** Coerce legacy boolean `serverType` values to `"server"` / `"client"` strings. */
 export function normalizeServerType(serverType: unknown): string | undefined {
   if (serverType === true) {
     return "server";
@@ -77,6 +79,7 @@ export function normalizeServerType(serverType: unknown): string | undefined {
   return serverType as string | undefined;
 }
 
+/** Validate a raw connection config object; returns an error string on failure, or null on success. */
 export function validateConnectionConfig(connection: unknown, prefix = ""): string | null {
   if (!connection || typeof connection !== "object" || Array.isArray(connection)) {
     return `${prefix || "connection"} must be an object`;
@@ -503,6 +506,7 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   return null;
 }
 
+/** Strip unknown keys, apply defaults, and coerce legacy values to produce a clean ConnectionConfig. */
 export function sanitizeConnectionConfig(connection: unknown): Partial<ConnectionConfig> {
   if (!connection || typeof connection !== "object") {
     return {};
@@ -556,6 +560,7 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
   return out as Partial<ConnectionConfig>;
 }
 
+/** Slugify a connection name to a lowercase, hyphen-separated identifier. */
 export function slugifyConnectionName(name: unknown): string {
   if (!name || typeof name !== "string") {
     return "connection";
@@ -570,6 +575,7 @@ export function slugifyConnectionName(name: unknown): string {
   );
 }
 
+/** Derive stable, collision-free instance IDs (slugified names) for an array of connection configs. */
 export function deriveConnectionIds(connections: Array<Partial<ConnectionConfig>>): string[] {
   const used = new Set<string>();
   return connections.map((config) => {
@@ -590,6 +596,7 @@ export function deriveConnectionIds(connections: Array<Partial<ConnectionConfig>
   });
 }
 
+/** Return the index of the connection whose derived instance ID matches `instanceId`, or -1. */
 export function findConnectionIndexByInstanceId(
   connections: Array<Partial<ConnectionConfig>>,
   instanceId: string
@@ -598,6 +605,7 @@ export function findConnectionIndexByInstanceId(
   return ids.findIndex((id) => id === instanceId);
 }
 
+/** Check that no two server-mode connections share the same UDP port; returns an error string or null. */
 export function validateUniqueServerPorts(
   connections: Array<Partial<ConnectionConfig>>
 ): string | null {
