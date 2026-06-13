@@ -16,8 +16,14 @@
  * @module domain/metadata-streamer
  */
 
-import type { SignalKApp, ConnectionConfig, InstanceState, MetricsApi, MetaEntry } from "../types";
-import { MetaCache, collectSnapshot } from "../metadata";
+import type {
+  SignalKApp,
+  ConnectionConfig,
+  InstanceState,
+  MetricsApi,
+  MetaEntry
+} from "../foundation/types";
+import { MetaCache, collectSnapshot } from "../codec/metadata-codec";
 
 /** Debounce window for coalescing live meta entries observed in the delta
  *  stream before they are transmitted as a single `diff` packet. */

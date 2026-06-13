@@ -8,7 +8,7 @@ import {
 } from "../connection-config";
 import { validateRuntimeConfigBody } from "./config-validation";
 import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
-import type { ConnectionConfig } from "../types";
+import type { ConnectionConfig } from "../foundation/types";
 
 /**
  * Registers multi-instance connection routes:

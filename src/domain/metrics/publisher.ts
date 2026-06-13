@@ -10,7 +10,7 @@
  */
 
 import CircularBuffer = require("../../CircularBuffer");
-import type { SignalKApp } from "../../types";
+import type { SignalKApp } from "../../foundation/types";
 
 class MetricsPublisher {
   app: SignalKApp;

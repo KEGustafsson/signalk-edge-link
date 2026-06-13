@@ -12,10 +12,10 @@
 
 import dgram from "dgram";
 import { UdpSocketManager } from "../transport/udp-socket-manager";
-import { validateSecretKey } from "../crypto";
+import { validateSecretKey } from "../codec/crypto";
 import Monitor from "ping-monitor";
-import createMetrics from "../metrics";
-import { createSourceRegistry } from "../source-replication";
+import createMetrics from "../domain/metrics/registry";
+import { createSourceRegistry } from "../domain/source-registry";
 import { createDeltaBatcher } from "../domain/delta-batcher";
 import { createMetadataStreamer } from "../domain/metadata-streamer";
 import { createSourceSnapshotService } from "../domain/source-snapshot-service";
@@ -26,8 +26,8 @@ import {
   PathLatencyTracker,
   RetransmissionTracker,
   AlertManager
-} from "../monitoring";
-import { PacketCapture, PacketInspector } from "../packet-capture";
+} from "../domain/monitoring";
+import { PacketCapture, PacketInspector } from "../domain/monitoring/packet-capture";
 import {
   DEFAULT_DELTA_TIMER,
   MAX_DELTAS_BUFFER_SIZE,
@@ -52,14 +52,14 @@ import type {
   MetricsApi,
   Delta,
   MetaConfig
-} from "../types";
+} from "../foundation/types";
 import {
   MetaCache,
   extractLiveMeta,
   parseMetaConfig as parseMetaConfigShared,
   resolveSelfContext
-} from "../metadata";
-import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "../delta-sanitizer";
+} from "../codec/metadata-codec";
+import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "../codec/delta-sanitizer";
 import { Lifecycle } from "./lifecycle";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

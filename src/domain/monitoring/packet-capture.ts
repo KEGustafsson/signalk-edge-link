@@ -10,7 +10,7 @@
  * @module lib/packet-capture
  */
 
-import { HEADER_SIZE, getTypeName } from "../../packet";
+import { HEADER_SIZE, getTypeName } from "../../codec/packet-codec";
 import { PACKET_CAPTURE_MAX_PACKETS, PACKET_INSPECTOR_MAX_CLIENTS } from "../../constants";
 
 // ── PCAP Format Constants ──

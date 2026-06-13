@@ -19,8 +19,8 @@
  * @module domain/subscription-manager
  */
 
-import type { SignalKApp, InstanceState, MetricsApi, Delta, MetaConfig } from "../types";
-import { MetaCache } from "../metadata";
+import type { SignalKApp, InstanceState, MetricsApi, Delta, MetaConfig } from "../foundation/types";
+import { MetaCache } from "../codec/metadata-codec";
 import { createDebouncedConfigHandler, DebouncedConfigHandler } from "../config-watcher";
 
 const SUBSCRIPTION_RETRY_BASE_DELAY = 5000;

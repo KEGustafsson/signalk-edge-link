@@ -19,7 +19,7 @@
  * @module domain/keepalive-manager
  */
 
-import type { SignalKApp, ConnectionConfig, InstanceState, Delta } from "../types";
+import type { SignalKApp, ConnectionConfig, InstanceState, Delta } from "../foundation/types";
 
 /** Default hello interval (seconds) when none is configured. */
 const DEFAULT_HELLO_INTERVAL_SECONDS = 60;

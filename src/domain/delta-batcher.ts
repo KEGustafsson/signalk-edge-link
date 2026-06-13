@@ -18,7 +18,13 @@
  * @module domain/delta-batcher
  */
 
-import type { SignalKApp, ConnectionConfig, InstanceState, MetricsApi, Delta } from "../types";
+import type {
+  SignalKApp,
+  ConnectionConfig,
+  InstanceState,
+  MetricsApi,
+  Delta
+} from "../foundation/types";
 import { DELTA_SEND_MAX_RETRIES, DELTA_SEND_RETRY_BACKOFF_MS } from "../constants";
 
 /** Minimal v1-pipeline surface the batcher falls back to when no v2/v3 pipeline. */

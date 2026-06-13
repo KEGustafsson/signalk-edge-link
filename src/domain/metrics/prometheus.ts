@@ -9,7 +9,7 @@
  * @module domain/metrics/prometheus
  */
 
-import type { Metrics, InstanceState } from "../../types";
+import type { Metrics, InstanceState } from "../../foundation/types";
 import type { ManagementAuthSnapshot } from "../../routes/types";
 
 interface PrometheusOpts {

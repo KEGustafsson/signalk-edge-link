@@ -1,4 +1,4 @@
-import { isLikelyUnsafePathFilter } from "../metadata";
+import { isLikelyUnsafePathFilter } from "../codec/metadata-codec";
 
 /** Upper bound on meta.includePathsMatching length. Same constant as the
  *  metadata runtime — mirrored here so the validator rejects patterns at

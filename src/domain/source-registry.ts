@@ -28,7 +28,7 @@ import type {
   SourceReplicationRecord,
   SourceRegistryMetrics,
   SourceRegistrySnapshot
-} from "../types";
+} from "../foundation/types";
 import { SOURCE_REGISTRY_MAX_RECORDS, SOURCE_REGISTRY_TTL_MS } from "../constants";
 
 export const SOURCE_REPLICATION_SCHEMA_VERSION = 1;
@@ -36,7 +36,7 @@ export type {
   SourceReplicationRecord,
   SourceRegistryMetrics,
   SourceRegistrySnapshot
-} from "../types";
+} from "../foundation/types";
 
 function normalizeText(value: unknown): string | undefined {
   if (typeof value !== "string") {

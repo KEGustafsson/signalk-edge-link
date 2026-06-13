@@ -20,8 +20,8 @@
 import * as crypto from "crypto";
 import * as dgram from "dgram";
 import CircularBuffer from "../CircularBuffer";
-import type { SignalKApp } from "../types";
-import { normalizeKey } from "../crypto";
+import type { SignalKApp } from "../foundation/types";
+import { normalizeKey } from "../codec/crypto";
 import {
   BONDING_HEALTH_CHECK_INTERVAL,
   BONDING_RTT_THRESHOLD,

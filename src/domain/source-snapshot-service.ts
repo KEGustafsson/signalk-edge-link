@@ -22,10 +22,16 @@
  * @module domain/source-snapshot-service
  */
 
-import type { SignalKApp, ConnectionConfig, InstanceState, MetricsApi, Delta } from "../types";
+import type {
+  SignalKApp,
+  ConnectionConfig,
+  InstanceState,
+  MetricsApi,
+  Delta
+} from "../foundation/types";
 import { SNAPSHOT_REPLAY_CHUNK_SIZE, SOURCE_SNAPSHOT_INTERVAL_MS } from "../constants";
-import { collectSourceSnapshot } from "../source-snapshot";
-import { collectValuesSnapshot } from "../values-snapshot";
+import { collectSourceSnapshot } from "../codec/source-snapshot";
+import { collectValuesSnapshot } from "../codec/values-snapshot";
 
 /** Minimum gap between server-initiated full-status replays. Prevents a
  *  restarting or misconfigured server from flooding the link. */
