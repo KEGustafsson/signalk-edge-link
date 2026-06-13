@@ -2,6 +2,43 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [3.0.0] - 2026-06-13
+
+### Breaking changes
+
+- **Protocol version 3 is now the default wire format.** v2 peers (running
+  signalk-edge-link < 3.0.0) can no longer exchange data with v3 peers unless
+  both sides are upgraded. Mixed v1/v3 networks are not supported on the same
+  connection — upgrade both ends together.
+
+- **Automatic config coercion:** existing `protocolVersion: 2` connection
+  configs are silently coerced to `3` on first start. No manual migration is
+  required, but downgrading a peer back to 2.x will require setting
+  `protocolVersion: 2` explicitly.
+
+### Architecture
+
+- **React 19 webapp rewrite.** The plugin configuration UI is now a modular
+  React component tree (~3 000 lines added, 2 342-line vanilla-TS string
+  engine removed). Features: multi-connection tab navigation, live metrics
+  polling, subscription / delta-timer / sentence-filter editors, metadata
+  streaming controls, bandwidth sparklines, path analytics, congestion-control
+  and bonding dashboards.
+
+- **Layered source tree cutover.** All temporary re-export shims at
+  `src/CircularBuffer.ts`, `src/config-io.ts`, `src/constants.ts`,
+  `src/config-watcher.ts`, and `src/shared/crypto-constants.ts` have been
+  deleted. Callers now import directly from the canonical foundation and
+  application layers.
+
+- **Security hardening (phase 6).** Explicit string aliases for protocol
+  values, `DecryptError` typed exception, and key-mismatch diagnostics.
+
+### Maintenance
+
+- Fixed stale `publish-packages.yml` comment that incorrectly described the
+  trigger as "on every push to main or dev" (actual trigger: `workflow_dispatch`).
+
 ## [2.9.0] - 2026-05-29
 
 ### Added — Outbound bandwidth optimizations (v2/v3)

@@ -22,7 +22,7 @@ import {
   SMART_BATCH_SMOOTHING,
   calculateMaxDeltasPerBatch,
   clampBytesPerDeltaSample
-} from "../../constants";
+} from "../../foundation/constants";
 import type { SignalKApp, MetricsApi, InstanceState, Delta } from "../../foundation/types";
 
 /**

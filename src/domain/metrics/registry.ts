@@ -1,12 +1,12 @@
 "use strict";
 
-import CircularBuffer = require("../../CircularBuffer");
+import CircularBuffer = require("../../foundation/circular-buffer");
 import {
   BANDWIDTH_HISTORY_MAX,
   PATH_STATS_MAX_SIZE,
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch
-} from "../../constants";
+} from "../../foundation/constants";
 import type { Metrics, MetricsApi, Delta } from "../../foundation/types";
 
 interface PathStat {

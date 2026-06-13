@@ -11,7 +11,10 @@
  */
 
 import { HEADER_SIZE, getTypeName } from "../../codec/packet-codec";
-import { PACKET_CAPTURE_MAX_PACKETS, PACKET_INSPECTOR_MAX_CLIENTS } from "../../constants";
+import {
+  PACKET_CAPTURE_MAX_PACKETS,
+  PACKET_INSPECTOR_MAX_CLIENTS
+} from "../../foundation/constants";
 
 // ── PCAP Format Constants ──
 

@@ -29,7 +29,7 @@ import type {
   SourceRegistryMetrics,
   SourceRegistrySnapshot
 } from "../foundation/types";
-import { SOURCE_REGISTRY_MAX_RECORDS, SOURCE_REGISTRY_TTL_MS } from "../constants";
+import { SOURCE_REGISTRY_MAX_RECORDS, SOURCE_REGISTRY_TTL_MS } from "../foundation/constants";
 
 /** Wire schema version for source-replication snapshots. Bump on breaking changes. */
 export const SOURCE_REPLICATION_SCHEMA_VERSION = 1;

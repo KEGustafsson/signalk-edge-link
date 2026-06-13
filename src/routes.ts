@@ -3,11 +3,11 @@
 import crypto from "node:crypto";
 
 import { PATH_CATEGORIES } from "./codec/path-dictionary";
-import { RATE_LIMIT_WINDOW, RATE_LIMIT_MAX_REQUESTS } from "./constants";
+import { RATE_LIMIT_WINDOW, RATE_LIMIT_MAX_REQUESTS } from "./foundation/constants";
 import {
   loadConfigFile as loadConfigFileShared,
   saveConfigFile as saveConfigFileShared
-} from "./config-io";
+} from "./foundation/config-io";
 import type {
   SignalKApp,
   InstanceRegistry,

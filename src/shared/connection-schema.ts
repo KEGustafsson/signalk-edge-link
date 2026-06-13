@@ -14,7 +14,7 @@
  * results to `RJSFSchema` at call sites.
  */
 
-import { PBKDF2_ITERATIONS } from "./crypto-constants";
+import { PBKDF2_ITERATIONS } from "../foundation/crypto-constants";
 
 export type SchemaFragment = Record<string, unknown>;
 
