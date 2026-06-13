@@ -25,7 +25,7 @@ import type {
   MetricsApi,
   Delta
 } from "../foundation/types";
-import { DELTA_SEND_MAX_RETRIES, DELTA_SEND_RETRY_BACKOFF_MS } from "../constants";
+import { DELTA_SEND_MAX_RETRIES, DELTA_SEND_RETRY_BACKOFF_MS } from "../foundation/constants";
 
 /** Minimal v1-pipeline surface the batcher falls back to when no v2/v3 pipeline. */
 interface V1PipelineLike {

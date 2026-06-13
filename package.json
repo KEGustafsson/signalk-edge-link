@@ -1,6 +1,6 @@
 {
   "name": "signalk-edge-link",
-  "version": "2.9.1",
+  "version": "3.0.0",
   "description": "SignalK Edge Link. Secure UDP link for data exchange.",
   "main": "lib/index.js",
   "files": [
@@ -132,6 +132,10 @@
       "^(?:\\.\\./)+lib/types$": "<rootDir>/src/foundation/types/index",
       "^(?:\\.\\./)+lib/value-dedup$": "<rootDir>/src/codec/value-dedup",
       "^(?:\\.\\./)+lib/values-snapshot$": "<rootDir>/src/codec/values-snapshot",
+      "^(?:\\.\\./)+lib/CircularBuffer$": "<rootDir>/src/foundation/circular-buffer",
+      "^(?:\\.\\./)+lib/config-io$": "<rootDir>/src/foundation/config-io",
+      "^(?:\\.\\./)+lib/config-watcher$": "<rootDir>/src/app/config/watcher",
+      "^(?:\\.\\./)+lib/constants$": "<rootDir>/src/foundation/constants",
       "^(?:\\.\\./)+lib/(.*)$": "<rootDir>/src/$1"
     },
     "testMatch": [

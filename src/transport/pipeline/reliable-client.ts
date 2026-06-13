@@ -13,7 +13,7 @@
  * @module transport/pipeline/reliable-client
  */
 
-import CircularBuffer from "../../CircularBuffer";
+import CircularBuffer from "../../foundation/circular-buffer";
 import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary } from "../../codec/crypto";
 import { encodeDelta, encodeMetaEntry } from "../../codec/path-dictionary";
@@ -51,7 +51,7 @@ import {
   METRICS_PUBLISH_INTERVAL,
   calculateMaxDeltasPerBatch,
   clampBytesPerDeltaSample
-} from "../../constants";
+} from "../../foundation/constants";
 
 /**
  * Creates the v2 client pipeline

@@ -46,7 +46,7 @@ import {
   UDP_RATE_LIMIT_WINDOW,
   UDP_RATE_LIMIT_MAX_PACKETS,
   HELLO_PAYLOAD_MAX_BYTES
-} from "../../constants";
+} from "../../foundation/constants";
 
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 

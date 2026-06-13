@@ -29,7 +29,7 @@ import type {
   MetricsApi,
   Delta
 } from "../foundation/types";
-import { SNAPSHOT_REPLAY_CHUNK_SIZE, SOURCE_SNAPSHOT_INTERVAL_MS } from "../constants";
+import { SNAPSHOT_REPLAY_CHUNK_SIZE, SOURCE_SNAPSHOT_INTERVAL_MS } from "../foundation/constants";
 import { collectSourceSnapshot } from "../codec/source-snapshot";
 import { collectValuesSnapshot } from "../codec/values-snapshot";
 

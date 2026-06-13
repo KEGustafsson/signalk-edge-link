@@ -18,7 +18,7 @@ import {
   MONITORING_RETRANSMIT_HISTORY_SIZE,
   MONITORING_PATH_LATENCY_WINDOW,
   MONITORING_ALERT_COOLDOWN
-} from "../../constants";
+} from "../../foundation/constants";
 
 // ── Packet Loss Heatmap Tracker ──
 

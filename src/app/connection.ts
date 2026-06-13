@@ -38,13 +38,13 @@ import {
   SUPPRESSED_DUPLICATE_STATS_MAX_SIZE,
   OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS,
   OUTBOUND_DEDUPE_MAX_ENTRIES
-} from "../constants";
-import { loadConfigFileSafe } from "../config-io";
+} from "../foundation/constants";
+import { loadConfigFileSafe } from "../foundation/config-io";
 import {
   createDebouncedConfigHandler,
   createWatcherWithRecovery,
   initializePersistentStorage
-} from "../config-watcher";
+} from "./config/watcher";
 import type {
   SignalKApp,
   ConnectionConfig,

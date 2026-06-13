@@ -19,7 +19,7 @@
 
 import * as crypto from "crypto";
 import * as dgram from "dgram";
-import CircularBuffer from "../CircularBuffer";
+import CircularBuffer from "../foundation/circular-buffer";
 import type { SignalKApp } from "../foundation/types";
 import { normalizeKey } from "../codec/crypto";
 import {
@@ -32,7 +32,7 @@ import {
   BONDING_FAILBACK_LOSS_HYSTERESIS,
   BONDING_HEALTH_WINDOW_SIZE,
   BONDING_RTT_EMA_ALPHA
-} from "../constants";
+} from "../foundation/constants";
 
 /**
  * Link status values
