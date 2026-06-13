@@ -139,7 +139,10 @@ export function createDeltaBatcher(deps: DeltaBatcherDeps): DeltaBatcher {
         metrics.droppedDeltaCount = (metrics.droppedDeltaCount || 0) + actualBatchSize;
         const dropMessage = `[${instanceId}] Dropped delta batch after ${nextRetryCount} failed attempts (${actualBatchSize} deltas)`;
         app.error(dropMessage);
-        recordError("sendFailure", dropMessage);
+        // Use the "udpSend" category so the udpSendErrors counter (and the
+        // udpSend errors_by_category bucket) reflects dropped sends; the bare
+        // "sendFailure" category maps to no Prometheus counter.
+        recordError("udpSend", dropMessage);
       }
     } finally {
       state.batchSendInFlight = false;

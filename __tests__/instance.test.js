@@ -777,7 +777,10 @@ describe("createInstance", () => {
       expect(state.deltas.length).toBe(0);
       expect(metrics.droppedDeltaBatches).toBe(1);
       expect(metrics.droppedDeltaCount).toBe(1);
-      expect(metrics.errorCounts.sendFailure).toBeGreaterThan(0);
+      // Dropped sends are recorded under the udpSend category so the
+      // udpSendErrors Prometheus counter reflects them.
+      expect(metrics.errorCounts.udpSend).toBeGreaterThan(0);
+      expect(metrics.udpSendErrors).toBeGreaterThan(0);
       expect(app.error).toHaveBeenCalledWith(expect.stringContaining("Dropped delta batch"));
     } finally {
       inst.stop();

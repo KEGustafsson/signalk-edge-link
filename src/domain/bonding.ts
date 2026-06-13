@@ -250,14 +250,23 @@ export class BondingManager {
 
       if (link.interface) {
         await new Promise<void>((resolve, reject) => {
-          link.socket!.bind({ address: link.interface!, port: 0 }, (err?: Error) => {
-            if (err) {
+          // dgram bind() reports failures via the 'error' event, not the
+          // callback (which only fires on success). Attach a one-time error
+          // listener so a bind failure rejects instead of surfacing as an
+          // unhandled 'error' that crashes the process; remove it once bound.
+          const onBindError = (err: Error) => {
+            try {
               link.socket!.close();
-              link.socket = null;
-              reject(err);
-            } else {
-              resolve();
+            } catch (_e) {
+              /* already closed */
             }
+            link.socket = null;
+            reject(err);
+          };
+          link.socket!.once("error", onBindError);
+          link.socket!.bind({ address: link.interface!, port: 0 }, () => {
+            link.socket!.removeListener("error", onBindError);
+            resolve();
           });
         });
       }
@@ -575,14 +584,12 @@ export class BondingManager {
         });
 
         if (link.interface) {
-          link.socket.bind({ address: link.interface, port: 0 }, (err?: Error) => {
-            if (err) {
-              this.app.debug(`[Bonding] ${name} bind failed after recovery: ${err.message}`);
-              link.health.status = LinkStatus.DOWN;
-            } else {
-              link.health.status = LinkStatus.STANDBY;
-              this.app.debug(`[Bonding] ${name} socket recovered`);
-            }
+          // bind() failures arrive on the 'error' listener attached above
+          // (which marks the link DOWN and reschedules recovery), so the
+          // callback only needs to handle the success path.
+          link.socket.bind({ address: link.interface, port: 0 }, () => {
+            link.health.status = LinkStatus.STANDBY;
+            this.app.debug(`[Bonding] ${name} socket recovered`);
           });
         } else {
           link.health.status = LinkStatus.STANDBY;

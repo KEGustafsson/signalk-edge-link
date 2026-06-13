@@ -7,7 +7,7 @@ import {
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch
 } from "../../constants";
-import type { Metrics, MetricsApi } from "../../types";
+import type { Metrics, MetricsApi, Delta } from "../../types";
 
 interface PathStat {
   count: number;
@@ -66,6 +66,16 @@ function createMetrics(): MetricsApi {
     lastError: null,
     lastErrorTime: null,
     packetLoss: 0,
+    // Seed the optional network-quality / reliability scalars that
+    // resetMetrics() also assigns, so a freshly created metrics object and a
+    // reset one have the same shape.
+    rtt: 0,
+    jitter: 0,
+    retransmissions: 0,
+    queueDepth: 0,
+    acksSent: 0,
+    naksSent: 0,
+    duplicatePackets: 0,
     dataPacketsReceived: 0,
     rateLimitedPackets: 0,
     droppedDeltaBatches: 0,
@@ -298,7 +308,7 @@ function createMetrics(): MetricsApi {
     }
   }
 
-  function trackPathStats(delta: any, deltaSize: number | null = null): void {
+  function trackPathStats(delta: Delta, deltaSize: number | null = null): void {
     if (!delta || !delta.updates) {
       return;
     }
@@ -366,8 +376,9 @@ function createMetrics(): MetricsApi {
 
         // Do not cache the newly added path as "stalest" — it has lastUpdate = now
         // (the most recent timestamp) and is never the actual stalest entry.
-        // The cache was cleared during eviction (L290); the next eviction will
-        // trigger a correct linear scan to find the true stalest path.
+        // The cache was cleared during the eviction block above; the next
+        // eviction will trigger a correct linear scan to find the true
+        // stalest path.
       }
     }
   }

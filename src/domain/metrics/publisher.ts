@@ -263,20 +263,10 @@ class MetricsPublisher {
     });
   }
 
-  /**
-   * Add value to moving average window
-   *
-   * @private
-   */
   _addToWindow(window: CircularBuffer<number>, value: number): void {
     window.push(value);
   }
 
-  /**
-   * Calculate average of window
-   *
-   * @private
-   */
   _calculateAverage(window: CircularBuffer<number>): number {
     if (window.length === 0) {
       return 0;
@@ -286,20 +276,11 @@ class MetricsPublisher {
     return sum / arr.length;
   }
 
-  /**
-   * Clamp value between min and max
-   *
-   * @private
-   */
   _clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
   }
 
-  /**
-   * Check if values have changed since last publish
-   *
-   * @private
-   */
+  // Object.is so a NaN-to-NaN transition counts as "unchanged" and 0/-0 differ.
   _hasChanged(values: Array<{ path: string; value: unknown }>): boolean {
     for (const { path, value } of values) {
       if (!Object.is(this.lastPublished[path], value)) {
@@ -309,11 +290,6 @@ class MetricsPublisher {
     return false;
   }
 
-  /**
-   * Update last published values
-   *
-   * @private
-   */
   _updateLastPublished(values: Array<{ path: string; value: unknown }>): void {
     for (const { path, value } of values) {
       this.lastPublished[path] = value;

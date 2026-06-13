@@ -184,7 +184,7 @@ describe("domain/delta-batcher", () => {
       expect(state.droppedDeltaCount).toBe(2);
       expect(metrics.droppedDeltaBatches).toBe(1);
       expect(metrics.droppedDeltaCount).toBe(2);
-      expect(recordError).toHaveBeenCalledWith("sendFailure", expect.stringContaining("Dropped"));
+      expect(recordError).toHaveBeenCalledWith("udpSend", expect.stringContaining("Dropped"));
       expect(app.error).toHaveBeenCalled();
     });
   });

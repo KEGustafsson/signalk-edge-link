@@ -150,7 +150,9 @@ function toMergeHash(record: Omit<SourceReplicationRecord, "mergeHash">): string
     raw: record.raw
   };
   const canonical = canonicalizeForHash(stablePayload);
-  return crypto.createHash("sha1").update(JSON.stringify(canonical)).digest("hex");
+  // SHA-256 for consistency with the identity-key hash; this is a
+  // content-addressable dedup hash, not a security boundary.
+  return crypto.createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
 function chooseValue(
