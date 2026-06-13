@@ -8,6 +8,23 @@ This folder contains documentation for Signal K Edge Link (current: 3.0.0).
 
 Start here for any question about configuring, operating, or extending the plugin.
 
+## Focused Topic References
+
+These docs cover individual topics in depth and can be read independently:
+
+- **[architecture-overview.md](architecture-overview.md)** — System architecture, topology patterns, and data-flow pipelines
+- **[configuration-reference.md](configuration-reference.md)** — Complete settings reference with defaults and valid ranges
+- **[api-reference.md](api-reference.md)** — REST API endpoint reference
+- **[protocol-v2.md](protocol-v2.md)** — Basic (v1) and v2 protocol wire format and ACK/NAK handshake
+- **[protocol-v3-spec.md](protocol-v3-spec.md)** — Advanced (v3) HMAC control-plane authentication
+- **[bonding.md](bonding.md)** — Dual-link failover configuration and monitoring
+- **[congestion-control.md](congestion-control.md)** — AIMD adaptive send-rate algorithm and tuning
+- **[metrics.md](metrics.md)** — All metrics: REST, Signal K paths, and Prometheus
+- **[management-tools.md](management-tools.md)** — Management API auth and CLI operations
+- **[security.md](security.md)** — Encryption, key management, and deployment hardening
+- **[performance-tuning.md](performance-tuning.md)** — Deployment profiles by hardware and link type
+- **[troubleshooting.md](troubleshooting.md)** — Issue-oriented diagnostics and common fixes
+
 ## Wire Protocol Specification
 
 **[protocol-v2-spec.md](protocol-v2-spec.md)** — RFC-style specification of the binary wire format, packet types, flags, CRC16, sequence semantics, and METADATA envelope schema. Read this for bit-level implementation details not covered in GUIDE.md.
@@ -59,15 +76,18 @@ Architecture and design notes retained for contributors and maintainers.
 
 ### Operators tuning unstable links
 
-1. `GUIDE.md` §9 Congestion Control, §10 Bonding, §17 Performance Tuning
+1. [congestion-control.md](congestion-control.md)
+2. [bonding.md](bonding.md)
+3. [performance-tuning.md](performance-tuning.md)
 
 ### Security hardening
 
-1. `GUIDE.md` §12 Encryption & Keys, §15 Management API
+1. [security.md](security.md)
+2. [management-tools.md](management-tools.md)
 
 ### Contributors
 
-1. `GUIDE.md` §18 Developer Reference
+1. `GUIDE.md` §20 Developer Reference
 2. `protocol-v2-spec.md`
 3. `release-checklist.md`
 4. `planning/` and `performance/` docs relevant to your area

@@ -17,7 +17,7 @@ It is designed for links where latency, packet loss, and bandwidth usage matter 
 - **Two operating modes**:
   - **Client**: subscribes to local deltas and sends packets
   - **Server**: receives packets, decrypts, and forwards to local Signal K
-- **Protocol v2/v3 features** for difficult links:
+- **Advanced mode** features for difficult links:
   - ACK/NAK-based reliability
   - congestion control
   - optional primary/backup bonding
@@ -82,7 +82,7 @@ In Signal K Admin UI:
    - `Connection Name` (for example `shore-server`)
    - `UDP Port` (default `4446`)
    - `Encryption Key` (same shared secret used by client)
-   - `Protocol Version` (`3` recommended for new deployments; use `2` only for compatibility with an existing v2 peer)
+   - `Protocol` — select **Advanced** (v3, recommended) for new deployments; select **Basic** (v1) only for stable local links
 4. Save
 
 ### 2) Configure the source (Client mode)
@@ -96,7 +96,7 @@ On the sending Signal K instance:
    - `Server Address` (destination host/IP)
    - `UDP Port` (must match server)
    - `Encryption Key` (must match server)
-   - `Protocol Version` (`3` recommended for new deployments; use `2` only for compatibility with an existing v2 peer)
+   - `Protocol` — select **Advanced** (v3, recommended) for new deployments; select **Basic** (v1) only for stable local links
 4. Save
 
 ### 3) Verify traffic
@@ -111,15 +111,14 @@ Check that:
 - server `Deltas Received` increases
 - encryption/decryption errors remain stable at zero
 
-## Protocol version guidance
+## Protocol guidance
 
-| Version | Use when                                                  | Notes                                                                         |
-| ------- | --------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| v1      | stable local links, simplest setup                        | lower overhead, no ACK/NAK reliability, no metadata transport                 |
-| v2      | packet loss, variable latency, WAN links                  | adds retransmission, congestion control, bonding, metadata, richer monitoring |
-| v3      | same use cases as v2 when both peers can upgrade together | keeps v2 features and authenticates ACK/NAK/HEARTBEAT/HELLO control packets   |
+| Mode         | Numeric | Use when                                 | Notes                                                                    |
+| ------------ | ------- | ---------------------------------------- | ------------------------------------------------------------------------ |
+| **Basic**    | v1      | stable local links, simplest setup       | lower overhead, no ACK/NAK reliability, no metadata transport            |
+| **Advanced** | v3      | packet loss, variable latency, WAN links | retransmission, congestion control, bonding, metadata, HMAC control auth |
 
-For unstable links, start with **v3** when both peers support it; fall back to **v2** only when you need compatibility with an already deployed v2 peer.
+Use **Advanced** for any new deployment on a WAN or unreliable link. Use **Basic** only for stable local links where simplicity and minimum overhead matter.
 
 ## Runtime UI and API
 
@@ -202,11 +201,11 @@ Common checks:
 
 - Verify `udpAddress`, `udpPort`, and `secretKey` match both ends.
 - Confirm server UDP port is reachable and not already in use.
-- If link quality is poor, switch to `protocolVersion: 3` when both peers can upgrade together, or `2` if you must stay compatible with an existing v2 peer.
+- If link quality is poor, switch to **Advanced** (`protocolVersion: 3`) when both peers can upgrade together.
 
-**`testAddress is only supported on v1 clients` after upgrading to v2/v3**
+**`testAddress is only supported on v1 clients` after upgrading to Advanced mode**
 
-The fields `testAddress`, `testPort`, and `pingIntervalTime` belong to the v1 ping monitor and are not used by v2/v3 clients (which derive RTT from HEARTBEAT exchanges instead). If these fields are present in a connection with `protocolVersion: 2` or `3` the validator will reject the config.
+The fields `testAddress`, `testPort`, and `pingIntervalTime` belong to the Basic (v1) ping monitor and are not used by Advanced (v3) clients (which derive RTT from HEARTBEAT exchanges instead). If these fields are present in a connection with `protocolVersion: 3` the validator will reject the config.
 
 Remove them from the affected connection:
 
@@ -296,6 +295,7 @@ window.__EDGE_LINK_AUTH__ = {
 - `docs/management-tools.md` (instance/bonding API + CLI operations)
 - `docs/security.md` (security guidance and deployment hardening)
 - `docs/performance-tuning.md` (deployment tuning recommendations by hardware profile)
+- `docs/troubleshooting.md` (issue-oriented diagnostics)
 - `samples/` (example JSON configurations for minimal/dev/v2-bonding setups)
 - `grafana/dashboards/edge-link.json` (starter Grafana dashboard)
 - `src/scripts/migrate-config.ts` (legacy config migration utility)
