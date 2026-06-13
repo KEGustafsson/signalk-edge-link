@@ -20,8 +20,11 @@ export type { ConnectionApi };
 
 /** Constructor arguments for `createConnectionManager`. */
 export interface ConnectionManagerOptions {
+  /** SignalK application handle (logging, subscriptions, delta emission). */
   app: SignalKApp;
+  /** Plugin identifier, used when emitting deltas via `app.handleMessage`. */
   pluginId: string;
+  /** Callback to update the plugin status bar message. */
   setStatus: (msg: string) => void;
 }
 

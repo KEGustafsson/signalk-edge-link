@@ -8,4 +8,5 @@
  * @module app/config/migrate
  */
 
+/** Migrate a stored plugin config object to the current schema version. */
 export { migrateConfig } from "../../scripts/migrate-config";

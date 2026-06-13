@@ -8,6 +8,7 @@ import type { Router } from "./routes/types";
 
 const pkg = require("../package.json");
 
+/** Signal K Edge Link plugin factory. Returns the plugin object registered with the Signal K server. */
 module.exports = function createPlugin(app: SignalKApp) {
   const plugin: Record<string, unknown> = {};
   plugin.id = pkg.name;

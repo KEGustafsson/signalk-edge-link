@@ -10,4 +10,7 @@
  * @module app/config/validation
  */
 
-export { validateConnectionConfig, sanitizeConnectionConfig } from "../../connection-config";
+/** Validate a ConnectionConfig object; returns an error message string, or null on success. */
+export { validateConnectionConfig } from "../../connection-config";
+/** Strip unknown fields and apply defaults to produce a clean ConnectionConfig. */
+export { sanitizeConnectionConfig } from "../../connection-config";
