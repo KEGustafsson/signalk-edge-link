@@ -25,9 +25,24 @@ jest.mock("dgram", () => {
         }
         listeners[event].push(handler);
       }),
+      once: jest.fn(function (event, handler) {
+        const wrapped = (...args) => {
+          this.removeListener(event, wrapped);
+          handler(...args);
+        };
+        if (!listeners[event]) {
+          listeners[event] = [];
+        }
+        listeners[event].push(wrapped);
+      }),
+      removeListener: jest.fn((event, handler) => {
+        if (listeners[event]) {
+          listeners[event] = listeners[event].filter((h) => h !== handler);
+        }
+      }),
       emit: (event, ...args) => {
         if (listeners[event]) {
-          listeners[event].forEach((h) => h(...args));
+          listeners[event].slice().forEach((h) => h(...args));
         }
       }
     };

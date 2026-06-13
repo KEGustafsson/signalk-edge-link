@@ -20,6 +20,11 @@ import { validateSecretKey } from "./crypto";
 import Monitor from "ping-monitor";
 import createMetrics from "./metrics";
 import { createSourceRegistry } from "./source-replication";
+import { createDeltaBatcher } from "./domain/delta-batcher";
+import { createMetadataStreamer } from "./domain/metadata-streamer";
+import { createSourceSnapshotService } from "./domain/source-snapshot-service";
+import { createKeepaliveManager } from "./domain/keepalive-manager";
+import { createSubscriptionManager } from "./domain/subscription-manager";
 import createPipeline from "./pipeline";
 import { createPipelineV2Client } from "./pipeline-v2-client";
 import { createPipelineV2Server } from "./pipeline-v2-server";
@@ -41,11 +46,7 @@ import {
   OUTBOUND_DUPLICATE_SUPPRESS_MS,
   SUPPRESSED_DUPLICATE_STATS_MAX_SIZE,
   OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS,
-  OUTBOUND_DEDUPE_MAX_ENTRIES,
-  SOURCE_SNAPSHOT_INTERVAL_MS,
-  DELTA_SEND_MAX_RETRIES,
-  DELTA_SEND_RETRY_BACKOFF_MS,
-  SNAPSHOT_REPLAY_CHUNK_SIZE
+  OUTBOUND_DEDUPE_MAX_ENTRIES
 } from "./constants";
 import { loadConfigFile, loadConfigFileSafe } from "./config-io";
 import {
@@ -59,19 +60,15 @@ import type {
   InstanceState,
   MetricsApi,
   Delta,
-  MetaEntry,
   MetaConfig
 } from "./types";
 import {
   MetaCache,
-  collectSnapshot,
   extractLiveMeta,
   parseMetaConfig as parseMetaConfigShared,
   resolveSelfContext
 } from "./metadata";
 import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "./delta-sanitizer";
-import { collectSourceSnapshot } from "./source-snapshot";
-import { collectValuesSnapshot } from "./values-snapshot";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -249,7 +246,6 @@ function createInstance(
   const recentOutboundDeltas = new Map<string, number>();
   let recentOutboundDeltasCleanupTimer: ReturnType<typeof setInterval> | null = null;
   let lastOutboundDuplicateLogAt = 0;
-  let activeSubscriptionGeneration = 0;
   // Coalesce `app.reportOutputMessages()` calls so a burst of deltas in the
   // same event-loop tick produces one status nudge, not N. Without this, a
   // 200 delta/s stream produces 200 microtasks/s just for status reporting.
@@ -357,17 +353,28 @@ function createInstance(
     }
   }
 
-  // ── Delta timer ───────────────────────────────────────────────────────────
-  function scheduleDeltaTimer(): void {
-    clearTimeout(state.deltaTimer ?? undefined);
-    state.deltaTimer = setTimeout(() => {
-      if (state.stopped) {
-        return;
-      }
-      state.timer = true;
-      scheduleDeltaTimer();
-    }, state.deltaTimerTime);
-  }
+  // ── Delta timer + outbound batch send loop ────────────────────────────────
+  // The flush state machine and its timer live in the L3 delta-batcher service;
+  // instance.ts is just the producer (processDelta enqueues, then flushes).
+  const deltaBatcher = createDeltaBatcher({
+    state,
+    metrics,
+    app,
+    options,
+    instanceId,
+    recordError,
+    getV1Pipeline
+  });
+  const { scheduleDeltaTimer, flushDeltaBatch } = deltaBatcher;
+
+  // Periodic hello / NAT-keepalive (L3 service); handle tracked on state.
+  const keepaliveManager = createKeepaliveManager({
+    state,
+    options,
+    app,
+    instanceId,
+    getV1Pipeline
+  });
 
   // ── Config file debounced watchers ────────────────────────────────────────
   const handleDeltaTimerChange = createDebouncedConfigHandler({
@@ -422,167 +429,25 @@ function createInstance(
    *  compute diffs and to skip no-op periodic resends. */
   const metaCache = new MetaCache();
 
-  /** Debounce window for coalescing live meta entries observed in the delta
-   *  stream before they are transmitted as a single `diff` packet. */
-  const META_DIFF_DEBOUNCE_MS = 500;
-
-  /** Minimum gap between receiver-initiated snapshot sends. Prevents a noisy
-   *  or malicious receiver from forcing snapshots on every delta. */
-  const META_REQUEST_RATE_LIMIT_MS = 5000;
-
-  /** Dispatches `entries` through the active pipeline. Returns true on a
-   *  successful send so callers (e.g. `enqueueMetaDiff`) can decide whether
-   *  to commit the MetaCache. Any failure is logged and returns false. */
-  async function sendMetaEntries(
-    entries: MetaEntry[],
-    kind: "snapshot" | "diff"
-  ): Promise<boolean> {
-    if (!options.udpAddress || !options.secretKey) {
-      return false;
-    }
-    if (entries.length === 0) {
-      return false;
-    }
-    try {
-      if (state.pipeline && typeof state.pipeline.sendMetadata === "function") {
-        await state.pipeline.sendMetadata(
-          entries,
-          kind,
-          options.secretKey,
-          options.udpAddress,
-          options.udpPort
-        );
-      } else {
-        app.debug(
-          `[${instanceId}] Meta skipped: pipeline not ready or does not support sendMetadata`
-        );
-        return false;
-      }
-      return true;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      app.error(`[${instanceId}] sendMetaEntries failed: ${msg}`);
-      recordError("general", `sendMetaEntries failed: ${msg}`);
-      return false;
-    }
-  }
-
-  /**
-   * Build and transmit a full metadata snapshot from the current Signal K
-   * state tree. Resets the internal diff cache afterwards so the next diff is
-   * measured against what was just sent.
-   */
-  async function sendMetadataSnapshot(): Promise<void> {
-    if (!state.metaConfig?.enabled || state.stopped || !state.readyToSend) {
-      return;
-    }
-    const entries = collectSnapshot(appProxy, state.metaConfig);
-    const sent = await sendMetaEntries(entries, "snapshot");
-    // Only prime the diff cache on a successful send; on failure the next
-    // snapshot (periodic or META_REQUEST-triggered) will still cover every
-    // path rather than the cache showing stale "already sent" state.
-    if (sent) {
-      metaCache.replaceAll(entries);
-    }
-  }
-
-  /** Coalesces live meta diffs extracted from deltas; flushes after a short
-   *  debounce window so a burst of meta changes becomes one packet. */
-  function enqueueMetaDiff(entries: MetaEntry[]): void {
-    // Buffer raw entries; the actual change-detection (and cache commit)
-    // happens in the flush handler so a failed send doesn't leave the
-    // MetaCache thinking it transmitted something it never did.
-    if (entries.length === 0) {
-      return;
-    }
-    state.metaDiffBuffer.push(...entries);
-    if (state.metaDiffFlushTimer) {
-      return;
-    }
-    state.metaDiffFlushTimer = setTimeout(() => {
-      state.metaDiffFlushTimer = null;
-      const pending = state.metaDiffBuffer;
-      state.metaDiffBuffer = [];
-      const changed = metaCache.computeDiff(pending);
-      if (changed.length === 0) {
-        return;
-      }
-      // Snapshot cache generation before the async send; if a resubscribe
-      // clears the cache while the send is in flight, the post-send commit
-      // must NOT repopulate stale entries into the new generation.
-      const generationAtSend = metaCache.generation();
-      sendMetaEntries(changed, "diff")
-        .then((sent) => {
-          if (sent && metaCache.generation() === generationAtSend) {
-            metaCache.commit(changed);
-          }
-        })
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          app.debug(`[${instanceId}] meta diff flush failed: ${msg}`);
-        });
-    }, META_DIFF_DEBOUNCE_MS);
-  }
-
-  function restartMetadataTimer(): void {
-    if (state.metaTimer) {
-      clearInterval(state.metaTimer);
-      state.metaTimer = null;
-    }
-    if (!state.metaConfig?.enabled) {
-      return;
-    }
-    const intervalMs = Math.max(30, state.metaConfig.intervalSec) * 1000;
-    state.metaTimer = setInterval(() => {
-      sendMetadataSnapshot().catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        app.debug(`[${instanceId}] periodic snapshot failed: ${msg}`);
-      });
-    }, intervalMs);
-  }
-
-  /** Schedules a meta snapshot send after `delayMs`. Cancels any prior
-   *  pending snapshot timer first — back-to-back (re)subscribes or socket
-   *  recoveries should coalesce into a single pending snapshot rather than
-   *  queue up multiple sends. The returned timer is tracked on
-   *  state.metaSnapshotTimers so stop() can cancel it. */
-  function scheduleMetadataSnapshot(delayMs: number): void {
-    for (const existing of state.metaSnapshotTimers) {
-      clearTimeout(existing);
-    }
-    state.metaSnapshotTimers.length = 0;
-    const handle = setTimeout(() => {
-      const idx = state.metaSnapshotTimers.indexOf(handle);
-      if (idx !== -1) {
-        state.metaSnapshotTimers.splice(idx, 1);
-      }
-      if (state.stopped) {
-        return;
-      }
-      sendMetadataSnapshot().catch(() => {
-        /* errors already logged inside sendMetadataSnapshot */
-      });
-    }, delayMs);
-    state.metaSnapshotTimers.push(handle);
-  }
-
-  /** Receiver asked for a fresh meta snapshot (META_REQUEST control packet).
-   *  Rate-limited so a malformed or buggy receiver cannot force continuous
-   *  snapshot work on the edge-link. */
-  function handleMetaRequest(): void {
-    if (!state.metaConfig?.enabled) {
-      return;
-    }
-    const now = Date.now();
-    if (now - state.lastMetaRequestAt < META_REQUEST_RATE_LIMIT_MS) {
-      return;
-    }
-    state.lastMetaRequestAt = now;
-    sendMetadataSnapshot().catch((err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      app.debug(`[${instanceId}] META_REQUEST snapshot failed: ${msg}`);
-    });
-  }
+  // The snapshot/diff send logic lives in the L3 metadata-streamer service;
+  // metaCache is shared by reference (instance.ts clears it across resubscribe/
+  // stop) and all timers live on `state` so stop() can cancel them.
+  const metadataStreamer = createMetadataStreamer({
+    state,
+    options,
+    app,
+    appProxy,
+    instanceId,
+    recordError,
+    metaCache
+  });
+  const {
+    sendMetadataSnapshot,
+    enqueueMetaDiff,
+    restartMetadataTimer,
+    scheduleMetadataSnapshot,
+    handleMetaRequest
+  } = metadataStreamer;
 
   /** Minimum gap between server-initiated full-status replays. Prevents a
    *  restarting or misconfigured server from flooding the link. */
@@ -595,295 +460,31 @@ function createInstance(
    */
   let fullStatusCascadeHandler: (() => void) | null = null;
 
-  /** Server asked for a full values snapshot (FULL_STATUS_REQUEST control
-   *  packet). Replays the entire current Signal K tree to the server.
-   *  Rate-limited to prevent replay floods across rapid server restarts. */
-  function handleFullStatusRequest(): void {
-    const now = Date.now();
-    if (now - state.lastFullStatusRequestAt < FULL_STATUS_REQUEST_RATE_LIMIT_MS) {
-      app.debug(`[${instanceId}] FULL_STATUS_REQUEST rate-limited, skipping`);
-      return;
-    }
-    state.lastFullStatusRequestAt = now;
-    app.debug(`[${instanceId}] FULL_STATUS_REQUEST received — replaying values snapshot`);
-    replayValuesSnapshot("full-status-request");
-    if (fullStatusCascadeHandler) {
-      app.debug(`[${instanceId}] FULL_STATUS_REQUEST cascading to downstream clients`);
-      metrics.fullStatusCascadeFired = (metrics.fullStatusCascadeFired || 0) + 1;
-      fullStatusCascadeHandler();
-    }
-  }
-
-  async function sendSourceSnapshot(): Promise<void> {
-    if (
-      state.stopped ||
-      !state.readyToSend ||
-      !state.pipeline ||
-      typeof state.pipeline.sendSourceSnapshot !== "function" ||
-      !options.secretKey ||
-      !options.udpAddress
-    ) {
-      return;
-    }
-
-    const sources = collectSourceSnapshot(appProxy);
-    if (!sources || Object.keys(sources).length === 0) {
-      return;
-    }
-
-    try {
-      await state.pipeline.sendSourceSnapshot(
-        sources,
-        options.secretKey,
-        options.udpAddress,
-        options.udpPort
-      );
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      app.debug(`[${instanceId}] source snapshot send failed: ${msg}`);
-    }
-  }
-
-  /**
-   * Replay every value currently in the local Signal K tree by feeding
-   * synthetic deltas through `processDelta`. The subscription manager only
-   * delivers *future* deltas, so values published into the tree before
-   * `subscribe()` ran (one-shot startup deltas, or deltas published by a
-   * co-located edge-link server-mode instance via `app.handleMessage`) would
-   * otherwise never reach the receiver. Triggered on initial subscribe
-   * success, on subscribe-retry success, and on UDP socket recovery so the
-   * receiver gets re-primed if it restarted.
-   *
-   * Returns silently if the SignalK app object doesn't expose `signalk`
-   * (older signalk-server versions or test mocks), or while the instance is
-   * not yet ready to send.
-   */
-  function replayValuesSnapshot(reason: string): void {
-    if (state.stopped || !state.readyToSend || !state.processDelta) {
-      return;
-    }
-    let snapshot: Delta[];
-    try {
-      snapshot = collectValuesSnapshot(appProxy);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      app.debug(`[${instanceId}] values snapshot collect failed (${reason}): ${msg}`);
-      return;
-    }
-    if (snapshot.length === 0) {
-      return;
-    }
-    app.debug(`[${instanceId}] Replaying ${snapshot.length} value-snapshot delta(s) (${reason})`);
-    recordSnapshotReplay(reason, snapshot.length);
-    // Chunk via setImmediate so a hundred-leaf snapshot can't fill
-    // MAX_DELTAS_BUFFER_SIZE in a single tick and force-drop concurrent
-    // live deltas. Each chunk yields to a later event-loop turn.
-    let i = 0;
-    function pumpChunk(): void {
-      if (state.stopped || !state.readyToSend || !state.processDelta) {
-        return;
-      }
-      const end = Math.min(i + SNAPSHOT_REPLAY_CHUNK_SIZE, snapshot.length);
-      try {
-        for (; i < end; i++) {
-          state.processDelta(snapshot[i]);
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        app.debug(`[${instanceId}] values snapshot replay failed (${reason}): ${msg}`);
-        return;
-      }
-      if (i < snapshot.length) {
-        setImmediate(pumpChunk);
-      }
-    }
-    pumpChunk();
-  }
-
-  function recordSnapshotReplay(reason: string, count: number): void {
-    metrics.snapshotsReplayed = metrics.snapshotsReplayed || {
-      initialSubscribe: 0,
-      subscriptionRetry: 0,
-      socketRecovery: 0,
-      fullStatusRequest: 0
-    };
-    if (reason === "initial subscribe") {
-      metrics.snapshotsReplayed.initialSubscribe++;
-    } else if (reason === "subscription retry") {
-      metrics.snapshotsReplayed.subscriptionRetry++;
-    } else if (reason === "socket recovery") {
-      metrics.snapshotsReplayed.socketRecovery++;
-    } else if (reason === "full-status-request") {
-      metrics.snapshotsReplayed.fullStatusRequest++;
-    }
-    metrics.snapshotReplayDeltas = (metrics.snapshotReplayDeltas || 0) + count;
-  }
-
-  function restartSourceSnapshotTimer(): void {
-    clearInterval(state.sourceSnapshotTimer ?? undefined);
-    state.sourceSnapshotTimer = null;
-    if ((options.protocolVersion ?? 0) < 2) {
-      return;
-    }
-    state.sourceSnapshotTimer = setInterval(() => {
-      sendSourceSnapshot().catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        app.debug(`[${instanceId}] periodic source snapshot failed: ${msg}`);
-      });
-    }, SOURCE_SNAPSHOT_INTERVAL_MS);
-  }
+  // Source/values snapshot re-priming (periodic source snapshot, values replay
+  // on subscribe/retry/recovery, and FULL_STATUS_REQUEST) lives in the L3
+  // source-snapshot service. The cascade handler is owned here (settable via
+  // the public API) and read through a getter.
+  const sourceSnapshotService = createSourceSnapshotService({
+    state,
+    options,
+    app,
+    appProxy,
+    instanceId,
+    metrics,
+    getFullStatusCascadeHandler: () => fullStatusCascadeHandler
+  });
+  const {
+    handleFullStatusRequest,
+    sendSourceSnapshot,
+    replayValuesSnapshot,
+    restartSourceSnapshotTimer
+  } = sourceSnapshotService;
 
   /** Thin wrapper around the parser in `metadata.ts` so the instance log
    *  line is tagged with this connection's instanceId. Errors from the
    *  shared parser already have the `[meta-config]` prefix. */
   function parseMetaConfig(raw: unknown): MetaConfig | null {
     return parseMetaConfigShared(raw, (msg) => app.error(msg), instanceId);
-  }
-
-  function normalizeSubscriptionConfig(config: unknown): unknown {
-    if (!config || typeof config !== "object" || Array.isArray(config)) {
-      return config;
-    }
-    const record = config as Record<string, unknown>;
-    if (!Array.isArray(record.subscribe)) {
-      return config;
-    }
-
-    const rows = record.subscribe as unknown[];
-    const wildcardRow = rows.find(
-      (row) =>
-        row &&
-        typeof row === "object" &&
-        !Array.isArray(row) &&
-        (row as Record<string, unknown>).path === "*"
-    );
-    if (wildcardRow) {
-      if (rows.length > 1) {
-        app.debug(
-          `[${instanceId}] Subscription contains path="*"; ignoring ${rows.length - 1} overlapping row(s)`
-        );
-      }
-      return { ...record, subscribe: [wildcardRow] };
-    }
-
-    const seenPaths = new Set<string>();
-    const deduped: unknown[] = [];
-    let dropped = 0;
-    for (const row of rows) {
-      if (!row || typeof row !== "object" || Array.isArray(row)) {
-        deduped.push(row);
-        continue;
-      }
-      const path = (row as Record<string, unknown>).path;
-      if (typeof path !== "string") {
-        deduped.push(row);
-        continue;
-      }
-      if (seenPaths.has(path)) {
-        dropped++;
-        continue;
-      }
-      seenPaths.add(path);
-      deduped.push(row);
-    }
-
-    if (dropped > 0) {
-      app.debug(`[${instanceId}] Removed ${dropped} duplicate subscription row(s)`);
-      return { ...record, subscribe: deduped };
-    }
-    return config;
-  }
-
-  /**
-   * Processes an incoming delta from the subscription manager.
-   * Buffers and dispatches deltas to the send pipeline.
-   *
-   * @param batch - Array of SignalK delta messages
-   */
-  async function sendDeltaBatch(batch: Delta[]): Promise<void> {
-    if (state.pipeline) {
-      await state.pipeline.sendDelta(
-        batch,
-        options.secretKey,
-        options.udpAddress ?? "",
-        options.udpPort
-      );
-    } else {
-      await getV1Pipeline().packCrypt(
-        batch,
-        options.secretKey,
-        options.udpAddress ?? "",
-        options.udpPort
-      );
-    }
-  }
-
-  function scheduleBatchRetry(batchSize: number, retryCount: number): void {
-    if (state.pendingRetry || state.stopped) {
-      return;
-    }
-
-    state.pendingRetry = setTimeout(() => {
-      state.pendingRetry = null;
-      flushDeltaBatch(batchSize, retryCount);
-    }, DELTA_SEND_RETRY_BACKOFF_MS);
-  }
-
-  async function flushDeltaBatch(
-    batchSize: number = state.deltas.length,
-    retryCount: number = 0
-  ): Promise<void> {
-    if (
-      state.batchSendInFlight ||
-      state.pendingRetry ||
-      state.stopped ||
-      !state.readyToSend ||
-      state.socketRecoveryInProgress
-    ) {
-      return;
-    }
-
-    if (!Number.isInteger(batchSize) || batchSize <= 0 || state.deltas.length === 0) {
-      state.timer = false;
-      return;
-    }
-
-    const actualBatchSize = Math.min(batchSize, state.deltas.length, state.maxDeltasPerBatch);
-    const batch = state.deltas.slice(0, actualBatchSize);
-    state.batchSendInFlight = true;
-
-    try {
-      await sendDeltaBatch(batch);
-      state.deltas.splice(0, actualBatchSize);
-      state.timer = false;
-      state.lastPacketTime = Date.now(); // suppress hello sends right after real data
-    } catch (err: unknown) {
-      const nextRetryCount = retryCount + 1;
-      app.debug(
-        `[${instanceId}] Batch send failed (attempt ${nextRetryCount}/${DELTA_SEND_MAX_RETRIES + 1}): ${err instanceof Error ? err.message : String(err)}`
-      );
-
-      if (nextRetryCount <= DELTA_SEND_MAX_RETRIES) {
-        scheduleBatchRetry(actualBatchSize, nextRetryCount);
-      } else {
-        state.deltas.splice(0, actualBatchSize);
-        state.timer = false;
-        state.droppedDeltaBatches++;
-        state.droppedDeltaCount += actualBatchSize;
-        metrics.droppedDeltaBatches = (metrics.droppedDeltaBatches || 0) + 1;
-        metrics.droppedDeltaCount = (metrics.droppedDeltaCount || 0) + actualBatchSize;
-        const dropMessage = `[${instanceId}] Dropped delta batch after ${nextRetryCount} failed attempts (${actualBatchSize} deltas)`;
-        app.error(dropMessage);
-        recordError("sendFailure", dropMessage);
-      }
-    } finally {
-      state.batchSendInFlight = false;
-      if (state.deltas.length > 0 && !state.pendingRetry && !state.stopped) {
-        setImmediate(() => {
-          flushDeltaBatch();
-        });
-      }
-    }
   }
 
   function processDelta(delta: Delta): void {
@@ -979,226 +580,25 @@ function createInstance(
 
   state.processDelta = processDelta;
 
-  function createSubscriptionDeltaHandler(subscriptionGeneration: number): (delta: Delta) => void {
-    return (delta: Delta) => {
-      if (subscriptionGeneration !== activeSubscriptionGeneration) {
-        return;
-      }
-      processDelta(delta);
-    };
-  }
-
-  const SUBSCRIPTION_RETRY_BASE_DELAY = 5000;
-  const SUBSCRIPTION_RETRY_MAX_DELAY = 300000;
-  const SUBSCRIPTION_RETRY_MAX_ATTEMPTS = 10;
-  // After the fast-retry window, keep trying at this interval indefinitely.
-  const SUBSCRIPTION_RETRY_SLOW_DELAY = 5 * 60 * 1000; // 5 minutes
-
-  /**
-   * Schedule a subscription retry with exponential backoff.
-   * After SUBSCRIPTION_RETRY_MAX_ATTEMPTS consecutive failures the backoff
-   * saturates at SUBSCRIPTION_RETRY_SLOW_DELAY and retries continue
-   * indefinitely so that a transient Signal K startup race does not leave
-   * the instance silently dead for the lifetime of the process.
-   */
-  function scheduleSubscriptionRetry(attempt: number): void {
-    // Beyond the fast-retry window, switch to a slow keep-alive retry.
-    const isSlow = attempt > SUBSCRIPTION_RETRY_MAX_ATTEMPTS;
-    if (isSlow && attempt === SUBSCRIPTION_RETRY_MAX_ATTEMPTS + 1) {
-      app.error(
-        `[${instanceId}] Subscription failed after ${SUBSCRIPTION_RETRY_MAX_ATTEMPTS} attempts — ` +
-          `switching to slow retry every ${SUBSCRIPTION_RETRY_SLOW_DELAY / 1000}s`
-      );
-      recordError(
-        "subscription",
-        `Subscription entering slow-retry mode after ${SUBSCRIPTION_RETRY_MAX_ATTEMPTS} attempts`
-      );
-    }
-
-    const delay = isSlow
-      ? SUBSCRIPTION_RETRY_SLOW_DELAY
-      : Math.min(
-          SUBSCRIPTION_RETRY_BASE_DELAY * Math.pow(2, attempt - 1),
-          SUBSCRIPTION_RETRY_MAX_DELAY
-        );
-
-    app.debug(
-      `[${instanceId}] Scheduling subscription retry (attempt ${attempt}/${SUBSCRIPTION_RETRY_MAX_ATTEMPTS}) in ${delay}ms`
-    );
-
-    // Clear any pending retry timer before scheduling a new one to prevent
-    // duplicate timers leaking when called multiple times before the first fires.
-    if (state.subscriptionRetryTimer) {
-      clearTimeout(state.subscriptionRetryTimer);
-    }
-    state.subscriptionRetryTimer = setTimeout(() => {
-      state.subscriptionRetryTimer = null;
-      if (state.stopped) {
-        return;
-      }
-      app.debug(`[${instanceId}] Retrying subscription (attempt ${attempt})...`);
-      // Tear down any partial listeners left behind by a previous failed
-      // subscribe attempt before adding new ones — same reason as the main
-      // handleSubscriptionChange path: keeping stale partial listeners in
-      // state.unsubscribes alongside a fresh subscribe() causes them to fire
-      // for every push, doubling processDelta delivery for affected paths.
-      const partialUnsubscribes = state.unsubscribes.splice(0);
-      partialUnsubscribes.forEach((f: () => void) => f());
-
-      try {
-        const subscriptionGeneration = ++activeSubscriptionGeneration;
-        state.subscribing = true;
-        try {
-          app.subscriptionmanager.subscribe(
-            state.localSubscription,
-            state.unsubscribes,
-            (retrySubError: unknown) => {
-              app.error(
-                `[${instanceId}] Subscription error (attempt ${attempt}): ${retrySubError}`
-              );
-              state.readyToSend = false;
-              _setStatus("Subscription error - data transmission paused", false);
-              recordError("subscription", `Subscription error: ${retrySubError}`);
-            },
-            createSubscriptionDeltaHandler(subscriptionGeneration)
-          );
-        } finally {
-          state.subscribing = false;
-        }
-        // Retry succeeded — perform the staged commit that the original
-        // processConfig catch block skipped. Without this, the operator's
-        // new meta block (stashed on state.pendingMetaConfig) would remain
-        // inactive even though subscribe() is now working.
-        if (state.pendingMetaConfig !== undefined) {
-          state.metaConfig = state.pendingMetaConfig;
-          state.pendingMetaConfig = undefined;
-          restartMetadataTimer();
-          metaCache.clear();
-          if (state.metaConfig?.enabled) {
-            scheduleMetadataSnapshot(2000);
-          }
-        }
-        state.readyToSend = true;
-        _setStatus("Subscription restored", true);
-        // Replay current tree state so any value that arrived in the tree
-        // while we were retrying isn't permanently lost.
-        replayValuesSnapshot("subscription retry");
-      } catch (retryError: unknown) {
-        const msg = retryError instanceof Error ? retryError.message : String(retryError);
-        app.error(`[${instanceId}] Subscription retry ${attempt} failed: ${msg}`);
-        recordError("subscription", `Subscription retry ${attempt} failed: ${msg}`);
-        scheduleSubscriptionRetry(attempt + 1);
-      }
-    }, delay);
-  }
-
-  // Subscription change handler (also wires up the main delta subscription)
-  const handleSubscriptionChange = createDebouncedConfigHandler({
-    name: "Subscription",
-    getFilePath: () => state.subscriptionFile,
-    processConfig: (config: unknown) => {
-      state.localSubscription = normalizeSubscriptionConfig(config);
-      app.debug(`[${instanceId}] Subscription configuration updated`);
-
-      // Stage the new metadata config — do NOT yet touch state.metaConfig,
-      // the periodic timer, or metaCache. If subscribe() throws, the old
-      // subscription remains active until the retry succeeds, so its
-      // previous metadata behaviour must remain intact.
-      const previousMetaConfig = state.metaConfig;
-      const pendingMetaConfig = parseMetaConfig(state.localSubscription);
-
-      // Tear down the old subscription FIRST, then establish the new one.
-      // The previous "subscribe-then-unsubscribe" ordering tried to avoid
-      // dropping any delta during the handover, but it leaves a window
-      // where BOTH the old and new subscriptions are simultaneously
-      // attached to every per-path bus in signalk-server's
-      // `streambundle.buses`. Any push that lands in that window — or any
-      // listener that the new subscribe() registers asynchronously via
-      // streambundle.keys.onValue for a path whose bus is created during
-      // the window — fires both callbacks, doubling processDelta delivery
-      // for the rest of the process lifetime.
-      //
-      // Replaying via `replayValuesSnapshot("initial subscribe")` below
-      // recovers any value that was already in the SK tree, and any
-      // genuinely live delta that lands in the brief teardown→subscribe
-      // gap will be re-emitted by its publisher within the subscription's
-      // throttle period.
-      const previousUnsubscribes = state.unsubscribes.splice(0);
-      previousUnsubscribes.forEach((f: () => void) => f());
-
-      try {
-        const subscriptionGeneration = ++activeSubscriptionGeneration;
-        state.subscribing = true;
-        try {
-          app.subscriptionmanager.subscribe(
-            state.localSubscription,
-            state.unsubscribes,
-            (subscriptionError: unknown) => {
-              app.error(`[${instanceId}] Subscription error: ${subscriptionError}`);
-              state.readyToSend = false;
-              _setStatus("Subscription error - data transmission paused", false);
-              recordError("subscription", `Subscription error: ${subscriptionError}`);
-            },
-            createSubscriptionDeltaHandler(subscriptionGeneration)
-          );
-        } finally {
-          state.subscribing = false;
-        }
-        // Commit the new metadata config AFTER a successful subscribe: swap
-        // state.metaConfig, (re)start the periodic timer, and reset the diff
-        // cache so the next snapshot represents the live state in full. We
-        // reset the cache unconditionally here because even "meta unchanged"
-        // still needs an empty cache for the new subscription's path set.
-        state.metaConfig = pendingMetaConfig;
-        restartMetadataTimer();
-        metaCache.clear();
-        // Prime the receiver's meta cache with a full snapshot once the
-        // Signal K state tree has had a moment to settle after (re)subscribe.
-        if (state.metaConfig?.enabled) {
-          scheduleMetadataSnapshot(2000);
-        }
-        // Replay every value already present in the tree. Without this,
-        // one-shot startup deltas published before subscribe() ran (e.g. by
-        // a co-located edge-link server-mode instance) never reach the
-        // receiver, since the subscription manager only delivers future
-        // events.
-        replayValuesSnapshot("initial subscribe");
-      } catch (subscribeError: unknown) {
-        // Re-subscribe failed. The old subscription was already torn down
-        // before we attempted the new subscribe(), so we cannot restore it —
-        // any partial subscriptions registered by the failed subscribe() are
-        // already in state.unsubscribes and stop() can clean them up.
-        // The retry path (scheduleSubscriptionRetry) will attempt a fresh
-        // subscribe() against state.unsubscribes; if any partial listeners
-        // exist they get added to alongside, but that's no worse than the
-        // pre-fix behaviour and avoids the more serious 2× delivery race.
-        // Leave state.metaConfig / metaCache / metaTimer untouched so the
-        // previous subscription's metadata behaviour rules are preserved
-        // pending retry.
-        void previousMetaConfig; // explicit: intentionally unchanged
-        void previousUnsubscribes; // intentionally not restored — see above
-        // Stash the new meta config on state so the scheduled retry can
-        // promote it when subscribe() finally succeeds. Otherwise the
-        // operator's new meta settings would silently sit unused until the
-        // user re-saved subscription.json.
-        state.pendingMetaConfig = pendingMetaConfig;
-        const subErrMsg =
-          subscribeError instanceof Error ? subscribeError.message : String(subscribeError);
-        app.error(`[${instanceId}] Failed to subscribe: ${subErrMsg}`);
-        state.readyToSend = false;
-        _setStatus("Failed to subscribe - data transmission paused", false);
-        recordError("subscription", `Failed to subscribe: ${subErrMsg}`);
-
-        // Retry with exponential backoff (5s, 10s, 20s, 40s … up to 300s max).
-        // Store the handle so stop() can cancel it before it fires.
-        scheduleSubscriptionRetry(1);
-      }
-    },
+  // The subscription lifecycle (normalise + (re)subscribe choreography,
+  // generation-guarded delivery, staged meta commit, and the retry loop)
+  // lives in the L3 subscription-manager service. It re-primes the receiver
+  // and (re)arms metadata streaming via injected callbacks; the active
+  // generation is owned there and invalidated from stop().
+  const subscriptionManager = createSubscriptionManager({
     state,
-    instanceId,
     app,
-    readFallback: { context: "*", subscribe: [{ path: "*" }] }
+    instanceId,
+    recordError,
+    processDelta,
+    setStatus: _setStatus,
+    metaCache,
+    parseMetaConfig,
+    restartMetadataTimer,
+    scheduleMetadataSnapshot,
+    replayValuesSnapshot
   });
+  const { handleSubscriptionChange } = subscriptionManager;
 
   const handleSentenceFilterChange = createDebouncedConfigHandler({
     name: "Sentence filter",
@@ -1429,68 +829,15 @@ function createInstance(
         typeof deltaTimerTimeFile?.deltaTimer === "number" ? deltaTimerTimeFile.deltaTimer : NaN;
       state.deltaTimerTime = Number.isFinite(rawDt) && rawDt >= 100 ? rawDt : DEFAULT_DELTA_TIMER;
 
-      const helloIntervalSeconds =
-        typeof options.helloMessageSender === "number" &&
-        Number.isFinite(options.helloMessageSender)
-          ? options.helloMessageSender
-          : 60;
       const pingIntervalMinutes =
         typeof options.pingIntervalTime === "number" && Number.isFinite(options.pingIntervalTime)
           ? options.pingIntervalTime
           : 1;
-      const helloInterval = helloIntervalSeconds * 1000;
 
-      // Clear any existing interval before creating a new one — prevents
-      // duplicate hello intervals if start() is ever called more than once.
-      // clearInterval(null | undefined) is a safe no-op, so no conditional needed.
-      clearInterval(state.helloMessageSender ?? undefined);
-      state.helloMessageSender = setInterval(async () => {
-        try {
-          const timeSinceLastPacket = Date.now() - state.lastPacketTime;
-          if (!state.readyToSend) {
-            app.debug(`[${instanceId}] Skipping hello (not ready)`);
-          } else if (timeSinceLastPacket >= helloInterval) {
-            // For v2/v3, send a real HELLO packet so the server can keep this
-            // session identified across long idle periods or NAT rebinds.
-            // sendHello populates `session.clientId` on the server, which the
-            // `peerIdentified` gate in `_ingestRemoteTelemetry` requires before
-            // telemetry is admitted. For v1 there is no HELLO frame, so we
-            // fall back to the legacy empty-delta NAT keepalive.
-            if (state.pipeline && typeof state.pipeline.sendHello === "function") {
-              app.debug(`[${instanceId}] Sending periodic v2 HELLO`);
-              await state.pipeline.sendHello(options.udpAddress ?? "", options.udpPort);
-            } else {
-              const mmsi = app.getSelfPath("mmsi") || "000000000";
-              const fixedDelta = {
-                context: "vessels.urn:mrn:imo:mmsi:" + mmsi,
-                updates: [{ timestamp: new Date().toISOString(), values: [] }]
-              };
-              app.debug(`[${instanceId}] Sending hello message`);
-              if (state.pipeline) {
-                await state.pipeline.sendDelta(
-                  [fixedDelta],
-                  options.secretKey,
-                  options.udpAddress ?? "",
-                  options.udpPort
-                );
-              } else {
-                await getV1Pipeline().packCrypt(
-                  [fixedDelta],
-                  options.secretKey,
-                  options.udpAddress ?? "",
-                  options.udpPort
-                );
-              }
-            }
-          } else {
-            app.debug(`[${instanceId}] Skipping hello (last packet ${timeSinceLastPacket}ms ago)`);
-          }
-        } catch (err: unknown) {
-          app.error(
-            `[${instanceId}] Hello message send error: ${err instanceof Error ? err.message : String(err)}`
-          );
-        }
-      }, helloInterval);
+      // The periodic hello / NAT-keepalive interval lives in the L3
+      // keepalive-manager service; its handle is tracked on
+      // state.helloMessageSender so stop() can cancel it.
+      keepaliveManager.start();
 
       state.socketUdp = socketManager.create();
       state.readyToSend = true;
@@ -1852,7 +1199,7 @@ function createInstance(
     state.unsubscribes.forEach((f: () => void) => f());
     state.unsubscribes = [];
     state.localSubscription = null;
-    activeSubscriptionGeneration++;
+    subscriptionManager.invalidateGeneration();
 
     // Reset runtime state
     state.deltas = [];
@@ -1877,8 +1224,7 @@ function createInstance(
     resetMetrics();
 
     // Clear timers
-    clearInterval(state.helloMessageSender ?? undefined);
-    state.helloMessageSender = null;
+    keepaliveManager.stop();
     clearInterval(state.metaTimer ?? undefined);
     state.metaTimer = null;
     clearInterval(state.sourceSnapshotTimer ?? undefined);
