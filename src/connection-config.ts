@@ -117,13 +117,17 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     return `${p}${error instanceof Error ? error.message : String(error)}`;
   }
 
+  // Cast to unknown to accept string aliases at the validation boundary.
+  const _rawPv: unknown = conn.protocolVersion;
   if (
-    conn.protocolVersion !== undefined &&
-    conn.protocolVersion !== 1 &&
-    conn.protocolVersion !== 2 &&
-    conn.protocolVersion !== 3
+    _rawPv !== undefined &&
+    _rawPv !== 1 &&
+    _rawPv !== 2 &&
+    _rawPv !== 3 &&
+    _rawPv !== "basic" &&
+    _rawPv !== "advanced"
   ) {
-    return `${p}protocolVersion must be 1, 2, or 3`;
+    return `${p}protocolVersion must be 1, 2, or 3 (or "basic" / "advanced")`;
   }
   if (conn.useMsgpack !== undefined && typeof conn.useMsgpack !== "boolean") {
     return `${p}useMsgpack must be a boolean`;
@@ -134,7 +138,9 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   if (conn.useCompactDeltas !== undefined && typeof conn.useCompactDeltas !== "boolean") {
     return `${p}useCompactDeltas must be a boolean`;
   }
-  const _pv = conn.protocolVersion ?? 1;
+  // Resolve string aliases before version-gated feature checks.
+  const _pv =
+    _rawPv === "basic" ? 1 : _rawPv === "advanced" ? 3 : typeof _rawPv === "number" ? _rawPv : 1;
   if (conn.useValueDedup === true && _pv < 2) {
     return `${p}useValueDedup is only supported on protocolVersion 2 or 3`;
   }
@@ -264,7 +270,7 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     // v2/v3 pipelines derive RTT from HEARTBEAT exchanges and never construct
     // a ping monitor, so the fields are required for v1 clients and must be
     // absent for v2/v3 clients to keep configs unambiguous.
-    const isLegacyV1Client = (conn.protocolVersion ?? 1) < 2;
+    const isLegacyV1Client = _pv < 2;
     if (isLegacyV1Client) {
       if (!conn.testAddress || typeof conn.testAddress !== "string") {
         return `${p}testAddress is required in v1 client mode`;
@@ -519,6 +525,15 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
     if (conn[key] !== undefined) {
       out[key] = conn[key];
     }
+  }
+
+  // Coerce string aliases ("basic"→1, "advanced"→3) before the numeric
+  // back-compat coercion below, so a stored "advanced" never passes through
+  // as the number 2 and gets silently upgraded again.
+  if (out.protocolVersion === "basic") {
+    out.protocolVersion = 1;
+  } else if (out.protocolVersion === "advanced") {
+    out.protocolVersion = 3;
   }
 
   // Config back-compat (doc 08 Q3): protocol v2 was removed from the wire. A

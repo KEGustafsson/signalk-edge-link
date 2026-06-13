@@ -5,9 +5,13 @@ const {
   validateSecretKey,
   normalizeKey,
   deriveKeyFromPassphrase,
+  createControlPacketAuthTag,
+  verifyControlPacketAuthTag,
   IV_LENGTH,
-  AUTH_TAG_LENGTH
+  AUTH_TAG_LENGTH,
+  CONTROL_AUTH_TAG_LENGTH
 } = require("../lib/crypto");
+const { DecryptError } = require("../lib/foundation/result");
 
 describe("Crypto Module", () => {
   const validSecretKey = "12345678901234567890123456789012"; // 32 characters
@@ -309,11 +313,78 @@ describe("Crypto Module", () => {
       expect(() => decryptBinary(packet, validSecretKey, { stretchAsciiKey: false })).toThrow();
     });
 
+    test("stretchAsciiKey mismatch throws DecryptError with keyMismatchHint", () => {
+      const data = Buffer.from("hello mismatch typed");
+      const packet = encryptBinary(data, validSecretKey, { stretchAsciiKey: true });
+      let caught;
+      try {
+        decryptBinary(packet, validSecretKey, { stretchAsciiKey: false });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(DecryptError);
+      expect(caught.keyMismatchHint).toBe(true);
+      expect(caught.code).toBe("DECRYPT_FAILED");
+    });
+
+    test("wrong-key decrypt throws DecryptError with keyMismatchHint", () => {
+      const data = Buffer.from("secret data");
+      const packet = encryptBinary(data, validSecretKey);
+      const wrongKey = "zY9#xW8!vU7@tS6$rQ5%pO4^nM3&lK2*";
+      let caught;
+      try {
+        decryptBinary(packet, wrongKey);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(DecryptError);
+      expect(caught.keyMismatchHint).toBe(true);
+    });
+
     test("default (no options) round-trip still works with raw ASCII bytes", () => {
       const data = Buffer.from("hello legacy");
       const packet = encryptBinary(data, validSecretKey);
       const decrypted = decryptBinary(packet, validSecretKey);
       expect(decrypted.equals(data)).toBe(true);
+    });
+  });
+
+  describe("verifyControlPacketAuthTag DecryptError", () => {
+    const header = Buffer.alloc(13, 0xab);
+    const payload = Buffer.from("control payload");
+
+    test("wrong auth tag throws DecryptError with keyMismatchHint", () => {
+      const tag = createControlPacketAuthTag(header, payload, validSecretKey);
+      // Flip the first byte to invalidate it
+      const badTag = Buffer.from(tag);
+      badTag[0] ^= 0xff;
+      let caught;
+      try {
+        verifyControlPacketAuthTag(header, payload, badTag, validSecretKey);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(DecryptError);
+      expect(caught.keyMismatchHint).toBe(true);
+      expect(caught.code).toBe("DECRYPT_FAILED");
+    });
+
+    test("wrong key throws DecryptError with keyMismatchHint", () => {
+      const tag = createControlPacketAuthTag(header, payload, validSecretKey);
+      const wrongKey = "zY9#xW8!vU7@tS6$rQ5%pO4^nM3&lK2*";
+      let caught;
+      try {
+        verifyControlPacketAuthTag(header, payload, tag, wrongKey);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(DecryptError);
+      expect(caught.keyMismatchHint).toBe(true);
+    });
+
+    test("correct auth tag returns true", () => {
+      const tag = createControlPacketAuthTag(header, payload, validSecretKey);
+      expect(verifyControlPacketAuthTag(header, payload, tag, validSecretKey)).toBe(true);
     });
   });
 });

@@ -494,7 +494,9 @@ describe("pipeline-v2-server", () => {
     await pipeline.receivePacket(forgedHeartbeat, secretKey, { address: "127.0.0.1", port: 12003 });
 
     expect(app.error).toHaveBeenCalledWith(
-      "v2 authentication failed: packet tampered or wrong key"
+      expect.stringMatching(
+        /v2 decryption\/authentication failed.*Control packet authentication failed/
+      )
     );
   });
 });
