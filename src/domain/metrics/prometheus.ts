@@ -9,7 +9,7 @@
  * @module domain/metrics/prometheus
  */
 
-import type { Metrics, InstanceState } from "../../types";
+import type { Metrics, InstanceState } from "../../foundation/types";
 import type { ManagementAuthSnapshot } from "../../routes/types";
 
 interface PrometheusOpts {
@@ -299,6 +299,7 @@ export function formatPrometheusMetrics(
   return lines.join("\n");
 }
 
+/** Formats management-auth counters as a separate Prometheus block; kept isolated from formatPrometheusMetrics so routes that don't expose the management API can omit it from scrape output without mutating the shared metricMeta set. */
 export function formatManagementAuthPrometheusMetrics(
   snapshot: ManagementAuthSnapshot,
   opts: PrometheusOpts = {}
@@ -344,10 +345,12 @@ export function formatLabels(labels: Record<string, string>): string {
   return `{${parts.join(",")}}`;
 }
 
+/** Escape a Prometheus label value per the exposition format spec (backslash, newline, double-quote). */
 export function escapeLabelValue(value: unknown): string {
   return String(value).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/"/g, '\\"');
 }
 
+/** Replace non-alphanumeric/underscore characters in a metric name segment with underscores. */
 export function sanitizeMetricNameComponent(name: unknown): string {
   const replaced = String(name).replace(/[^a-zA-Z0-9_]/g, "_");
   return replaced.length > 0 ? replaced : "unknown";

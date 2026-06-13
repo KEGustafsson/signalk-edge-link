@@ -10,8 +10,9 @@
  */
 
 import CircularBuffer = require("../../CircularBuffer");
-import type { SignalKApp } from "../../types";
+import type { SignalKApp } from "../../foundation/types";
 
+/** Collects RTT, jitter, and packet-loss samples and publishes link-quality metrics to Signal K paths. */
 class MetricsPublisher {
   app: SignalKApp;
   config: Record<string, unknown>;

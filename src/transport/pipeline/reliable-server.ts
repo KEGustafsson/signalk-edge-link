@@ -17,18 +17,24 @@
 import { promisify } from "util";
 import zlib from "node:zlib";
 import * as msgpack from "@msgpack/msgpack";
-import { decryptBinary } from "../../crypto";
-import { decodeDelta, decodeMetaEntry } from "../../pathDictionary";
-import { sanitizeDeltaForSignalK } from "../../delta-sanitizer";
-import { createValueDedupState, undedupDelta, type ValueDedupState } from "../../value-dedup";
-import { isCompactDeltaArray, decodeCompactDeltaArray } from "../../compact-delta";
-import { handleMessageBySource, normalizeDeltaSourceRefs } from "../../source-dispatch";
-import { mergeSourceSnapshot } from "../../source-snapshot";
-import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "../../packet";
+import { decryptBinary } from "../../codec/crypto";
+import { decodeDelta, decodeMetaEntry } from "../../codec/path-dictionary";
+import { sanitizeDeltaForSignalK } from "../../codec/delta-sanitizer";
+import { createValueDedupState, undedupDelta, type ValueDedupState } from "../../codec/value-dedup";
+import { isCompactDeltaArray, decodeCompactDeltaArray } from "../../codec/compact-delta";
+import { handleMessageBySource, normalizeDeltaSourceRefs } from "../../codec/source-dispatch";
+import { mergeSourceSnapshot } from "../../codec/source-snapshot";
+import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "../../codec/packet-codec";
 import * as dgram from "dgram";
 import { SequenceTracker } from "../reliability/sequence";
-import { MetricsPublisher } from "../../metrics-publisher";
-import type { SignalKApp, MetricsApi, InstanceState, Delta, DeltaValue } from "../../types";
+import { MetricsPublisher } from "../../domain/metrics/publisher";
+import type {
+  SignalKApp,
+  MetricsApi,
+  InstanceState,
+  Delta,
+  DeltaValue
+} from "../../foundation/types";
 
 import {
   MAX_DECOMPRESSED_SIZE,

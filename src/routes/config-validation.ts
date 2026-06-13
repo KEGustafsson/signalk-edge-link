@@ -1,4 +1,4 @@
-import { isLikelyUnsafePathFilter } from "../metadata";
+import { isLikelyUnsafePathFilter } from "../codec/metadata-codec";
 
 /** Upper bound on meta.includePathsMatching length. Same constant as the
  *  metadata runtime — mirrored here so the validator rejects patterns at
@@ -6,6 +6,7 @@ import { isLikelyUnsafePathFilter } from "../metadata";
  *  allow-all. */
 const META_FILTER_MAX_LENGTH = 256;
 
+/** Validates a runtime-config file body at save time; catches invalid values before they reach the running plugin, avoiding a reload that would otherwise silently fall back to allow-all behaviour (e.g. for oversized path-filter patterns). */
 function validateRuntimeConfigBody(filename: string, body: Record<string, unknown>): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return "Request body must be a JSON object";

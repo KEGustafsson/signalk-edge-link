@@ -22,15 +22,22 @@
  * @module domain/source-snapshot-service
  */
 
-import type { SignalKApp, ConnectionConfig, InstanceState, MetricsApi, Delta } from "../types";
+import type {
+  SignalKApp,
+  ConnectionConfig,
+  InstanceState,
+  MetricsApi,
+  Delta
+} from "../foundation/types";
 import { SNAPSHOT_REPLAY_CHUNK_SIZE, SOURCE_SNAPSHOT_INTERVAL_MS } from "../constants";
-import { collectSourceSnapshot } from "../source-snapshot";
-import { collectValuesSnapshot } from "../values-snapshot";
+import { collectSourceSnapshot } from "../codec/source-snapshot";
+import { collectValuesSnapshot } from "../codec/values-snapshot";
 
 /** Minimum gap between server-initiated full-status replays. Prevents a
  *  restarting or misconfigured server from flooding the link. */
 const FULL_STATUS_REQUEST_RATE_LIMIT_MS = 10000;
 
+/** Injected dependencies for `createSourceSnapshotService`. */
 export interface SourceSnapshotServiceDeps {
   state: InstanceState;
   options: ConnectionConfig;
@@ -43,6 +50,7 @@ export interface SourceSnapshotServiceDeps {
   getFullStatusCascadeHandler: () => (() => void) | null;
 }
 
+/** Public API returned by `createSourceSnapshotService`. */
 export interface SourceSnapshotService {
   handleFullStatusRequest(): void;
   sendSourceSnapshot(): Promise<void>;
@@ -50,6 +58,7 @@ export interface SourceSnapshotService {
   restartSourceSnapshotTimer(): void;
 }
 
+/** Creates the service that re-seeds the server with the full Signal K tree on reconnect; handles rate-limiting of replay floods and the FULL_STATUS_REQUEST control-packet lifecycle. */
 export function createSourceSnapshotService(
   deps: SourceSnapshotServiceDeps
 ): SourceSnapshotService {

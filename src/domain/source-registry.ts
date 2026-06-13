@@ -28,15 +28,17 @@ import type {
   SourceReplicationRecord,
   SourceRegistryMetrics,
   SourceRegistrySnapshot
-} from "../types";
+} from "../foundation/types";
 import { SOURCE_REGISTRY_MAX_RECORDS, SOURCE_REGISTRY_TTL_MS } from "../constants";
 
+/** Wire schema version for source-replication snapshots. Bump on breaking changes. */
 export const SOURCE_REPLICATION_SCHEMA_VERSION = 1;
+/** Source registry record, metrics, and snapshot types re-exported for consumer convenience. */
 export type {
   SourceReplicationRecord,
   SourceRegistryMetrics,
   SourceRegistrySnapshot
-} from "../types";
+} from "../foundation/types";
 
 function normalizeText(value: unknown): string | undefined {
   if (typeof value !== "string") {
@@ -175,6 +177,7 @@ function chooseValue(
   return incomingTs >= currentTs ? incoming : current;
 }
 
+/** Create a per-process LRU+TTL source identity registry, keyed by source-ref or identity hash. */
 export function createSourceRegistry(app: { debug: (msg: string) => void }) {
   // Insertion-order Map doubles as an LRU: refresh() moves an entry to the
   // tail (delete + set), evict() drops from the head.

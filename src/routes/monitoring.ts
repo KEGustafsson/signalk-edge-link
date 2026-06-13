@@ -1,6 +1,6 @@
 import { findConnectionIndexByInstanceId } from "../connection-config";
 import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
-import type { ConnectionConfig } from "../types";
+import type { ConnectionConfig } from "../foundation/types";
 
 /**
  * Registers monitoring and capture routes:

@@ -3,7 +3,7 @@
 import createRoutes = require("./routes");
 import { createConnectionManager } from "./app/connection-manager";
 import { buildPluginSchema } from "./app/config/schema";
-import type { SignalKApp } from "./types";
+import type { SignalKApp } from "./foundation/types";
 import type { Router } from "./routes/types";
 
 const pkg = require("../package.json");

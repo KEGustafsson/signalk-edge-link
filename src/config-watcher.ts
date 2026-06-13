@@ -19,7 +19,7 @@ import {
   CONTENT_HASH_ALGORITHM,
   WATCHER_RECOVERY_DELAY
 } from "./constants";
-import type { SignalKApp } from "./types";
+import type { SignalKApp } from "./foundation/types";
 
 const { readFile, writeFile, mkdir } = fsPromises;
 
@@ -63,6 +63,7 @@ export interface DebouncedConfigHandler {
   flush(): Promise<void>;
 }
 
+/** Creates a config-file watcher whose reload calls are promise-serialised so a burst of file-change events cannot silently drop a reload if one is already in flight. */
 export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): DebouncedConfigHandler {
   const { name, getFilePath, processConfig, state, instanceId, app, readFallback } = opts;
 

@@ -10,7 +10,7 @@
  * @module lib/packet-capture
  */
 
-import { HEADER_SIZE, getTypeName } from "../../packet";
+import { HEADER_SIZE, getTypeName } from "../../codec/packet-codec";
 import { PACKET_CAPTURE_MAX_PACKETS, PACKET_INSPECTOR_MAX_CLIENTS } from "../../constants";
 
 // ── PCAP Format Constants ──
@@ -203,6 +203,7 @@ interface WsClient {
   close(): void;
 }
 
+/** Broadcasts decoded packet summaries to connected WebSocket clients; auto-enables on first connection and auto-disables when the last client disconnects so the inspect path has zero overhead when unused. */
 class PacketInspector {
   maxClients: number;
   clients: Set<WsClient>;

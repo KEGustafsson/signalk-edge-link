@@ -19,7 +19,7 @@
  * @module domain/keepalive-manager
  */
 
-import type { SignalKApp, ConnectionConfig, InstanceState, Delta } from "../types";
+import type { SignalKApp, ConnectionConfig, InstanceState, Delta } from "../foundation/types";
 
 /** Default hello interval (seconds) when none is configured. */
 const DEFAULT_HELLO_INTERVAL_SECONDS = 60;
@@ -34,6 +34,7 @@ interface V1PipelineLike {
   ): Promise<void>;
 }
 
+/** Injected dependencies for `createKeepaliveManager`. */
 export interface KeepaliveManagerDeps {
   state: InstanceState;
   options: ConnectionConfig;
@@ -42,6 +43,7 @@ export interface KeepaliveManagerDeps {
   getV1Pipeline: () => V1PipelineLike;
 }
 
+/** Public API returned by `createKeepaliveManager`. */
 export interface KeepaliveManager {
   /** (Re)start the periodic hello/keepalive interval. */
   start(): void;
@@ -49,6 +51,7 @@ export interface KeepaliveManager {
   stop(): void;
 }
 
+/** Create the periodic hello / NAT-keepalive interval manager. */
 export function createKeepaliveManager(deps: KeepaliveManagerDeps): KeepaliveManager {
   const { state, options, app, instanceId, getV1Pipeline } = deps;
 

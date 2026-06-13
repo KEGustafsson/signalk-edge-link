@@ -12,10 +12,10 @@
 
 import dgram from "dgram";
 import { UdpSocketManager } from "../transport/udp-socket-manager";
-import { validateSecretKey } from "../crypto";
+import { validateSecretKey } from "../codec/crypto";
 import Monitor from "ping-monitor";
-import createMetrics from "../metrics";
-import { createSourceRegistry } from "../source-replication";
+import createMetrics from "../domain/metrics/registry";
+import { createSourceRegistry } from "../domain/source-registry";
 import { createDeltaBatcher } from "../domain/delta-batcher";
 import { createMetadataStreamer } from "../domain/metadata-streamer";
 import { createSourceSnapshotService } from "../domain/source-snapshot-service";
@@ -26,8 +26,8 @@ import {
   PathLatencyTracker,
   RetransmissionTracker,
   AlertManager
-} from "../monitoring";
-import { PacketCapture, PacketInspector } from "../packet-capture";
+} from "../domain/monitoring";
+import { PacketCapture, PacketInspector } from "../domain/monitoring/packet-capture";
 import {
   DEFAULT_DELTA_TIMER,
   MAX_DELTAS_BUFFER_SIZE,
@@ -52,14 +52,14 @@ import type {
   MetricsApi,
   Delta,
   MetaConfig
-} from "../types";
+} from "../foundation/types";
 import {
   MetaCache,
   extractLiveMeta,
   parseMetaConfig as parseMetaConfigShared,
   resolveSelfContext
-} from "../metadata";
-import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "../delta-sanitizer";
+} from "../codec/metadata-codec";
+import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "../codec/delta-sanitizer";
 import { Lifecycle } from "./lifecycle";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -303,7 +303,7 @@ export function createConnection(
   let v1Pipeline: V1PipelineLike | null = null;
   function getV1Pipeline(): V1PipelineLike {
     if (!v1Pipeline) {
-      const createPipelineV1 = require("../pipeline");
+      const createPipelineV1 = require("../transport/pipeline/v1");
       v1Pipeline = createPipelineV1(app, state, metricsApi) as V1PipelineLike;
     }
     return v1Pipeline;
@@ -644,7 +644,7 @@ export function createConnection(
 
     const useReliable = (options.protocolVersion ?? 0) >= 2;
     if (useReliable) {
-      const { createPipelineV2Server } = require("../pipeline-v2-server");
+      const { createPipelineV2Server } = require("../transport/pipeline/reliable-server");
       const srv = createPipelineV2Server(appProxy, state, metricsApi);
       state.pipelineServer = srv;
       state.socketUdp.on("message", (pkt: Buffer, rinfo: dgram.RemoteInfo) => {
@@ -762,7 +762,7 @@ export function createConnection(
       };
       app.debug(`[${instanceId}] [v3] Enhanced monitoring initialized`);
 
-      const { createPipelineV2Client } = require("../pipeline-v2-client");
+      const { createPipelineV2Client } = require("../transport/pipeline/reliable-client");
       const v2 = createPipelineV2Client(appProxy, state, metricsApi);
       state.pipeline = v2;
       v2.setMonitoring(state.monitoring);

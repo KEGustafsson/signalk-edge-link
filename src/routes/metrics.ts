@@ -1,4 +1,7 @@
-import { formatManagementAuthPrometheusMetrics, formatPrometheusMetrics } from "../prometheus";
+import {
+  formatManagementAuthPrometheusMetrics,
+  formatPrometheusMetrics
+} from "../domain/metrics/prometheus";
 import { RouteRequest, RouteResponse, Router, RouteContext } from "./types";
 
 /**

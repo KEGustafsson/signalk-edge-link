@@ -15,7 +15,7 @@ import type {
   InstanceState,
   ClientPipelineApi,
   ServerPipelineApi
-} from "../../types";
+} from "../../foundation/types";
 
 /**
  * Create pipeline instance based on protocol version and mode

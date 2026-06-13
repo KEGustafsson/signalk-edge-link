@@ -7,7 +7,7 @@ import {
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch
 } from "../../constants";
-import type { Metrics, MetricsApi, Delta } from "../../types";
+import type { Metrics, MetricsApi, Delta } from "../../foundation/types";
 
 interface PathStat {
   count: number;

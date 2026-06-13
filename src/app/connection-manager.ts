@@ -13,7 +13,7 @@
 import { createConnection, slugify } from "./connection";
 import type { ConnectionApi } from "./connection";
 import { validateConnectionConfig, sanitizeConnectionConfig } from "../connection-config";
-import type { SignalKApp, ConnectionConfig, InstanceState, MetricsApi } from "../types";
+import type { SignalKApp, ConnectionConfig, InstanceState, MetricsApi } from "../foundation/types";
 import type { InstanceRegistry } from "../foundation/types/instance";
 
 export type { ConnectionApi };

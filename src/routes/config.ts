@@ -1,8 +1,8 @@
 "use strict";
 
-import { getAllPaths, PATH_CATEGORIES } from "../pathDictionary";
+import { getAllPaths, PATH_CATEGORIES } from "../codec/path-dictionary";
 import { RouteRequest, RouteResponse, Router, RouteContext, RouteHandler } from "./types";
-import type { ConnectionConfig } from "../types";
+import type { ConnectionConfig } from "../foundation/types";
 import {
   validateConnectionConfig,
   sanitizeConnectionConfig,
