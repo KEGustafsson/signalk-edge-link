@@ -13,6 +13,7 @@
  * @module app/lifecycle
  */
 
+/** Discriminated union of all valid connection lifecycle states. */
 export type LifecycleState =
   | "Created"
   | "Starting"
@@ -30,6 +31,11 @@ const VALID_TRANSITIONS: Record<LifecycleState, LifecycleState[]> = {
   Stopped: ["Starting"]
 };
 
+/**
+ * Finite state machine that tracks the lifecycle of a single connection.
+ *
+ * States: Created → Starting → Ready ⇄ Recovering → Stopping → Stopped
+ */
 export class Lifecycle {
   private _state: LifecycleState = "Created";
   private _invalidCount = 0;

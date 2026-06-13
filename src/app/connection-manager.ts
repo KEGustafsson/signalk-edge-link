@@ -18,12 +18,14 @@ import type { InstanceRegistry } from "../foundation/types/instance";
 
 export type { ConnectionApi };
 
+/** Constructor arguments for `createConnectionManager`. */
 export interface ConnectionManagerOptions {
   app: SignalKApp;
   pluginId: string;
   setStatus: (msg: string) => void;
 }
 
+/** Manages the full set of running connections for the plugin lifetime. */
 export interface ConnectionManager {
   /** Start all connections from the given options payload. */
   start(options: Record<string, unknown>): Promise<void>;
