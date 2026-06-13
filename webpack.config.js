@@ -11,7 +11,7 @@ module.exports = (env, argv) => {
 
   return {
     // IMPORTANT: webapp is the runtime entry
-    entry: "./src/webapp/index.ts",
+    entry: "./src/webapp/main.tsx",
 
     mode: isProduction ? "production" : "development",
 
