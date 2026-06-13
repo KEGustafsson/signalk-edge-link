@@ -22,6 +22,7 @@ import createMetrics from "./metrics";
 import { createSourceRegistry } from "./source-replication";
 import { createDeltaBatcher } from "./domain/delta-batcher";
 import { createMetadataStreamer } from "./domain/metadata-streamer";
+import { createSourceSnapshotService } from "./domain/source-snapshot-service";
 import createPipeline from "./pipeline";
 import { createPipelineV2Client } from "./pipeline-v2-client";
 import { createPipelineV2Server } from "./pipeline-v2-server";
@@ -43,9 +44,7 @@ import {
   OUTBOUND_DUPLICATE_SUPPRESS_MS,
   SUPPRESSED_DUPLICATE_STATS_MAX_SIZE,
   OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS,
-  OUTBOUND_DEDUPE_MAX_ENTRIES,
-  SOURCE_SNAPSHOT_INTERVAL_MS,
-  SNAPSHOT_REPLAY_CHUNK_SIZE
+  OUTBOUND_DEDUPE_MAX_ENTRIES
 } from "./constants";
 import { loadConfigFile, loadConfigFileSafe } from "./config-io";
 import {
@@ -68,8 +67,6 @@ import {
   resolveSelfContext
 } from "./metadata";
 import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "./delta-sanitizer";
-import { collectSourceSnapshot } from "./source-snapshot";
-import { collectValuesSnapshot } from "./values-snapshot";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -453,143 +450,25 @@ function createInstance(
    */
   let fullStatusCascadeHandler: (() => void) | null = null;
 
-  /** Server asked for a full values snapshot (FULL_STATUS_REQUEST control
-   *  packet). Replays the entire current Signal K tree to the server.
-   *  Rate-limited to prevent replay floods across rapid server restarts. */
-  function handleFullStatusRequest(): void {
-    const now = Date.now();
-    if (now - state.lastFullStatusRequestAt < FULL_STATUS_REQUEST_RATE_LIMIT_MS) {
-      app.debug(`[${instanceId}] FULL_STATUS_REQUEST rate-limited, skipping`);
-      return;
-    }
-    state.lastFullStatusRequestAt = now;
-    app.debug(`[${instanceId}] FULL_STATUS_REQUEST received — replaying values snapshot`);
-    replayValuesSnapshot("full-status-request");
-    if (fullStatusCascadeHandler) {
-      app.debug(`[${instanceId}] FULL_STATUS_REQUEST cascading to downstream clients`);
-      metrics.fullStatusCascadeFired = (metrics.fullStatusCascadeFired || 0) + 1;
-      fullStatusCascadeHandler();
-    }
-  }
-
-  async function sendSourceSnapshot(): Promise<void> {
-    if (
-      state.stopped ||
-      !state.readyToSend ||
-      !state.pipeline ||
-      typeof state.pipeline.sendSourceSnapshot !== "function" ||
-      !options.secretKey ||
-      !options.udpAddress
-    ) {
-      return;
-    }
-
-    const sources = collectSourceSnapshot(appProxy);
-    if (!sources || Object.keys(sources).length === 0) {
-      return;
-    }
-
-    try {
-      await state.pipeline.sendSourceSnapshot(
-        sources,
-        options.secretKey,
-        options.udpAddress,
-        options.udpPort
-      );
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      app.debug(`[${instanceId}] source snapshot send failed: ${msg}`);
-    }
-  }
-
-  /**
-   * Replay every value currently in the local Signal K tree by feeding
-   * synthetic deltas through `processDelta`. The subscription manager only
-   * delivers *future* deltas, so values published into the tree before
-   * `subscribe()` ran (one-shot startup deltas, or deltas published by a
-   * co-located edge-link server-mode instance via `app.handleMessage`) would
-   * otherwise never reach the receiver. Triggered on initial subscribe
-   * success, on subscribe-retry success, and on UDP socket recovery so the
-   * receiver gets re-primed if it restarted.
-   *
-   * Returns silently if the SignalK app object doesn't expose `signalk`
-   * (older signalk-server versions or test mocks), or while the instance is
-   * not yet ready to send.
-   */
-  function replayValuesSnapshot(reason: string): void {
-    if (state.stopped || !state.readyToSend || !state.processDelta) {
-      return;
-    }
-    let snapshot: Delta[];
-    try {
-      snapshot = collectValuesSnapshot(appProxy);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      app.debug(`[${instanceId}] values snapshot collect failed (${reason}): ${msg}`);
-      return;
-    }
-    if (snapshot.length === 0) {
-      return;
-    }
-    app.debug(`[${instanceId}] Replaying ${snapshot.length} value-snapshot delta(s) (${reason})`);
-    recordSnapshotReplay(reason, snapshot.length);
-    // Chunk via setImmediate so a hundred-leaf snapshot can't fill
-    // MAX_DELTAS_BUFFER_SIZE in a single tick and force-drop concurrent
-    // live deltas. Each chunk yields to a later event-loop turn.
-    let i = 0;
-    function pumpChunk(): void {
-      if (state.stopped || !state.readyToSend || !state.processDelta) {
-        return;
-      }
-      const end = Math.min(i + SNAPSHOT_REPLAY_CHUNK_SIZE, snapshot.length);
-      try {
-        for (; i < end; i++) {
-          state.processDelta(snapshot[i]);
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        app.debug(`[${instanceId}] values snapshot replay failed (${reason}): ${msg}`);
-        return;
-      }
-      if (i < snapshot.length) {
-        setImmediate(pumpChunk);
-      }
-    }
-    pumpChunk();
-  }
-
-  function recordSnapshotReplay(reason: string, count: number): void {
-    metrics.snapshotsReplayed = metrics.snapshotsReplayed || {
-      initialSubscribe: 0,
-      subscriptionRetry: 0,
-      socketRecovery: 0,
-      fullStatusRequest: 0
-    };
-    if (reason === "initial subscribe") {
-      metrics.snapshotsReplayed.initialSubscribe++;
-    } else if (reason === "subscription retry") {
-      metrics.snapshotsReplayed.subscriptionRetry++;
-    } else if (reason === "socket recovery") {
-      metrics.snapshotsReplayed.socketRecovery++;
-    } else if (reason === "full-status-request") {
-      metrics.snapshotsReplayed.fullStatusRequest++;
-    }
-    metrics.snapshotReplayDeltas = (metrics.snapshotReplayDeltas || 0) + count;
-  }
-
-  function restartSourceSnapshotTimer(): void {
-    clearInterval(state.sourceSnapshotTimer ?? undefined);
-    state.sourceSnapshotTimer = null;
-    if ((options.protocolVersion ?? 0) < 2) {
-      return;
-    }
-    state.sourceSnapshotTimer = setInterval(() => {
-      sendSourceSnapshot().catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        app.debug(`[${instanceId}] periodic source snapshot failed: ${msg}`);
-      });
-    }, SOURCE_SNAPSHOT_INTERVAL_MS);
-  }
+  // Source/values snapshot re-priming (periodic source snapshot, values replay
+  // on subscribe/retry/recovery, and FULL_STATUS_REQUEST) lives in the L3
+  // source-snapshot service. The cascade handler is owned here (settable via
+  // the public API) and read through a getter.
+  const sourceSnapshotService = createSourceSnapshotService({
+    state,
+    options,
+    app,
+    appProxy,
+    instanceId,
+    metrics,
+    getFullStatusCascadeHandler: () => fullStatusCascadeHandler
+  });
+  const {
+    handleFullStatusRequest,
+    sendSourceSnapshot,
+    replayValuesSnapshot,
+    restartSourceSnapshotTimer
+  } = sourceSnapshotService;
 
   /** Thin wrapper around the parser in `metadata.ts` so the instance log
    *  line is tagged with this connection's instanceId. Errors from the
