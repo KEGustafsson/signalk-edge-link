@@ -20,6 +20,7 @@ import { validateSecretKey } from "./crypto";
 import Monitor from "ping-monitor";
 import createMetrics from "./metrics";
 import { createSourceRegistry } from "./source-replication";
+import { createDeltaBatcher } from "./domain/delta-batcher";
 import createPipeline from "./pipeline";
 import { createPipelineV2Client } from "./pipeline-v2-client";
 import { createPipelineV2Server } from "./pipeline-v2-server";
@@ -43,8 +44,6 @@ import {
   OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS,
   OUTBOUND_DEDUPE_MAX_ENTRIES,
   SOURCE_SNAPSHOT_INTERVAL_MS,
-  DELTA_SEND_MAX_RETRIES,
-  DELTA_SEND_RETRY_BACKOFF_MS,
   SNAPSHOT_REPLAY_CHUNK_SIZE
 } from "./constants";
 import { loadConfigFile, loadConfigFileSafe } from "./config-io";
@@ -357,17 +356,19 @@ function createInstance(
     }
   }
 
-  // ── Delta timer ───────────────────────────────────────────────────────────
-  function scheduleDeltaTimer(): void {
-    clearTimeout(state.deltaTimer ?? undefined);
-    state.deltaTimer = setTimeout(() => {
-      if (state.stopped) {
-        return;
-      }
-      state.timer = true;
-      scheduleDeltaTimer();
-    }, state.deltaTimerTime);
-  }
+  // ── Delta timer + outbound batch send loop ────────────────────────────────
+  // The flush state machine and its timer live in the L3 delta-batcher service;
+  // instance.ts is just the producer (processDelta enqueues, then flushes).
+  const deltaBatcher = createDeltaBatcher({
+    state,
+    metrics,
+    app,
+    options,
+    instanceId,
+    recordError,
+    getV1Pipeline
+  });
+  const { scheduleDeltaTimer, flushDeltaBatch } = deltaBatcher;
 
   // ── Config file debounced watchers ────────────────────────────────────────
   const handleDeltaTimerChange = createDebouncedConfigHandler({
@@ -792,98 +793,6 @@ function createInstance(
       return { ...record, subscribe: deduped };
     }
     return config;
-  }
-
-  /**
-   * Processes an incoming delta from the subscription manager.
-   * Buffers and dispatches deltas to the send pipeline.
-   *
-   * @param batch - Array of SignalK delta messages
-   */
-  async function sendDeltaBatch(batch: Delta[]): Promise<void> {
-    if (state.pipeline) {
-      await state.pipeline.sendDelta(
-        batch,
-        options.secretKey,
-        options.udpAddress ?? "",
-        options.udpPort
-      );
-    } else {
-      await getV1Pipeline().packCrypt(
-        batch,
-        options.secretKey,
-        options.udpAddress ?? "",
-        options.udpPort
-      );
-    }
-  }
-
-  function scheduleBatchRetry(batchSize: number, retryCount: number): void {
-    if (state.pendingRetry || state.stopped) {
-      return;
-    }
-
-    state.pendingRetry = setTimeout(() => {
-      state.pendingRetry = null;
-      flushDeltaBatch(batchSize, retryCount);
-    }, DELTA_SEND_RETRY_BACKOFF_MS);
-  }
-
-  async function flushDeltaBatch(
-    batchSize: number = state.deltas.length,
-    retryCount: number = 0
-  ): Promise<void> {
-    if (
-      state.batchSendInFlight ||
-      state.pendingRetry ||
-      state.stopped ||
-      !state.readyToSend ||
-      state.socketRecoveryInProgress
-    ) {
-      return;
-    }
-
-    if (!Number.isInteger(batchSize) || batchSize <= 0 || state.deltas.length === 0) {
-      state.timer = false;
-      return;
-    }
-
-    const actualBatchSize = Math.min(batchSize, state.deltas.length, state.maxDeltasPerBatch);
-    const batch = state.deltas.slice(0, actualBatchSize);
-    state.batchSendInFlight = true;
-
-    try {
-      await sendDeltaBatch(batch);
-      state.deltas.splice(0, actualBatchSize);
-      state.timer = false;
-      state.lastPacketTime = Date.now(); // suppress hello sends right after real data
-    } catch (err: unknown) {
-      const nextRetryCount = retryCount + 1;
-      app.debug(
-        `[${instanceId}] Batch send failed (attempt ${nextRetryCount}/${DELTA_SEND_MAX_RETRIES + 1}): ${err instanceof Error ? err.message : String(err)}`
-      );
-
-      if (nextRetryCount <= DELTA_SEND_MAX_RETRIES) {
-        scheduleBatchRetry(actualBatchSize, nextRetryCount);
-      } else {
-        state.deltas.splice(0, actualBatchSize);
-        state.timer = false;
-        state.droppedDeltaBatches++;
-        state.droppedDeltaCount += actualBatchSize;
-        metrics.droppedDeltaBatches = (metrics.droppedDeltaBatches || 0) + 1;
-        metrics.droppedDeltaCount = (metrics.droppedDeltaCount || 0) + actualBatchSize;
-        const dropMessage = `[${instanceId}] Dropped delta batch after ${nextRetryCount} failed attempts (${actualBatchSize} deltas)`;
-        app.error(dropMessage);
-        recordError("sendFailure", dropMessage);
-      }
-    } finally {
-      state.batchSendInFlight = false;
-      if (state.deltas.length > 0 && !state.pendingRetry && !state.stopped) {
-        setImmediate(() => {
-          flushDeltaBatch();
-        });
-      }
-    }
   }
 
   function processDelta(delta: Delta): void {
