@@ -8,8 +8,7 @@ const {
   createControlPacketAuthTag,
   verifyControlPacketAuthTag,
   IV_LENGTH,
-  AUTH_TAG_LENGTH,
-  CONTROL_AUTH_TAG_LENGTH
+  AUTH_TAG_LENGTH
 } = require("../lib/crypto");
 const { DecryptError } = require("../lib/foundation/result");
 
