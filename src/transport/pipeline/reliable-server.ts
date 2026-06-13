@@ -18,6 +18,7 @@ import { promisify } from "util";
 import zlib from "node:zlib";
 import * as msgpack from "@msgpack/msgpack";
 import { decryptBinary } from "../../codec/crypto";
+import { DecryptError } from "../../foundation/result";
 import { decodeDelta, decodeMetaEntry } from "../../codec/path-dictionary";
 import { sanitizeDeltaForSignalK } from "../../codec/delta-sanitizer";
 import { createValueDedupState, undedupDelta, type ValueDedupState } from "../../codec/value-dedup";
@@ -867,9 +868,17 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
-      app.error(`v2 handleMetadataPacket error: ${msg}`);
-      recordError("general", `v2 META decode error: ${msg}`);
+      if (err instanceof DecryptError) {
+        const hint = err.keyMismatchHint
+          ? " (possible stretchAsciiKey or key-format mismatch between peers)"
+          : "";
+        app.error(`v2 META decryption/authentication failed${hint}: ${msg}`);
+        recordError("encryption", `v2 META decryption/authentication failed${hint}`);
+      } else {
+        metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+        app.error(`v2 handleMetadataPacket error: ${msg}`);
+        recordError("general", `v2 META decode error: ${msg}`);
+      }
     }
   }
 
@@ -1320,7 +1329,13 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       );
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes("Unsupported state") || msg.includes("auth")) {
+      if (error instanceof DecryptError) {
+        const hint = error.keyMismatchHint
+          ? " (possible stretchAsciiKey or key-format mismatch between peers)"
+          : "";
+        app.error(`v2 decryption/authentication failed${hint}: ${msg}`);
+        recordError("encryption", `v2 decryption/authentication failed${hint}`);
+      } else if (msg.includes("Unsupported state") || msg.includes("auth")) {
         app.error("v2 authentication failed: packet tampered or wrong key");
         recordError("encryption", "v2 authentication failed");
       } else if (msg.includes("decrypt")) {

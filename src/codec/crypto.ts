@@ -2,6 +2,7 @@
 
 import * as crypto from "crypto";
 import { PBKDF2_ITERATIONS } from "../foundation/crypto-constants";
+import { DecryptError } from "../foundation/result";
 
 // Use AES-256-GCM for authenticated encryption (encryption + authentication in one)
 const ALGORITHM = "aes-256-gcm";
@@ -213,8 +214,17 @@ export const decryptBinary = (
   const decipher = crypto.createDecipheriv(ALGORITHM, keyBuffer, iv) as crypto.DecipherGCM;
   decipher.setAuthTag(authTag);
 
-  // This will throw if authentication fails (tampered data)
-  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  try {
+    return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  } catch (err: unknown) {
+    // GCM auth tag failure: the most likely cause is a stretchAsciiKey
+    // disagreement between peers (one side stretched, the other did not),
+    // making the derived AES key differ while the key string stays the same.
+    throw new DecryptError(
+      `AES-GCM authentication failed: ${err instanceof Error ? err.message : String(err)}`,
+      { keyMismatchHint: true }
+    );
+  }
 };
 
 /**
@@ -348,7 +358,7 @@ export function verifyControlPacketAuthTag(
 
   const expected = createControlPacketAuthTag(headerData, payload, secretKey, options);
   if (!crypto.timingSafeEqual(expected, authTag)) {
-    throw new Error("Control packet authentication failed");
+    throw new DecryptError("Control packet authentication failed", { keyMismatchHint: true });
   }
 
   return true;

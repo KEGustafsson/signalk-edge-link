@@ -166,12 +166,11 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     type: "number",
     title: "Protocol Version",
     description:
-      "v1: encrypted UDP. v2 adds reliable delivery and metrics. v3 keeps the v2 data path and authenticates control packets (ACK/NAK/HEARTBEAT/HELLO). Must match on both ends.",
+      'Basic (v1): encrypted UDP. Advanced (v3): adds reliable delivery, bonding, metrics, and authenticated control packets. String aliases "basic" and "advanced" are accepted in config files. Must match on both ends.',
     default: 1,
     oneOf: [
-      { const: 1, title: "v1 – Standard encrypted UDP" },
-      { const: 2, title: "v2 – Reliability, congestion control, bonding, metrics" },
-      { const: 3, title: "v3 - v2 features with authenticated control packets" }
+      { const: 1, title: "Basic – Standard encrypted UDP (v1)" },
+      { const: 3, title: "Advanced – Reliability, bonding, authenticated control (v3)" }
     ]
   }
 };

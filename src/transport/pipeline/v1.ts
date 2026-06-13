@@ -2,6 +2,7 @@
 
 import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary, decryptBinary } from "../../codec/crypto";
+import { DecryptError } from "../../foundation/result";
 import { encodeDelta, decodeDelta } from "../../codec/path-dictionary";
 import {
   createPathThrottleState,
@@ -315,7 +316,13 @@ function createPipeline(
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       const code = (error as NodeJS.ErrnoException)?.code ?? "";
-      if (
+      if (error instanceof DecryptError) {
+        const hint = error.keyMismatchHint
+          ? " (possible stretchAsciiKey or key-format mismatch between peers)"
+          : "";
+        app.error(`Decryption/authentication failed${hint}: ${msg}`);
+        recordError("encryption", `Decryption/authentication failed${hint}`);
+      } else if (
         msg.includes("Unsupported state") ||
         msg.includes("auth") ||
         code === "ERR_CRYPTO_INVALID_STATE"

@@ -604,3 +604,76 @@ describe("normalizeServerType", () => {
     expect(normalizeServerType("server")).toBe("server");
   });
 });
+
+// Phase 6 — protocolVersion string aliases
+describe("protocolVersion string aliases", () => {
+  const base = {
+    serverType: "client",
+    udpPort: 4567,
+    udpAddress: "192.168.1.1",
+    secretKey: "aB3$dEf7gH9!jKlMnO1pQrStUvWxYz0#"
+  };
+
+  describe("validateConnectionConfig", () => {
+    // "basic" resolves to v1 which requires testAddress/testPort on client mode
+    const v1Extras = { testAddress: "192.168.1.1", testPort: 80 };
+
+    test('"basic" is accepted', () => {
+      expect(
+        validateConnectionConfig({ ...base, ...v1Extras, protocolVersion: "basic" })
+      ).toBeNull();
+    });
+
+    test('"advanced" is accepted', () => {
+      expect(validateConnectionConfig({ ...base, protocolVersion: "advanced" })).toBeNull();
+    });
+
+    test("unknown string is rejected", () => {
+      const err = validateConnectionConfig({ ...base, protocolVersion: "v3" });
+      expect(err).toMatch(/protocolVersion must be/);
+    });
+
+    test('"basic" blocks useValueDedup (v1 feature)', () => {
+      const err = validateConnectionConfig({
+        ...base,
+        ...v1Extras,
+        protocolVersion: "basic",
+        useValueDedup: true
+      });
+      expect(err).toMatch(/useValueDedup is only supported on protocolVersion 2 or 3/);
+    });
+
+    test('"advanced" allows useValueDedup', () => {
+      expect(
+        validateConnectionConfig({ ...base, protocolVersion: "advanced", useValueDedup: true })
+      ).toBeNull();
+    });
+  });
+
+  describe("sanitizeConnectionConfig", () => {
+    test('"basic" is coerced to 1', () => {
+      const out = sanitizeConnectionConfig({ ...base, protocolVersion: "basic" });
+      expect(out.protocolVersion).toBe(1);
+    });
+
+    test('"advanced" is coerced to 3', () => {
+      const out = sanitizeConnectionConfig({ ...base, protocolVersion: "advanced" });
+      expect(out.protocolVersion).toBe(3);
+    });
+
+    test("numeric 2 is still coerced to 3", () => {
+      const out = sanitizeConnectionConfig({ ...base, protocolVersion: 2 });
+      expect(out.protocolVersion).toBe(3);
+    });
+
+    test("numeric 1 is preserved", () => {
+      const out = sanitizeConnectionConfig({ ...base, protocolVersion: 1 });
+      expect(out.protocolVersion).toBe(1);
+    });
+
+    test("numeric 3 is preserved", () => {
+      const out = sanitizeConnectionConfig({ ...base, protocolVersion: 3 });
+      expect(out.protocolVersion).toBe(3);
+    });
+  });
+});
