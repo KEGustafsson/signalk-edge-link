@@ -37,12 +37,12 @@ if (!fs.existsSync(LIB)) {
 }
 
 const mods = {
-  crypto: require("../lib/crypto"),
-  packet: require("../lib/packet"),
-  compactDelta: require("../lib/compact-delta"),
-  valueDedup: require("../lib/value-dedup"),
-  pathDict: require("../lib/pathDictionary"),
-  metadata: require("../lib/metadata")
+  crypto: require("../lib/codec/crypto"),
+  packet: require("../lib/codec/packet-codec"),
+  compactDelta: require("../lib/codec/compact-delta"),
+  valueDedup: require("../lib/codec/value-dedup"),
+  pathDict: require("../lib/codec/path-dictionary"),
+  metadata: require("../lib/codec/metadata-codec")
 };
 
 const vectorsDir = path.join(__dirname, "vectors");
