@@ -21,7 +21,7 @@ jest.mock(
   { virtual: true }
 );
 
-const { slugify } = require("../lib/instance");
+const { slugify } = require("../lib/app/connection");
 
 // ── slugify ───────────────────────────────────────────────────────────────
 

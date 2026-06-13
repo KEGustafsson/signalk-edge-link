@@ -33,7 +33,7 @@ jest.mock("ping-monitor", () =>
 );
 
 const path = require("path");
-const { createInstance } = require("../lib/instance");
+const { createConnection: createInstance } = require("../lib/app/connection");
 
 function makeMockApp() {
   return {

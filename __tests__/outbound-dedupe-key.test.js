@@ -18,7 +18,7 @@
 
 jest.mock("ping-monitor", () => jest.fn().mockImplementation(() => ({})));
 
-const { buildOutboundDedupeKey } = require("../lib/instance");
+const { buildOutboundDedupeKey } = require("../lib/app/connection");
 
 function makeDelta(overrides = {}) {
   return {

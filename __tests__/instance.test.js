@@ -1,7 +1,8 @@
 "use strict";
 
 /**
- * Tests for lib/instance.js – instance factory isolation and lifecycle
+ * Tests for app/connection – connection factory isolation and lifecycle
+ * (Ported from the old lib/instance.js God Object; now targets the L4 app layer.)
  */
 
 // Mock external packages not available in the test environment
@@ -26,7 +27,7 @@ jest.mock("ping-monitor", () =>
   })
 );
 
-const { createInstance, slugify } = require("../lib/instance");
+const { createConnection: createInstance, slugify } = require("../lib/app/connection");
 const path = require("path");
 const EventEmitter = require("events");
 const dgram = require("dgram");
