@@ -23,6 +23,7 @@ import { createSourceRegistry } from "./source-replication";
 import { createDeltaBatcher } from "./domain/delta-batcher";
 import { createMetadataStreamer } from "./domain/metadata-streamer";
 import { createSourceSnapshotService } from "./domain/source-snapshot-service";
+import { createKeepaliveManager } from "./domain/keepalive-manager";
 import createPipeline from "./pipeline";
 import { createPipelineV2Client } from "./pipeline-v2-client";
 import { createPipelineV2Server } from "./pipeline-v2-server";
@@ -365,6 +366,15 @@ function createInstance(
     getV1Pipeline
   });
   const { scheduleDeltaTimer, flushDeltaBatch } = deltaBatcher;
+
+  // Periodic hello / NAT-keepalive (L3 service); handle tracked on state.
+  const keepaliveManager = createKeepaliveManager({
+    state,
+    options,
+    app,
+    instanceId,
+    getV1Pipeline
+  });
 
   // ── Config file debounced watchers ────────────────────────────────────────
   const handleDeltaTimerChange = createDebouncedConfigHandler({
@@ -1074,68 +1084,15 @@ function createInstance(
         typeof deltaTimerTimeFile?.deltaTimer === "number" ? deltaTimerTimeFile.deltaTimer : NaN;
       state.deltaTimerTime = Number.isFinite(rawDt) && rawDt >= 100 ? rawDt : DEFAULT_DELTA_TIMER;
 
-      const helloIntervalSeconds =
-        typeof options.helloMessageSender === "number" &&
-        Number.isFinite(options.helloMessageSender)
-          ? options.helloMessageSender
-          : 60;
       const pingIntervalMinutes =
         typeof options.pingIntervalTime === "number" && Number.isFinite(options.pingIntervalTime)
           ? options.pingIntervalTime
           : 1;
-      const helloInterval = helloIntervalSeconds * 1000;
 
-      // Clear any existing interval before creating a new one — prevents
-      // duplicate hello intervals if start() is ever called more than once.
-      // clearInterval(null | undefined) is a safe no-op, so no conditional needed.
-      clearInterval(state.helloMessageSender ?? undefined);
-      state.helloMessageSender = setInterval(async () => {
-        try {
-          const timeSinceLastPacket = Date.now() - state.lastPacketTime;
-          if (!state.readyToSend) {
-            app.debug(`[${instanceId}] Skipping hello (not ready)`);
-          } else if (timeSinceLastPacket >= helloInterval) {
-            // For v2/v3, send a real HELLO packet so the server can keep this
-            // session identified across long idle periods or NAT rebinds.
-            // sendHello populates `session.clientId` on the server, which the
-            // `peerIdentified` gate in `_ingestRemoteTelemetry` requires before
-            // telemetry is admitted. For v1 there is no HELLO frame, so we
-            // fall back to the legacy empty-delta NAT keepalive.
-            if (state.pipeline && typeof state.pipeline.sendHello === "function") {
-              app.debug(`[${instanceId}] Sending periodic v2 HELLO`);
-              await state.pipeline.sendHello(options.udpAddress ?? "", options.udpPort);
-            } else {
-              const mmsi = app.getSelfPath("mmsi") || "000000000";
-              const fixedDelta = {
-                context: "vessels.urn:mrn:imo:mmsi:" + mmsi,
-                updates: [{ timestamp: new Date().toISOString(), values: [] }]
-              };
-              app.debug(`[${instanceId}] Sending hello message`);
-              if (state.pipeline) {
-                await state.pipeline.sendDelta(
-                  [fixedDelta],
-                  options.secretKey,
-                  options.udpAddress ?? "",
-                  options.udpPort
-                );
-              } else {
-                await getV1Pipeline().packCrypt(
-                  [fixedDelta],
-                  options.secretKey,
-                  options.udpAddress ?? "",
-                  options.udpPort
-                );
-              }
-            }
-          } else {
-            app.debug(`[${instanceId}] Skipping hello (last packet ${timeSinceLastPacket}ms ago)`);
-          }
-        } catch (err: unknown) {
-          app.error(
-            `[${instanceId}] Hello message send error: ${err instanceof Error ? err.message : String(err)}`
-          );
-        }
-      }, helloInterval);
+      // The periodic hello / NAT-keepalive interval lives in the L3
+      // keepalive-manager service; its handle is tracked on
+      // state.helloMessageSender so stop() can cancel it.
+      keepaliveManager.start();
 
       state.socketUdp = socketManager.create();
       state.readyToSend = true;
@@ -1522,8 +1479,7 @@ function createInstance(
     resetMetrics();
 
     // Clear timers
-    clearInterval(state.helloMessageSender ?? undefined);
-    state.helloMessageSender = null;
+    keepaliveManager.stop();
     clearInterval(state.metaTimer ?? undefined);
     state.metaTimer = null;
     clearInterval(state.sourceSnapshotTimer ?? undefined);
