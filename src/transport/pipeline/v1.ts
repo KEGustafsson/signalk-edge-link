@@ -1,22 +1,18 @@
 "use strict";
 
 import * as msgpack from "@msgpack/msgpack";
-import { encryptBinary, decryptBinary } from "../../crypto";
-import { encodeDelta, decodeDelta } from "../../pathDictionary";
+import { encryptBinary, decryptBinary } from "../../codec/crypto";
+import { encodeDelta, decodeDelta } from "../../codec/path-dictionary";
 import {
   createPathThrottleState,
   filterDeltaPayload,
   quantizeDelta,
   sanitizeDeltaForSignalK,
   throttleDelta
-} from "../../delta-sanitizer";
-import { handleMessageBySource, normalizeDeltaSourceRefs } from "../../source-dispatch";
-import {
-  deltaBuffer,
-  compressPayload,
-  brotliDecompressAsync,
-  udpSendAsync as _udpSendAsyncShared
-} from "../../pipeline-utils";
+} from "../../codec/delta-sanitizer";
+import { handleMessageBySource, normalizeDeltaSourceRefs } from "../../codec/source-dispatch";
+import { deltaBuffer, compressPayload, brotliDecompressAsync } from "../../codec/compression";
+import { udpSendAsync as _udpSendAsyncShared } from "../udp-socket-manager";
 import {
   MAX_SAFE_UDP_PAYLOAD,
   MAX_DECOMPRESSED_SIZE,
@@ -26,7 +22,7 @@ import {
   calculateMaxDeltasPerBatch,
   clampBytesPerDeltaSample
 } from "../../constants";
-import type { SignalKApp, MetricsApi, InstanceState, Delta } from "../../types";
+import type { SignalKApp, MetricsApi, InstanceState, Delta } from "../../foundation/types";
 
 /**
  * Creates the data processing pipeline (compress, encrypt, send / receive, decrypt, decompress).

@@ -1,13 +1,13 @@
 "use strict";
 
-import { validateSecretKey } from "./crypto";
+import { validateSecretKey } from "./codec/crypto";
 import type {
   ConnectionConfig,
   BondingConfig,
   CongestionControlConfig,
   ReliabilityConfig,
   AlertThresholds
-} from "./types";
+} from "./foundation/types";
 
 export const VALID_CONNECTION_KEYS: string[] = [
   "connectionId",

@@ -19,7 +19,7 @@ import {
   CONTENT_HASH_ALGORITHM,
   WATCHER_RECOVERY_DELAY
 } from "./constants";
-import type { SignalKApp } from "./types";
+import type { SignalKApp } from "./foundation/types";
 
 const { readFile, writeFile, mkdir } = fsPromises;
 

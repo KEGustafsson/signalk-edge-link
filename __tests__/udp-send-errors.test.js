@@ -17,7 +17,7 @@
  */
 
 const dgram = require("dgram");
-const { udpSendAsync } = require("../lib/pipeline-utils");
+const { udpSendAsync } = require("../lib/transport/udp-socket-manager");
 
 function makeFakeSocket({ errorCode = null, neverCallback = false } = {}) {
   return {

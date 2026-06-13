@@ -303,7 +303,7 @@ export function createConnection(
   let v1Pipeline: V1PipelineLike | null = null;
   function getV1Pipeline(): V1PipelineLike {
     if (!v1Pipeline) {
-      const createPipelineV1 = require("../pipeline");
+      const createPipelineV1 = require("../transport/pipeline/v1");
       v1Pipeline = createPipelineV1(app, state, metricsApi) as V1PipelineLike;
     }
     return v1Pipeline;
@@ -644,7 +644,7 @@ export function createConnection(
 
     const useReliable = (options.protocolVersion ?? 0) >= 2;
     if (useReliable) {
-      const { createPipelineV2Server } = require("../pipeline-v2-server");
+      const { createPipelineV2Server } = require("../transport/pipeline/reliable-server");
       const srv = createPipelineV2Server(appProxy, state, metricsApi);
       state.pipelineServer = srv;
       state.socketUdp.on("message", (pkt: Buffer, rinfo: dgram.RemoteInfo) => {
@@ -762,7 +762,7 @@ export function createConnection(
       };
       app.debug(`[${instanceId}] [v3] Enhanced monitoring initialized`);
 
-      const { createPipelineV2Client } = require("../pipeline-v2-client");
+      const { createPipelineV2Client } = require("../transport/pipeline/reliable-client");
       const v2 = createPipelineV2Client(appProxy, state, metricsApi);
       state.pipeline = v2;
       v2.setMonitoring(state.monitoring);

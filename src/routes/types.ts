@@ -19,7 +19,7 @@ import type {
   PluginRef,
   EffectiveNetworkQuality,
   PathStatEntry
-} from "../types";
+} from "../foundation/types";
 
 /** Subset of express.Request properties used by route handlers. */
 export interface RouteRequest {

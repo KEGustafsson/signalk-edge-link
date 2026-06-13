@@ -2,7 +2,7 @@
 
 import crypto from "node:crypto";
 
-import { PATH_CATEGORIES } from "./pathDictionary";
+import { PATH_CATEGORIES } from "./codec/path-dictionary";
 import { RATE_LIMIT_WINDOW, RATE_LIMIT_MAX_REQUESTS } from "./constants";
 import {
   loadConfigFile as loadConfigFileShared,
@@ -17,7 +17,7 @@ import type {
   PluginRef,
   EffectiveNetworkQuality,
   PathStatEntry
-} from "./types";
+} from "./foundation/types";
 import type { RouteRequest, RouteResponse, NextFn, RouteHandler, Router } from "./routes/types";
 
 type ManagementAuthDecision = "allowed" | "denied";

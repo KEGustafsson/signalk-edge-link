@@ -15,8 +15,8 @@
 
 import CircularBuffer from "../../CircularBuffer";
 import * as msgpack from "@msgpack/msgpack";
-import { encryptBinary } from "../../crypto";
-import { encodeDelta, encodeMetaEntry } from "../../pathDictionary";
+import { encryptBinary } from "../../codec/crypto";
+import { encodeDelta, encodeMetaEntry } from "../../codec/path-dictionary";
 import {
   createPathThrottleState,
   filterDeltaPayload,
@@ -24,20 +24,17 @@ import {
   sanitizeDeltaPayloadForSignalK,
   throttleDeltaPayload,
   type DeltaPayload
-} from "../../delta-sanitizer";
-import { createValueDedupState, dedupDeltaPayload } from "../../value-dedup";
-import { encodeCompactPayload } from "../../compact-delta";
-import {
-  deltaBuffer,
-  compressPayload,
-  udpSendAsync as _udpSendAsyncShared
-} from "../../pipeline-utils";
-import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "../../packet";
+} from "../../codec/delta-sanitizer";
+import { createValueDedupState, dedupDeltaPayload } from "../../codec/value-dedup";
+import { encodeCompactPayload } from "../../codec/compact-delta";
+import { deltaBuffer, compressPayload } from "../../codec/compression";
+import { udpSendAsync as _udpSendAsyncShared } from "../udp-socket-manager";
+import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "../../codec/packet-codec";
 import { RetransmitQueue } from "../reliability/retransmit-queue";
-import { MetricsPublisher } from "../../metrics-publisher";
+import { MetricsPublisher } from "../../domain/metrics/publisher";
 import { CongestionControl } from "../congestion";
-import { BondingManager } from "../../bonding";
-import { splitIntoPackets, buildMetaEnvelope } from "../../metadata";
+import { BondingManager } from "../../domain/bonding";
+import { splitIntoPackets, buildMetaEnvelope } from "../../codec/metadata-codec";
 import type {
   SignalKApp,
   MetricsApi,
@@ -46,7 +43,7 @@ import type {
   MonitoringState,
   MetaEntry,
   SourceSnapshotEnvelope
-} from "../../types";
+} from "../../foundation/types";
 import * as dgram from "dgram";
 import {
   MAX_SAFE_UDP_PAYLOAD,
