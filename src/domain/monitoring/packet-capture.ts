@@ -203,7 +203,7 @@ interface WsClient {
   close(): void;
 }
 
-/** Live packet inspector that streams decoded packet summaries to connected WebSocket clients. */
+/** Broadcasts decoded packet summaries to connected WebSocket clients; auto-enables on first connection and auto-disables when the last client disconnects so the inspect path has zero overhead when unused. */
 class PacketInspector {
   maxClients: number;
   clients: Set<WsClient>;

@@ -299,7 +299,7 @@ export function formatPrometheusMetrics(
   return lines.join("\n");
 }
 
-/** Format management-auth request counters as Prometheus metric lines. */
+/** Formats management-auth counters as a separate Prometheus block; kept isolated from formatPrometheusMetrics so routes that don't expose the management API can omit it from scrape output without mutating the shared metricMeta set. */
 export function formatManagementAuthPrometheusMetrics(
   snapshot: ManagementAuthSnapshot,
   opts: PrometheusOpts = {}

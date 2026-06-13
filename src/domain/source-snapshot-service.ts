@@ -58,7 +58,7 @@ export interface SourceSnapshotService {
   restartSourceSnapshotTimer(): void;
 }
 
-/** Create the source/values snapshot service (full replay, source snapshot, FULL_STATUS_REQUEST). */
+/** Creates the service that re-seeds the server with the full Signal K tree on reconnect; handles rate-limiting of replay floods and the FULL_STATUS_REQUEST control-packet lifecycle. */
 export function createSourceSnapshotService(
   deps: SourceSnapshotServiceDeps
 ): SourceSnapshotService {

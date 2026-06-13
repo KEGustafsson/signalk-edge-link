@@ -79,7 +79,7 @@ export function normalizeServerType(serverType: unknown): string | undefined {
   return serverType as string | undefined;
 }
 
-/** Validate a raw connection config object; returns an error string on failure, or null on success. */
+/** Returns the first structural violation as a human-readable string, or null when the config is valid; called at save time and before activation so the error surface is consistent. */
 export function validateConnectionConfig(connection: unknown, prefix = ""): string | null {
   if (!connection || typeof connection !== "object" || Array.isArray(connection)) {
     return `${prefix || "connection"} must be an object`;
@@ -506,7 +506,7 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   return null;
 }
 
-/** Strip unknown keys, apply defaults, and coerce legacy values to produce a clean ConnectionConfig. */
+/** Normalises a persisted config entry — strips unknown keys, fills in defaults, and rewrites legacy field names — so the rest of the runtime can assume a canonical ConnectionConfig shape without defensive checks. */
 export function sanitizeConnectionConfig(connection: unknown): Partial<ConnectionConfig> {
   if (!connection || typeof connection !== "object") {
     return {};

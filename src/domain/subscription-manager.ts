@@ -55,7 +55,7 @@ export interface SubscriptionManager {
   invalidateGeneration(): void;
 }
 
-/** Create the Signal K subscription lifecycle manager (subscribe, retry, delta delivery). */
+/** Creates the subscription lifecycle manager; the returned generation counter lets in-flight delta handlers bail out immediately when the subscription is torn down without waiting for all async handlers to drain. */
 export function createSubscriptionManager(deps: SubscriptionManagerDeps): SubscriptionManager {
   const {
     state,
