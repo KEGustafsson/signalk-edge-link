@@ -24,7 +24,7 @@ describe("useConnections", () => {
     (apiFetch as jest.Mock).mockResolvedValue({
       status: 200,
       ok: true,
-      json: async () => mockConnections
+      json: () => Promise.resolve(mockConnections)
     });
 
     const { result } = renderHook(() => useConnections());
@@ -45,12 +45,12 @@ describe("useConnections", () => {
       .mockResolvedValueOnce({
         status: 200,
         ok: true,
-        json: async () => [{ id: "c1", name: "Link 1", type: "client" }]
+        json: () => Promise.resolve([{ id: "c1", name: "Link 1", type: "client" }])
       })
       .mockResolvedValueOnce({
         status: 200,
         ok: true,
-        json: async () => mockConnections
+        json: () => Promise.resolve(mockConnections)
       });
 
     const { result } = renderHook(() => useConnections());

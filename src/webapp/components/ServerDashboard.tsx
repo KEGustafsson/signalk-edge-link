@@ -29,7 +29,7 @@ export function ServerDashboard({
   onNotify,
   onPluginConfigSaved
 }: Props) {
-  const hasV3Data = (metrics?.protocolVersion ?? 1) >= 2 && monitoring;
+  const hasV3Data = (metrics?.protocolVersion ?? 1) >= 2;
 
   return (
     <>
@@ -45,7 +45,7 @@ export function ServerDashboard({
               <NetworkQualityCard metrics={metrics} />
               <BandwidthCard metrics={metrics} />
               <PathAnalyticsCard metrics={metrics} />
-              <MonitoringAlertsCard data={monitoring} />
+              {monitoring && <MonitoringAlertsCard data={monitoring} />}
             </>
           )}
         </div>

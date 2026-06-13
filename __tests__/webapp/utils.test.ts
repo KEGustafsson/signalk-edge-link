@@ -3,13 +3,19 @@ import {
   formatRatioPercent,
   formatTimestampAge,
   metricsPath,
-  configPath
+  configPath,
+  monitoringPath
 } from "../../src/webapp/utils";
 
 describe("formatBytes", () => {
   test("returns '0 B' for zero or negative", () => {
     expect(formatBytes(0)).toBe("0 B");
     expect(formatBytes(-1)).toBe("0 B");
+  });
+
+  test("returns '0 B' for non-finite values", () => {
+    expect(formatBytes(Infinity)).toBe("0 B");
+    expect(formatBytes(NaN)).toBe("0 B");
   });
 
   test("formats bytes", () => {
@@ -68,6 +74,18 @@ describe("API path helpers", () => {
   test("configPath encodes connId", () => {
     expect(configPath("my conn", "delta_timer.json")).toBe(
       "/plugins/signalk-edge-link/connections/my%20conn/config/delta_timer.json"
+    );
+  });
+
+  test("configPath encodes filename", () => {
+    expect(configPath("my conn", "a/b?.json")).toBe(
+      "/plugins/signalk-edge-link/connections/my%20conn/config/a%2Fb%3F.json"
+    );
+  });
+
+  test("monitoringPath encodes sub", () => {
+    expect(monitoringPath("my conn", "latency/avg")).toBe(
+      "/plugins/signalk-edge-link/connections/my%20conn/monitoring/latency%2Favg"
     );
   });
 });

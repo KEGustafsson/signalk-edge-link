@@ -18,6 +18,7 @@ export function ConnectionTabs({ connections, activeId, onSelect }: Props) {
             c.healthy === false ? "error" : c.readyToSend || c.type === "server" ? "ok" : "warning";
           return (
             <button
+              type="button"
               key={c.id}
               className={`connection-tab${c.id === activeId ? " active" : ""}`}
               onClick={() => onSelect(c.id)}

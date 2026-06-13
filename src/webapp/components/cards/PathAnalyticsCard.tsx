@@ -70,7 +70,7 @@ export function PathAnalyticsCard({ metrics }: Props) {
                     <div className="percentage-bar-container">
                       <div
                         className="percentage-bar"
-                        style={{ width: `${Math.max(p.percentage, 2)}%` }}
+                        style={{ width: `${Math.min(100, Math.max(p.percentage, 2))}%` }}
                       />
                       <span className="percentage-text">{p.percentage}%</span>
                     </div>

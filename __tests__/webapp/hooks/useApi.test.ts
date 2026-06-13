@@ -4,7 +4,6 @@
 import { renderHook, act } from "@testing-library/react";
 import { useApi } from "../../../src/webapp/hooks/useApi";
 
-// Mock apiFetch
 jest.mock("../../../src/webapp/utils/apiFetch", () => ({
   apiFetch: jest.fn(),
   getTokenHelpText: () => "token help",

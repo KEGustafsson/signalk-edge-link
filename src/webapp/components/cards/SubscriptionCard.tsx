@@ -49,7 +49,12 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { request, authMessage } = useApi();
 
-  // Sync form → JSON textarea whenever structured fields change
+  useEffect(() => {
+    return () => {
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     const cfg = buildJson(
       context,
@@ -62,7 +67,6 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
     setJsonText(JSON.stringify(cfg, null, 2));
   }, [context, paths, metaEnabled, metaIntervalSec, metaPathsRegex, metaMaxPerPacket]);
 
-  // Reset form when config prop is loaded/changed from server
   useEffect(() => {
     if (!config) return;
     setContext(config.context ?? "*");
@@ -108,6 +112,18 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
       );
       if (!cfg.context) throw new Error("Context is required");
       if (!Array.isArray(cfg.subscribe)) throw new Error("Subscribe array is required");
+      if (metaEnabled) {
+        if (!Number.isFinite(metaIntervalSec) || metaIntervalSec < 30 || metaIntervalSec > 86400) {
+          throw new Error("Snapshot interval must be between 30 and 86400 seconds");
+        }
+        if (
+          !Number.isFinite(metaMaxPerPacket) ||
+          metaMaxPerPacket < 10 ||
+          metaMaxPerPacket > 5000
+        ) {
+          throw new Error("Max paths per packet must be between 10 and 5000");
+        }
+      }
 
       const res = await request(configPath(connId, "subscription.json"), {
         method: "POST",

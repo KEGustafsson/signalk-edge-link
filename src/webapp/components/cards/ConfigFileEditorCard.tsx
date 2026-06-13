@@ -45,13 +45,17 @@ export function ConfigFileEditorCard({
       const result = await res.json().catch(() => ({}) as Record<string, unknown>);
       if (!res.ok || !result.success) {
         throw new Error(
-          String(result.error) || `Failed to save plugin configuration (${res.status})`
+          result.error
+            ? String(result.error)
+            : `Failed to save plugin configuration (${res.status})`
         );
       }
 
       onConfigSaved(parsed);
       onNotify(
-        String(result.message) || "Plugin configuration saved. Refresh to apply changes.",
+        result.message
+          ? String(result.message)
+          : "Plugin configuration saved. Refresh to apply changes.",
         "success"
       );
     } catch (err: unknown) {
@@ -89,7 +93,6 @@ export function ConfigFileEditorCard({
     }
   };
 
-  // Build summary info from the active connection config
   const summaryConfig =
     pluginConfig &&
     Array.isArray(pluginConfig.connections) &&
@@ -155,7 +158,11 @@ export function ConfigFileEditorCard({
           id="loadDefaultPluginConfig"
           className="btn btn-secondary"
           onClick={() => {
-            setJsonText(JSON.stringify({}, null, 2));
+            const defaults =
+              pluginSchema && typeof pluginSchema === "object" && !Array.isArray(pluginSchema)
+                ? pluginSchema
+                : {};
+            setJsonText(JSON.stringify(defaults, null, 2));
             onNotify("Loaded schema defaults into editor. Save to apply.", "warning");
           }}
         >

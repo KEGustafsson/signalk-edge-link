@@ -14,13 +14,13 @@ jest.mock("../../src/webapp/utils/apiFetch", () => ({
 const { apiFetch } = require("../../src/webapp/utils/apiFetch");
 
 function mockOkJson(data: unknown) {
-  return { status: 200, ok: true, json: async () => data };
+  return { status: 200, ok: true, json: () => Promise.resolve(data) };
 }
 
 describe("App", () => {
   beforeEach(() => jest.clearAllMocks());
 
-  test("renders header", async () => {
+  test("renders header", () => {
     (apiFetch as jest.Mock).mockResolvedValue({ status: 200, ok: false });
     render(<App />);
     expect(screen.getByText("SignalK Edge Link")).toBeInTheDocument();

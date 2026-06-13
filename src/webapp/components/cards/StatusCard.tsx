@@ -24,7 +24,7 @@ export function StatusCard({ deltaTimer, subscription, sentenceFilter }: Props) 
           </div>
         )}
 
-        {subscription?.subscribe ? (
+        {subscription?.subscribe && subscription.subscribe.length > 0 ? (
           <>
             <div className="status-item">
               <strong>Subscriptions:</strong> {subscription.subscribe.length} path(s) configured

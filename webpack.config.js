@@ -10,7 +10,6 @@ module.exports = (env, argv) => {
   const isProduction = argv.mode === "production";
 
   return {
-    // IMPORTANT: webapp is the runtime entry
     entry: "./src/webapp/main.tsx",
 
     mode: isProduction ? "production" : "development",

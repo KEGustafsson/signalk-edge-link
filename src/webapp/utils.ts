@@ -4,7 +4,7 @@ export const DELTA_TIMER_MIN = 100;
 export const DELTA_TIMER_MAX = 10000;
 
 export function formatBytes(bytes: number): string {
-  if (!bytes || bytes <= 0) return "0 B";
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
@@ -32,15 +32,17 @@ export function metricsPath(connId: string): string {
 }
 
 export function configPath(connId: string, filename: string): string {
+  const safeFilename = encodeURIComponent(filename);
   return connId === "_legacy"
-    ? `${API_BASE}/config/${filename}`
-    : `${API_BASE}/connections/${encodeURIComponent(connId)}/config/${filename}`;
+    ? `${API_BASE}/config/${safeFilename}`
+    : `${API_BASE}/connections/${encodeURIComponent(connId)}/config/${safeFilename}`;
 }
 
 export function monitoringPath(connId: string, sub: string): string {
+  const safeSub = encodeURIComponent(sub);
   return connId === "_legacy"
-    ? `${API_BASE}/monitoring/${sub}`
-    : `${API_BASE}/connections/${encodeURIComponent(connId)}/monitoring/${sub}`;
+    ? `${API_BASE}/monitoring/${safeSub}`
+    : `${API_BASE}/connections/${encodeURIComponent(connId)}/monitoring/${safeSub}`;
 }
 
 export function congestionPath(connId: string): string {

@@ -23,19 +23,20 @@ export function App() {
   const [notification, setNotification] = useState<NotificationState | null>(null);
   const { request, authMessage } = useApi();
 
-  // Set initial active connection once connections are loaded
   useEffect(() => {
-    if (connections.length > 0 && !activeId) {
+    if (connections.length === 0) {
+      setActiveId(null);
+      return;
+    }
+    if (!activeId || !connections.some((c) => c.id === activeId)) {
       setActiveId(connections[0].id);
     }
   }, [connections, activeId]);
 
-  // Reset metrics when switching connections
   useEffect(() => {
     setMetrics(null);
   }, [activeId]);
 
-  // Load plugin config on mount
   useEffect(() => {
     const load = async () => {
       try {
@@ -62,7 +63,7 @@ export function App() {
         }
       } catch (err: unknown) {
         const e = err as ApiError;
-        if (!e.isUnauthorized) return; // skip auth errors silently on initial load
+        if (!e.isUnauthorized) return;
         notify(authMessage("loading plugin config"), "warning");
       }
     };
@@ -73,7 +74,6 @@ export function App() {
     setNotification({ message, type });
   }, []);
 
-  // Poll metrics, refreshing connections list on each tick
   useMetricsPolling(activeId, (data) => {
     setMetrics(data);
     refetchConnections();

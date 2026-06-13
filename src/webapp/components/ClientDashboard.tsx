@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   MetricsData,
   MonitoringData,
@@ -56,19 +56,23 @@ export function ClientDashboard({
   const [congestion, setCongestion] = useState<CongestionData | null>(null);
   const [bonding, setBonding] = useState<BondingData | null>(null);
   const { request, authMessage } = useApi();
+  const loadEpochRef = useRef(0);
+  const v3EpochRef = useRef(0);
 
-  // Load per-connection config files
   const loadConfigs = useCallback(async () => {
+    const epoch = ++loadEpochRef.current;
     try {
       const [dtRes, subRes, sfRes] = await Promise.all([
         request(configPath(connId, "delta_timer.json")),
         request(configPath(connId, "subscription.json")),
         request(configPath(connId, "sentence_filter.json"))
       ]);
+      if (epoch !== loadEpochRef.current) return;
       setDeltaTimer(dtRes.ok ? await dtRes.json() : null);
       setSubscription(subRes.ok ? await subRes.json() : null);
       setSentenceFilter(sfRes.ok ? await sfRes.json() : null);
     } catch (err: unknown) {
+      if (epoch !== loadEpochRef.current) return;
       const e = err as ApiError;
       onNotify(
         e.isUnauthorized
@@ -83,10 +87,10 @@ export function ClientDashboard({
     loadConfigs();
   }, [loadConfigs]);
 
-  // Load V3 data when protocol version is known
   useEffect(() => {
     if ((metrics?.protocolVersion ?? 1) < 2) return;
 
+    const epoch = ++v3EpochRef.current;
     const loadV3 = async () => {
       try {
         const [alertsRes, plRes, rtxRes, congRes, bondRes] = await Promise.all([
@@ -97,14 +101,16 @@ export function ClientDashboard({
           request(bondingPath(connId)).catch(() => null)
         ]);
 
+        if (epoch !== v3EpochRef.current) return;
+
         const mon: MonitoringData = {};
         if (alertsRes?.ok) mon.alerts = await alertsRes.json();
         if (plRes?.ok) mon.packetLoss = await plRes.json();
         if (rtxRes?.ok) mon.retransmissions = await rtxRes.json();
         setMonitoring(mon);
 
-        if (congRes?.ok) setCongestion(await congRes.json());
-        if (bondRes?.ok) setBonding(await bondRes.json());
+        setCongestion(congRes?.ok ? await congRes.json() : null);
+        setBonding(bondRes?.ok ? await bondRes.json() : null);
       } catch {
         // ignore
       }

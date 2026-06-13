@@ -32,6 +32,7 @@ export function MetricsCard({ metrics }: Props) {
     cryptoErrors > 0 ||
     malformed > 0 ||
     rateLimited > 0 ||
+    droppedBatches > 0 ||
     droppedCount > 0;
 
   return (

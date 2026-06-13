@@ -50,7 +50,7 @@ export function BondingCard({ data, onFailover }: Props) {
         )}
 
         <div style={{ marginTop: "1rem" }}>
-          <button className="btn btn-secondary" onClick={onFailover}>
+          <button type="button" className="btn btn-secondary" onClick={onFailover}>
             Force Failover
           </button>
         </div>
