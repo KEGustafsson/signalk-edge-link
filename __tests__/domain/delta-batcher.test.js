@@ -10,6 +10,7 @@
  */
 
 const { createDeltaBatcher } = require("../../lib/domain/delta-batcher");
+const { DELTA_SEND_RETRY_BACKOFF_MS } = require("../../lib/constants");
 
 function makeState(overrides = {}) {
   return {
@@ -162,7 +163,7 @@ describe("domain/delta-batcher", () => {
       expect(state.deltas).toHaveLength(1);
       expect(state.pendingRetry).not.toBeNull();
 
-      await jest.advanceTimersByTimeAsync(100);
+      await jest.advanceTimersByTimeAsync(DELTA_SEND_RETRY_BACKOFF_MS);
 
       expect(sendDelta).toHaveBeenCalledTimes(2);
       expect(state.deltas).toHaveLength(0);
@@ -176,7 +177,7 @@ describe("domain/delta-batcher", () => {
       const batcher = createDeltaBatcher(deps);
 
       await batcher.flushDeltaBatch();
-      await jest.advanceTimersByTimeAsync(100);
+      await jest.advanceTimersByTimeAsync(DELTA_SEND_RETRY_BACKOFF_MS);
 
       expect(state.deltas).toHaveLength(0);
       expect(state.droppedDeltaBatches).toBe(1);

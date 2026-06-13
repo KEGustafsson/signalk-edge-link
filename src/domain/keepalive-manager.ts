@@ -53,8 +53,12 @@ export function createKeepaliveManager(deps: KeepaliveManagerDeps): KeepaliveMan
   const { state, options, app, instanceId, getV1Pipeline } = deps;
 
   function start(): void {
+    // Reject non-positive intervals as well as non-numbers: a configured 0 or
+    // negative would make setInterval fire on every tick and flood keepalives.
     const helloIntervalSeconds =
-      typeof options.helloMessageSender === "number" && Number.isFinite(options.helloMessageSender)
+      typeof options.helloMessageSender === "number" &&
+      Number.isFinite(options.helloMessageSender) &&
+      options.helloMessageSender > 0
         ? options.helloMessageSender
         : DEFAULT_HELLO_INTERVAL_SECONDS;
     const helloInterval = helloIntervalSeconds * 1000;

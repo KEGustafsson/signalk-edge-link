@@ -6,7 +6,7 @@
  * Exports metrics in Prometheus text exposition format for scraping.
  * See: https://prometheus.io/docs/instrumenting/exposition_formats/
  *
- * @module lib/prometheus
+ * @module domain/metrics/prometheus
  */
 
 import type { Metrics, InstanceState } from "../../types";

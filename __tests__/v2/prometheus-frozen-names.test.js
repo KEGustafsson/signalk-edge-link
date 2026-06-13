@@ -42,7 +42,7 @@ function staticMetricNames() {
     droppedDeltaCount: 9,
     suppressedOutboundDuplicates: 6,
     suppressedOutboundDuplicateStats: new Map(),
-    errorsByCategory: { network: 1, crypto: 2 },
+    errorCounts: { compression: 1, encryption: 2, subscription: 0, udpSend: 0, general: 0 },
     bandwidth: {
       bytesOut: 5e5,
       bytesIn: 2e5,
@@ -73,7 +73,13 @@ function staticMetricNames() {
   const extra = {
     packetLoss: 0.5,
     linkQuality: 99,
-    bonding: { links: [{ name: "a", status: 1, score: 80 }], mode: "active-backup" }
+    bonding: {
+      activeLink: "primary",
+      links: {
+        primary: { status: "active", rtt: 50, loss: 0.01, quality: 95 },
+        backup: { status: "standby", rtt: 100, loss: 0.02, quality: 90 }
+      }
+    }
     // activeAlerts intentionally omitted: per-alert series names are dynamic.
   };
 
@@ -115,6 +121,7 @@ describe("Prometheus frozen metric-name surface", () => {
       "signalk_edge_link_dropped_delta_batches_total",
       "signalk_edge_link_dropped_deltas_total",
       "signalk_edge_link_encryption_errors_total",
+      "signalk_edge_link_errors_by_category_total",
       "signalk_edge_link_jitter_milliseconds",
       "signalk_edge_link_link_quality_score",
       "signalk_edge_link_malformed_packets_total",

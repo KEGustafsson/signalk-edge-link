@@ -14,7 +14,7 @@
  * - Per-link metrics publishing to Signal K
  * - Signal K notifications on failover events
  *
- * @module lib/bonding
+ * @module domain/bonding
  */
 
 import * as crypto from "crypto";

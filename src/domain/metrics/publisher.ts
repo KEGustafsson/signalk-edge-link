@@ -6,7 +6,7 @@
  * Publishes network quality metrics to Signal K paths.
  * Calculates link quality score from multiple factors.
  *
- * @module lib/metrics-publisher
+ * @module domain/metrics/publisher
  */
 
 import CircularBuffer = require("../../CircularBuffer");
