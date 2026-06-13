@@ -34,6 +34,7 @@ export class Lifecycle {
   private _state: LifecycleState = "Created";
   private _invalidCount = 0;
 
+  /** Current lifecycle state. */
   get state(): LifecycleState {
     return this._state;
   }
@@ -43,6 +44,7 @@ export class Lifecycle {
     return this._state === "Ready";
   }
 
+  /** Returns true when the current state matches `s`. */
   is(s: LifecycleState): boolean {
     return this._state === s;
   }
@@ -74,6 +76,7 @@ export class Lifecycle {
     this._state = "Stopped";
   }
 
+  /** Number of invalid transition attempts since construction. */
   get invalidTransitionCount(): number {
     return this._invalidCount;
   }

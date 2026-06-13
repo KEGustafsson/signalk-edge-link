@@ -12,6 +12,7 @@
 
 import { buildConnectionItemSchema } from "../../shared/connection-schema";
 
+/** Build the complete plugin JSON schema (used by the SignalK admin UI). */
 export function buildPluginSchema(): object {
   const connectionItemSchema = buildConnectionItemSchema();
   return {

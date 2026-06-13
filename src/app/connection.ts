@@ -120,19 +120,39 @@ export function buildOutboundDedupeKey(delta: Delta): string {
 
 // ── Factory ───────────────────────────────────────────────────────────────────
 
+/** Public API surface of a single server or client connection instance. */
 export interface ConnectionApi {
+  /** Start the connection (bind socket, begin handshake, transition to Ready). */
   start(): Promise<void>;
+  /** Tear down the connection, cancel all timers, and release the socket. */
   stop(): void;
+  /** True when this instance was configured as a UDP server listener. */
   isServerMode(): boolean;
+  /** Unique slug identifier for this instance within the plugin. */
   getId(): string;
+  /** Human-readable name from config, used in status messages. */
   getName(): string;
+  /** Current health summary for the plugin status bar. */
   getStatus(): { text: string; healthy: boolean };
+  /** Raw mutable state (exposed for tests and route handlers; treat as read-only outside connection.ts). */
   getState(): InstanceState;
+  /** Access to per-instance counters and error records. */
   getMetricsApi(): MetricsApi;
+  /** Install a handler invoked when the upstream server requests a full-status re-push. */
   setFullStatusCascadeHandler(handler: (() => void) | null): void;
+  /** Ask all connected downstream clients to re-send their full state (server-mode only; no-op on clients). */
   requestFullStatusFromAllClients(): void;
 }
 
+/**
+ * Create a single server or client connection instance.
+ *
+ * @param app - SignalK app handle (logging, subscriptions, data).
+ * @param options - Validated connection configuration.
+ * @param instanceId - Unique slug for this instance (collision-free, from connection manager).
+ * @param pluginId - Plugin ID used when emitting deltas via `app.handleMessage`.
+ * @param onStatusChange - Callback invoked whenever the instance health/status changes.
+ */
 export function createConnection(
   app: SignalKApp,
   options: ConnectionConfig,

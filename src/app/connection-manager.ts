@@ -54,6 +54,14 @@ function findDuplicateServerPorts(connections: ConnectionConfig[]): number[] {
 
 // ── Factory ───────────────────────────────────────────────────────────────────
 
+/**
+ * Create the plugin-level connection manager.
+ *
+ * Parses options, validates configurations, starts connections in
+ * server-before-client order, and exposes an `InstanceRegistry` for
+ * route handlers. Call `start()` on each plugin start and `stop()` on
+ * plugin stop.
+ */
 export function createConnectionManager({
   app,
   pluginId,

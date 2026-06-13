@@ -128,7 +128,6 @@ describe("Lifecycle FSM", () => {
   test("forceStop() from any state reaches Stopped", () => {
     for (const state of ["Created", "Starting", "Ready", "Recovering", "Stopping"]) {
       const lc = new Lifecycle();
-      // Advance to desired state
       if (
         state === "Starting" ||
         state === "Ready" ||
@@ -226,11 +225,9 @@ describe("Lifecycle FSM", () => {
     try {
       const lc = new Lifecycle();
       expect(lc.invalidTransitionCount).toBe(0);
-      lc.transition("Ready", jest.fn()); // invalid
-      lc.transition("Stopped", jest.fn()); // invalid (Created → Stopped... wait, is this valid?)
-      // Created → Stopped IS valid (early exit on start error)
-      // So try another invalid one
-      lc.transition("Stopping", jest.fn()); // Stopped → Stopping is invalid
+      lc.transition("Ready", jest.fn()); // invalid: Created → Ready (counts 1)
+      lc.transition("Stopped", jest.fn()); // valid: Created → Stopped (early-exit; count stays 1)
+      lc.transition("Stopping", jest.fn()); // invalid: Stopped → Stopping (counts 2)
       expect(lc.invalidTransitionCount).toBe(2);
     } finally {
       process.env.NODE_ENV = origEnv;

@@ -4,25 +4,25 @@
  * Regression test for commit e919d68 ("cascade FULL_STATUS_REQUEST down
  * multi-hop chain on server restart").
  *
- * The cascade is wired in src/index.ts: when a client-mode instance
- * receives FULL_STATUS_REQUEST from its upstream server, it should
- * forward the request to every server-mode instance co-located in the
- * same plugin process, which in turn re-emits FULL_STATUS_REQUEST to
- * each connected downstream client.
+ * The cascade is wired by the app-layer connection manager: when a
+ * client-mode instance receives FULL_STATUS_REQUEST from its upstream
+ * server, it should forward the request to every server-mode instance
+ * co-located in the same plugin process, which in turn re-emits
+ * FULL_STATUS_REQUEST to each connected downstream client.
  *
  * This file pins three independent guarantees so a single refactor
  * can't silently break the chain:
  *
- *   1. createInstance exposes setFullStatusCascadeHandler /
+ *   1. createConnection exposes setFullStatusCascadeHandler /
  *      requestFullStatusFromAllClients on every instance regardless of
- *      mode (the wiring in index.ts is mode-agnostic by design — both
- *      ends are no-ops on the "wrong" mode, but must not throw).
+ *      mode (the wiring is mode-agnostic by design — both ends are
+ *      no-ops on the "wrong" mode, but must not throw).
  *   2. requestFullStatusFromAllClients delegates to
  *      state.pipelineServer.requestFullStatusFromAllClients when
  *      present (server-mode pipeline injected).
  *   3. The full 3-hop wiring (Cloud server ← Proxy client/server ←
  *      Boat client) propagates a cascade from one end of the chain to
- *      the other when index.ts-style orchestration is applied.
+ *      the other when connection-manager-style orchestration is applied.
  */
 
 jest.mock("ping-monitor", () =>
@@ -33,7 +33,7 @@ jest.mock("ping-monitor", () =>
 );
 
 const path = require("path");
-const { createConnection: createInstance } = require("../lib/app/connection");
+const { createConnection } = require("../lib/app/connection");
 
 function makeMockApp() {
   return {
@@ -74,7 +74,7 @@ function makeOptions(overrides = {}) {
 
 describe("FULL_STATUS_REQUEST cascade — API surface (regression for e919d68)", () => {
   test("client-mode instance exposes setFullStatusCascadeHandler + requestFullStatusFromAllClients", () => {
-    const inst = createInstance(makeMockApp(), makeOptions(), "client-id", "plugin", jest.fn());
+    const inst = createConnection(makeMockApp(), makeOptions(), "client-id", "plugin", jest.fn());
     expect(typeof inst.setFullStatusCascadeHandler).toBe("function");
     expect(typeof inst.requestFullStatusFromAllClients).toBe("function");
     expect(() => inst.setFullStatusCascadeHandler(() => {})).not.toThrow();
@@ -84,7 +84,7 @@ describe("FULL_STATUS_REQUEST cascade — API surface (regression for e919d68)",
   });
 
   test("server-mode instance exposes both methods", () => {
-    const inst = createInstance(
+    const inst = createConnection(
       makeMockApp(),
       makeOptions({ serverType: "server", udpPort: 14601 }),
       "server-id",
@@ -99,7 +99,7 @@ describe("FULL_STATUS_REQUEST cascade — API surface (regression for e919d68)",
 
 describe("requestFullStatusFromAllClients delegates to pipelineServer", () => {
   test("invokes state.pipelineServer.requestFullStatusFromAllClients when present", () => {
-    const inst = createInstance(
+    const inst = createConnection(
       makeMockApp(),
       makeOptions({ serverType: "server", udpPort: 14602 }),
       "server-id",
@@ -115,7 +115,7 @@ describe("requestFullStatusFromAllClients delegates to pipelineServer", () => {
   });
 
   test("is a safe no-op when pipelineServer is null", () => {
-    const inst = createInstance(makeMockApp(), makeOptions(), "client-id", "plugin", jest.fn());
+    const inst = createConnection(makeMockApp(), makeOptions(), "client-id", "plugin", jest.fn());
     const state = inst.getState();
     expect(state.pipelineServer).toBeNull();
     expect(() => inst.requestFullStatusFromAllClients()).not.toThrow();
@@ -123,8 +123,8 @@ describe("requestFullStatusFromAllClients delegates to pipelineServer", () => {
   });
 });
 
-describe("3-hop chain orchestration (index.ts-style wiring)", () => {
-  // Mimics what src/index.ts does after startup: every client-mode
+describe("3-hop chain orchestration (connection-manager-style wiring)", () => {
+  // Mimics what the connection manager does after startup: every client-mode
   // instance's cascade handler iterates every server-mode instance and
   // invokes requestFullStatusFromAllClients on it. The test captures the
   // handler the wiring installs (rather than overwriting it) so the
@@ -159,14 +159,14 @@ describe("3-hop chain orchestration (index.ts-style wiring)", () => {
     //   - serverDown: serves downstream (to Boats)
     // When upstream Cloud sends FULL_STATUS_REQUEST → clientUp receives →
     // wired cascade handler → serverDown.requestFullStatusFromAllClients().
-    const clientUp = createInstance(
+    const clientUp = createConnection(
       makeMockApp(),
       makeOptions({ serverType: "client", udpPort: 14700 }),
       "client-up",
       "plugin",
       jest.fn()
     );
-    const serverDown = createInstance(
+    const serverDown = createConnection(
       makeMockApp(),
       makeOptions({ serverType: "server", udpPort: 14701 }),
       "server-down",
@@ -192,21 +192,21 @@ describe("3-hop chain orchestration (index.ts-style wiring)", () => {
 
   test("multiple server instances all receive the cascade", () => {
     // A proxy that fronts two downstream networks simultaneously.
-    const client = createInstance(
+    const client = createConnection(
       makeMockApp(),
       makeOptions({ serverType: "client", udpPort: 14710 }),
       "client",
       "plugin",
       jest.fn()
     );
-    const serverA = createInstance(
+    const serverA = createConnection(
       makeMockApp(),
       makeOptions({ serverType: "server", udpPort: 14711 }),
       "server-a",
       "plugin",
       jest.fn()
     );
-    const serverB = createInstance(
+    const serverB = createConnection(
       makeMockApp(),
       makeOptions({ serverType: "server", udpPort: 14712 }),
       "server-b",
