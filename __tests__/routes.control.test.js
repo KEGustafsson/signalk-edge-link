@@ -177,7 +177,24 @@ describe("POST /delta-timer", () => {
     const res = makeResponse();
     handler({ body: { value: "fast" } }, res);
     expect(res.statusCode).toBe(400);
-    expect(res.body.error).toMatch(/must be a number/i);
+    expect(res.body.error).toMatch(/must be a finite number/i);
+  });
+
+  test("returns 400 for NaN value (does not slip past the range check)", () => {
+    const router = makeRouterCollector();
+    const setManualDeltaTimer = jest.fn();
+    const bundle = {
+      state: {
+        isServerMode: false,
+        pipeline: { getCongestionControl: () => ({ setManualDeltaTimer }) }
+      }
+    };
+    controlRoutes.register(router, makeCtx({ getFirstBundle: () => bundle }));
+    const handler = findHandler(router, "post", "/delta-timer");
+    const res = makeResponse();
+    handler({ body: { value: NaN } }, res);
+    expect(res.statusCode).toBe(400);
+    expect(setManualDeltaTimer).not.toHaveBeenCalled();
   });
 
   test("returns 400 for value below 100", () => {
