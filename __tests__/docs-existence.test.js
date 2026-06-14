@@ -19,23 +19,9 @@ const path = require("path");
 const ROOT = path.resolve(__dirname, "..");
 const README = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
 
-// Known-missing docs, tracked for Phase 9. Remove an entry once it is created;
-// the parser below will then assert its existence live. This list is the
-// single place the backlog is acknowledged.
-const KNOWN_MISSING = new Set([
-  "docs/architecture-overview.md",
-  "docs/configuration-reference.md",
-  "docs/api-reference.md",
-  "docs/protocol-v2.md",
-  "docs/protocol-v3-spec.md",
-  "docs/bonding.md",
-  "docs/congestion-control.md",
-  "docs/metrics.md",
-  "docs/management-tools.md",
-  "docs/security.md",
-  "docs/performance-tuning.md",
-  "docs/troubleshooting.md"
-]);
+// All Phase 9 docs have been created. KNOWN_MISSING is now empty —
+// every doc referenced by the README is a live, enforced assertion.
+const KNOWN_MISSING = new Set([]);
 
 /** Extract every `docs/<name>.md` path the README references. */
 function referencedDocs(text) {
