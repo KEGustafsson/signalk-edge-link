@@ -2,6 +2,42 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [Unreleased]
+
+### Security
+
+- **Management API:** logs an explicit open-access warning at startup when no
+  `managementApiToken` is configured; `POST /plugin-config` now preserves the
+  configured token / `requireManagementApiToken` when those fields are omitted
+  from a request body (an incomplete write can no longer silently disable auth);
+  auth telemetry is no longer exposed on `/status` and `/metrics` in open-access
+  mode; config-file route errors no longer disclose absolute filesystem paths.
+- **Opt-in authenticated packet headers (`authenticatedHeaders`, v3):** binds
+  each DATA/METADATA header (type/flags/sequence/length) to the encrypted
+  payload with a 16-byte HMAC tag, closing the unauthenticated-header tampering
+  gap. Backward compatible — default `false` leaves the wire format unchanged;
+  both peers must enable it. Includes downgrade rejection and end-to-end + proxy
+  relay tests.
+- **Keys:** URL-safe base64 (`base64url`) secret keys are now accepted.
+
+### Reliability / fixes
+
+- Reliable server now has a full `stop()` teardown that resets every per-session
+  sequence tracker (fixes a NAK-timer/memory leak across restarts).
+- Bonding: a minimum dwell on the primary before _soft_ (degradation-driven)
+  failover prevents flapping; hard link-down still fails over immediately.
+- Client UDP socket recovery retries with exponential backoff instead of giving
+  up permanently after a single failure.
+- Source-snapshot chunking is O(n) instead of O(n²) on the reconnect path.
+- CLI warns when a management token would be sent in cleartext over `http://`.
+
+### Tooling
+
+- CI now enforces the configured Jest coverage threshold; the networked
+  `npm audit` check moved out of the blocking unit-test gate into its own job.
+- React error boundary around the app and federated config panel; production
+  source maps are no longer published; Dependabot now covers GitHub Actions.
+
 ## [3.0.0] - 2026-06-13
 
 ### Breaking changes

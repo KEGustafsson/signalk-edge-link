@@ -17,6 +17,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "udpPort",
   "secretKey",
   "stretchAsciiKey",
+  "authenticatedHeaders",
   "useMsgpack",
   "useValueDedup",
   "useCompactDeltas",
@@ -239,6 +240,9 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   }
   if (conn.stretchAsciiKey !== undefined && typeof conn.stretchAsciiKey !== "boolean") {
     return `${p}stretchAsciiKey must be a boolean`;
+  }
+  if (conn.authenticatedHeaders !== undefined && typeof conn.authenticatedHeaders !== "boolean") {
+    return `${p}authenticatedHeaders must be a boolean`;
   }
   if (conn.enableNotifications !== undefined && typeof conn.enableNotifications !== "boolean") {
     return `${p}enableNotifications must be a boolean`;

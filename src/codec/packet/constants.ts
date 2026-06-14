@@ -50,7 +50,12 @@ export const PacketFlags = Object.freeze({
   COMPRESSED: 0x01, // bit 0
   ENCRYPTED: 0x02, // bit 1
   MESSAGEPACK: 0x04, // bit 2
-  PATH_DICTIONARY: 0x08 // bit 3
+  PATH_DICTIONARY: 0x08, // bit 3
+  // bit 4: DATA/METADATA carry a trailing HMAC tag binding the header
+  // (type/flags/sequence/length) to the AEAD ciphertext. Opt-in; both peers
+  // must enable `authenticatedHeaders`. When clear, the packet uses the legacy
+  // CRC-only header (still AEAD-protected payload).
+  AUTHENTICATED_HEADER: 0x10 // bit 4
 });
 
 /** Maximum sequence number before wraparound (2^32 - 1) */
@@ -61,7 +66,13 @@ export interface ParsedPacket {
   version: number;
   type: number;
   typeName: string;
-  flags: { compressed: boolean; encrypted: boolean; messagepack: boolean; pathDictionary: boolean };
+  flags: {
+    compressed: boolean;
+    encrypted: boolean;
+    messagepack: boolean;
+    pathDictionary: boolean;
+    authenticatedHeader: boolean;
+  };
   sequence: number;
   payloadLength: number;
   payload: Buffer;

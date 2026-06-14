@@ -186,8 +186,9 @@ Schema and migration helpers:
 ## Security notes
 
 - Uses AES-256-GCM authenticated encryption.
-- Keys must match exactly and can be entered as 32-character ASCII, 64-character hex, or 44-character base64.
+- Keys must match exactly and can be entered as 32-character ASCII, 64-character hex, or 44-character base64 (standard or URL-safe).
 - Restrict UDP ingress to trusted source addresses whenever possible.
+- Optional `authenticatedHeaders` (v3, both ends must match) adds an HMAC tag binding each DATA/METADATA packet header to its encrypted payload, preventing on-path header tampering. See `docs/security.md`.
 
 Example key generation:
 

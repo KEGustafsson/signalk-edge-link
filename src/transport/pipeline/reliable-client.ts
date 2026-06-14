@@ -70,14 +70,17 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   // packets are always HMAC-authenticated.
   const protocolVersion = 3;
   const stretchAsciiKey = !!state.options?.stretchAsciiKey;
+  const authenticatedHeaders = !!state.options?.authenticatedHeaders;
   const packetBuilder = new PacketBuilder({
     protocolVersion,
     secretKey: state.options?.secretKey ?? undefined,
-    stretchAsciiKey
+    stretchAsciiKey,
+    authenticatedHeaders
   });
   const packetParser = new PacketParser({
     secretKey: state.options?.secretKey ?? undefined,
-    stretchAsciiKey
+    stretchAsciiKey,
+    authenticatedHeaders
   });
   const clientTelemetrySource = "signalk-edge-link-client-telemetry";
 

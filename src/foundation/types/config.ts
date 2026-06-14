@@ -136,6 +136,17 @@ export interface ConnectionConfig {
    * drop every packet. Default false (raw bytes used as-is).
    */
   stretchAsciiKey?: boolean;
+  /**
+   * Opt-in (v3) DATA/METADATA header authentication. When true, each
+   * DATA/METADATA packet carries a trailing HMAC tag binding the header
+   * (type/flags/sequence/length) to the AEAD ciphertext, closing the
+   * unauthenticated-header gap (an on-path attacker can otherwise flip header
+   * bits such as the sequence number and recompute only the CRC). **Both peers
+   * must use the same setting** — a mismatch fails authentication and drops
+   * every DATA packet. Default false (legacy CRC-only header). Adds 16 bytes
+   * per DATA/METADATA packet.
+   */
+  authenticatedHeaders?: boolean;
   /** Wire protocol version (1, 2, or 3). Default 2. */
   protocolVersion?: number;
   /** Serialize deltas with MessagePack instead of JSON (smaller, faster). Default false. */

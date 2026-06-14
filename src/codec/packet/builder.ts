@@ -23,6 +23,7 @@ export class PacketBuilder {
   _protocolVersion: number;
   _secretKey: string | null;
   _stretchAsciiKey: boolean;
+  _authenticatedHeaders: boolean;
 
   /**
    * @param {Object} [config]
@@ -36,6 +37,7 @@ export class PacketBuilder {
       protocolVersion?: number;
       secretKey?: string;
       stretchAsciiKey?: boolean;
+      authenticatedHeaders?: boolean;
     } = {}
   ) {
     this._sequence = config.initialSequence ?? 0;
@@ -47,6 +49,7 @@ export class PacketBuilder {
     this._protocolVersion = normalizeProtocolVersion(config.protocolVersion);
     this._secretKey = config.secretKey || null;
     this._stretchAsciiKey = !!config.stretchAsciiKey;
+    this._authenticatedHeaders = !!config.authenticatedHeaders;
   }
 
   /**
@@ -277,6 +280,15 @@ export class PacketBuilder {
     if (flags.pathDictionary) {
       flagByte |= PacketFlags.PATH_DICTIONARY;
     }
+    // Opt-in header authentication applies only to DATA/METADATA (control
+    // packets are already HMAC-authenticated). The bit is recorded in the
+    // header so the field is self-describing and downgrade attempts (clearing
+    // the bit) are detectable by a receiver that requires authentication.
+    const authenticateHeader =
+      this._authenticatedHeaders && (type === PacketType.DATA || type === PacketType.METADATA);
+    if (authenticateHeader) {
+      flagByte |= PacketFlags.AUTHENTICATED_HEADER;
+    }
     header[4] = flagByte;
 
     // Sequence number (uint32 big-endian) — DATA uses this._sequence, METADATA
@@ -299,6 +311,23 @@ export class PacketBuilder {
       // header.subarray(0, 13). The later writeUInt32BE(finalPayload.length, 9)
       // re-writes the same value, so this is not a dead write — removing it
       // would change the bytes the HMAC covers and break the wire format.
+      header.writeUInt32BE(payloadBuffer.length + CONTROL_AUTH_TAG_LENGTH, 9);
+      const authTag = createControlPacketAuthTag(header.subarray(0, 13), payloadBuffer, secretKey, {
+        stretchAsciiKey: this._stretchAsciiKey
+      });
+      finalPayload = Buffer.concat([payloadBuffer, authTag]);
+    } else if (authenticateHeader) {
+      // DATA/METADATA with opt-in header authentication. The AEAD already
+      // protects the ciphertext payload; this trailing HMAC binds the header
+      // (type/flags/sequence/length) to that ciphertext so an on-path attacker
+      // can no longer flip header bits (e.g. the sequence number) and recompute
+      // only the CRC. Mirrors the control-packet construction: write the final
+      // length (ciphertext + tag) into bytes 9-12 BEFORE computing the tag over
+      // header[0..13).
+      const secretKey = options.secretKey || this._secretKey;
+      if (!secretKey) {
+        throw new Error("Authenticated-header DATA/METADATA packets require a secretKey");
+      }
       header.writeUInt32BE(payloadBuffer.length + CONTROL_AUTH_TAG_LENGTH, 9);
       const authTag = createControlPacketAuthTag(header.subarray(0, 13), payloadBuffer, secretKey, {
         stretchAsciiKey: this._stretchAsciiKey
