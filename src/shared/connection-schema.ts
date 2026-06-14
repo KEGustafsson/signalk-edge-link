@@ -51,19 +51,27 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     type: "string",
     title: "Encryption Key",
     description:
-      "32-byte secret key: 32-character ASCII, 64-character hex, or 44-character base64.",
+      "32-byte secret key: 32-character ASCII, 64-character hex, or base64 (standard or URL-safe) encoding of 32 bytes.",
     minLength: 32,
     maxLength: 64,
     // 32-byte form: restrict to printable, non-whitespace ASCII so a pasted
     // key with stray newlines / control bytes is surfaced immediately
-    // instead of silently breaking authentication. Hex (64) and base64 (43+)
-    // alternatives match their respective alphabets.
-    pattern: "^(?:[\\x21-\\x7E]{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$"
+    // instead of silently breaking authentication. Hex (64) and base64 (43+,
+    // standard `+/` or URL-safe `-_`) alternatives match their respective
+    // alphabets — kept in sync with normalizeKey()/validateSecretKey().
+    pattern: "^(?:[\\x21-\\x7E]{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/_-]{43}=?)$"
   },
   stretchAsciiKey: {
     type: "boolean",
     title: "Stretch 32-char ASCII Key (PBKDF2)",
     description: `When the secretKey is 32-character ASCII, route it through PBKDF2-SHA256 (${PBKDF2_ITERATIONS.toLocaleString("en-US")} iterations) to raise it to full 256-bit AES strength. Hex and base64 keys are unaffected. BOTH ENDS OF THE CONNECTION MUST USE THE SAME SETTING — otherwise authentication will fail and every packet will be dropped.`,
+    default: false
+  },
+  authenticatedHeaders: {
+    type: "boolean",
+    title: "Authenticate Packet Headers (v3)",
+    description:
+      "Bind each DATA/METADATA packet header (type, flags, sequence, length) to the encrypted payload with an HMAC tag, preventing an on-path attacker from tampering with header fields such as the sequence number. Adds 16 bytes per packet. BOTH ENDS MUST USE THE SAME SETTING — otherwise authentication fails and every DATA packet is dropped.",
     default: false
   },
   useMsgpack: {

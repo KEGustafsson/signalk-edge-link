@@ -18,19 +18,20 @@ These sit outside `connections[]`, at the root of the plugin config:
 
 ## Common Fields (Client and Server)
 
-| Field                 | Type    | Default        | Description                                                                                                            |
-| --------------------- | ------- | -------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `name`                | string  | `"connection"` | Label shown in UI and logs. Used as directory name for runtime config files. Max 40 characters.                        |
-| `serverType`          | string  | `"client"`     | `"client"` sends data; `"server"` receives data.                                                                       |
-| `udpPort`             | integer | `4446`         | UDP port. Range 1024–65535. Must match on both ends.                                                                   |
-| `udpMetaPort`         | integer | —              | Optional separate UDP port for v1 metadata packets. Ignored by v2/v3 (which multiplex metadata on the main port).      |
-| `secretKey`           | string  | — (required)   | AES-256 encryption key. Accepts 32-char ASCII, 64-char hex, or 44-char base64. Must match exactly on both ends.        |
-| `stretchAsciiKey`     | boolean | `false`        | When `true`, runs a 32-char ASCII key through PBKDF2-SHA256 (600,000 iterations) before use. **Both ends must match.** |
-| `protocolVersion`     | integer | `1`            | `1` (Basic) or `3` (Advanced). Must match on both ends. Accepts `"basic"`/`"advanced"` string aliases.                 |
-| `useMsgpack`          | boolean | `false`        | Serialize deltas as MessagePack instead of JSON. Saves ~15–25%. **Both ends must match.**                              |
-| `usePathDictionary`   | boolean | `false`        | Replace Signal K path strings with 2-byte numeric IDs. Saves ~10–20%. **Both ends must match.**                        |
-| `enableNotifications` | boolean | `false`        | Forward Signal K notification deltas over the link.                                                                    |
-| `skipOwnData`         | boolean | `false`        | (Client only) Drop all `networking.edgeLink.*` metrics before forwarding — prevents feedback loops.                    |
+| Field                  | Type    | Default        | Description                                                                                                                                                                                                                                                   |
+| ---------------------- | ------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                 | string  | `"connection"` | Label shown in UI and logs. Used as directory name for runtime config files. Max 40 characters.                                                                                                                                                               |
+| `serverType`           | string  | `"client"`     | `"client"` sends data; `"server"` receives data.                                                                                                                                                                                                              |
+| `udpPort`              | integer | `4446`         | UDP port. Range 1024–65535. Must match on both ends.                                                                                                                                                                                                          |
+| `udpMetaPort`          | integer | —              | Optional separate UDP port for v1 metadata packets. Ignored by v2/v3 (which multiplex metadata on the main port).                                                                                                                                             |
+| `secretKey`            | string  | — (required)   | AES-256 encryption key. Accepts 32-char ASCII, 64-char hex, or base64 (standard or URL-safe). Must match exactly on both ends.                                                                                                                                |
+| `stretchAsciiKey`      | boolean | `false`        | When `true`, runs a 32-char ASCII key through PBKDF2-SHA256 (600,000 iterations) before use. **Both ends must match.**                                                                                                                                        |
+| `authenticatedHeaders` | boolean | `false`        | v3 only. When `true`, each DATA/METADATA packet carries a 16-byte HMAC tag binding the header (type/flags/sequence/length) to the encrypted payload, so an on-path attacker cannot tamper with header fields. Adds 16 bytes/packet. **Both ends must match.** |
+| `protocolVersion`      | integer | `1`            | `1` (Basic) or `3` (Advanced). Must match on both ends. Accepts `"basic"`/`"advanced"` string aliases.                                                                                                                                                        |
+| `useMsgpack`           | boolean | `false`        | Serialize deltas as MessagePack instead of JSON. Saves ~15–25%. **Both ends must match.**                                                                                                                                                                     |
+| `usePathDictionary`    | boolean | `false`        | Replace Signal K path strings with 2-byte numeric IDs. Saves ~10–20%. **Both ends must match.**                                                                                                                                                               |
+| `enableNotifications`  | boolean | `false`        | Forward Signal K notification deltas over the link.                                                                                                                                                                                                           |
+| `skipOwnData`          | boolean | `false`        | (Client only) Drop all `networking.edgeLink.*` metrics before forwarding — prevents feedback loops.                                                                                                                                                           |
 
 ---
 

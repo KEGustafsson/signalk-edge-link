@@ -113,7 +113,14 @@ describe("SignalK Data Connector Plugin", () => {
       const secretKey = itemSchema.properties.secretKey;
       expect(secretKey.minLength).toBe(32);
       expect(secretKey.maxLength).toBe(64);
-      expect(secretKey.pattern).toBe("^(?:[\\x21-\\x7E]{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$");
+      expect(secretKey.pattern).toBe(
+        "^(?:[\\x21-\\x7E]{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/_-]{43}=?)$"
+      );
+      // base64url (URL-safe) keys must satisfy the schema pattern, matching
+      // normalizeKey()/validateSecretKey() runtime acceptance.
+      expect(
+        new RegExp(secretKey.pattern).test(require("crypto").randomBytes(32).toString("base64url"))
+      ).toBe(true);
     });
 
     test("should expose protocol versions 1 and 3 (Basic and Advanced)", () => {
@@ -1530,7 +1537,9 @@ describe("SignalK Data Connector Plugin", () => {
       // Wait for async UDP socket binding to complete and status to be updated
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      expect(mockApp.error).not.toHaveBeenCalled();
+      expect(
+        mockApp.error.mock.calls.filter((c) => !String(c[0]).includes("OPEN ACCESS"))
+      ).toHaveLength(0);
       // Both connections should appear in the status (either "2 connections active" or "N/2 active — ...")
       expect(mockApp.setPluginStatus).toHaveBeenCalledWith(
         expect.stringMatching(/2 connections active|\/2 active/)
@@ -1564,7 +1573,9 @@ describe("SignalK Data Connector Plugin", () => {
       // Wait for async UDP socket binding to complete and status to be updated
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      expect(mockApp.error).not.toHaveBeenCalled();
+      expect(
+        mockApp.error.mock.calls.filter((c) => !String(c[0]).includes("OPEN ACCESS"))
+      ).toHaveLength(0);
       expect(mockApp.setPluginStatus).toHaveBeenCalledWith(
         expect.stringMatching(/2 connections active|\/2 active/)
       );
@@ -1618,7 +1629,9 @@ describe("SignalK Data Connector Plugin", () => {
 
       await plugin.start(options);
 
-      expect(mockApp.error).not.toHaveBeenCalled();
+      expect(
+        mockApp.error.mock.calls.filter((c) => !String(c[0]).includes("OPEN ACCESS"))
+      ).toHaveLength(0);
     });
 
     test("should reject an empty connections array", async () => {

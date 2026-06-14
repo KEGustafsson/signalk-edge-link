@@ -84,9 +84,12 @@ export function normalizeKey(secretKey: string, options: KeyNormalizationOptions
     return Buffer.from(secretKey, "hex");
   }
 
-  // Try base64: 44 chars (with optional padding) → 32 bytes
-  if (/^[A-Za-z0-9+/]{43}=?$/.test(secretKey)) {
-    const buf = Buffer.from(secretKey, "base64");
+  // Try base64 (standard or URL-safe): 43 chars + optional padding → 32 bytes.
+  // URL-safe base64 (`-`/`_`, as produced by `base64url`) is normalized to the
+  // standard alphabet first so keys generated either way are accepted.
+  if (/^[A-Za-z0-9+/\-_]{43}=?$/.test(secretKey)) {
+    const standard = secretKey.replace(/-/g, "+").replace(/_/g, "/");
+    const buf = Buffer.from(standard, "base64");
     if (buf.length === 32) {
       return buf;
     }
@@ -175,7 +178,12 @@ export const encryptBinary = (
   // Ensure data is a Buffer
   const dataBuffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
 
-  // Generate random IV for each encryption (critical for GCM security)
+  // Generate a random 96-bit IV for each encryption (critical for GCM security:
+  // nonce reuse under the same key is catastrophic). With random nonces the
+  // birthday bound keeps collision probability negligible (~2^-32) up to ~2^32
+  // messages per key. Edge Link links run well below that, but operators on
+  // very-high-rate, long-lived static-key deployments should rotate keys
+  // periodically rather than relying on a single key indefinitely.
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGORITHM, keyBuffer, iv) as crypto.CipherGCM;
 
@@ -237,9 +245,10 @@ export function validateSecretKey(key: string): boolean {
   // First verify the key can be normalized to 32 bytes
   normalizeKey(key);
 
-  // For hex/base64 keys, entropy validation on the raw string is not meaningful;
-  // entropy checks apply to the ASCII fallback path where the user typed the key.
-  if (/^[0-9a-fA-F]{64}$/.test(key) || /^[A-Za-z0-9+/]{43}=?$/.test(key)) {
+  // For hex/base64 keys (standard or URL-safe), entropy validation on the raw
+  // string is not meaningful; entropy checks apply to the ASCII fallback path
+  // where the user typed the key.
+  if (/^[0-9a-fA-F]{64}$/.test(key) || /^[A-Za-z0-9+/\-_]{43}=?$/.test(key)) {
     return true;
   }
 

@@ -166,6 +166,8 @@ export interface ServerPipelineApi {
   getMetrics(): unknown;
   getMetricsPublisher(): MetricsPublisherApi;
   requestFullStatusFromAllClients(): void;
+  /** Full teardown: clears timers, resets all session trackers, drops sessions. */
+  stop(): void;
 }
 
 export {};

@@ -530,6 +530,14 @@ export function createConnection(
   }
 
   // ── Socket recovery (client mode) ─────────────────────────────────────────
+  // Exponential backoff for recovery retries. A failed recovery used to leave
+  // the instance permanently Stopped (no retry); now we keep retrying with
+  // backoff like handleClientSocketError does, so a transient bind failure
+  // (e.g. EADDRINUSE during a quick restart) eventually self-heals.
+  const SOCKET_RECOVERY_BASE_MS = 5000;
+  const SOCKET_RECOVERY_MAX_MS = 60000;
+  let socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS;
+
   function recoverClientSocket(): void {
     app.debug(`[${instanceId}] Attempting UDP socket recovery`);
     try {
@@ -558,6 +566,7 @@ export function createConnection(
       }
 
       state.socketRecoveryInProgress = false;
+      socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS;
       state.readyToSend = true;
       lifecycle.transition("Ready", (msg) => app.error(msg));
       _setStatus("UDP socket recovered", true);
@@ -570,11 +579,41 @@ export function createConnection(
       if (state.metaConfig?.enabled) scheduleMetadataSnapshot(1000);
       replayValuesSnapshot("socket recovery");
     } catch (err: unknown) {
-      state.socketRecoveryInProgress = false;
       const msg = err instanceof Error ? err.message : String(err);
       app.error(`[${instanceId}] UDP socket recovery failed: ${msg}`);
-      lifecycle.transition("Stopped", (m) => app.error(m));
-      _setStatus(`UDP socket recovery failed: ${msg}`, false);
+
+      // Drop any partially-created socket before retrying.
+      if (state.socketUdp) {
+        try {
+          socketManager.close();
+        } catch {
+          /* already closed */
+        }
+        state.socketUdp = null;
+      }
+
+      if (lifecycle.isShuttingDown()) {
+        state.socketRecoveryInProgress = false;
+        return;
+      }
+
+      // Schedule another attempt with exponential backoff. Keep
+      // socketRecoveryInProgress=true so duplicate socket errors don't pile up
+      // additional concurrent recovery loops while we wait.
+      const delay = socketRecoveryBackoffMs;
+      socketRecoveryBackoffMs = Math.min(socketRecoveryBackoffMs * 2, SOCKET_RECOVERY_MAX_MS);
+      _setStatus(
+        `UDP socket recovery failed: ${msg} — retrying in ${Math.round(delay / 1000)}s`,
+        false
+      );
+      state.socketRecoveryTimer = setTimeout(() => {
+        state.socketRecoveryTimer = null;
+        if (lifecycle.isShuttingDown()) {
+          state.socketRecoveryInProgress = false;
+          return;
+        }
+        recoverClientSocket();
+      }, delay);
     }
   }
 
@@ -832,6 +871,7 @@ export function createConnection(
   // ── Lifecycle: start / stop ────────────────────────────────────────────────
   async function start(): Promise<void> {
     lifecycle.transition("Starting", (msg) => app.error(msg));
+    socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS;
     state.stopped = false;
     state.options = options;
     state.isServerMode = isServer(options);
@@ -958,9 +998,15 @@ export function createConnection(
       state.heartbeatHandle = null;
     }
 
-    state.pipelineServer?.stopACKTimer?.();
-    state.pipelineServer?.stopMetricsPublishing?.();
-    state.pipelineServer?.getSequenceTracker?.()?.reset();
+    // Prefer the full teardown (resets every per-session tracker, clears the
+    // session map). Fall back to the legacy calls for pipelines without stop().
+    if (state.pipelineServer?.stop) {
+      state.pipelineServer.stop();
+    } else {
+      state.pipelineServer?.stopACKTimer?.();
+      state.pipelineServer?.stopMetricsPublishing?.();
+      state.pipelineServer?.getSequenceTracker?.()?.reset();
+    }
     state.pipelineServer = null;
 
     if (state.monitoring) {
