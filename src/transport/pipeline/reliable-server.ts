@@ -148,6 +148,13 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   // ambiguous (could be a legitimate first-packet replay) and falls through
   // to normal dedup. UDP reorders >8 packets backwards are exceedingly rare.
   const META_RESTART_THRESHOLD = 8;
+  // Upper bound on distinct chunk indices tracked per envelope sequence. A
+  // legitimate META/source snapshot has far fewer chunks (each chunk is <= MTU);
+  // the cap stops an authenticated-but-misbehaving peer that pins the envelope
+  // seq while streaming ever-increasing idx values from growing the per-session
+  // dedup Set without bound (it would otherwise only be freed on idle-expiry,
+  // which never triggers while the peer keeps sending).
+  const MAX_ENVELOPE_CHUNK_INDICES = 8192;
   let ackTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
@@ -334,6 +341,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   // persistently misconfigured peer is noticeable in logs without flooding them.
   const PROTOCOL_VERSION_MISMATCH_WARN_INTERVAL_MS = 60_000;
   let lastProtocolVersionMismatchWarnAt = 0;
+  let lastAuthHeaderMismatchWarnAt = 0;
 
   function _toFiniteNumber(value: unknown): number | null {
     const n = Number(value);
@@ -649,6 +657,19 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
     } else {
       setLastEnvSeq(envSeq);
       seenChunkIdx.clear();
+    }
+
+    // Bound the dedup Set: a well-behaved sender advances envSeq (which clears
+    // the Set) far below this many chunks. Hitting the cap means the peer is
+    // pinning the seq while streaming new idx values — drop further chunks for
+    // this seq instead of growing memory without bound.
+    if (seenChunkIdx.size >= MAX_ENVELOPE_CHUNK_INDICES) {
+      metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+      app.debug(
+        `[v2-server] ${channel} chunk-index cap (${MAX_ENVELOPE_CHUNK_INDICES}) reached for ` +
+          `${session.key} at seq=${envSeq}; dropping until seq advances`
+      );
+      return true;
     }
 
     seenChunkIdx.add(envIdx);
@@ -1013,6 +1034,28 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
           lastProtocolVersionMismatchWarnAt = now;
           app.error(
             `v2 protocol version mismatch: got=${parsed.version} expected=${protocolVersion} (malformedPackets=${metrics.malformedPackets}); check peer configuration`
+          );
+        }
+        return;
+      }
+
+      // Diagnose an authenticatedHeaders mismatch early: the peer sent an
+      // authenticated DATA/METADATA packet but this server is not configured to
+      // require it, so the trailing HMAC tag would be left on the ciphertext and
+      // GCM decryption would fail with a misleading "key mismatch" hint. Surface
+      // the real cause instead. (The reverse mismatch is rejected in the parser.)
+      if (
+        !authenticatedHeaders &&
+        parsed.flags.authenticatedHeader &&
+        (parsed.type === PacketType.DATA || parsed.type === PacketType.METADATA)
+      ) {
+        metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+        const now = Date.now();
+        if (now - lastAuthHeaderMismatchWarnAt >= PROTOCOL_VERSION_MISMATCH_WARN_INTERVAL_MS) {
+          lastAuthHeaderMismatchWarnAt = now;
+          app.error(
+            "v2 authenticatedHeaders mismatch: peer is sending authenticated packet headers but " +
+              "this connection has authenticatedHeaders disabled. Enable it on both ends (or disable on both)."
           );
         }
         return;

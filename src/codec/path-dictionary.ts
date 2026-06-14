@@ -177,6 +177,10 @@ function transformDelta(
       source: update.source ?? {},
       timestamp: update.timestamp,
       $source: update.$source,
+      // Preserve inline update.meta across the path-dictionary round-trip.
+      // compact-delta already carries meta, so dropping it here silently lost
+      // inline meta whenever usePathDictionary was enabled (asymmetric codecs).
+      ...(update.meta !== undefined ? { meta: update.meta } : {}),
       values: transformedValues
     };
   }

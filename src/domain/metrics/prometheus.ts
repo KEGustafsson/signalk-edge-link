@@ -45,6 +45,15 @@ export function formatPrometheusMetrics(
   // Base labels present on every time-series.
   const baseLabels: Record<string, string> = instanceId ? { mode, instance: instanceId } : { mode };
 
+  // Render a numeric value in Prometheus exposition format. Non-finite values
+  // must use the spec tokens (`+Inf`/`-Inf`/`NaN`); a raw `String(Infinity)`
+  // ("Infinity") is invalid and makes Prometheus reject the entire scrape.
+  function formatValue(value: number): string {
+    if (Number.isFinite(value)) return String(value);
+    if (Number.isNaN(value)) return "NaN";
+    return value > 0 ? "+Inf" : "-Inf";
+  }
+
   function gauge(
     name: string,
     help: string,
@@ -58,7 +67,7 @@ export function formatPrometheusMetrics(
       metricMeta.add(fullName);
     }
     const labelStr = formatLabels({ ...baseLabels, ...labels });
-    lines.push(`${fullName}${labelStr} ${value}`);
+    lines.push(`${fullName}${labelStr} ${formatValue(value)}`);
   }
 
   function counter(
@@ -74,7 +83,7 @@ export function formatPrometheusMetrics(
       metricMeta.add(fullName);
     }
     const labelStr = formatLabels({ ...baseLabels, ...labels });
-    lines.push(`${fullName}${labelStr} ${value}`);
+    lines.push(`${fullName}${labelStr} ${formatValue(value)}`);
   }
 
   // Uptime

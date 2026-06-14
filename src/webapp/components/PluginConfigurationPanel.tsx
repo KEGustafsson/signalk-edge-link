@@ -196,7 +196,7 @@ const uiSchemaClient: UiSchema = {
   ],
   secretKey: {
     "ui:widget": "password",
-    "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64"
+    "ui:help": "Use 32-character ASCII, 64-character hex, or base64 (standard or URL-safe)"
   },
   stretchAsciiKey: { "ui:help": "Only applies to 32-char ASCII keys. Must match on both peers." },
   serverType: { "ui:widget": "select" },
@@ -235,7 +235,7 @@ const uiSchemaServer: UiSchema = {
   ],
   secretKey: {
     "ui:widget": "password",
-    "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64"
+    "ui:help": "Use 32-character ASCII, 64-character hex, or base64 (standard or URL-safe)"
   },
   stretchAsciiKey: { "ui:help": "Only applies to 32-char ASCII keys. Must match on both peers." },
   serverType: { "ui:widget": "select" }

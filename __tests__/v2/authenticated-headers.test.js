@@ -206,6 +206,39 @@ describe("authenticated headers end-to-end (server pipeline)", () => {
     // Downgrade (no AUTHENTICATED_HEADER flag) must be rejected, not injected.
     expect(app.handleMessage).not.toHaveBeenCalled();
   });
+
+  test("server with auth OFF rejects an authenticated packet with a clear mismatch diagnostic", async () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      handleMessage: jest.fn(),
+      setPluginStatus: jest.fn(),
+      setProviderStatus: jest.fn()
+    };
+    const state = {
+      instanceId: null,
+      options: {
+        secretKey: SECRET_KEY,
+        protocolVersion: 3,
+        authenticatedHeaders: false, // receiver OFF, sender ON
+        reliability: { ackInterval: 100, ackResendInterval: 1000, nakTimeout: 50 }
+      },
+      socketUdp: { send: jest.fn((data, port, address, cb) => cb && cb(null)) }
+    };
+    const server = createPipelineV2Server(app, state, createMetrics());
+
+    const packet = await buildAuthDataPacket([
+      { updates: [{ values: [{ path: "navigation.speedOverGround", value: 4 }] }] }
+    ]);
+    await server.receivePacket(packet, SECRET_KEY, client);
+    server.stopACKTimer();
+    server.stopMetricsPublishing();
+
+    expect(app.handleMessage).not.toHaveBeenCalled();
+    expect(app.error.mock.calls.some((c) => /authenticatedHeaders mismatch/i.test(c[0]))).toBe(
+      true
+    );
+  });
 });
 
 describe("two-hop proxy relay end-to-end (boat -> proxy -> cloud)", () => {

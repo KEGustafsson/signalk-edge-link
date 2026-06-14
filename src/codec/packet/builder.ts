@@ -297,37 +297,28 @@ export class PacketBuilder {
 
     let finalPayload = payloadBuffer;
 
-    // DATA and METADATA packets are authenticated by AES-256-GCM (their payload
-    // is already an AEAD ciphertext). Control packets (ACK/NAK/HEARTBEAT/HELLO/
-    // META_REQUEST/FULL_STATUS_REQUEST) carry an HMAC tag so they cannot be
-    // forged off-path.
-    if (type !== PacketType.DATA && type !== PacketType.METADATA) {
+    // Append a trailing HMAC tag when the packet needs header authentication:
+    //  - Control packets (ACK/NAK/HEARTBEAT/HELLO/META_REQUEST/FULL_STATUS_REQUEST)
+    //    are always HMAC-authenticated so they cannot be forged off-path.
+    //  - DATA/METADATA are AEAD ciphertext; with opt-in `authenticatedHeaders`
+    //    the same tag binds the header (type/flags/sequence/length) to the
+    //    ciphertext so an on-path attacker cannot flip header bits and recompute
+    //    only the CRC.
+    const isControl = type !== PacketType.DATA && type !== PacketType.METADATA;
+    if (isControl || authenticateHeader) {
       const secretKey = options.secretKey || this._secretKey;
       if (!secretKey) {
-        throw new Error("Control packets require a secretKey");
+        throw new Error(
+          isControl
+            ? "Control packets require a secretKey"
+            : "Authenticated-header DATA/METADATA packets require a secretKey"
+        );
       }
       // Write the final payload length (payload + auth tag) into header bytes
       // 9-12 BEFORE computing the HMAC, since the tag is authenticated over
       // header.subarray(0, 13). The later writeUInt32BE(finalPayload.length, 9)
       // re-writes the same value, so this is not a dead write — removing it
       // would change the bytes the HMAC covers and break the wire format.
-      header.writeUInt32BE(payloadBuffer.length + CONTROL_AUTH_TAG_LENGTH, 9);
-      const authTag = createControlPacketAuthTag(header.subarray(0, 13), payloadBuffer, secretKey, {
-        stretchAsciiKey: this._stretchAsciiKey
-      });
-      finalPayload = Buffer.concat([payloadBuffer, authTag]);
-    } else if (authenticateHeader) {
-      // DATA/METADATA with opt-in header authentication. The AEAD already
-      // protects the ciphertext payload; this trailing HMAC binds the header
-      // (type/flags/sequence/length) to that ciphertext so an on-path attacker
-      // can no longer flip header bits (e.g. the sequence number) and recompute
-      // only the CRC. Mirrors the control-packet construction: write the final
-      // length (ciphertext + tag) into bytes 9-12 BEFORE computing the tag over
-      // header[0..13).
-      const secretKey = options.secretKey || this._secretKey;
-      if (!secretKey) {
-        throw new Error("Authenticated-header DATA/METADATA packets require a secretKey");
-      }
       header.writeUInt32BE(payloadBuffer.length + CONTROL_AUTH_TAG_LENGTH, 9);
       const authTag = createControlPacketAuthTag(header.subarray(0, 13), payloadBuffer, secretKey, {
         stretchAsciiKey: this._stretchAsciiKey

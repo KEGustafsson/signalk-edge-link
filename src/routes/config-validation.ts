@@ -15,7 +15,10 @@ function validateRuntimeConfigBody(filename: string, body: Record<string, unknow
   if (filename === "delta_timer.json") {
     if (
       body.deltaTimer !== undefined &&
-      (typeof body.deltaTimer !== "number" || body.deltaTimer < 100 || body.deltaTimer > 10000)
+      (typeof body.deltaTimer !== "number" ||
+        !Number.isFinite(body.deltaTimer) ||
+        body.deltaTimer < 100 ||
+        body.deltaTimer > 10000)
     ) {
       return "deltaTimer must be a number between 100 and 10000";
     }

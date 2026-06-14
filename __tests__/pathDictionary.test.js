@@ -149,6 +149,34 @@ describe("Path Dictionary", () => {
       expect(encoded.context).toBe("vessels.self");
     });
 
+    test("should preserve inline update.meta across encode/decode round-trip", () => {
+      const delta = {
+        context: "vessels.self",
+        updates: [
+          {
+            $source: "gps.0",
+            meta: [{ path: "navigation.speedOverGround", value: { units: "m/s" } }],
+            values: [{ path: "navigation.speedOverGround", value: 5.5 }]
+          }
+        ]
+      };
+
+      const roundTripped = decodeDelta(encodeDelta(delta));
+      expect(roundTripped.updates[0].meta).toEqual([
+        { path: "navigation.speedOverGround", value: { units: "m/s" } }
+      ]);
+      expect(roundTripped.updates[0].values[0].value).toBe(5.5);
+    });
+
+    test("should not add a meta key when the update has no meta", () => {
+      const delta = {
+        context: "vessels.self",
+        updates: [{ values: [{ path: "navigation.speedOverGround", value: 5.5 }] }]
+      };
+      const encoded = encodeDelta(delta);
+      expect("meta" in encoded.updates[0]).toBe(false);
+    });
+
     test("should preserve values when encoding", () => {
       const delta = {
         updates: [

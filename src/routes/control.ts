@@ -71,8 +71,8 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(503).json({ error: "Congestion control not initialized" });
         }
 
-        if (value === undefined || typeof value !== "number") {
-          return res.status(400).json({ error: "value must be a number" });
+        if (value === undefined || typeof value !== "number" || !Number.isFinite(value)) {
+          return res.status(400).json({ error: "value must be a finite number" });
         }
 
         if (value < 100 || value > 10000) {
