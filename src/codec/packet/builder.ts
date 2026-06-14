@@ -7,7 +7,6 @@ import {
   HEADER_SIZE,
   PacketType,
   PacketFlags,
-  MAX_SEQUENCE,
   normalizeProtocolVersion,
   crc16
 } from "./constants";

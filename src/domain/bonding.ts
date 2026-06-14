@@ -27,6 +27,7 @@ import {
   BONDING_RTT_THRESHOLD,
   BONDING_LOSS_THRESHOLD,
   BONDING_FAILBACK_DELAY,
+  BONDING_FAILOVER_MIN_DWELL,
   BONDING_HEARTBEAT_TIMEOUT,
   BONDING_FAILBACK_RTT_HYSTERESIS,
   BONDING_FAILBACK_LOSS_HYSTERESIS,
@@ -157,6 +158,10 @@ export class BondingManager {
     [key: string]: number;
   };
   private lastFailoverTime: number;
+  // Timestamp primary last became active (startup or last failback). Used to
+  // enforce a minimum dwell before a *soft* (degradation-driven) failover so a
+  // marginal primary cannot flap primary<->backup every health-check tick.
+  private lastFailbackTime: number;
   private healthCheckTimer: ReturnType<typeof setInterval> | null;
   private _initialized: boolean;
   private _stopped: boolean;
@@ -224,6 +229,7 @@ export class BondingManager {
     };
 
     this.lastFailoverTime = 0;
+    this.lastFailbackTime = 0;
     this.healthCheckTimer = null;
     this._initialized = false;
     this._stopped = false;
@@ -621,8 +627,20 @@ export class BondingManager {
       return false;
     }
 
+    // Hard failure: failover immediately (availability over stability).
+    if (primary.status === LinkStatus.DOWN) {
+      return true;
+    }
+
+    // Soft degradation (RTT/loss over threshold): only failover after the
+    // primary has been active for the minimum dwell, mirroring failbackDelay so
+    // a primary oscillating around the threshold cannot flap on every tick.
+    const timeSincePrimaryActive = Date.now() - this.lastFailbackTime;
+    if (timeSincePrimaryActive < BONDING_FAILOVER_MIN_DWELL) {
+      return false;
+    }
+
     return (
-      primary.status === LinkStatus.DOWN ||
       primary.rtt > this.failoverThresholds.rttThreshold ||
       primary.loss > this.failoverThresholds.lossThreshold
     );
@@ -697,6 +715,7 @@ export class BondingManager {
     this.activeLink = "primary";
     this.links.primary.health.status = LinkStatus.ACTIVE;
     this.links.backup.health.status = LinkStatus.STANDBY;
+    this.lastFailbackTime = Date.now();
 
     // Emit Signal K notification
     this._emitFailoverNotification("backup", "primary");

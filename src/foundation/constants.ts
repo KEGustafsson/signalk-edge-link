@@ -53,6 +53,7 @@ export const BONDING_HEALTH_CHECK_INTERVAL = 1000; // Health check interval (ms)
 export const BONDING_RTT_THRESHOLD = 500; // RTT threshold for failover (ms)
 export const BONDING_LOSS_THRESHOLD = 0.1; // Packet loss threshold for failover (10%)
 export const BONDING_FAILBACK_DELAY = 30000; // Delay before failback (ms) - prevents oscillation
+export const BONDING_FAILOVER_MIN_DWELL = 5000; // Min time on primary before a soft (degradation) failover - prevents flapping
 export const BONDING_HEARTBEAT_TIMEOUT = 5000; // Heartbeat response timeout (ms)
 export const BONDING_FAILBACK_RTT_HYSTERESIS = 0.8; // Failback requires RTT < threshold * 0.8
 export const BONDING_FAILBACK_LOSS_HYSTERESIS = 0.5; // Failback requires loss < threshold * 0.5

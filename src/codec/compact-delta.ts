@@ -123,6 +123,11 @@ function decodeUpdate(tuple: unknown): DeltaUpdate | null {
   if (Array.isArray(rawValues)) {
     for (const vt of rawValues) {
       if (Array.isArray(vt) && vt.length >= 2) {
+        // vt[0] is a path string OR, when the path dictionary is active, a
+        // numeric dictionary ID. It is resolved back to a string downstream by
+        // decodeDelta()/decodePath(); the cast reflects that contract — callers
+        // of decodeCompactDeltaArray() must run decodeDelta() before consuming
+        // paths as strings.
         values.push({ path: vt[0] as string, value: vt[1] });
       }
     }

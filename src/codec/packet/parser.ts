@@ -7,7 +7,6 @@ import {
   HEADER_SIZE,
   PacketType,
   PacketFlags,
-  MAX_SEQUENCE,
   SUPPORTED_PROTOCOL_VERSIONS,
   VALID_PACKET_TYPES,
   crc16,

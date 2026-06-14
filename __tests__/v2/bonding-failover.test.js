@@ -302,6 +302,40 @@ describe("Bonding Failover Scenarios", () => {
       expect(bm.activeLink).toBe("backup");
     });
 
+    test("min-dwell prevents soft re-failover immediately after failback", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      // Drive a failover then failback so primary just became active.
+      bm.failover();
+      bm.failback();
+      expect(bm.activeLink).toBe("primary");
+
+      // Primary immediately degrades (soft, RTT over threshold, not DOWN).
+      // Within the min-dwell window it must NOT flap back to backup.
+      bm.links.primary.health.rtt = 600;
+      expect(bm._shouldFailover()).toBe(false);
+
+      // After the dwell elapses, soft failover is allowed again.
+      jest.advanceTimersByTime(5001);
+      expect(bm._shouldFailover()).toBe(true);
+    });
+
+    test("hard primary DOWN still fails over immediately even within min-dwell", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      bm.failover();
+      bm.failback();
+      expect(bm.activeLink).toBe("primary");
+
+      // Hard failure right after failback bypasses the dwell guard.
+      bm.links.primary.health.status = LinkStatus.DOWN;
+      expect(bm._shouldFailover()).toBe(true);
+    });
+
     test("hysteresis prevents failback when metrics are borderline", async () => {
       bm = new BondingManager(createDefaultConfig(), app);
       await bm.initialize();

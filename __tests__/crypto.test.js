@@ -283,6 +283,18 @@ describe("Crypto Module", () => {
       expect(normalizeKey(b64, { stretchAsciiKey: true }).equals(raw)).toBe(true);
     });
 
+    test("43-char URL-safe base64 key (base64url) is accepted and matches its bytes", () => {
+      // Use bytes that produce '-' and '_' in the URL-safe alphabet.
+      const raw = Buffer.from(
+        "fbff0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+        "hex"
+      );
+      const b64url = raw.toString("base64url"); // 43 chars, no padding, uses -/_
+      expect(b64url.length).toBe(43);
+      expect(/[-_]/.test(b64url)).toBe(true);
+      expect(normalizeKey(b64url).equals(raw)).toBe(true);
+    });
+
     test("identical ASCII keys with stretchAsciiKey produce the same derived key", () => {
       const a = normalizeKey(validSecretKey, { stretchAsciiKey: true });
       const b = normalizeKey(validSecretKey, { stretchAsciiKey: true });
