@@ -1517,6 +1517,22 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
     // Per-session loss baselines are updated inside the loop above
   }
 
+  /**
+   * Full teardown for plugin stop/restart. Clears the periodic ACK and metrics
+   * timers, then resets EVERY per-session SequenceTracker (each may hold pending
+   * NAK setTimeout handles) and drops all sessions so their buffers can be GC'd.
+   * Without this, only the first session's tracker was reset on stop, leaking
+   * NAK timers and session memory across the frequent SignalK restart cycle.
+   */
+  function stop(): void {
+    stopACKTimer();
+    stopMetricsPublishing();
+    for (const session of clientSessions.values()) {
+      session.sequenceTracker.reset();
+    }
+    clientSessions.clear();
+  }
+
   return {
     receivePacket,
     getSequenceTracker,
@@ -1527,7 +1543,8 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
     stopACKTimer,
     startMetricsPublishing,
     stopMetricsPublishing,
-    requestFullStatusFromAllClients
+    requestFullStatusFromAllClients,
+    stop
   };
 }
 

@@ -285,19 +285,27 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(400).json({ success: false, error: uniquePortError });
         }
 
-        // Resolve managementApiToken: restore from persisted config when redacted
+        // Resolve managementApiToken. The whole plugin config is replaced on
+        // save, so we must never silently drop the token:
+        //   - field omitted entirely      → preserve persisted token
+        //   - REDACTED_SECRET sentinel     → preserve persisted token
+        //   - explicit non-empty string    → use it
+        //   - explicit empty string        → clear (operator opt-out)
+        const persistedToken =
+          typeof persistedConfig.managementApiToken === "string"
+            ? persistedConfig.managementApiToken
+            : undefined;
         let resolvedManagementToken: string | undefined;
         const incomingToken = req.body.managementApiToken;
         if (typeof incomingToken === "string") {
           if (incomingToken === REDACTED_SECRET) {
-            const persisted =
-              typeof persistedConfig.managementApiToken === "string"
-                ? persistedConfig.managementApiToken
-                : undefined;
-            resolvedManagementToken = persisted;
+            resolvedManagementToken = persistedToken;
           } else {
             resolvedManagementToken = incomingToken || undefined;
           }
+        } else {
+          // Field absent from the request body → carry the existing token forward.
+          resolvedManagementToken = persistedToken;
         }
 
         const finalConfig: Record<string, unknown> = {
@@ -308,8 +316,12 @@ function register(router: Router, ctx: RouteContext): void {
           finalConfig.managementApiToken = resolvedManagementToken;
         }
 
+        // Preserve the persisted fail-closed flag unless the caller explicitly
+        // sets it, so an incomplete write cannot relax the auth posture.
         if (typeof req.body.requireManagementApiToken === "boolean") {
           finalConfig.requireManagementApiToken = req.body.requireManagementApiToken;
+        } else if (typeof persistedConfig.requireManagementApiToken === "boolean") {
+          finalConfig.requireManagementApiToken = persistedConfig.requireManagementApiToken;
         }
 
         if (typeof pluginRef._restartPlugin === "function") {

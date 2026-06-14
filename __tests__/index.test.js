@@ -1530,7 +1530,9 @@ describe("SignalK Data Connector Plugin", () => {
       // Wait for async UDP socket binding to complete and status to be updated
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      expect(mockApp.error).not.toHaveBeenCalled();
+      expect(
+        mockApp.error.mock.calls.filter((c) => !String(c[0]).includes("OPEN ACCESS"))
+      ).toHaveLength(0);
       // Both connections should appear in the status (either "2 connections active" or "N/2 active — ...")
       expect(mockApp.setPluginStatus).toHaveBeenCalledWith(
         expect.stringMatching(/2 connections active|\/2 active/)
@@ -1564,7 +1566,9 @@ describe("SignalK Data Connector Plugin", () => {
       // Wait for async UDP socket binding to complete and status to be updated
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      expect(mockApp.error).not.toHaveBeenCalled();
+      expect(
+        mockApp.error.mock.calls.filter((c) => !String(c[0]).includes("OPEN ACCESS"))
+      ).toHaveLength(0);
       expect(mockApp.setPluginStatus).toHaveBeenCalledWith(
         expect.stringMatching(/2 connections active|\/2 active/)
       );
@@ -1618,7 +1622,9 @@ describe("SignalK Data Connector Plugin", () => {
 
       await plugin.start(options);
 
-      expect(mockApp.error).not.toHaveBeenCalled();
+      expect(
+        mockApp.error.mock.calls.filter((c) => !String(c[0]).includes("OPEN ACCESS"))
+      ).toHaveLength(0);
     });
 
     test("should reject an empty connections array", async () => {

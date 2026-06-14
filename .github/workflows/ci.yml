@@ -66,6 +66,12 @@ jobs:
       - name: Verify (check:ts + lint + test)
         run: npm run verify
 
+      # Enforce the coverageThreshold configured in package.json. Gated on a
+      # single Node version so coverage runs once per workflow, not 3x.
+      - name: Coverage gate
+        if: matrix.node-version == 22
+        run: npm run test:coverage
+
       - name: Type-check (webapp)
         run: npx tsc -p tsconfig.webapp.json --noEmit
 
@@ -79,3 +85,30 @@ jobs:
 
       - name: Release documentation and package truth
         run: npm run check:release-docs
+
+  # Non-blocking dependency audit. Kept out of the required `ci` gate so a
+  # newly-published advisory or registry/network hiccup cannot block merges.
+  # The audit test is skipped in the default suite unless RUN_NPM_AUDIT is set.
+  audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run npm audit test
+        env:
+          RUN_NPM_AUDIT: "1"
+        run: npx jest __tests__/npm-audit.test.js

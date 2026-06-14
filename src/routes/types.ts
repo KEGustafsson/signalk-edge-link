@@ -123,6 +123,8 @@ export interface RouteContext {
   ): EffectiveNetworkQuality;
   buildFullMetricsResponse(bundle: InstanceBundle): Record<string, unknown>;
   getManagementAuthSnapshot(): ManagementAuthSnapshot;
+  /** True when a management token is configured (auth is actively enforced). */
+  isManagementAuthEnabled(): boolean;
   authorizeManagement(req: RouteRequest, res: RouteResponse, action?: string): boolean;
   managementAuthMiddleware(action: string): RouteHandler;
 }

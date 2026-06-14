@@ -87,6 +87,7 @@ function makeCtx(overrides = {}) {
       byReason: {},
       byAction: {}
     }),
+    isManagementAuthEnabled: () => true,
     ...overrides,
     // Expose a default metrics object for bundle construction
     _defaultMetrics: defaultMetrics

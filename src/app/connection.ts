@@ -958,9 +958,15 @@ export function createConnection(
       state.heartbeatHandle = null;
     }
 
-    state.pipelineServer?.stopACKTimer?.();
-    state.pipelineServer?.stopMetricsPublishing?.();
-    state.pipelineServer?.getSequenceTracker?.()?.reset();
+    // Prefer the full teardown (resets every per-session tracker, clears the
+    // session map). Fall back to the legacy calls for pipelines without stop().
+    if (state.pipelineServer?.stop) {
+      state.pipelineServer.stop();
+    } else {
+      state.pipelineServer?.stopACKTimer?.();
+      state.pipelineServer?.stopMetricsPublishing?.();
+      state.pipelineServer?.getSequenceTracker?.()?.reset();
+    }
     state.pipelineServer = null;
 
     if (state.monitoring) {

@@ -2,11 +2,14 @@ import React from "react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
-import { RJSFSchema, UiSchema, getDefaultFormState } from "@rjsf/utils";
+import { RJSFSchema, UiSchema, ValidatorType, getDefaultFormState } from "@rjsf/utils";
 import { apiFetch, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
 import { buildWebappConnectionSchema } from "../../shared/connection-schema";
-
-const API_BASE = "/plugins/signalk-edge-link";
+import { ErrorBoundary } from "./ErrorBoundary";
+// API_BASE is a plain string constant bundled into the federated remote (it is
+// not a shared singleton), so importing it from utils is safe and avoids the
+// duplicate previously declared here.
+import { API_BASE } from "../utils";
 
 // ── Stable ID helper ──────────────────────────────────────────────────────────
 // Each connection object carries a frontend-only `_id` for use as React key.
@@ -512,11 +515,16 @@ function ConnectionCard({
       </div>
       {expanded && (
         <div className="skel-card-body">
+          {/* RJSF infers the Form's data generic from `formData`/`onChange`,
+              which narrows it to ConnectionFormData. Under tsconfig strict mode
+              that makes the default-generic (`any`) uiSchema/validator props
+              incompatible. Cast these two props so the strict build passes
+              without restructuring RJSF's generic plumbing. */}
           <Form
             schema={schema}
-            uiSchema={uiSchema}
+            uiSchema={uiSchema as UiSchema<ConnectionFormData>}
             formData={formData}
-            validator={validator}
+            validator={validator as typeof validator & ValidatorType<ConnectionFormData>}
             onChange={handleFormChange}
             onSubmit={() => {}}
             liveValidate={false}
@@ -532,7 +540,7 @@ function ConnectionCard({
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-function PluginConfigurationPanel(_props: Record<string, unknown>) {
+function PluginConfigurationPanelInner(_props: Record<string, unknown>) {
   const [connections, setConnections] = useState<ConnectionData[]>([]);
   const [managementApiToken, setManagementApiToken] = useState<string>("");
   const [requireManagementApiToken, setRequireManagementApiToken] = useState<boolean>(false);
@@ -825,6 +833,16 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
         </span>
       </div>
     </div>
+  );
+}
+
+// Wrap the federated default export so a render-time crash inside the panel
+// shows a recoverable fallback rather than breaking the SignalK admin host UI.
+function PluginConfigurationPanel(props: Record<string, unknown>) {
+  return (
+    <ErrorBoundary>
+      <PluginConfigurationPanelInner {...props} />
+    </ErrorBoundary>
   );
 }
 

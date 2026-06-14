@@ -1453,14 +1453,6 @@ describe("status and error summary routes", () => {
       expect.objectContaining({
         healthyInstances: 0,
         totalInstances: 1,
-        managementAuth: expect.objectContaining({
-          total: 1,
-          allowed: 1,
-          byReason: expect.objectContaining({ open_access: 1 }),
-          byAction: expect.objectContaining({
-            "status.read": expect.objectContaining({ allowed: 1 })
-          })
-        }),
         instances: [
           expect.objectContaining({
             id: "alpha",
@@ -1471,6 +1463,9 @@ describe("status and error summary routes", () => {
         ]
       })
     );
+    // In open-access mode (no token configured) the auth telemetry must NOT be
+    // exposed to unauthenticated callers.
+    expect(res.json.mock.calls[0][0]).not.toHaveProperty("managementAuth");
   });
 
   test("includes error summaries in /metrics response", () => {
@@ -1510,14 +1505,6 @@ describe("status and error summary routes", () => {
 
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        managementAuth: expect.objectContaining({
-          total: 1,
-          allowed: 1,
-          byReason: expect.objectContaining({ open_access: 1 }),
-          byAction: expect.objectContaining({
-            "metrics.read": expect.objectContaining({ allowed: 1 })
-          })
-        }),
         stats: expect.objectContaining({
           errorCounts: { general: 2, udpSend: 1 },
           dataPacketsReceived: 8,
@@ -1538,6 +1525,8 @@ describe("status and error summary routes", () => {
         recentErrors: [{ category: "udpSend", message: "socket down", timestamp: 42 }]
       })
     );
+    // Auth telemetry omitted in open-access mode (no token configured).
+    expect(res.json.mock.calls[0][0]).not.toHaveProperty("managementAuth");
   });
 
   test("managementAuth telemetry omits token, secret, IP, and user-agent values", () => {
