@@ -16,8 +16,9 @@
 
 import { promisify } from "util";
 import zlib from "node:zlib";
+import * as crypto from "node:crypto";
 import * as msgpack from "@msgpack/msgpack";
-import { decryptBinary } from "../../codec/crypto";
+import { decryptBinary, normalizeKey } from "../../codec/crypto";
 import { DecryptError } from "../../foundation/result";
 import { decodeDelta, decodeMetaEntry } from "../../codec/path-dictionary";
 import { sanitizeDeltaForSignalK } from "../../codec/delta-sanitizer";
@@ -155,6 +156,10 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   // dedup Set without bound (it would otherwise only be freed on idle-expiry,
   // which never triggers while the peer keeps sending).
   const MAX_ENVELOPE_CHUNK_INDICES = 8192;
+  // Length in bytes of the truncated HMAC appended to authenticated bonding
+  // heartbeat probes. Must match BondingManager's BONDING_HMAC_TAG_LENGTH so
+  // the server can verify probes before reflecting them.
+  const BONDING_HMAC_TAG_LENGTH = 8;
   let ackTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
@@ -163,10 +168,70 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   const clientSessions = new Map<string, ClientSession>();
 
   /**
+   * Pre-authentication per-source-IP packet limiter. Bounds the work an
+   * unauthenticated peer can force before we have a long-lived session (e.g.
+   * forged DATA packets that would otherwise drive a decrypt attempt each).
+   * Keyed by source IP; uses the same window/cap as the per-session limiter.
+   * @private
+   */
+  const preAuthByIp = new Map<string, { count: number; windowStart: number }>();
+  function _preAuthRateLimited(address: string): boolean {
+    const now = Date.now();
+    let entry = preAuthByIp.get(address);
+    if (!entry || now - entry.windowStart >= UDP_RATE_LIMIT_WINDOW) {
+      entry = { count: 0, windowStart: now };
+      preAuthByIp.set(address, entry);
+      // Opportunistically prune stale IP entries so the map cannot grow without
+      // bound under source-IP spoofing.
+      if (preAuthByIp.size > MAX_CLIENT_SESSIONS * 4) {
+        for (const [ip, e] of preAuthByIp) {
+          if (now - e.windowStart >= UDP_RATE_LIMIT_WINDOW) {
+            preAuthByIp.delete(ip);
+          }
+        }
+      }
+    }
+    entry.count++;
+    return entry.count > UDP_RATE_LIMIT_MAX_PACKETS;
+  }
+
+  /**
+   * Verify a bonding heartbeat probe's truncated HMAC tag. Returns true when no
+   * secret is configured (open mode) or when the tag is valid. Forged or
+   * malformed probes return false so the server drops them instead of echoing.
+   * @private
+   */
+  function _verifyHbProbe(packet: Buffer): boolean {
+    const secretKey = state.options?.secretKey;
+    if (!secretKey) {
+      // No shared secret: probes are not authenticated (open mode). Still
+      // require the minimal 12-byte header so we don't reflect junk.
+      return packet.length >= 12;
+    }
+    const minLen = 12 + BONDING_HMAC_TAG_LENGTH;
+    if (packet.length < minLen) {
+      return false;
+    }
+    try {
+      const header = packet.subarray(0, 12);
+      const keyBuffer = normalizeKey(secretKey, { stretchAsciiKey });
+      const expectedTag = crypto
+        .createHmac("sha256", keyBuffer)
+        .update(header)
+        .digest()
+        .subarray(0, BONDING_HMAC_TAG_LENGTH);
+      const receivedTag = packet.subarray(12, 12 + BONDING_HMAC_TAG_LENGTH);
+      return crypto.timingSafeEqual(expectedTag, receivedTag);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Get or create a session object for the given rinfo.
    * @private
    */
-  function _getOrCreateSession(rinfo: { address: string; port: number }): ClientSession {
+  function _getOrCreateSession(rinfo: { address: string; port: number }): ClientSession | null {
     const key = `${rinfo.address}:${rinfo.port}`;
 
     // Fast path: session already exists (most common case).
@@ -213,39 +278,13 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       app.debug(
         `[v2-server] Rejecting new session from ${rinfo.address}: per-IP limit (${MAX_SESSIONS_PER_IP}) reached`
       );
-      // Return a dummy ephemeral session object that is never stored, so the
-      // packet can still be processed for this request without polluting state.
-      return {
-        key,
-        sourceClientInstanceId: null,
-        clientId: null,
-        address: rinfo.address,
-        port: rinfo.port,
-        sequenceTracker: new SequenceTracker({
-          nakTimeout: reliabilityConfig.nakTimeout || 100,
-          onLossDetected: () => {
-            /* rate-limited; don't send NAK */
-          }
-        }),
-        lastAckSeq: null,
-        lastAckSentAt: 0,
-        hasReceivedData: false,
-        lastPacketTime: Date.now(),
-        lossBaseSeq: null,
-        lossHighestSeq: null,
-        lossReceivedCount: 0,
-        lastLossExpected: 0,
-        lastLossReceived: 0,
-        rateLimitCount: 0,
-        rateLimitWindowStart: Date.now(),
-        metaRequested: false,
-        statusRequested: false,
-        lastMetaEnvSeq: null,
-        seenMetaChunkIdx: new Set<number>(),
-        lastSourceEnvSeq: null,
-        seenSourceChunkIdx: new Set<number>(),
-        valueDedupState: null
-      };
+      // Drop the new session entirely. Previously this returned an unstored
+      // "dummy" session so the packet could still be processed, but that let a
+      // single source IP bypass the per-IP cap by rotating source ports — each
+      // dummy session carried a fresh rate limiter and could still dispatch
+      // DATA/METADATA. Returning null makes the caller drop the packet.
+      metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
+      return null;
     }
 
     const session = {
@@ -995,19 +1034,42 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       // Bonding health probes use a lightweight out-of-band heartbeat packet.
+      // Verify the probe (HMAC tag when a secret is configured) and rate-limit
+      // per source IP BEFORE reflecting it. Without this the server is an
+      // unauthenticated UDP reflector: an attacker could bounce forged probes
+      // off it or flood it, and a spoofed probe could mislead a peer's link
+      // health. Verified probes are echoed unchanged so the client's existing
+      // HMAC check still passes.
       if (packet.length >= 12 && packet.toString("ascii", 0, 7) === "HBPROBE") {
         if (rinfo) {
+          if (_preAuthRateLimited(rinfo.address)) {
+            metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
+            return;
+          }
+          if (!_verifyHbProbe(packet)) {
+            metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
+            app.debug(
+              `[v2-server] dropping unverified HBPROBE from ${rinfo.address}:${rinfo.port}`
+            );
+            return;
+          }
           await _sendUDP(packet, { address: rinfo.address, port: rinfo.port });
         }
         return;
       }
 
-      // Resolve per-client session (creates one on first contact from this addr:port)
-      const session = rinfo ? _getOrCreateSession(rinfo) : null;
-
-      // Track incoming bandwidth
+      // Track incoming bandwidth (all inbound UDP, counted before authentication).
       metrics.bandwidth.bytesIn += packet.length;
       metrics.bandwidth.packetsIn++;
+
+      // NOTE: session allocation is deliberately deferred until AFTER the packet
+      // has passed the cheapest safe authentication boundary for its type:
+      //   - non-v3 / CRC-invalid datagrams are stateless drops (below);
+      //   - control packets (HELLO/ACK/NAK/...) are HMAC-verified by parseHeader;
+      //   - DATA only allocates/mutates session state after AES-GCM decryption
+      //     authenticates the payload.
+      // This prevents spoofed/malformed datagrams from populating or evicting
+      // the session table and from poisoning sequence/NAK state.
 
       // Check if this is a v2 packet
       if (!packetParser.isV2Packet(packet)) {
@@ -1068,6 +1130,13 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       if (parsed.type === PacketType.HELLO) {
+        // HELLO is HMAC-authenticated by parseHeader, so it is safe to allocate
+        // a long-lived session here (the handshake is the intended trigger).
+        const session = rinfo ? _getOrCreateSession(rinfo) : null;
+        if (rinfo && !session) {
+          // Over per-IP cap: drop without creating state.
+          return;
+        }
         if (parsed.payload.length > HELLO_PAYLOAD_MAX_BYTES) {
           app.debug(
             `[v2-server] HELLO payload ${parsed.payload.length}B exceeds cap ${HELLO_PAYLOAD_MAX_BYTES}B — rejecting`
@@ -1137,8 +1206,17 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       if (parsed.type === PacketType.METADATA) {
-        // Apply the same per-session rate limit used for DATA so a malformed
-        // or hostile peer can't overwhelm the meta decoder path.
+        // METADATA is decrypted+authenticated inside handleMetadataPacket before
+        // any envelope/session state is mutated, so we only ever look up an
+        // EXISTING session here (one created earlier by an authenticated HELLO or
+        // by authenticated DATA). We never allocate a session for an as-yet
+        // unauthenticated metadata datagram.
+        const session = rinfo
+          ? (clientSessions.get(`${rinfo.address}:${rinfo.port}`) ?? null)
+          : null;
+        // Apply the same rate limit used for DATA so a malformed or hostile peer
+        // can't overwhelm the meta decoder path. Use the per-session limiter when
+        // a session exists, otherwise a per-IP pre-auth limiter.
         if (session) {
           const now = Date.now();
           if (now - session.rateLimitWindowStart >= UDP_RATE_LIMIT_WINDOW) {
@@ -1153,6 +1231,11 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
             app.debug(`[v2-server] rate limited META from ${session.key}`);
             return;
           }
+        } else if (rinfo && _preAuthRateLimited(rinfo.address)) {
+          metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
+          metrics.bandwidth.metaRateLimitedPackets =
+            (metrics.bandwidth.metaRateLimitedPackets || 0) + 1;
+          return;
         }
         await handleMetadataPacket(parsed, secretKey, session);
         return;
@@ -1163,21 +1246,67 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         return;
       }
 
-      // Per-client UDP rate limiting for DATA packets
-      if (session) {
+      // DATA packet. When authenticatedHeaders is disabled, the header carries
+      // no HMAC, so AES-GCM payload decryption is the first hard authentication
+      // boundary for DATA. We therefore decrypt BEFORE allocating a session or
+      // mutating sequence/NAK state: a forged-but-CRC-valid datagram (CRC is not
+      // a secret) must not be able to create/evict sessions or poison the
+      // sequence window.
+
+      // Rate-limit before the (relatively expensive) decrypt. An ESTABLISHED
+      // session (already authenticated once) is limited with its own per-session
+      // limiter, exactly as before. For a NEW peer with no session yet, we apply
+      // a per-IP pre-auth limiter so unauthenticated DATA can't force unbounded
+      // decrypts — the new session, once created below, inherits this packet in
+      // its own counter so steady-state limiting stays per-session.
+      const existingDataSession = rinfo
+        ? (clientSessions.get(`${rinfo.address}:${rinfo.port}`) ?? null)
+        : null;
+      if (existingDataSession) {
         const now = Date.now();
-        if (now - session.rateLimitWindowStart >= UDP_RATE_LIMIT_WINDOW) {
-          session.rateLimitCount = 0;
-          session.rateLimitWindowStart = now;
+        if (now - existingDataSession.rateLimitWindowStart >= UDP_RATE_LIMIT_WINDOW) {
+          existingDataSession.rateLimitCount = 0;
+          existingDataSession.rateLimitWindowStart = now;
         }
-        session.rateLimitCount++;
-        if (session.rateLimitCount > UDP_RATE_LIMIT_MAX_PACKETS) {
+        existingDataSession.rateLimitCount++;
+        if (existingDataSession.rateLimitCount > UDP_RATE_LIMIT_MAX_PACKETS) {
           metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
           app.debug(
-            `[v2-server] rate limited ${session.key}: ${session.rateLimitCount} packets in window`
+            `[v2-server] rate limited ${existingDataSession.key}: ${existingDataSession.rateLimitCount} packets in window`
           );
           return;
         }
+      } else if (rinfo && _preAuthRateLimited(rinfo.address)) {
+        metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
+        return;
+      }
+
+      // Decrypt (authenticates the payload via AES-GCM; throws on bad tag)
+      const decrypted = decryptBinary(parsed.payload, secretKey, {
+        stretchAsciiKey
+      });
+
+      // Decompress (capped to prevent decompression bombs)
+      const decompressed = await brotliDecompressAsync(decrypted, {
+        maxOutputLength: MAX_DECOMPRESSED_SIZE
+      });
+
+      metrics.bandwidth.bytesInRaw += decompressed.length;
+
+      // Payload authenticated: only now allocate the session and touch
+      // sequence/NAK/loss state. (decryptBinary throws above for forged
+      // payloads, so we never reach here for unauthenticated DATA.)
+      const session = rinfo ? _getOrCreateSession(rinfo) : null;
+      if (rinfo && !session) {
+        // Over per-IP session cap: drop after auth without creating state.
+        return;
+      }
+      // Seed the per-session rate limiter for a freshly-created session so the
+      // first (pre-auth-gated) packet counts toward its window; subsequent
+      // packets are limited per-session above.
+      if (session && !existingDataSession) {
+        session.rateLimitCount = 1;
+        session.rateLimitWindowStart = Date.now();
       }
 
       // Use the per-client sequence tracker
@@ -1241,18 +1370,6 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
           }
         }
       }
-
-      // Decrypt
-      const decrypted = decryptBinary(parsed.payload, secretKey, {
-        stretchAsciiKey
-      });
-
-      // Decompress (capped to prevent decompression bombs)
-      const decompressed = await brotliDecompressAsync(decrypted, {
-        maxOutputLength: MAX_DECOMPRESSED_SIZE
-      });
-
-      metrics.bandwidth.bytesInRaw += decompressed.length;
 
       // Reject payloads that exceed the safe parse limit to prevent DoS via
       // deeply-nested JSON objects that fit within the decompression cap but
