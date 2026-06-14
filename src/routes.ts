@@ -152,6 +152,27 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     return null;
   }
 
+  /**
+   * Logs a one-time startup warning when the management API is reachable without
+   * authentication (no token configured and not running fail-closed). The
+   * management API can rewrite plugin config, create/delete connections and
+   * export captured packets, so operators should be nudged to set a token.
+   */
+  function warnIfOpenAccess(): void {
+    if (getManagementToken() || isTokenRequired()) {
+      return;
+    }
+    if (app && typeof app.error === "function") {
+      app.error(
+        "[management-api] OPEN ACCESS: no managementApiToken configured — " +
+          "every management endpoint (config writes, connection create/delete, " +
+          "packet-capture export) is reachable without authentication. " +
+          "Set managementApiToken (or SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN), or set " +
+          "requireManagementApiToken=true to fail closed."
+      );
+    }
+  }
+
   function isTokenRequired(): boolean {
     // Explicit opt-in to enforce token-based auth even when no token is set yet
     // (allows admins to lock the API before the token is provisioned).
@@ -720,6 +741,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       getEffectiveNetworkQuality,
       buildFullMetricsResponse,
       getManagementAuthSnapshot,
+      isManagementAuthEnabled: () => getManagementToken() !== null,
       authorizeManagement,
       managementAuthMiddleware
     };
@@ -758,7 +780,9 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         healthyInstances,
         totalInstances: statusInstances.length,
         instances: statusInstances,
-        managementAuth: getManagementAuthSnapshot()
+        // Only surface auth telemetry when a token is configured; in open-access
+        // mode it would expose attempt history to unauthenticated callers.
+        ...(getManagementToken() ? { managementAuth: getManagementAuthSnapshot() } : {})
       });
     });
 
@@ -775,7 +799,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     loadConfigFile,
     saveConfigFile,
     startRateLimitCleanup,
-    stopRateLimitCleanup
+    stopRateLimitCleanup,
+    warnIfOpenAccess
   };
 }
 

@@ -102,7 +102,11 @@ module.exports = (env, argv) => {
         : [])
     ],
 
-    devtool: isProduction ? "source-map" : "eval-source-map",
+    // hidden-source-map: emit .map files (useful for error-reporting tools that
+    // resolve maps out-of-band) but omit the sourceMappingURL comment so the
+    // maps are not advertised to / fetched by browsers. The .map files are also
+    // excluded from the published package via .npmignore.
+    devtool: isProduction ? "hidden-source-map" : "eval-source-map",
 
     resolve: {
       extensions: [".ts", ".tsx", ".js", ".jsx", ".json"]

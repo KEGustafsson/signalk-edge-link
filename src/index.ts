@@ -57,6 +57,9 @@ module.exports = function createPlugin(app: SignalKApp) {
     }
 
     routes.startRateLimitCleanup();
+    // Now that _currentOptions reflects the saved config, warn if the
+    // management API is reachable without authentication.
+    routes.warnIfOpenAccess();
     await manager.start(options);
   };
 

@@ -15,6 +15,12 @@ export const WATCHER_RECOVERY_DELAY = 5000; // milliseconds
 
 // UDP and network
 export const MAX_SAFE_UDP_PAYLOAD = 1400; // Maximum safe UDP payload size (avoid fragmentation)
+// Assumed minimum compression ratio for source-snapshot chunking. The greedy
+// fill packs up to MAX_SAFE_UDP_PAYLOAD * this factor of *uncompressed* bytes
+// per chunk; the verification loop builds the real (compressed+encrypted) packet
+// and splits any chunk that still exceeds the MTU, so this only trades a few
+// extra packets (if too low) vs. a few extra verification splits (if too high).
+export const SOURCE_SNAPSHOT_COMPRESSION_BUDGET_FACTOR = 4;
 export const BROTLI_QUALITY_HIGH = 6; // Balanced quality: ~90% of max compression at ~10% of the CPU cost
 export const BROTLI_QUALITY_MIN = 0; // Fastest, lowest ratio
 export const BROTLI_QUALITY_MAX = 11; // Highest ratio, ~3-5× more CPU than quality 6
@@ -53,6 +59,7 @@ export const BONDING_HEALTH_CHECK_INTERVAL = 1000; // Health check interval (ms)
 export const BONDING_RTT_THRESHOLD = 500; // RTT threshold for failover (ms)
 export const BONDING_LOSS_THRESHOLD = 0.1; // Packet loss threshold for failover (10%)
 export const BONDING_FAILBACK_DELAY = 30000; // Delay before failback (ms) - prevents oscillation
+export const BONDING_FAILOVER_MIN_DWELL = 5000; // Min time on primary before a soft (degradation) failover - prevents flapping
 export const BONDING_HEARTBEAT_TIMEOUT = 5000; // Heartbeat response timeout (ms)
 export const BONDING_FAILBACK_RTT_HYSTERESIS = 0.8; // Failback requires RTT < threshold * 0.8
 export const BONDING_FAILBACK_LOSS_HYSTERESIS = 0.5; // Failback requires loss < threshold * 0.5

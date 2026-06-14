@@ -19,6 +19,7 @@ function register(router: Router, ctx: RouteContext): void {
     getActiveMetricsPublisher,
     buildFullMetricsResponse,
     getManagementAuthSnapshot,
+    isManagementAuthEnabled,
     managementAuthMiddleware
   } = ctx;
 
@@ -34,7 +35,8 @@ function register(router: Router, ctx: RouteContext): void {
         }
         res.json({
           ...buildFullMetricsResponse(bundle),
-          managementAuth: getManagementAuthSnapshot()
+          // Omit auth telemetry in open-access mode (see /status).
+          ...(isManagementAuthEnabled() ? { managementAuth: getManagementAuthSnapshot() } : {})
         });
       } catch (err: unknown) {
         res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

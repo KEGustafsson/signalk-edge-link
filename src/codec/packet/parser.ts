@@ -7,7 +7,6 @@ import {
   HEADER_SIZE,
   PacketType,
   PacketFlags,
-  MAX_SEQUENCE,
   SUPPORTED_PROTOCOL_VERSIONS,
   VALID_PACKET_TYPES,
   crc16,
@@ -24,10 +23,14 @@ import { verifyControlPacketAuthTag, CONTROL_AUTH_TAG_LENGTH } from "../crypto";
 export class PacketParser {
   _secretKey: string | null;
   _stretchAsciiKey: boolean;
+  _authenticatedHeaders: boolean;
 
-  constructor(config: { secretKey?: string; stretchAsciiKey?: boolean } = {}) {
+  constructor(
+    config: { secretKey?: string; stretchAsciiKey?: boolean; authenticatedHeaders?: boolean } = {}
+  ) {
     this._secretKey = config.secretKey || null;
     this._stretchAsciiKey = !!config.stretchAsciiKey;
+    this._authenticatedHeaders = !!config.authenticatedHeaders;
   }
 
   /**
@@ -42,7 +45,7 @@ export class PacketParser {
    */
   parseHeader(
     packet: Buffer,
-    options: { secretKey?: string; stretchAsciiKey?: boolean } = {}
+    options: { secretKey?: string; stretchAsciiKey?: boolean; authenticatedHeaders?: boolean } = {}
   ): ParsedPacket {
     if (!Buffer.isBuffer(packet)) {
       throw new Error("Packet must be a Buffer");
@@ -74,7 +77,8 @@ export class PacketParser {
       compressed: !!(flagByte & PacketFlags.COMPRESSED),
       encrypted: !!(flagByte & PacketFlags.ENCRYPTED),
       messagepack: !!(flagByte & PacketFlags.MESSAGEPACK),
-      pathDictionary: !!(flagByte & PacketFlags.PATH_DICTIONARY)
+      pathDictionary: !!(flagByte & PacketFlags.PATH_DICTIONARY),
+      authenticatedHeader: !!(flagByte & PacketFlags.AUTHENTICATED_HEADER)
     };
 
     // Parse sequence
@@ -103,10 +107,38 @@ export class PacketParser {
     // Extract payload
     let payload = packet.subarray(HEADER_SIZE);
 
+    const isDataOrMeta = type === PacketType.DATA || type === PacketType.METADATA;
+
+    // Opt-in DATA/METADATA header authentication. When this parser is configured
+    // to require it (both peers must agree, like stretchAsciiKey), every
+    // DATA/METADATA packet must carry the AUTHENTICATED_HEADER flag and a valid
+    // trailing HMAC tag over header[0..13)+ciphertext. A missing flag is treated
+    // as a downgrade attempt and rejected; a bad tag fails authentication.
+    const requireAuthHeader = options.authenticatedHeaders ?? this._authenticatedHeaders;
+    if (isDataOrMeta && requireAuthHeader) {
+      if (!flags.authenticatedHeader) {
+        throw new Error("Authenticated header required but AUTHENTICATED_HEADER flag not set");
+      }
+      if (payload.length < CONTROL_AUTH_TAG_LENGTH) {
+        throw new Error("DATA/METADATA authentication tag missing");
+      }
+      const ciphertext = payload.subarray(0, payload.length - CONTROL_AUTH_TAG_LENGTH);
+      const authTag = payload.subarray(payload.length - CONTROL_AUTH_TAG_LENGTH);
+      const secretKey = options.secretKey || this._secretKey;
+      if (!secretKey) {
+        throw new Error("DATA/METADATA authentication requires secretKey");
+      }
+      const stretchAsciiKey = options.stretchAsciiKey ?? this._stretchAsciiKey;
+      verifyControlPacketAuthTag(packet.subarray(0, 13), ciphertext, authTag, secretKey, {
+        stretchAsciiKey
+      });
+      payload = ciphertext;
+    }
+
     // Control packets (ACK/NAK/HEARTBEAT/HELLO/META_REQUEST/FULL_STATUS_REQUEST)
     // are HMAC-authenticated: verify the trailing auth tag and strip it so the
     // caller sees only the logical payload. DATA/METADATA are AEAD ciphertext.
-    if (type !== PacketType.DATA && type !== PacketType.METADATA) {
+    if (!isDataOrMeta) {
       if (payload.length < CONTROL_AUTH_TAG_LENGTH) {
         throw new Error("Control packet authentication tag missing");
       }
