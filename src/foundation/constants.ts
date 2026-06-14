@@ -15,6 +15,12 @@ export const WATCHER_RECOVERY_DELAY = 5000; // milliseconds
 
 // UDP and network
 export const MAX_SAFE_UDP_PAYLOAD = 1400; // Maximum safe UDP payload size (avoid fragmentation)
+// Assumed minimum compression ratio for source-snapshot chunking. The greedy
+// fill packs up to MAX_SAFE_UDP_PAYLOAD * this factor of *uncompressed* bytes
+// per chunk; the verification loop builds the real (compressed+encrypted) packet
+// and splits any chunk that still exceeds the MTU, so this only trades a few
+// extra packets (if too low) vs. a few extra verification splits (if too high).
+export const SOURCE_SNAPSHOT_COMPRESSION_BUDGET_FACTOR = 4;
 export const BROTLI_QUALITY_HIGH = 6; // Balanced quality: ~90% of max compression at ~10% of the CPU cost
 export const BROTLI_QUALITY_MIN = 0; // Fastest, lowest ratio
 export const BROTLI_QUALITY_MAX = 11; // Highest ratio, ~3-5× more CPU than quality 6

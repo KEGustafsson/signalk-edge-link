@@ -22,6 +22,7 @@ import type { ConnectionConfig } from "../foundation/types";
  */
 function register(router: Router, ctx: RouteContext): void {
   const {
+    app,
     rateLimitMiddleware,
     requireJson,
     instanceRegistry,
@@ -473,7 +474,10 @@ function register(router: Router, ctx: RouteContext): void {
         const config = await loadConfigFile(filePath);
         res.contentType("application/json").send(JSON.stringify(config || {}));
       } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        const detail = err instanceof Error ? err.message : String(err);
+        if (app?.error)
+          app.error(`[connection-config.read] ${req.params.id}/${req.params.filename}: ${detail}`);
+        res.status(500).json({ error: "Failed to read configuration file" });
       }
     }
   );
@@ -504,7 +508,12 @@ function register(router: Router, ctx: RouteContext): void {
         const success = await saveConfigFile(filePath, req.body);
         res.status(success ? 200 : 500).send(success ? "OK" : "Failed to save configuration");
       } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        const detail = err instanceof Error ? err.message : String(err);
+        if (app?.error)
+          app.error(
+            `[connection-config.update] ${req.params.id}/${req.params.filename}: ${detail}`
+          );
+        res.status(500).json({ error: "Failed to save configuration file" });
       }
     }
   );

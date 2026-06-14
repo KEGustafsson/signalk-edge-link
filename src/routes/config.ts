@@ -398,7 +398,11 @@ function register(router: Router, ctx: RouteContext): void {
         const config = await loadConfigFile(filePath);
         res.send(JSON.stringify(config || {}));
       } catch (error: unknown) {
-        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+        // Log the detail (may include absolute paths) but return a generic
+        // message so filesystem layout is not disclosed to API callers.
+        const detail = error instanceof Error ? error.message : String(error);
+        if (app?.error) app.error(`[config-file.read] ${req.params.filename}: ${detail}`);
+        res.status(500).json({ error: "Failed to read configuration file" });
       }
     }
   );
@@ -433,7 +437,9 @@ function register(router: Router, ctx: RouteContext): void {
 
         return res.status(500).send("Failed to save configuration");
       } catch (error: unknown) {
-        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+        const detail = error instanceof Error ? error.message : String(error);
+        if (app?.error) app.error(`[config-file.update] ${req.params.filename}: ${detail}`);
+        res.status(500).json({ error: "Failed to save configuration file" });
       }
     }
   );

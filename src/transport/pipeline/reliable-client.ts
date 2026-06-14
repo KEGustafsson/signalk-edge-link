@@ -47,6 +47,7 @@ import type {
 import * as dgram from "dgram";
 import {
   MAX_SAFE_UDP_PAYLOAD,
+  SOURCE_SNAPSHOT_COMPRESSION_BUDGET_FACTOR,
   SMART_BATCH_SMOOTHING,
   METRICS_PUBLISH_INTERVAL,
   calculateMaxDeltasPerBatch,
@@ -634,23 +635,23 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
     const chunks: Array<Array<Record<string, unknown>>> = [];
     let currentPatches: Array<Record<string, unknown>> = [];
 
+    // Greedy fill using a cheap O(1)-per-patch *serialized* size estimate rather
+    // than compressing+encrypting a candidate packet on every patch (which made
+    // this O(n^2) in brotli+AES on the reconnect hot path). Source metadata
+    // compresses well, so we pack against a budget that is a multiple of the MTU
+    // and rely on the verification loop below — which builds the real packet and
+    // splits anything that is actually over the MTU — for exactness.
+    const UNCOMPRESSED_BUDGET = MAX_SAFE_UDP_PAYLOAD * SOURCE_SNAPSHOT_COMPRESSION_BUDGET_FACTOR;
+    let runningSize = 0;
     for (const patch of sourcePatches) {
-      const candidatePatches = currentPatches.concat([patch]);
-      const candidate = buildSourceChunk(candidatePatches);
-      const candidatePacket = await buildSourceSnapshotPacket(
-        candidate,
-        envelopeSeq,
-        sourcePatches.length,
-        sourcePatches.length,
-        useMsgpack,
-        secretKey
-      );
-
-      if (currentPatches.length > 0 && candidatePacket.length > MAX_SAFE_UDP_PAYLOAD) {
+      const patchSize = deltaBuffer(patch, useMsgpack).length;
+      if (currentPatches.length > 0 && runningSize + patchSize > UNCOMPRESSED_BUDGET) {
         chunks.push(currentPatches);
         currentPatches = [patch];
+        runningSize = patchSize;
       } else {
-        currentPatches = candidatePatches;
+        currentPatches.push(patch);
+        runningSize += patchSize;
       }
     }
 
