@@ -47,7 +47,7 @@ The receiver identifies v1 packets because they **do not** start with the `SK` m
       "serverType": "client",
       "udpAddress": "192.168.1.100",
       "udpPort": 4446,
-      "secretKey": "MySecretKey12345678901234567890",
+      "secretKey": "<32-character-ASCII-key>",
       "protocolVersion": 1,
       "testAddress": "8.8.8.8",
       "testPort": 53,
@@ -57,7 +57,7 @@ The receiver identifies v1 packets because they **do not** start with the `SK` m
 }
 ```
 
-The `testAddress` / `testPort` / `pingIntervalTime` fields configure an external ping monitor for RTT estimation. These fields **must not** appear in v2/v3 configs.
+The `testAddress` / `testPort` / `pingIntervalTime` fields configure an external ping monitor for RTT estimation. These fields **must not** appear in Advanced/v3 configs.
 
 ---
 
@@ -65,7 +65,7 @@ The `testAddress` / `testPort` / `pingIntervalTime` fields configure an external
 
 v2 adds a 15-byte binary header to every packet, enabling sequence tracking, ACK/NAK retransmission, heartbeat-based RTT measurement, congestion control, and bonding.
 
-> **Note:** v3 (Advanced mode) is identical to v2 in data path and wire format. The only difference is HMAC authentication on control packets. For new deployments, use v3. v2 is documented here for operators who need to understand the shared reliability machinery.
+> **Note:** v3 (Advanced mode) builds on v2's header layout and reliability machinery, adding a different version byte (0x03 vs 0x02) and HMAC authentication on control packets. For new deployments, use v3. v2 is documented here for operators who need to understand the shared reliability machinery.
 
 ### Packet header format
 

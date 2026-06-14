@@ -24,7 +24,7 @@ Every 5 seconds, evaluate smoothed RTT and packet loss:
   │                                      (50% slower)          │
   │  otherwise (moderate)              → no change             │
   │                                                             │
-  │  Cap: max ±20% per step                                     │
+  │  Cap: max ±20% per step (e.g. ×1.50 → effective ×1.20)     │
   │  Inputs smoothed: value = 0.2 × new + 0.8 × prev (EMA)    │
   │  Bounds: minDeltaTimer ≤ timer ≤ maxDeltaTimer              │
   └─────────────────────────────────────────────────────────────┘

@@ -40,7 +40,7 @@ When `requireManagementApiToken: true` is set, management endpoints fail closed 
 Token sources checked in priority order:
 
 1. `window.__EDGE_LINK_AUTH__.token` — server-side injection (preferred)
-2. URL query parameter `?edgeLinkToken=<token>`
+2. URL query parameter `?edgeLinkToken=<token>` — **dev/debug only; tokens in URLs leak via browser history and server logs**
 3. `localStorage.getItem("signalkEdgeLinkManagementToken")`
 
 Override the injection object:

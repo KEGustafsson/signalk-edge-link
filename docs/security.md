@@ -39,7 +39,7 @@ openssl rand -base64 32 | tr -d '/+=' | cut -c1-32
 
 ### Key stretching (`stretchAsciiKey`)
 
-A 32-character ASCII key has ~208 bits of raw entropy. Setting `stretchAsciiKey: true` routes the key through **PBKDF2-SHA256** (600,000 iterations, salt `signalk-edge-link-v1`) before use, restoring full 256-bit AES strength.
+A 32-character ASCII key has ~208 bits of raw entropy. Setting `stretchAsciiKey: true` routes the key through **PBKDF2-SHA256** (600,000 iterations, salt `signalk-edge-link-v1`) before use, deriving a 256-bit AES key from the passphrase. The effective security still depends on the passphrase entropy — PBKDF2 makes brute-force computationally expensive but does not add entropy to a weak passphrase.
 
 **Both peers must have the same `stretchAsciiKey` setting.** A mismatch causes every packet to fail authentication silently — `encryptionErrors` will rise and no data will flow.
 
@@ -58,7 +58,7 @@ A 32-character ASCII key has ~208 bits of raw entropy. Setting `stretchAsciiKey:
 
 ### Advanced (v3) control-plane authentication
 
-Advanced mode adds a **16-byte HMAC-SHA256 tag** to every control packet (ACK, NAK, HEARTBEAT, HELLO). This closes the forgery vectors that exist in v1:
+Advanced mode adds a **16-byte truncated HMAC-SHA256 tag** (first 16 bytes of the 32-byte HMAC output) to every control packet (ACK, NAK, HEARTBEAT, HELLO). This closes the forgery vectors that exist in v1:
 
 - **Forged FULL_STATUS_REQUEST** — triggers a full snapshot replay (reflection amplifier)
 - **Forged NAK** — causes spurious retransmissions

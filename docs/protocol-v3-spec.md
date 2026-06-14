@@ -8,7 +8,7 @@
 
 ## What v3 Adds to v2
 
-v3 (Advanced mode) is **identical to v2 in data path and wire format**. The only difference is that **control packets** (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_REQUEST) carry a **16-byte HMAC-SHA256 authentication tag** appended after the payload.
+v3 (Advanced mode) **builds on v2's header layout**, using a different version byte (0x03 vs 0x02) and adding a **16-byte truncated HMAC-SHA256 authentication tag** (first 16 bytes of the 32-byte HMAC output) to every **control packet** (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_REQUEST).
 
 DATA packets (type `0x01`) are unaffected — they are already authenticated by the AES-256-GCM auth tag.
 

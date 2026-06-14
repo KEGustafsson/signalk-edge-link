@@ -22,10 +22,10 @@ Signal K Edge Link solves each of these with UDP transport, Brotli compression, 
 
 ### Protocol modes at a glance
 
-| Mode         | Numeric | Best for                                       | Key features                                                          |
-| ------------ | ------- | ---------------------------------------------- | --------------------------------------------------------------------- |
-| **Basic**    | v1      | Stable local links, simplest setup             | Encrypted UDP, Brotli compression. No retransmission or metrics.      |
-| **Advanced** | v3      | WAN links with packet loss or variable latency | ACK/NAK reliability, congestion control, bonding, HMAC authentication |
+| Mode         | Numeric | Best for                                       | Key features                                                                 |
+| ------------ | ------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Basic**    | v1      | Stable local links, simplest setup             | Encrypted UDP, Brotli compression. No retransmission or reliability metrics. |
+| **Advanced** | v3      | WAN links with packet loss or variable latency | ACK/NAK reliability, congestion control, bonding, HMAC authentication        |
 
 **Recommendation:** Use **Advanced (v3)** for any new deployment. Fall back to **Basic (v1)** only for stable local links where simplicity matters more than reliability.
 

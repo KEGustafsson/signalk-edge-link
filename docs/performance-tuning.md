@@ -83,7 +83,7 @@ Compression dominates processing time. On constrained hardware generating high d
 }
 ```
 
-Also add `sentence_filter.json` excluding `GSV`, `GSA`, `VTG`.
+Also add `sentence_filter.json` excluding `GSV`, `GSA`, `VTG`, `GLL`.
 
 - High `deltaTimer` (2000–5000 ms) maximizes compression ratio
 - `targetRTT: 800` prevents constant congestion decisions on a high-RTT link

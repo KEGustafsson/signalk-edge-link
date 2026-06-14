@@ -336,7 +336,7 @@ Aggregated health summary across all running instances.
 }
 ```
 
-**Errors:** `401` unauthorized, `503` when plugin not started.
+**Errors:** `401` unauthorized, `403` token required but not configured (`requireManagementApiToken: true`), `503` when plugin not started.
 
 ### GET /instances
 

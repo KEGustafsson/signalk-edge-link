@@ -49,18 +49,18 @@ curl http://vessel:3000/plugins/signalk-edge-link/metrics | jq '{sent:.stats.del
 curl http://shore:3000/plugins/signalk-edge-link/metrics | jq '{rcvd:.stats.deltasReceived,err:.stats.encryptionErrors}'
 ```
 
-If `readyToSend` is `false`, check `GET /status` for error details. If `deltasSent` is increasing but `deltasReceived` stays 0, the problem is between the two endpoints (firewall, routing, or key mismatch).
+If `readyToSend` is `false`, check `GET /status` for error details (include `-H "X-Edge-Link-Token: $TOKEN"` if management auth is enabled). If `deltasSent` is increasing but `deltasReceived` stays 0, the problem is between the two endpoints (firewall, routing, or key mismatch).
 
 ---
 
 ## Bonding Not Failing Over
 
-| Symptom                     | Check                                                                                                  |
-| --------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Failover not triggering     | Verify `bonding.enabled: true`; check backup is not `"down"` in `GET /bonding`                         |
-| Backup shows `"down"`       | Ensure UDP is allowed bidirectionally; server must echo HEARTBEAT probes                               |
-| Frequent failover/failback  | Increase `failbackDelay` (try 60 s); increase `rttThreshold`                                           |
-| `POST /bonding` returns 400 | Check field names and ranges against [configuration-reference.md §bonding](configuration-reference.md) |
+| Symptom                     | Check                                                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Failover not triggering     | Verify `bonding.enabled: true`; check backup is not `"down"` in `GET /bonding`                                                                   |
+| Backup shows `"down"`       | Ensure UDP is allowed bidirectionally; server must echo HEARTBEAT probes                                                                         |
+| Frequent failover/failback  | Increase `failbackDelay` (try 60 s); increase `rttThreshold`                                                                                     |
+| `POST /bonding` returns 400 | Check field names and ranges against [configuration-reference.md §bonding](configuration-reference.md#connection-bonding-client-advancedv3-only) |
 
 ---
 

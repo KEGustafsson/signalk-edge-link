@@ -46,7 +46,7 @@ These sit outside `connections[]`, at the root of the plugin config:
 
 ## v1 Ping Monitor Fields (Client, Basic/v1 Only)
 
-These fields **must not** appear in Advanced/v2/v3 configurations.
+These fields **must not** appear in Advanced/v3 configurations.
 
 | Field              | Type    | Default       | Description                                       |
 | ------------------ | ------- | ------------- | ------------------------------------------------- |
@@ -251,7 +251,7 @@ Common sentences to exclude: `GSV` (satellites in view — large, repetitive), `
       "name": "shore-prod",
       "serverType": "server",
       "udpPort": 4446,
-      "secretKey": "a3f1e2d4b5c6078901234567890abcdef1234567890abcdef1234567890abcde1",
+      "secretKey": "<64-char-hex-secret>",
       "protocolVersion": 3,
       "requestFullStatusOnRestart": true,
       "reliability": {
@@ -274,7 +274,7 @@ Common sentences to exclude: `GSV` (satellites in view — large, repetitive), `
       "serverType": "client",
       "udpAddress": "shore.example.com",
       "udpPort": 4446,
-      "secretKey": "a3f1e2d4b5c6078901234567890abcdef1234567890abcdef1234567890abcde1",
+      "secretKey": "<64-char-hex-secret>",
       "protocolVersion": 3,
       "useMsgpack": true,
       "usePathDictionary": true,
@@ -311,9 +311,9 @@ The configuration validator enforces:
 - `serverType` must be `"server"` or `"client"`
 - `udpPort` must be an integer 1024–65535
 - `secretKey` must match one of the three accepted formats
-- `protocolVersion` must be 1, 2, or 3 (or `"basic"`/`"advanced"`)
+- `protocolVersion` must be 1 or 3 (or `"basic"`/`"advanced"`)
 - Server connections must not include `congestionControl`, `bonding`, `alertThresholds`, or `skipOwnData`
-- Advanced/v2/v3 clients must not include `testAddress`, `testPort`, or `pingIntervalTime`
+- Advanced/v3 clients must not include `testAddress`, `testPort`, or `pingIntervalTime`
 - Basic/v1 clients must not include `heartbeatInterval`
 - Bonding: primary and backup must have different address:port pairs
 - Reliability values must be within documented ranges
