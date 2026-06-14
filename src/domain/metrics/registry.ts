@@ -286,8 +286,10 @@ function createMetrics(): MetricsApi {
       const bytesDeltaOut = metrics.bandwidth.bytesOut - metrics.bandwidth.lastBytesOut;
       const bytesDeltaIn = metrics.bandwidth.bytesIn - metrics.bandwidth.lastBytesIn;
 
-      metrics.bandwidth.rateOut = Math.round(bytesDeltaOut / elapsed);
-      metrics.bandwidth.rateIn = Math.round(bytesDeltaIn / elapsed);
+      // Clamp to >= 0: a counter reset (bytesOut dropping below lastBytesOut)
+      // must never publish a negative rate into history or the Prometheus gauge.
+      metrics.bandwidth.rateOut = Math.max(0, Math.round(bytesDeltaOut / elapsed));
+      metrics.bandwidth.rateIn = Math.max(0, Math.round(bytesDeltaIn / elapsed));
 
       const compressed = isServerMode ? metrics.bandwidth.bytesIn : metrics.bandwidth.bytesOut;
       const raw = isServerMode ? metrics.bandwidth.bytesInRaw : metrics.bandwidth.bytesOutRaw;
@@ -397,6 +399,7 @@ function createMetrics(): MetricsApi {
   }
 
   function getTopNPaths(n: number, uptimeSeconds: number): PathStatEntry[] {
+    if (!Number.isInteger(n) || n <= 0) return [];
     const pathStats = metrics.pathStats;
     const entries = Array.from(pathStats.entries());
     const result: PathStatEntry[] = [];

@@ -99,6 +99,18 @@ describe("Prometheus Metrics Exporter", () => {
       expect(text).toContain("# TYPE signalk_edge_link_uptime_seconds gauge");
     });
 
+    test("renders non-finite gauge values using Prometheus tokens, not JS strings", () => {
+      // "Infinity"/"-Infinity" are invalid exposition and would fail the whole
+      // scrape; the spec requires +Inf/-Inf. (NaN is already valid and several
+      // gauges pre-guard with `|| 0`, so Infinity is the meaningful case.)
+      metrics.bandwidth.rateOut = Infinity;
+      metrics.bandwidth.rateIn = -Infinity;
+      const text = formatPrometheusMetrics(metrics, state);
+      expect(text).not.toMatch(/\bInfinity\b/);
+      expect(text).toMatch(/signalk_edge_link_bandwidth_rate_out_bytes\S* \+Inf/);
+      expect(text).toMatch(/signalk_edge_link_bandwidth_rate_in_bytes\S* -Inf/);
+    });
+
     test("includes delta counters", () => {
       const text = formatPrometheusMetrics(metrics, state);
       expect(text).toContain("signalk_edge_link_deltas_sent_total");

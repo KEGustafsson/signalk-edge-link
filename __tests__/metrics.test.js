@@ -142,3 +142,16 @@ describe("Metrics Reset", () => {
     expect(metrics.pathStats.has("navigation.newPath")).toBe(true);
   });
 });
+
+describe("getTopNPaths guards", () => {
+  test("returns [] for non-positive or non-integer n instead of throwing", () => {
+    const api = createMetrics();
+    const { metrics, getTopNPaths } = api;
+    metrics.pathStats.set("navigation.position", { count: 1, bytes: 10, lastUpdate: Date.now() });
+    expect(getTopNPaths(0, 60)).toEqual([]);
+    expect(getTopNPaths(-5, 60)).toEqual([]);
+    expect(getTopNPaths(2.5, 60)).toEqual([]);
+    // sanity: a valid n still returns entries
+    expect(getTopNPaths(5, 60).length).toBe(1);
+  });
+});
