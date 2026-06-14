@@ -7,8 +7,7 @@ import { apiFetch, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
 import { buildWebappConnectionSchema } from "../../shared/connection-schema";
 import { ErrorBoundary } from "./ErrorBoundary";
 // API_BASE is a plain string constant bundled into the federated remote (it is
-// not a shared singleton), so importing it from utils is safe and avoids the
-// duplicate previously declared here.
+// not a shared singleton), so importing it from utils is safe.
 import { API_BASE } from "../utils";
 
 // ── Stable ID helper ──────────────────────────────────────────────────────────

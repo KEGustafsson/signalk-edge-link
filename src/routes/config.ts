@@ -432,10 +432,10 @@ function register(router: Router, ctx: RouteContext): void {
 
         const success = await saveConfigFile(filePath, req.body);
         if (success) {
-          return res.status(200).send("OK");
+          return res.status(200).json({ success: true });
         }
 
-        return res.status(500).send("Failed to save configuration");
+        return res.status(500).json({ error: "Failed to save configuration file" });
       } catch (error: unknown) {
         const detail = error instanceof Error ? error.message : String(error);
         if (app?.error) app.error(`[config-file.update] ${req.params.filename}: ${detail}`);

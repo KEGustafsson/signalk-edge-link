@@ -113,7 +113,14 @@ describe("SignalK Data Connector Plugin", () => {
       const secretKey = itemSchema.properties.secretKey;
       expect(secretKey.minLength).toBe(32);
       expect(secretKey.maxLength).toBe(64);
-      expect(secretKey.pattern).toBe("^(?:[\\x21-\\x7E]{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?)$");
+      expect(secretKey.pattern).toBe(
+        "^(?:[\\x21-\\x7E]{32}|[0-9a-fA-F]{64}|[A-Za-z0-9+/_-]{43}=?)$"
+      );
+      // base64url (URL-safe) keys must satisfy the schema pattern, matching
+      // normalizeKey()/validateSecretKey() runtime acceptance.
+      expect(
+        new RegExp(secretKey.pattern).test(require("crypto").randomBytes(32).toString("base64url"))
+      ).toBe(true);
     });
 
     test("should expose protocol versions 1 and 3 (Basic and Advanced)", () => {

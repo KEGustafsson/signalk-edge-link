@@ -566,7 +566,7 @@ export function createConnection(
       }
 
       state.socketRecoveryInProgress = false;
-      socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS; // reset backoff on success
+      socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS;
       state.readyToSend = true;
       lifecycle.transition("Ready", (msg) => app.error(msg));
       _setStatus("UDP socket recovered", true);
@@ -871,6 +871,7 @@ export function createConnection(
   // ── Lifecycle: start / stop ────────────────────────────────────────────────
   async function start(): Promise<void> {
     lifecycle.transition("Starting", (msg) => app.error(msg));
+    socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS;
     state.stopped = false;
     state.options = options;
     state.isServerMode = isServer(options);

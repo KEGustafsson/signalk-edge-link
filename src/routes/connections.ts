@@ -506,7 +506,9 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(400).json({ error: validationError });
         }
         const success = await saveConfigFile(filePath, req.body);
-        res.status(success ? 200 : 500).send(success ? "OK" : "Failed to save configuration");
+        return success
+          ? res.status(200).json({ success: true })
+          : res.status(500).json({ error: "Failed to save configuration file" });
       } catch (err: unknown) {
         const detail = err instanceof Error ? err.message : String(err);
         if (app?.error)

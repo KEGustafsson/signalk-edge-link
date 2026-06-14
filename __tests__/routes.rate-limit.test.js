@@ -1463,8 +1463,6 @@ describe("status and error summary routes", () => {
         ]
       })
     );
-    // In open-access mode (no token configured) the auth telemetry must NOT be
-    // exposed to unauthenticated callers.
     expect(res.json.mock.calls[0][0]).not.toHaveProperty("managementAuth");
   });
 
@@ -1525,7 +1523,6 @@ describe("status and error summary routes", () => {
         recentErrors: [{ category: "udpSend", message: "socket down", timestamp: 42 }]
       })
     );
-    // Auth telemetry omitted in open-access mode (no token configured).
     expect(res.json.mock.calls[0][0]).not.toHaveProperty("managementAuth");
   });
 

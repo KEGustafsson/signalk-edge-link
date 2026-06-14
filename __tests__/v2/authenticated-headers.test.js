@@ -30,7 +30,6 @@ describe("authenticated DATA/METADATA headers (opt-in)", () => {
     const payload = Buffer.from("hello-world");
     const packet = authBuilder().buildDataPacket(payload);
 
-    // Flag bit is recorded in the header.
     expect(packet[4] & PacketFlags.AUTHENTICATED_HEADER).toBe(PacketFlags.AUTHENTICATED_HEADER);
 
     const parsed = authParser().parseHeader(packet, { secretKey: SECRET_KEY });
