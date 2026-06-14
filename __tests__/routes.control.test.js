@@ -197,6 +197,29 @@ describe("POST /delta-timer", () => {
     expect(setManualDeltaTimer).not.toHaveBeenCalled();
   });
 
+  test("returns 400 for Infinity and -Infinity (all non-finite values rejected)", () => {
+    const router = makeRouterCollector();
+    const setManualDeltaTimer = jest.fn();
+    const bundle = {
+      state: {
+        isServerMode: false,
+        pipeline: { getCongestionControl: () => ({ setManualDeltaTimer }) }
+      }
+    };
+    controlRoutes.register(router, makeCtx({ getFirstBundle: () => bundle }));
+    const handler = findHandler(router, "post", "/delta-timer");
+
+    const resInf = makeResponse();
+    handler({ body: { value: Infinity } }, resInf);
+    expect(resInf.statusCode).toBe(400);
+
+    const resNegInf = makeResponse();
+    handler({ body: { value: -Infinity } }, resNegInf);
+    expect(resNegInf.statusCode).toBe(400);
+
+    expect(setManualDeltaTimer).not.toHaveBeenCalled();
+  });
+
   test("returns 400 for value below 100", () => {
     const router = makeRouterCollector();
     const bundle = { state: { isServerMode: false, pipeline: null } };
