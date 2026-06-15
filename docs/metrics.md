@@ -130,7 +130,7 @@ When bonding is enabled, per-link metrics are included in `GET /bonding`:
 
 ## Management API Auth Telemetry
 
-`GET /status` and `GET /metrics` include a `managementAuth` block:
+`GET /status` and `GET /metrics` include a `managementAuth` block **only when a `managementApiToken` is configured** (in open-access mode it is omitted, and `/prometheus` likewise omits the management-auth metrics):
 
 | Field      | Description                                                             |
 | ---------- | ----------------------------------------------------------------------- |
@@ -205,7 +205,7 @@ scrape_configs:
       - targets: ["signalk-server:3000"]
 ```
 
-A starter Grafana dashboard is included at `grafana/dashboards/edge-link.json`.
+Build a Grafana dashboard from the Prometheus metrics exposed at `/prometheus` (no dashboard JSON is bundled with the plugin).
 
 ---
 

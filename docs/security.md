@@ -128,3 +128,17 @@ For the planned key-rotation and key-agreement roadmap, see [docs/future-securit
 Management API endpoints require a token when `managementApiToken` is configured. See [management-tools.md](management-tools.md) for authentication details.
 
 Endpoints intentionally exclude from their responses: token values, transport secrets, client addresses, user agents, and raw request paths.
+
+### Packet capture is sensitive data
+
+The packet-capture/inspector tooling (and PCAP export) records raw on-the-wire
+bytes — encrypted payloads, sequence numbers, and peer addresses. Because the
+protocol has **no forward secrecy** (see Known Limitations), any historical
+capture of encrypted traffic becomes decryptable if the shared key is later
+compromised. Treat captures as sensitive:
+
+- Access-control capture endpoints behind a `managementApiToken` (do not run the
+  management API in open-access mode if captures are enabled).
+- Retain captures only as long as needed for the analysis at hand, and delete
+  them afterwards rather than archiving them.
+- Store and transfer exported PCAP files as you would the shared secret itself.

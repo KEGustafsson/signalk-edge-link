@@ -65,7 +65,7 @@ Architecture and design notes retained for contributors and maintainers.
 
 ## Dashboard Assets
 
-- `../grafana/dashboards/edge-link.json` — Starter dashboard for RTT, loss, retransmit, ACK/NAK, and bonding trends
+- Grafana: build a dashboard from the `/prometheus` metrics (RTT, loss, retransmit, ACK/NAK, bonding). No dashboard JSON ships with the plugin.
 
 ## Reading Order
 

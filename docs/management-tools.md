@@ -109,7 +109,7 @@ npm run migrate:config -- old-config.json new-config.json
 
 ## Auth Telemetry
 
-`GET /status` and `GET /metrics` include a `managementAuth` block for auditing:
+`GET /status` and `GET /metrics` include a `managementAuth` block for auditing **only when a `managementApiToken` is configured** (omitted in open-access mode):
 
 | Field      | Description                                                     |
 | ---------- | --------------------------------------------------------------- |

@@ -61,6 +61,10 @@ Returns comprehensive real-time statistics. Available in client and server mode.
 }
 ```
 
+> The `managementAuth` block is present **only when a `managementApiToken` is
+> configured**. In open-access mode it is omitted from `/status` and `/metrics`,
+> and the equivalent management-auth metrics are omitted from `/prometheus`.
+
 ### GET /network-metrics
 
 Current network quality. Available in client and server mode.

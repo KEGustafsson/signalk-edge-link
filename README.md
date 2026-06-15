@@ -298,7 +298,6 @@ window.__EDGE_LINK_AUTH__ = {
 - `docs/performance-tuning.md` (deployment tuning recommendations by hardware profile)
 - `docs/troubleshooting.md` (issue-oriented diagnostics)
 - `samples/` (example JSON configurations for minimal/dev/v2-bonding setups)
-- `grafana/dashboards/edge-link.json` (starter Grafana dashboard)
 - `src/scripts/migrate-config.ts` (legacy config migration utility)
 - `src/bin/edge-link-cli.ts` (CLI wrapper for migration and instance/bonding management)
 
