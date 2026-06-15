@@ -153,6 +153,38 @@ describe("authorizeManagement auth guard", () => {
     expect(res.statusCode).not.toBe(401);
   });
 
+  test("auth does not degrade to open access after stop (falls back to persisted token)", async () => {
+    // Simulate a stopped plugin: stop() clears _currentOptions, but the routes
+    // may still be mounted. Persisted config still carries a management token,
+    // so the management API must keep requiring it rather than going open.
+    const pluginRef = { _currentOptions: null };
+    const app = {
+      debug: () => {},
+      error: () => {},
+      readPluginOptions: () => ({ configuration: { managementApiToken: SECRET } })
+    };
+    const instanceRegistry = {
+      getAll: jest.fn().mockReturnValue([]),
+      getFirst: jest.fn().mockReturnValue(null)
+    };
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+    const handler = findHandler(router, "get", "/status");
+
+    // No token supplied → must be rejected even though _currentOptions is null.
+    const res = makeResponse();
+    await handler({ headers: {}, ip: "127.0.0.1" }, res);
+    expect(res.statusCode).toBe(401);
+    expect(instanceRegistry.getAll).not.toHaveBeenCalled();
+
+    // Correct token from persisted config → allowed.
+    const res2 = makeResponse();
+    await handler({ headers: { "x-edge-link-token": SECRET }, ip: "127.0.0.1" }, res2);
+    expect(res2.statusCode).not.toBe(401);
+    expect(instanceRegistry.getAll).toHaveBeenCalled();
+  });
+
   test("GET /status exposes auth decision telemetry without changing auth behavior", async () => {
     const bundle = makeBundle();
     const { router } = setupRoutes(SECRET, { bundles: [bundle] });

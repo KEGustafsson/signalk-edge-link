@@ -137,9 +137,33 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     return typeof value === "string" && isApplicationJsonMediaType(value);
   }
 
+  /**
+   * Resolve the effective plugin options for auth decisions. Prefer the live
+   * `_currentOptions`, but fall back to the PERSISTED configuration when the
+   * plugin is stopped (`stop()` clears `_currentOptions`). Without this fallback
+   * the management API would silently degrade to OPEN ACCESS after a stop if the
+   * routes stay mounted and no env token is set — and `/plugin-config` can still
+   * read and mutate persisted configuration even while stopped.
+   * @private
+   */
+  function getAuthOptions(): Record<string, unknown> | null {
+    if (pluginRef && pluginRef._currentOptions) {
+      return pluginRef._currentOptions as Record<string, unknown>;
+    }
+    try {
+      const opts = typeof app.readPluginOptions === "function" ? app.readPluginOptions() : null;
+      const configuration = opts && opts.configuration;
+      return configuration && typeof configuration === "object"
+        ? (configuration as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   function getManagementToken(): string | null {
-    const fromOptions =
-      pluginRef && pluginRef._currentOptions && pluginRef._currentOptions.managementApiToken;
+    const authOptions = getAuthOptions();
+    const fromOptions = authOptions && authOptions.managementApiToken;
     if (typeof fromOptions === "string" && fromOptions.trim()) {
       return fromOptions.trim();
     }
@@ -176,8 +200,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
   function isTokenRequired(): boolean {
     // Explicit opt-in to enforce token-based auth even when no token is set yet
     // (allows admins to lock the API before the token is provisioned).
-    const fromOptions =
-      pluginRef && pluginRef._currentOptions && pluginRef._currentOptions.requireManagementApiToken;
+    const authOptions = getAuthOptions();
+    const fromOptions = authOptions && authOptions.requireManagementApiToken;
     if (fromOptions === true) {
       return true;
     }

@@ -10,6 +10,7 @@
 
 import { promises as fs } from "fs";
 import * as path from "path";
+import * as crypto from "crypto";
 
 interface Logger {
   debug?: (msg: string) => void;
@@ -89,7 +90,13 @@ export async function saveConfigFile(
 ): Promise<boolean> {
   const dir = path.dirname(filePath);
   const baseName = path.basename(filePath);
-  const tempPath = path.join(dir, `.${baseName}.tmp`);
+  // Use a UNIQUE temp filename per write. A single fixed temp path lets two
+  // concurrent saves to the same target truncate each other's temp file or
+  // rename/unlink a temp file the other write still owns. Including the pid and
+  // random bytes keeps each in-flight write isolated; the final atomic rename
+  // still publishes a complete file.
+  const unique = `${process.pid.toString(36)}.${crypto.randomBytes(6).toString("hex")}`;
+  const tempPath = path.join(dir, `.${baseName}.${unique}.tmp`);
   let fileHandle: fs.FileHandle | undefined;
 
   try {

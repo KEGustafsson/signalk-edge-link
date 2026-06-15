@@ -266,6 +266,29 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     }
   }
 
+  // Timing bounds mirrored from the shared UI schema (connection-schema.ts) so
+  // API config writes cannot create ping/HELLO/heartbeat timers outside the
+  // documented/UI ranges. Runtime code uses these values directly for timers.
+  if (conn.helloMessageSender !== undefined) {
+    if (
+      !Number.isInteger(conn.helloMessageSender) ||
+      (conn.helloMessageSender as number) < 10 ||
+      (conn.helloMessageSender as number) > 3600
+    ) {
+      return `${p}helloMessageSender must be an integer between 10 and 3600 (seconds)`;
+    }
+  }
+  const heartbeatIntervalError = numberRangeError(
+    conn,
+    "heartbeatInterval",
+    5000,
+    120000,
+    `${p}heartbeatInterval`
+  );
+  if (heartbeatIntervalError) {
+    return heartbeatIntervalError;
+  }
+
   if (serverType === "client") {
     if (!conn.udpAddress || typeof conn.udpAddress !== "string") {
       return `${p}udpAddress is required in client mode`;
@@ -281,6 +304,15 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
       }
       if (!isValidPort(conn.testPort, 1)) {
         return `${p}testPort must be between 1 and 65535 in v1 client mode`;
+      }
+      if (conn.pingIntervalTime !== undefined) {
+        if (
+          !isFiniteNumber(conn.pingIntervalTime) ||
+          (conn.pingIntervalTime as number) < 0.1 ||
+          (conn.pingIntervalTime as number) > 60
+        ) {
+          return `${p}pingIntervalTime must be a number between 0.1 and 60 (minutes)`;
+        }
       }
     } else {
       if (conn.testAddress !== undefined) {
