@@ -401,9 +401,9 @@ Additional required for client: `udpAddress`.
 
 Patch one instance configuration. Triggers a plugin restart. Returns `200` on success.
 
-Updatable: `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`, `udpMetaPort`, `udpAddress`, `helloMessageSender`, `testAddress`, `testPort`, `pingIntervalTime`, `reliability`, `congestionControl`, `bonding`, `alertThresholds`.
+Updatable: `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`, `udpAddress`, `helloMessageSender`, `reliability`, `congestionControl`, `bonding`, `alertThresholds`.
 
-**Not updatable via this endpoint:** `serverType`, `udpPort`, `secretKey`.
+**Not updatable via this endpoint:** `serverType`, `udpPort`, `secretKey`. Any other field (including `udpMetaPort`, `testAddress`, `testPort`, and `pingIntervalTime`) is rejected with `400`; change those by replacing the full configuration via `POST /plugin-config`.
 
 **Errors:** `400` (unsupported field, validation), `401`, `404`, `503`.
 

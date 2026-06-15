@@ -107,7 +107,10 @@ export function getTokenHelpText(): string {
         ? "X-Edge-Link-Token"
         : "X-Edge-Link-Token and Authorization: Bearer <token>";
 
-  return `The server-side token is configured in plugin settings (managementApiToken) or via the SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN environment variable. To authenticate from the browser, provide the token using window.__EDGE_LINK_AUTH__.token, query parameter "${config.queryParam}", or localStorage key "${config.localStorageKey}". Requests send ${modeText} when a token is available.`;
+  const queryHint = config.includeTokenInQuery
+    ? `, query parameter "${config.queryParam}" (enabled)`
+    : ` (query parameter "${config.queryParam}" is disabled by default — enable with includeTokenInQuery: true, though tokens in URLs leak via history and logs)`;
+  return `The server-side token is configured in plugin settings (managementApiToken) or via the SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN environment variable. To authenticate from the browser, provide the token using window.__EDGE_LINK_AUTH__.token or localStorage key "${config.localStorageKey}"${queryHint}. Requests send ${modeText} when a token is available.`;
 }
 
 export function apiFetch(input: string | Request, init: RequestInit = {}): Promise<Response> {

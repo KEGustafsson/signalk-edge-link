@@ -163,12 +163,12 @@ The plugin watches each file for changes (300 ms debounce) and reloads automatic
 Overrides the delta send interval. When set, bypasses congestion control.
 
 ```json
-{ "deltaTimerMs": 2000 }
+{ "deltaTimer": 2000 }
 ```
 
-| Field          | Type    | Default | Range        | Description                                                        |
-| -------------- | ------- | ------- | ------------ | ------------------------------------------------------------------ |
-| `deltaTimerMs` | integer | `1000`  | 100–10000 ms | Data batching interval. `null` or absent = use congestion control. |
+| Field        | Type    | Default | Range        | Description                                                        |
+| ------------ | ------- | ------- | ------------ | ------------------------------------------------------------------ |
+| `deltaTimer` | integer | `1000`  | 100–10000 ms | Data batching interval. `null` or absent = use congestion control. |
 
 ### subscription.json
 

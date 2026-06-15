@@ -688,12 +688,12 @@ The plugin watches each file for changes (300 ms debounce) and reloads automatic
 Overrides the delta send interval. When set, bypasses congestion control.
 
 ```json
-{ "deltaTimerMs": 2000 }
+{ "deltaTimer": 2000 }
 ```
 
-| Field          | Type    | Default | Range        | Description                                                        |
-| -------------- | ------- | ------- | ------------ | ------------------------------------------------------------------ |
-| `deltaTimerMs` | integer | `1000`  | 100–10000 ms | Data batching interval. `null` or absent = use congestion control. |
+| Field        | Type    | Default | Range        | Description                                                        |
+| ------------ | ------- | ------- | ------------ | ------------------------------------------------------------------ |
+| `deltaTimer` | integer | `1000`  | 100–10000 ms | Data batching interval. `null` or absent = use congestion control. |
 
 Lower = more frequent sends, higher bandwidth, lower latency.  
 Higher = less frequent sends, better compression ratio per packet.
@@ -1775,7 +1775,7 @@ export SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN="your-long-random-token"
 Token sources checked in priority order:
 
 1. `window.__EDGE_LINK_AUTH__.token` — server-side injection (preferred)
-2. URL query parameter `?edgeLinkToken=<token>`
+2. URL query parameter `?edgeLinkToken=<token>` — **disabled by default**; opt in with `includeTokenInQuery: true`. Generally avoid: tokens in URLs leak via history, access logs, and `Referer` headers.
 3. `localStorage.getItem("signalkEdgeLinkManagementToken")`
 
 Override the injection object:

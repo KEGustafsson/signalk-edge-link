@@ -8,7 +8,7 @@ const repoRoot = path.join(__dirname, "..");
 const sampleFiles = [
   "samples/minimal-config.json",
   "samples/development.json",
-  "samples/v2-with-bonding.json",
+  "samples/v3-with-bonding.json",
   "samples/v3-authenticated-control.json"
 ];
 
@@ -17,12 +17,34 @@ function readJson(relativePath) {
 }
 
 describe("documented configuration schema", () => {
-  test("exposes management and udpMetaPort fields", () => {
+  test("exposes management fields", () => {
     const schema = readJson("docs/configuration-schema.json");
 
     expect(schema.properties.managementApiToken).toBeDefined();
     expect(schema.properties.requireManagementApiToken).toBeDefined();
-    expect(schema.definitions.connection.properties.udpMetaPort).toBeDefined();
+  });
+
+  test("does not reintroduce fields the runtime rejects/strips", () => {
+    const schema = readJson("docs/configuration-schema.json");
+    const connProps = schema.definitions.connection.properties;
+    // These appeared in older documented schemas but are not accepted by the
+    // runtime (udpMetaPort is not a config field; failoverThreshold/maxWindow
+    // are not real bonding/congestion shapes).
+    expect(connProps.udpMetaPort).toBeUndefined();
+    expect(connProps.bonding.properties.failoverThreshold).toBeUndefined();
+    expect(connProps.congestionControl.properties.maxWindow).toBeUndefined();
+    // bonding.mode is main-backup only.
+    expect(connProps.bonding.properties.mode.enum).toEqual(["main-backup"]);
+  });
+
+  test("documented schema examples are runtime-valid", () => {
+    const schema = readJson("docs/configuration-schema.json");
+    for (const example of schema.examples) {
+      expect(Array.isArray(example.connections)).toBe(true);
+      example.connections.forEach((connection, index) => {
+        expect(validateConnectionConfig(connection, `connections[${index}].`)).toBeNull();
+      });
+    }
   });
 });
 

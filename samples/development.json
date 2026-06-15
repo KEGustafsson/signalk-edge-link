@@ -5,7 +5,7 @@
       "serverType": "server",
       "udpPort": 4446,
       "secretKey": "CHANGE_ME_TO_YOUR_OWN_SECRET_KEY",
-      "protocolVersion": 2,
+      "protocolVersion": 3,
       "useMsgpack": false,
       "usePathDictionary": true
     },
@@ -15,7 +15,7 @@
       "udpAddress": "127.0.0.1",
       "udpPort": 4446,
       "secretKey": "CHANGE_ME_TO_YOUR_OWN_SECRET_KEY",
-      "protocolVersion": 2
+      "protocolVersion": 3
     }
   ]
 }
