@@ -18,6 +18,18 @@ describe("Webapp connection schema", () => {
     expect(schema.properties).toHaveProperty("bonding");
     expect(schema.properties).toHaveProperty("alertThresholds");
   });
+
+  test("v3 client schema exposes reliable-only toggles", () => {
+    const schema = buildWebappConnectionSchema(true, 3);
+    expect(schema.properties).toHaveProperty("useValueDedup");
+    expect(schema.properties).toHaveProperty("useCompactDeltas");
+  });
+
+  test("v1 client schema hides reliable-only toggles the backend would reject", () => {
+    const schema = buildWebappConnectionSchema(true, 1);
+    expect(schema.properties).not.toHaveProperty("useValueDedup");
+    expect(schema.properties).not.toHaveProperty("useCompactDeltas");
+  });
 });
 
 describe("Web UI Helper Functions", () => {
