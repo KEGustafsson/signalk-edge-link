@@ -31,7 +31,7 @@ scope: full repo
 **Types:**
 
 - Use PascalCase interfaces and types without an `I` prefix: `ConnectionConfig`, `InstanceState`, `MetricsApi`, `RouteContext`.
-- Keep shared contract interfaces in `src/types.ts` or `src/routes/types.ts`.
+- Keep shared contract interfaces in `src/foundation/types/` or `src/routes/types.ts`.
 - Prefer literal string unions and object constants over TypeScript enums in protocol code.
 
 ## Code Style
@@ -89,7 +89,7 @@ scope: full repo
 **Async and resources:**
 
 - Timers, sockets, watchers, and pipeline intervals must be cleared from `stop()` paths.
-- If a change adds a timer or listener to `src/instance.ts`, `src/pipeline-v2-client.ts`, `src/pipeline-v2-server.ts`, or `src/bonding.ts`, add matching cleanup.
+- If a change adds a timer or listener to `src/app/connection.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, or `src/bonding.ts`, add matching cleanup.
 - Prefer atomic file writes through `saveConfigFile` rather than direct writes for runtime JSON.
 
 ## Logging

@@ -22,7 +22,7 @@ scope: full repo
 
 - Encrypted UDP peer - Client/server data transfer between Signal K instances.
   - Integration method: UDP sockets from Node `dgram`.
-  - Wire protocols: v1 encrypted payloads in `src/pipeline.ts`; v2/v3 packetized reliable transport in `src/pipeline-v2-client.ts`, `src/pipeline-v2-server.ts`, and `src/packet.ts`.
+  - Wire protocols: v1 encrypted payloads in `src/pipeline.ts`; v2/v3 packetized reliable transport in `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, and `src/codec/packet-codec.ts`.
   - Auth/confidentiality: shared `secretKey` with AES-256-GCM; v3 adds HMAC-authenticated control packets.
   - Operational requirement: both ends must match `protocolVersion`, `secretKey`, `useMsgpack`, `usePathDictionary`, and `stretchAsciiKey`.
 
@@ -59,8 +59,8 @@ scope: full repo
 **Caching / In-Memory State:**
 
 - Instance registry - `src/index.ts` owns a `Map` of active instances.
-- Per-instance mutable state - `src/instance.ts` owns sockets, timers, watchers, metrics, and subscriptions.
-- Client sessions - `src/pipeline-v2-server.ts` tracks remote clients by address and port.
+- Per-instance mutable state - `src/app/connection.ts` owns sockets, timers, watchers, metrics, and subscriptions.
+- Client sessions - `src/transport/pipeline/reliable-server.ts` tracks remote clients by address and port.
 - Source registry - `src/source-replication.ts` tracks source identities observed from incoming deltas.
 
 ## Authentication & Identity
@@ -77,7 +77,7 @@ scope: full repo
 - Payload encryption: `src/crypto.ts` normalizes keys and performs AES-256-GCM encrypt/decrypt.
 - Key formats: 32-byte ASCII, 64-character hex, or 44-character base64.
 - Optional ASCII stretching: `stretchAsciiKey` derives the AES key through PBKDF2.
-- Control plane: v3 control packet auth tags are generated and verified by `src/crypto.ts` and `src/packet.ts`.
+- Control plane: v3 control packet auth tags are generated and verified by `src/crypto.ts` and `src/codec/packet-codec.ts`.
 
 **Browser Token Sources:**
 

@@ -6,6 +6,21 @@ scope: full repo
 
 # Codebase Structure
 
+> **Path migration (post connection-rewrite).** Older planning prose referenced
+> now-removed flat modules. Current homes:
+>
+> | Old path                    | Current path                                              |
+> | --------------------------- | --------------------------------------------------------- |
+> | `src/instance.ts`           | `src/app/connection.ts` + `src/app/connection-manager.ts` |
+> | `src/types.ts`              | `src/foundation/types/*` (`config.ts`, `instance.ts`, …)  |
+> | `src/pipeline-v2-client.ts` | `src/transport/pipeline/reliable-client.ts`               |
+> | `src/pipeline-v2-server.ts` | `src/transport/pipeline/reliable-server.ts`               |
+> | `src/pipeline.ts` (v1)      | `src/transport/pipeline/v1.ts`                            |
+> | `src/packet.ts`             | `src/codec/packet/` (+ `src/codec/packet-codec.ts`)       |
+> | `src/metrics*.ts`           | `src/domain/metrics/*`                                    |
+> | `src/monitoring.ts`         | `src/domain/monitoring/*`                                 |
+> | `test/integration/`         | `__tests__/integration/`                                  |
+
 ## Directory Layout
 
 ```text
@@ -17,10 +32,10 @@ signalk-edge-link/
 |   |-- bin/                # Packaged CLI entry point
 |   |-- scripts/            # Utility scripts such as config migration
 |   `-- icons/              # Source icon assets copied into public/
-|-- __tests__/              # Jest unit/component tests
-|   `-- v2/                 # Protocol v2/v3 focused tests
-|-- test/                   # Integration tests, benchmarks, and simulation utilities
+|-- __tests__/              # Jest unit/component/integration tests
+|   |-- v2/                 # Protocol v2/v3 focused tests
 |   |-- integration/        # Multi-module integration suites
+|   |-- interop/            # Cross-build interop suites
 |   `-- benchmarks/         # Performance/fuzz/benchmark scripts
 |-- docs/                   # Operator, protocol, security, API, architecture, and planning docs
 |   |-- planning/           # Historical design/completion notes
@@ -46,8 +61,7 @@ signalk-edge-link/
 - **`src/routes/`** - REST route modules behind the common route context. Add new route groups here and register them from `src/routes.ts`.
 - **`src/shared/`** - Code shared between backend plugin and webapp bundle. Use this directory when a config/schema constant must stay identical across backend and frontend.
 - **`src/webapp/`** - Browser UI for runtime management and plugin configuration. Built by webpack into `public/`.
-- **`__tests__/`** - Primary Jest test suites. `__tests__/v2/` concentrates v2/v3 protocol behavior, bonding, congestion, metadata, monitoring, fuzz, and coverage tests.
-- **`test/`** - Integration, simulation, and benchmark-style validation outside the main unit-test tree (`test/integration/`, `test/benchmarks/`).
+- **`__tests__/`** - Primary Jest test suites. `__tests__/v2/` concentrates v2/v3 protocol behavior, bonding, congestion, metadata, monitoring, fuzz, and coverage tests; `__tests__/integration/`, `__tests__/interop/`, and `__tests__/benchmarks/` hold integration, cross-build interop, and benchmark/simulation suites.
 - **`docs/`** - Human-readable product, protocol, security, API, and operational documentation. Subdirectories capture planning notes, performance reports, PR records, and image assets.
 - **`samples/`** - Example JSON configs for common deployment profiles.
 
@@ -76,9 +90,9 @@ signalk-edge-link/
 
 **New protocol feature:**
 
-- Implementation: `src/pipeline-v2-client.ts`, `src/pipeline-v2-server.ts`, `src/packet.ts`, or focused helpers in `src/`.
-- Types: `src/types.ts`.
-- Tests: `__tests__/v2/` plus `test/integration/` if cross-pipeline behavior changes.
+- Implementation: `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, `src/codec/packet/` (parser/builder), or focused helpers under `src/codec/` and `src/transport/`.
+- Types: `src/foundation/types/` (e.g. `config.ts`, `instance.ts`).
+- Tests: `__tests__/v2/` plus `__tests__/integration/` if cross-pipeline behavior changes.
 - Docs: `docs/protocol-v2-spec.md`, `docs/protocol-v3-spec.md`, or relevant operational docs.
 
 **New management endpoint:**
@@ -93,7 +107,7 @@ signalk-edge-link/
 
 - Schema: `src/shared/connection-schema.ts`.
 - Runtime validation/sanitization: `src/connection-config.ts`.
-- Types: `src/types.ts`.
+- Types: `src/foundation/types/config.ts`.
 - UI behavior: `src/webapp/components/PluginConfigurationPanel.tsx` if needed.
 - Docs/tests: `docs/configuration-reference.md`, `__tests__/connection-config.test.js`, and UI/schema tests.
 
