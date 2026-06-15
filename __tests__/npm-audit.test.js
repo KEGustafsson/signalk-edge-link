@@ -5,7 +5,10 @@ const ROOT = path.resolve(__dirname, "..");
 
 // `npm audit` hits the network, so it is skipped in the default unit-test gate
 // (npm test / verify) to avoid flaking on registry/connectivity issues. A
-// dedicated, non-blocking CI job sets RUN_NPM_AUDIT=1 to actually run it.
+// dedicated, non-blocking CI job sets RUN_NPM_AUDIT=1 to actually run it on
+// every push/PR, and a weekly scheduled `audit-blocking` CI job runs
+// `npm audit --omit=dev --audit-level=high` as a BLOCKING gate. See the
+// "Dependency / supply-chain audit policy" section in docs/security.md.
 const describeAudit = process.env.RUN_NPM_AUDIT === "1" ? describe : describe.skip;
 
 describeAudit("npm audit", () => {

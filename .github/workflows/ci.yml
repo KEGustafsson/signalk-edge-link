@@ -13,6 +13,11 @@ on:
     branches:
       - main
       - dev
+  # Weekly blocking dependency audit (see the audit-blocking job). A scheduled
+  # gate catches newly-published advisories in existing dependencies without
+  # letting registry/network flakiness block day-to-day PR merges.
+  schedule:
+    - cron: "0 6 * * 1"
 
 jobs:
   ci:
@@ -112,3 +117,30 @@ jobs:
         env:
           RUN_NPM_AUDIT: "1"
         run: npx jest __tests__/npm-audit.test.js
+
+  # Blocking dependency audit, runs ONLY on the weekly schedule. Unlike the
+  # per-PR `audit` job above this is NOT continue-on-error and fails the run on
+  # any high/critical advisory in the production dependency tree, so a newly
+  # disclosed vulnerability surfaces as a red scheduled run.
+  audit-blocking:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Fails (non-zero exit) on any high/critical advisory in runtime deps.
+      - name: Audit production dependencies (high/critical, blocking)
+        run: npm audit --omit=dev --audit-level=high
