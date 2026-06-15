@@ -33,6 +33,10 @@ function makeState(overrides = {}) {
       protocolVersion: 3,
       useMsgpack: false,
       usePathDictionary: false,
+      // Pin the DATA sequence base so these queue/ACK/NAK tests can use absolute
+      // sequence numbers. Production randomizes it (and strips this test-only key
+      // via sanitizeConnectionConfig); randomization is covered separately.
+      initialSequence: 0,
       reliability: {},
       congestionControl: {}
     },
@@ -157,6 +161,40 @@ describe("sendDelta – oversized packet warning", () => {
     );
     expect(warningLogged).toBe(true);
     expect(metricsApi.metrics.smartBatching.oversizedPackets).toBeGreaterThan(0);
+  });
+});
+
+// ── 3b. Initial DATA sequence randomization (anti-replay) ───────────────────
+
+describe("initial DATA sequence randomization", () => {
+  test("each client randomizes its initial sequence (non-zero, distinct)", () => {
+    // Build clients WITHOUT the deterministic override so the random path runs.
+    const make = () => {
+      const state = makeState();
+      delete state.options.initialSequence;
+      return createPipeline(2, "client", makeApp(), state, createMetrics());
+    };
+    const seqs = new Set();
+    for (let i = 0; i < 8; i++) {
+      const seq = make().getPacketBuilder().getCurrentSequence();
+      expect(seq).toBeGreaterThan(0);
+      seqs.add(seq);
+    }
+    // Astronomically unlikely for 8 independent uint32 draws to collide.
+    expect(seqs.size).toBeGreaterThan(1);
+  });
+
+  test("sanitizeConnectionConfig strips the test-only initialSequence override", () => {
+    const { sanitizeConnectionConfig } = require("../../src/connection-config");
+    const out = sanitizeConnectionConfig({
+      serverType: "client",
+      udpPort: 4446,
+      udpAddress: "127.0.0.1",
+      secretKey: SECRET_KEY,
+      protocolVersion: 3,
+      initialSequence: 0
+    });
+    expect(out.initialSequence).toBeUndefined();
   });
 });
 

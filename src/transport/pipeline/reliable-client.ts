@@ -15,6 +15,7 @@
 
 import CircularBuffer from "../../foundation/circular-buffer";
 import * as msgpack from "@msgpack/msgpack";
+import * as nodeCrypto from "node:crypto";
 import { encryptBinary } from "../../codec/crypto";
 import { encodeDelta, encodeMetaEntry } from "../../codec/path-dictionary";
 import {
@@ -71,11 +72,28 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
   const protocolVersion = 3;
   const stretchAsciiKey = !!state.options?.stretchAsciiKey;
   const authenticatedHeaders = !!state.options?.authenticatedHeaders;
+  // Randomize the initial DATA sequence number per session start (anti-replay
+  // hardening). Starting every session at 0 makes stale DATA/ACK frames from a
+  // previous session line up with the new session's sequence space, so a
+  // replayed old DATA can look like a fresh first packet (or a replayed ACK can
+  // clear retransmit entries) after a restart. A random start in the lower
+  // uint32 half makes that collision improbable while keeping wide headroom
+  // before wraparound. The receiver re-baselines to whatever first sequence it
+  // sees (SequenceTracker resync), so this stays wire-compatible with any peer.
+  //
+  // An explicit numeric `options.initialSequence` forces a deterministic start;
+  // it exists only as a test seam — sanitizeConnectionConfig() strips it from
+  // any persisted/operator config, so production always uses the random value.
+  const explicitInitialSequence = (state.options as { initialSequence?: unknown })?.initialSequence;
+  const initialSequence = Number.isInteger(explicitInitialSequence)
+    ? (explicitInitialSequence as number) >>> 0
+    : nodeCrypto.randomInt(1, 0x80000000);
   const packetBuilder = new PacketBuilder({
     protocolVersion,
     secretKey: state.options?.secretKey ?? undefined,
     stretchAsciiKey,
-    authenticatedHeaders
+    authenticatedHeaders,
+    initialSequence
   });
   const packetParser = new PacketParser({
     secretKey: state.options?.secretKey ?? undefined,

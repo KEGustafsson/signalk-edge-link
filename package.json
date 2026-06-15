@@ -184,6 +184,7 @@
       "/node_modules/",
       "/public/",
       "/__tests__/benchmarks/",
+      "/__tests__/helpers/",
       "/__tests__/network-simulator\\.js$",
       "/__conformance__/(?:generate-vectors|build-vectors)\\.js$"
     ],
