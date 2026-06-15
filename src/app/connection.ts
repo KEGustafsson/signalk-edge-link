@@ -914,12 +914,11 @@ export function createConnection(
         state.readyToSend = true;
       }
     } catch (err) {
-      if (dedupeCleanupTimer) {
-        clearInterval(dedupeCleanupTimer);
-        dedupeCleanupTimer = null;
-      }
-      lifecycle.forceStop();
-      state.stopped = true;
+      // Full teardown before rethrowing: startServer()/startClient() may have
+      // allocated sockets, timers, heartbeat, or pipeline state before failing.
+      // stop() is idempotent, so it is safe even from a partial start and even
+      // if the caller (ConnectionManager) also calls stop() afterwards.
+      stop();
       throw err;
     }
   }

@@ -196,7 +196,6 @@ export function createConnectionManager({
     const servers = all.filter((inst) => inst.isServerMode());
     const clients = all.filter((inst) => !inst.isServerMode());
 
-    const startedInstances: ConnectionApi[] = [];
     let startError: unknown = null;
 
     async function startGroup(group: ConnectionApi[]): Promise<void> {
@@ -204,7 +203,6 @@ export function createConnectionManager({
         group.map(async (inst) => {
           try {
             await inst.start();
-            startedInstances.push(inst);
           } catch (err: unknown) {
             if (!startError) startError = err;
             app.error(
@@ -219,8 +217,13 @@ export function createConnectionManager({
     await startGroup(clients);
 
     if (startError) {
-      app.error("Failed to start one or more connections — stopping all started instances");
-      for (const inst of startedInstances) inst.stop();
+      app.error("Failed to start one or more connections — stopping all instances");
+      // Stop EVERY instance in the registry, not just the ones that started
+      // successfully. An instance whose start() threw may have allocated
+      // sockets/timers/heartbeat/pipeline state before failing; its full
+      // teardown (stop()) is idempotent and safe to call even after a partial
+      // start, so this releases resources that would otherwise leak.
+      for (const inst of instances.values()) inst.stop();
       instances.clear();
       setStatus(
         `Startup failed: ${startError instanceof Error ? startError.message : String(startError)}`
