@@ -172,12 +172,16 @@ curl -s -X POST \
 
 ### Signal K paths published
 
-| Path                                          | Description                      |
-| --------------------------------------------- | -------------------------------- |
-| `networking.edgeLink.bonding.activeLink`      | `"primary"` or `"backup"`        |
-| `networking.edgeLink.bonding.primary.rtt`     | Primary link RTT (ms)            |
-| `networking.edgeLink.bonding.primary.loss`    | Primary link loss ratio          |
-| `networking.edgeLink.bonding.primary.quality` | Primary link quality score 0–100 |
-| `networking.edgeLink.bonding.backup.rtt`      | Backup link RTT (ms)             |
-| `networking.edgeLink.bonding.backup.loss`     | Backup link loss ratio           |
-| `networking.edgeLink.bonding.backup.quality`  | Backup link quality score 0–100  |
+| Path                                        | Description                      |
+| ------------------------------------------- | -------------------------------- |
+| `networking.edgeLink.activeLink`            | Active link name                 |
+| `networking.edgeLink.links.primary.status`  | Primary link status              |
+| `networking.edgeLink.links.primary.rtt`     | Primary link RTT (ms)            |
+| `networking.edgeLink.links.primary.loss`    | Primary link loss ratio          |
+| `networking.edgeLink.links.primary.quality` | Primary link quality score 0–100 |
+| `networking.edgeLink.links.backup.status`   | Backup link status               |
+| `networking.edgeLink.links.backup.rtt`      | Backup link RTT (ms)             |
+| `networking.edgeLink.links.backup.loss`     | Backup link loss ratio           |
+| `networking.edgeLink.links.backup.quality`  | Backup link quality score 0–100  |
+
+When an instance ID is configured these paths are namespaced as `networking.edgeLink.<instanceId>.*`.

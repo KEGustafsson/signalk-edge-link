@@ -144,21 +144,29 @@ When bonding is enabled, per-link metrics are included in `GET /bonding`:
 
 ## Signal K Paths Published
 
-| Signal K path                              | Type         | Unit    | Description                 |
-| ------------------------------------------ | ------------ | ------- | --------------------------- |
-| `networking.modem.rtt`                     | number       | seconds | v1 external ping RTT        |
-| `networking.edgeLink.rtt`                  | number       | ms      | v3 heartbeat RTT            |
-| `networking.edgeLink.jitter`               | number       | ms      | RTT variance                |
-| `networking.edgeLink.packetLoss`           | number       | ratio   | Packet loss (0–1)           |
-| `networking.edgeLink.retransmitRate`       | number       | ratio   | Retransmit rate (0–1)       |
-| `networking.edgeLink.linkQuality`          | number       | 0–100   | Composite link quality      |
-| `networking.edgeLink.queueDepth`           | number       | packets | Retransmit queue depth      |
-| `networking.edgeLink.throughput.out`       | number       | B/s     | Outbound throughput         |
-| `networking.edgeLink.throughput.in`        | number       | B/s     | Inbound throughput          |
-| `networking.edgeLink.bonding.activeLink`   | string       | —       | `"primary"` or `"backup"`   |
-| `networking.edgeLink.bonding.primary.*`    | object       | —       | Primary link health metrics |
-| `networking.edgeLink.bonding.backup.*`     | object       | —       | Backup link health metrics  |
-| `notifications.signalk-edge-link.<name>.*` | notification | —       | Alert events                |
+| Signal K path                                   | Type         | Unit    | Description                    |
+| ----------------------------------------------- | ------------ | ------- | ------------------------------ |
+| `networking.modem.rtt`                          | number       | seconds | v1 external ping RTT           |
+| `networking.edgeLink.rtt`                       | number       | ms      | v3 heartbeat RTT               |
+| `networking.edgeLink.jitter`                    | number       | ms      | RTT variance                   |
+| `networking.edgeLink.packetLoss`                | number       | ratio   | Packet loss (0–1)              |
+| `networking.edgeLink.linkQuality`               | number       | 0–100   | Composite link quality         |
+| `networking.edgeLink.queueDepth`                | number       | packets | Retransmit queue depth         |
+| `networking.edgeLink.retransmissions`           | number       | count   | Retransmitted packets          |
+| `networking.edgeLink.sequenceNumber`            | number       | —       | Last published sequence number |
+| `networking.edgeLink.bandwidth.upload`          | number       | B/s     | Outbound throughput            |
+| `networking.edgeLink.bandwidth.download`        | number       | B/s     | Inbound throughput             |
+| `networking.edgeLink.packetsPerSecond.sent`     | number       | pkt/s   | Outbound packet rate           |
+| `networking.edgeLink.packetsPerSecond.received` | number       | pkt/s   | Inbound packet rate            |
+| `networking.edgeLink.compressionRatio`          | number       | ratio   | Compression ratio              |
+| `networking.edgeLink.activeLink`                | string       | —       | Active bonded link name        |
+| `networking.edgeLink.links.<link>.status`       | string       | —       | Per-link status                |
+| `networking.edgeLink.links.<link>.rtt`          | number       | ms      | Per-link RTT                   |
+| `networking.edgeLink.links.<link>.loss`         | number       | ratio   | Per-link loss ratio            |
+| `networking.edgeLink.links.<link>.quality`      | number       | 0–100   | Per-link quality score         |
+| `notifications.signalk-edge-link.<name>.*`      | notification | —       | Alert events                   |
+
+When an instance ID is configured, the `networking.edgeLink.*` paths are namespaced as `networking.edgeLink.<instanceId>.*`.
 
 ---
 

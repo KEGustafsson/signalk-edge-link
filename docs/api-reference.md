@@ -8,6 +8,12 @@
 
 ## Core Data Endpoints
 
+> **Multi-instance note:** the top-level JSON endpoints below (`/metrics`,
+> `/network-metrics`, the `/monitoring/*` and `/capture` routes, etc.) report the
+> **first instance** only — they are legacy/single-instance views. `/prometheus`
+> aggregates across all instances. For multi-instance deployments use the
+> per-connection endpoints under [`/connections/:id/...`](#per-connection-endpoints).
+
 ### GET /metrics
 
 Returns comprehensive real-time statistics. Available in client and server mode.
@@ -285,7 +291,7 @@ Alert cooldown is 60 seconds. Notifications fire at `notifications.signalk-edge-
 
 ### GET /monitoring/inspector
 
-WebSocket live packet inspector statistics.
+Returns packet-inspector statistics (a plain JSON snapshot from a `GET`; there is no WebSocket/live-stream endpoint).
 
 ```json
 { "enabled": true, "packetsInspected": 5000, "clientsConnected": 1 }
