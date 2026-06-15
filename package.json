@@ -28,6 +28,8 @@
     "check:ts": "tsc --noEmit",
     "check:release-docs": "node scripts/check-release-truth.js",
     "verify": "npm run check:ts && npm run lint && npm test",
+    "check:ts:webapp": "tsc -p tsconfig.webapp.json --noEmit",
+    "verify:ci-local": "npm run check:ts && npm run lint && npm run test:coverage && npm run check:ts:webapp && npm run build && npm run conformance:generate && git diff --exit-code -- __conformance__/vectors/golden.json && npm run check:release-docs",
     "conformance:generate": "npm run build:ts && node __conformance__/generate-vectors.js",
     "dev": "webpack --mode development --watch",
     "test": "jest --runInBand",
