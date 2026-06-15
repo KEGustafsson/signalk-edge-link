@@ -753,7 +753,13 @@ export function createConnection(
 
     keepaliveManager.start();
     state.socketUdp = socketManager.create();
-    state.readyToSend = true;
+    // NOTE: do NOT mark readyToSend here. The send gate must stay aligned with
+    // the lifecycle FSM (Ready), which start() reaches only after the reliable
+    // pipeline, heartbeat, HELLO, source snapshot, and config watchers below
+    // have all initialized. Setting it now would let processDelta() send deltas
+    // before the pipeline is actually ready. start() sets readyToSend together
+    // with the Ready transition once startClient() returns. The socket itself is
+    // up, so the status bar can already show "Connected".
     _setStatus("Connected", true);
     state.socketUdp.on("error", handleClientSocketError);
     scheduleDeltaTimer();
@@ -865,6 +871,14 @@ export function createConnection(
     }
 
     if (lifecycle.isShuttingDown()) return;
+    // Enable sending only now — AFTER the reliable pipeline, heartbeat, HELLO,
+    // and initial source snapshot have been set up above. setupConfigWatchers()
+    // establishes the subscription and replays the current values snapshot,
+    // which legitimately needs the send path enabled; doing it here (rather than
+    // at socket-creation time) closes the window where deltas could be sent
+    // before the pipeline was actually ready. start() re-affirms this together
+    // with the lifecycle Ready transition once startClient() returns.
+    state.readyToSend = true;
     await setupConfigWatchers();
   }
 
