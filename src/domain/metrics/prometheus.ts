@@ -118,23 +118,12 @@ export function formatPrometheusMetrics(
     "Total exact duplicate outbound deltas suppressed before send",
     metrics.suppressedOutboundDuplicates || 0
   );
-  if (metrics.suppressedOutboundDuplicateStats) {
-    const duplicateStats = Array.from(metrics.suppressedOutboundDuplicateStats.values())
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 20);
-    for (const item of duplicateStats) {
-      counter(
-        "suppressed_outbound_duplicates_by_path_total",
-        "Total exact duplicate outbound deltas suppressed before send, grouped by context/path/source",
-        item.count,
-        {
-          context: item.context,
-          path: item.path,
-          source: item.source
-        }
-      );
-    }
-  }
+  // The per-(context, path, source) duplicate breakdown is intentionally NOT
+  // exported to Prometheus. Those labels are arbitrary, identifying, and churn
+  // over time (high cardinality), which both blows up Prometheus series counts
+  // and leaks source/path identity to any scraper. The detailed breakdown
+  // remains available via the JSON /metrics and /network-metrics endpoints
+  // (metrics.suppressedOutboundDuplicateStats).
 
   // Error counters
   counter("udp_send_errors_total", "Total UDP send errors", metrics.udpSendErrors);

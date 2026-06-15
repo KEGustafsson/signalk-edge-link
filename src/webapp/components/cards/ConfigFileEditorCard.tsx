@@ -158,15 +158,22 @@ export function ConfigFileEditorCard({
           id="loadDefaultPluginConfig"
           className="btn btn-secondary"
           onClick={() => {
-            const defaults =
+            const schemaDoc =
               pluginSchema && typeof pluginSchema === "object" && !Array.isArray(pluginSchema)
                 ? pluginSchema
                 : {};
-            setJsonText(JSON.stringify(defaults, null, 2));
-            onNotify("Loaded schema defaults into editor. Save to apply.", "warning");
+            setJsonText(JSON.stringify(schemaDoc, null, 2));
+            // This loads the plugin SCHEMA document for reference, not a savable
+            // config — POST /plugin-config requires a `connections` array (or
+            // legacy top-level connection fields), which the schema is not.
+            onNotify(
+              "Loaded the schema document for reference. This is not a savable config — " +
+                "build a `connections` array before saving.",
+              "warning"
+            );
           }}
         >
-          Load Schema Defaults
+          Load Schema Document
         </button>
       </div>
     </Card>

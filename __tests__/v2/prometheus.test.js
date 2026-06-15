@@ -122,9 +122,11 @@ describe("Prometheus Metrics Exporter", () => {
       expect(text).toContain("signalk_edge_link_dropped_delta_batches_total");
       expect(text).toContain("signalk_edge_link_dropped_deltas_total");
       expect(text).toContain("signalk_edge_link_suppressed_outbound_duplicates_total");
-      expect(text).toContain("signalk_edge_link_suppressed_outbound_duplicates_by_path_total");
-      expect(text).toContain('path="navigation.speedOverGround"');
-      expect(text).toContain('source="SatHead.GN"');
+      // The per-(context,path,source) breakdown is intentionally NOT exported to
+      // Prometheus (high-cardinality, identifying labels). It stays in JSON only.
+      expect(text).not.toContain("signalk_edge_link_suppressed_outbound_duplicates_by_path_total");
+      expect(text).not.toContain('path="navigation.speedOverGround"');
+      expect(text).not.toContain('source="SatHead.GN"');
     });
 
     test("includes error counters", () => {
