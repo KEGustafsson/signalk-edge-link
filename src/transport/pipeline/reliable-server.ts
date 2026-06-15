@@ -727,13 +727,21 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
   async function handleMetadataPacket(
     parsed: ParsedPacket,
     secretKey: string,
-    session: ClientSession | null
+    session: ClientSession | null,
+    rinfo?: { address: string; port: number }
   ): Promise<void> {
     try {
       const decrypted = decryptBinary(parsed.payload, secretKey, { stretchAsciiKey });
       const decompressed = (await brotliDecompressAsync(decrypted, {
         maxOutputLength: MAX_DECOMPRESSED_SIZE
       })) as Buffer;
+
+      // Payload is now AES-GCM authenticated. If no session existed yet (e.g. a
+      // METADATA arrived before HELLO/DATA), allocate one now — after auth — so
+      // envelope dedup/stale-drop state is tracked without allowing an
+      // unauthenticated datagram to populate the session table. Over the per-IP
+      // cap _getOrCreateSession returns null and dedup simply does not apply.
+      const activeSession = session ?? (rinfo ? _getOrCreateSession(rinfo) : null);
 
       // Count a successful decrypt+decompress as "meta received on the wire"
       // regardless of whether the envelope parses — this mirrors the DATA
@@ -797,7 +805,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
         return;
       }
 
-      if (hasSourceSnapshot && shouldDropEnvelopeBySeq(session, env, "source snapshot")) {
+      if (hasSourceSnapshot && shouldDropEnvelopeBySeq(activeSession, env, "source snapshot")) {
         return;
       }
 
@@ -811,10 +819,11 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
       //     remain accepted so multi-chunk batches still apply in full.
       if (
         !hasSourceSnapshot &&
-        session &&
+        activeSession &&
         typeof env.seq === "number" &&
         Number.isFinite(env.seq)
       ) {
+        const session = activeSession;
         const envSeq = env.seq >>> 0;
         const envIdx = typeof env.idx === "number" && Number.isFinite(env.idx) ? env.idx >>> 0 : 0;
         // Sender-restart detection: the client's meta sequence counter is
@@ -1237,7 +1246,7 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
             (metrics.bandwidth.metaRateLimitedPackets || 0) + 1;
           return;
         }
-        await handleMetadataPacket(parsed, secretKey, session);
+        await handleMetadataPacket(parsed, secretKey, session, rinfo);
         return;
       }
 
