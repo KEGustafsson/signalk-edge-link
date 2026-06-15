@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { App } from "../../src/webapp/App";
 
 jest.mock("../../src/webapp/utils/apiFetch", () => ({
@@ -20,9 +20,14 @@ function mockOkJson(data: unknown) {
 describe("App", () => {
   beforeEach(() => jest.clearAllMocks());
 
-  test("renders header", () => {
+  test("renders header", async () => {
     (apiFetch as jest.Mock).mockResolvedValue({ status: 200, ok: false });
-    render(<App />);
+    // Wrap render in act and flush pending effects: App fires async fetches on
+    // mount whose resolution updates state after the synchronous assertions,
+    // which would otherwise log "not wrapped in act(...)".
+    await act(async () => {
+      render(<App />);
+    });
     expect(screen.getByText("SignalK Edge Link")).toBeInTheDocument();
     expect(screen.getByText("Configuration and runtime monitoring")).toBeInTheDocument();
   });
