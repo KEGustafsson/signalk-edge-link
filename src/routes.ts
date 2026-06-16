@@ -176,25 +176,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     return null;
   }
 
-  /**
-   * Logs a one-time startup warning when the management API is reachable without
-   * authentication (no token configured and not running fail-closed). The
-   * management API can rewrite plugin config, create/delete connections and
-   * export captured packets, so operators should be nudged to set a token.
-   */
   function warnIfOpenAccess(): void {
-    if (getManagementToken() || isTokenRequired()) {
-      return;
-    }
-    if (app && typeof app.error === "function") {
-      app.error(
-        "[management-api] OPEN ACCESS: no managementApiToken configured — " +
-          "every management endpoint (config writes, connection create/delete, " +
-          "packet-capture export) is reachable without authentication. " +
-          "Set managementApiToken (or SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN), or set " +
-          "requireManagementApiToken=true to fail closed."
-      );
-    }
+    // Retained as a no-op for compatibility with older route consumers.
   }
 
   function isTokenRequired(): boolean {

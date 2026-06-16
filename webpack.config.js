@@ -5,6 +5,7 @@ const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const { ModuleFederationPlugin } = webpack.container;
 const packageJson = require("./package.json");
+const federationName = packageJson.name.replace(/[-@/]/g, "_");
 
 module.exports = (env, argv) => {
   const isProduction = argv.mode === "production";
@@ -47,11 +48,11 @@ module.exports = (env, argv) => {
     plugins: [
       new ModuleFederationPlugin({
         // MUST NOT contain spaces
-        name: "signalk_data_connector",
+        name: federationName,
 
         library: {
           type: "var",
-          name: packageJson.name.replace(/[-@/]/g, "_")
+          name: federationName
         },
 
         filename: "remoteEntry.js",
@@ -60,19 +61,19 @@ module.exports = (env, argv) => {
           "./PluginConfigurationPanel": "./src/webapp/components/PluginConfigurationPanel"
         },
 
-        // Share React with the SignalK admin UI host.
-        // Using singleton: false + strictVersion: true (same approach as
-        // naugehyde/bt-sensors-plugin-sk) so the plugin can bundle React 19
-        // as a fallback while still using the host's React when available.
-        // React and react-dom must be present in devDependencies.
+        // Share React with the SignalK admin UI host. The configuration panel
+        // is rendered by the host app, so hooks must resolve to the host's
+        // singleton React when one is present. Keep a local fallback for the
+        // standalone runtime UI without enforcing the package's dev React
+        // version against the host.
         shared: {
           react: {
-            singleton: false,
-            strictVersion: true
+            singleton: true,
+            requiredVersion: false
           },
           "react-dom": {
-            singleton: false,
-            strictVersion: true
+            singleton: true,
+            requiredVersion: false
           }
         }
       }),
@@ -80,7 +81,7 @@ module.exports = (env, argv) => {
       new HtmlWebpackPlugin({
         template: "./src/webapp/index.html",
         filename: "index.html",
-        title: "SignalK Data Connector Configuration"
+        title: "SignalK Edge Link Configuration"
       }),
 
       new CopyWebpackPlugin({
