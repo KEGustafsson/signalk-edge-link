@@ -45,4 +45,17 @@ describe("MonitoringAlertsCard", () => {
     expect(screen.getByText("Retransmissions")).toBeInTheDocument();
     expect(screen.getByText(/Total Lost/)).toBeInTheDocument();
   });
+
+  test("renders partial packet loss and retransmission data without crashing", () => {
+    const data = {
+      packetLoss: { summary: {} },
+      retransmissions: {}
+    } as unknown as MonitoringData;
+
+    render(<MonitoringAlertsCard data={data} />);
+
+    expect(screen.getByText("Packet Loss")).toBeInTheDocument();
+    expect(screen.getByText("Retransmissions")).toBeInTheDocument();
+    expect(screen.getAllByText("0.0%")).toHaveLength(2);
+  });
 });
