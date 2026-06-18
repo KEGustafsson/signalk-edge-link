@@ -41,89 +41,102 @@ export {
   type DebounceHandlerOpts
 } from "../../foundation/config-reload";
 
-/**
- * Create a file-system watcher with automatic recovery on error or rename.
- */
-export function createWatcherWithRecovery(opts: WatcherRecoveryOpts): WatcherHandle {
-  const { filePath, onChange, name, instanceId, app, state } = opts;
-  const MAX_RECOVERY_ATTEMPTS = 10;
-  const MAX_RECOVERY_DELAY = 60000;
-  const watcherObj: {
+const MAX_RECOVERY_ATTEMPTS = 10;
+const MAX_RECOVERY_DELAY = 60000;
+
+interface WatcherContext {
+  opts: WatcherRecoveryOpts;
+  watcherObj: {
     watcher: FSWatcher | null;
     recoveryTimer: ReturnType<typeof setTimeout> | null;
     recoveryAttempts: number;
-  } = { watcher: null, recoveryTimer: null, recoveryAttempts: 0 };
+  };
+}
 
-  function scheduleWatcherRecreate(): void {
-    if (watcherObj.recoveryTimer) {
-      clearTimeout(watcherObj.recoveryTimer);
-    }
-    if (watcherObj.recoveryAttempts >= MAX_RECOVERY_ATTEMPTS) {
-      app.error(
-        `[${instanceId}] ${name} watcher recovery failed after ${MAX_RECOVERY_ATTEMPTS} attempts, giving up`
-      );
+function scheduleWatcherRecreate(ctx: WatcherContext): void {
+  const { app, name, instanceId, state } = ctx.opts;
+  const { watcherObj } = ctx;
+  if (watcherObj.recoveryTimer) {
+    clearTimeout(watcherObj.recoveryTimer);
+  }
+  if (watcherObj.recoveryAttempts >= MAX_RECOVERY_ATTEMPTS) {
+    app.error(
+      `[${instanceId}] ${name} watcher recovery failed after ${MAX_RECOVERY_ATTEMPTS} attempts, giving up`
+    );
+    return;
+  }
+  const delay = Math.min(
+    WATCHER_RECOVERY_DELAY * Math.pow(2, watcherObj.recoveryAttempts),
+    MAX_RECOVERY_DELAY
+  );
+  watcherObj.recoveryAttempts++;
+  watcherObj.recoveryTimer = setTimeout(() => {
+    watcherObj.recoveryTimer = null;
+    if (state.stopped) {
       return;
     }
-    const delay = Math.min(
-      WATCHER_RECOVERY_DELAY * Math.pow(2, watcherObj.recoveryAttempts),
-      MAX_RECOVERY_DELAY
+    app.debug(
+      `[${instanceId}] Recreating ${name} watcher (attempt ${watcherObj.recoveryAttempts}/${MAX_RECOVERY_ATTEMPTS}, delay ${delay}ms)...`
     );
-    watcherObj.recoveryAttempts++;
-    watcherObj.recoveryTimer = setTimeout(() => {
-      watcherObj.recoveryTimer = null;
-      if (state.stopped) {
-        return;
-      }
-      app.debug(
-        `[${instanceId}] Recreating ${name} watcher (attempt ${watcherObj.recoveryAttempts}/${MAX_RECOVERY_ATTEMPTS}, delay ${delay}ms)...`
-      );
-      const created = createWatcher();
-      if (created) {
-        watcherObj.recoveryAttempts = 0;
-      } else {
-        scheduleWatcherRecreate();
-      }
-    }, delay);
-  }
+    const created = createWatcher(ctx);
+    if (created) {
+      watcherObj.recoveryAttempts = 0;
+    } else {
+      scheduleWatcherRecreate(ctx);
+    }
+  }, delay);
+}
 
-  function createWatcher(): boolean {
-    try {
+function createWatcher(ctx: WatcherContext): boolean {
+  const { filePath, onChange, name, instanceId, app } = ctx.opts;
+  const { watcherObj } = ctx;
+  try {
+    if (watcherObj.watcher) {
+      watcherObj.watcher.close();
+      watcherObj.watcher = null;
+    }
+    if (!filePath) {
+      return false;
+    }
+    watcherObj.watcher = watch(filePath, (eventType) => {
+      if (eventType === "change" || eventType === "rename") {
+        app.debug(`[${instanceId}] ${name} file changed`);
+        onChange();
+        if (eventType === "rename") {
+          scheduleWatcherRecreate(ctx);
+        }
+      }
+    });
+
+    watcherObj.watcher.on("error", (error: Error) => {
+      app.error(`[${instanceId}] ${name} watcher error: ${error.message}`);
       if (watcherObj.watcher) {
         watcherObj.watcher.close();
         watcherObj.watcher = null;
       }
-      if (!filePath) {
-        return false;
-      }
-      watcherObj.watcher = watch(filePath, (eventType) => {
-        if (eventType === "change" || eventType === "rename") {
-          app.debug(`[${instanceId}] ${name} file changed`);
-          onChange();
-          if (eventType === "rename") {
-            scheduleWatcherRecreate();
-          }
-        }
-      });
+      scheduleWatcherRecreate(ctx);
+    });
 
-      watcherObj.watcher.on("error", (error: Error) => {
-        app.error(`[${instanceId}] ${name} watcher error: ${error.message}`);
-        if (watcherObj.watcher) {
-          watcherObj.watcher.close();
-          watcherObj.watcher = null;
-        }
-        scheduleWatcherRecreate();
-      });
-
-      return true;
-    } catch (err: unknown) {
-      app.error(
-        `[${instanceId}] Failed to create ${name} watcher: ${err instanceof Error ? err.message : String(err)}`
-      );
-      return false;
-    }
+    return true;
+  } catch (err: unknown) {
+    app.error(
+      `[${instanceId}] Failed to create ${name} watcher: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return false;
   }
+}
 
-  createWatcher();
+/**
+ * Create a file-system watcher with automatic recovery on error or rename.
+ */
+export function createWatcherWithRecovery(opts: WatcherRecoveryOpts): WatcherHandle {
+  const ctx: WatcherContext = {
+    opts,
+    watcherObj: { watcher: null, recoveryTimer: null, recoveryAttempts: 0 }
+  };
+  const { watcherObj } = ctx;
+
+  createWatcher(ctx);
 
   return {
     get watcher() {

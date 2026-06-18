@@ -10,11 +10,10 @@
  * @module app/connection-manager
  */
 
-import { createConnection, slugify } from "./connection";
 import type { ConnectionApi } from "./connection";
-import { validateConnectionConfig, sanitizeConnectionConfig } from "../connection-config";
-import type { SignalKApp, ConnectionConfig, InstanceState, MetricsApi } from "../foundation/types";
+import type { SignalKApp } from "../foundation/types";
 import type { InstanceRegistry } from "../foundation/types/instance";
+import { start as startManager, type ManagerContext } from "./connection-manager/start";
 
 export type { ConnectionApi };
 
@@ -38,25 +37,6 @@ export interface ConnectionManager {
   readonly registry: InstanceRegistry;
 }
 
-// ── Instance ID generation ────────────────────────────────────────────────────
-
-function generateInstanceId(name: string | undefined, usedIds: Set<string>): string {
-  const base = slugify(name || "connection");
-  if (!usedIds.has(base)) return base;
-  let n = 1;
-  while (usedIds.has(`${base}-${n}`)) n++;
-  return `${base}-${n}`;
-}
-
-// ── Port collision detection ──────────────────────────────────────────────────
-
-function findDuplicateServerPorts(connections: ConnectionConfig[]): number[] {
-  const ports = connections
-    .filter((c) => c.serverType === "server" || (c.serverType as unknown) === true)
-    .map((c) => c.udpPort);
-  return ports.filter((p, i) => ports.indexOf(p) !== i);
-}
-
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /**
@@ -74,35 +54,25 @@ export function createConnectionManager({
 }: ConnectionManagerOptions): ConnectionManager {
   const instances = new Map<string, ConnectionApi>();
 
+  const toView = (inst: ConnectionApi) => ({
+    id: inst.getId(),
+    name: inst.getName(),
+    state: inst.getState(),
+    metricsApi: inst.getMetricsApi()
+  });
+
   // ── Registry ──────────────────────────────────────────────────────────────
   const registry: InstanceRegistry = {
     get(id: string) {
       const inst = instances.get(id);
-      if (!inst) return null;
-      return {
-        id: inst.getId(),
-        name: inst.getName(),
-        state: inst.getState(),
-        metricsApi: inst.getMetricsApi()
-      };
+      return inst ? toView(inst) : null;
     },
     getFirst() {
       const first = instances.values().next().value;
-      if (!first) return null;
-      return {
-        id: first.getId(),
-        name: first.getName(),
-        state: first.getState(),
-        metricsApi: first.getMetricsApi()
-      };
+      return first ? toView(first) : null;
     },
     getAll() {
-      return [...instances.values()].map((inst) => ({
-        id: inst.getId(),
-        name: inst.getName(),
-        state: inst.getState(),
-        metricsApi: inst.getMetricsApi()
-      }));
+      return [...instances.values()].map(toView);
     }
   };
 
@@ -125,125 +95,13 @@ export function createConnectionManager({
     }
   }
 
-  // ── start ─────────────────────────────────────────────────────────────────
-  async function start(options: Record<string, unknown>): Promise<void> {
-    // Tear down any existing instances (restart case).
-    if (instances.size > 0) {
-      for (const inst of instances.values()) inst.stop();
-      instances.clear();
-    }
-
-    // ── Parse connections array (supports flat legacy and new array format)
-    let connectionList: ConnectionConfig[];
-    if (Array.isArray(options.connections) && options.connections.length > 0) {
-      connectionList = options.connections as ConnectionConfig[];
-    } else if (options.serverType) {
-      connectionList = [
-        { ...options, name: String(options.name || "default") } as ConnectionConfig
-      ];
-    } else {
-      app.error("No connections configured. Add at least one connection.");
-      setStatus("No connections configured");
-      return;
-    }
-
-    // ── Port collision check
-    const dupes = findDuplicateServerPorts(connectionList);
-    if (dupes.length > 0) {
-      app.error(
-        `Duplicate server ports detected: ${[...new Set(dupes)].join(", ")}. ` +
-          "Each server instance must use a unique UDP port."
-      );
-      setStatus("Configuration error: duplicate server ports");
-      return;
-    }
-
-    // ── Sanitize then validate all connections before creating any instances
-    connectionList = connectionList.map((c) => sanitizeConnectionConfig(c) as ConnectionConfig);
-
-    for (let i = 0; i < connectionList.length; i++) {
-      const err = validateConnectionConfig(connectionList[i], `connections[${i}].`);
-      if (err) {
-        app.error(`Connection ${i + 1} validation failed: ${err}`);
-        setStatus(`Configuration error in connection ${i + 1}: ${err}`);
-        return;
-      }
-    }
-
-    // ── Log legacy-protocol usage
-    for (const cfg of connectionList) {
-      const proto = (cfg.protocolVersion ?? 1) as number;
-      if (proto < 2) {
-        app.debug(
-          `[security] Connection "${cfg.name}" uses legacy protocol v${proto}; consider protocolVersion: 3 for authenticated, reliable transport.`
-        );
-      }
-    }
-
-    // ── Create instances
-    const usedIds = new Set<string>();
-    for (const cfg of connectionList) {
-      const instanceId = generateInstanceId(cfg.name, usedIds);
-      usedIds.add(instanceId);
-      const conn = createConnection(app, cfg, instanceId, pluginId, (_id, _msg) =>
-        updateAggregatedStatus()
-      );
-      instances.set(instanceId, conn);
-    }
-
-    // ── Start servers before clients (ordered startup)
-    const all = [...instances.values()];
-    const servers = all.filter((inst) => inst.isServerMode());
-    const clients = all.filter((inst) => !inst.isServerMode());
-
-    let startError: unknown = null;
-
-    async function startGroup(group: ConnectionApi[]): Promise<void> {
-      await Promise.all(
-        group.map(async (inst) => {
-          try {
-            await inst.start();
-          } catch (err: unknown) {
-            if (!startError) startError = err;
-            app.error(
-              `Failed to start connection: ${err instanceof Error ? err.message : String(err)}`
-            );
-          }
-        })
-      );
-    }
-
-    await startGroup(servers);
-    await startGroup(clients);
-
-    if (startError) {
-      app.error("Failed to start one or more connections — stopping all instances");
-      // Stop EVERY instance in the registry, not just the ones that started
-      // successfully. An instance whose start() threw may have allocated
-      // sockets/timers/heartbeat/pipeline state before failing; its full
-      // teardown (stop()) is idempotent and safe to call even after a partial
-      // start, so this releases resources that would otherwise leak.
-      for (const inst of instances.values()) inst.stop();
-      instances.clear();
-      setStatus(
-        `Startup failed: ${startError instanceof Error ? startError.message : String(startError)}`
-      );
-      return;
-    }
-
-    // ── Wire FULL_STATUS_REQUEST cascade (proxy chain: Cloud → Proxy → Boat)
-    const runningServers = [...instances.values()].filter((inst) => inst.isServerMode());
-    const runningClients = [...instances.values()].filter((inst) => !inst.isServerMode());
-    if (runningServers.length > 0 && runningClients.length > 0) {
-      for (const client of runningClients) {
-        client.setFullStatusCascadeHandler(() => {
-          for (const server of runningServers) server.requestFullStatusFromAllClients();
-        });
-      }
-    }
-
-    updateAggregatedStatus();
-  }
+  const ctx: ManagerContext = {
+    app,
+    pluginId,
+    setStatus,
+    instances,
+    updateAggregatedStatus
+  };
 
   // ── stop ──────────────────────────────────────────────────────────────────
   function stop(): void {
@@ -252,5 +110,9 @@ export function createConnectionManager({
     setStatus("Stopped");
   }
 
-  return { start, stop, registry };
+  return {
+    start: (options: Record<string, unknown>) => startManager(ctx, options),
+    stop,
+    registry
+  };
 }
