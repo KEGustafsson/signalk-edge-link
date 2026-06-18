@@ -40,5 +40,7 @@ describe("PathAnalyticsCard", () => {
     const many = Array.from({ length: 20 }, (_, i) => mkPath(i));
     render(<PathAnalyticsCard metrics={withPaths(many, "server")} />);
     expect(screen.getByText(/Showing top 15 of 20 paths/)).toBeInTheDocument();
+    // header row + 15 data rows
+    expect(screen.getAllByRole("row")).toHaveLength(16);
   });
 });

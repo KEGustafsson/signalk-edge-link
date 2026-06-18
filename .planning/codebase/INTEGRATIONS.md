@@ -22,7 +22,7 @@ scope: full repo
 
 - Encrypted UDP peer - Client/server data transfer between Signal K instances.
   - Integration method: UDP sockets from Node `dgram`.
-  - Wire protocols: v1 encrypted payloads in `src/pipeline.ts`; v2/v3 packetized reliable transport in `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, and `src/codec/packet-codec.ts`.
+  - Wire protocols: v1 encrypted payloads in `src/transport/pipeline/v1.ts`; v2/v3 packetized reliable transport in `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, and `src/codec/packet-codec.ts`.
   - Auth/confidentiality: shared `secretKey` with AES-256-GCM; v3 adds HMAC-authenticated control packets.
   - Operational requirement: both ends must match `protocolVersion`, `secretKey`, `useMsgpack`, `usePathDictionary`, and `stretchAsciiKey`.
 

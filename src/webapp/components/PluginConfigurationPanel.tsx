@@ -246,7 +246,8 @@ const SHARED_FIELDS = [
   "stretchAsciiKey",
   "useMsgpack",
   "usePathDictionary",
-  "protocolVersion"
+  "protocolVersion",
+  "authenticatedHeaders"
 ];
 
 // ── Styles ────────────────────────────────────────────────────────────────────
