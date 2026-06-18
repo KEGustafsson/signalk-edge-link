@@ -111,14 +111,7 @@ export function encodeCompactPayload(payload: Delta | Delta[] | Record<string, D
 
 // ── Decoding ─────────────────────────────────────────────────────────────────
 
-function decodeUpdate(tuple: unknown): DeltaUpdate | null {
-  if (!Array.isArray(tuple) || tuple.length < UPDATE_TUPLE_LEN) return null;
-  const source = tuple[POS_SOURCE];
-  const dollarSource = tuple[POS_DOLLAR_SOURCE];
-  const timestamp = tuple[POS_TIMESTAMP];
-  const rawValues = tuple[POS_VALUES];
-  const rawMeta = tuple[POS_META];
-
+function decodeValueTuples(rawValues: unknown): DeltaValue[] {
   const values: DeltaValue[] = [];
   if (Array.isArray(rawValues)) {
     for (const vt of rawValues) {
@@ -132,8 +125,28 @@ function decodeUpdate(tuple: unknown): DeltaUpdate | null {
       }
     }
   }
+  return values;
+}
 
-  const update: DeltaUpdate = { values };
+function decodeMetaTuples(rawMeta: unknown): DeltaMeta[] {
+  const meta: DeltaMeta[] = [];
+  if (Array.isArray(rawMeta)) {
+    for (const mt of rawMeta) {
+      if (Array.isArray(mt) && mt.length >= 2) {
+        meta.push({ path: mt[0] as string, value: mt[1] as Record<string, unknown> });
+      }
+    }
+  }
+  return meta;
+}
+
+function decodeUpdate(tuple: unknown): DeltaUpdate | null {
+  if (!Array.isArray(tuple) || tuple.length < UPDATE_TUPLE_LEN) return null;
+  const source = tuple[POS_SOURCE];
+  const dollarSource = tuple[POS_DOLLAR_SOURCE];
+  const timestamp = tuple[POS_TIMESTAMP];
+
+  const update: DeltaUpdate = { values: decodeValueTuples(tuple[POS_VALUES]) };
   if (source !== null && source !== undefined) {
     update.source = source as DeltaUpdate["source"];
   }
@@ -143,14 +156,9 @@ function decodeUpdate(tuple: unknown): DeltaUpdate | null {
   if (typeof timestamp === "string") {
     update.timestamp = timestamp;
   }
-  if (Array.isArray(rawMeta)) {
-    const meta: DeltaMeta[] = [];
-    for (const mt of rawMeta) {
-      if (Array.isArray(mt) && mt.length >= 2) {
-        meta.push({ path: mt[0] as string, value: mt[1] as Record<string, unknown> });
-      }
-    }
-    if (meta.length > 0) update.meta = meta;
+  const meta = decodeMetaTuples(tuple[POS_META]);
+  if (meta.length > 0) {
+    update.meta = meta;
   }
   return update;
 }

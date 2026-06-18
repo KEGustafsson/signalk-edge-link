@@ -184,6 +184,124 @@ function resolveSource(
  * Returns [] when `app.signalk` isn't exposed (older signalk-server) or the
  * tree is empty.
  */
+/** A grouped synthetic update keyed by (context, source, timestamp). */
+interface SnapshotGroup {
+  context: string;
+  source: string | undefined;
+  timestamp: string;
+  values: DeltaValue[];
+}
+
+/**
+ * Decide whether a leaf injected under a "signalk-edge-link.*" $source should be
+ * skipped. Values stored under those $source keys were injected by this plugin
+ * (data received via an upstream edge-link server connection or a downstream
+ * edge-link client connection). Skip them only when the SK sources table cannot
+ * provide a proper original-sensor label — that case would produce wrong
+ * attribution on the receiver. When the sources table does resolve to a real
+ * label (e.g. "pypilot"), include the value so relay data reaches the upstream
+ * server after its restart; the receiver's normalizeDeltaSourceRefs will strip
+ * the stale $source and handleMessageBySource will dispatch under the original
+ * label.
+ */
+function shouldSkipOwnInjectedLeaf(
+  source: string | undefined,
+  sourceLookup: Map<string, Record<string, unknown>>
+): boolean {
+  const src = source ?? "";
+  if (
+    src !== "signalk-edge-link" &&
+    !src.startsWith("signalk-edge-link.") &&
+    !src.startsWith("signalk-edge-link:")
+  ) {
+    return false;
+  }
+  const resolved = sourceLookup.get(src);
+  const resolvedLabel = typeof resolved?.label === "string" ? resolved.label.trim() : "";
+  return (
+    !resolvedLabel ||
+    resolvedLabel === "signalk-edge-link" ||
+    resolvedLabel.startsWith("signalk-edge-link.") ||
+    resolvedLabel.startsWith("signalk-edge-link:")
+  );
+}
+
+/**
+ * Walk every context in the tree and group value leaves by
+ * (context, source, timestamp). This preserves per-path timestamps: paths from
+ * the same source that were last updated at different times (e.g. GPS vs
+ * autopilot settings) are not collapsed under the same (latest) timestamp.
+ */
+function groupLeavesByMeasurement(
+  tree: Record<string, unknown>,
+  sourceLookup: Map<string, Record<string, unknown>>
+): Map<string, SnapshotGroup> {
+  const grouped = new Map<string, SnapshotGroup>();
+
+  for (const contextGroup of Object.keys(tree)) {
+    if (SK_NON_CONTEXT_KEYS.has(contextGroup)) {
+      continue;
+    }
+    const group = tree[contextGroup];
+    if (!isRecord(group)) {
+      continue;
+    }
+    for (const contextId of Object.keys(group)) {
+      const contextNode = group[contextId];
+      if (!isRecord(contextNode)) {
+        continue;
+      }
+      const context = `${contextGroup}.${contextId}`;
+
+      walkValues(contextNode, [], (leaf) => {
+        if (shouldSkipOwnInjectedLeaf(leaf.source, sourceLookup)) {
+          return;
+        }
+        const key = `${context}|${leaf.source ?? ""}|${leaf.timestamp}`;
+        const existing = grouped.get(key);
+        if (existing) {
+          existing.values.push({ path: leaf.path, value: leaf.value });
+        } else {
+          grouped.set(key, {
+            context,
+            source: leaf.source,
+            timestamp: leaf.timestamp,
+            values: [{ path: leaf.path, value: leaf.value }]
+          });
+        }
+      });
+    }
+  }
+
+  return grouped;
+}
+
+/** Build one synthetic Delta per grouped (context, source, timestamp) entry. */
+function buildSnapshotDeltas(
+  grouped: Map<string, SnapshotGroup>,
+  sourceLookup: Map<string, Record<string, unknown>>
+): Delta[] {
+  const deltas: Delta[] = [];
+  for (const entry of grouped.values()) {
+    if (entry.values.length === 0) {
+      continue;
+    }
+    const update: DeltaUpdate = {
+      timestamp: entry.timestamp,
+      values: entry.values
+    };
+    if (entry.source) {
+      update.$source = entry.source;
+      const sourceObj = resolveSource(entry.source, sourceLookup);
+      if (sourceObj) {
+        update.source = sourceObj;
+      }
+    }
+    deltas.push({ context: entry.context, updates: [update] });
+  }
+  return deltas;
+}
+
 export function collectValuesSnapshot(app: Pick<SignalKApp, "signalk" | "debug">): Delta[] {
   if (!app.signalk || typeof app.signalk.retrieve !== "function") {
     return [];
@@ -203,99 +321,6 @@ export function collectValuesSnapshot(app: Pick<SignalKApp, "signalk" | "debug">
   // Build $source → source object lookup from the top-level sources tree so
   // each synthetic update can carry the correct source.label for attribution.
   const sourceLookup = buildSourceLookup(tree);
-
-  // Group leaves by (context, source, timestamp) so each distinct measurement
-  // time gets its own update. This preserves per-path timestamps: paths from
-  // the same source that were last updated at different times (e.g. GPS vs
-  // autopilot settings) are not collapsed under the same (latest) timestamp.
-  const grouped = new Map<
-    string,
-    {
-      context: string;
-      source: string | undefined;
-      timestamp: string;
-      values: DeltaValue[];
-    }
-  >();
-
-  for (const contextGroup of Object.keys(tree)) {
-    if (SK_NON_CONTEXT_KEYS.has(contextGroup)) {
-      continue;
-    }
-    const group = tree[contextGroup];
-    if (!isRecord(group)) {
-      continue;
-    }
-    for (const contextId of Object.keys(group)) {
-      const contextNode = group[contextId];
-      if (!isRecord(contextNode)) {
-        continue;
-      }
-      const context = `${contextGroup}.${contextId}`;
-
-      walkValues(contextNode, [], (leaf) => {
-        // Values stored under "signalk-edge-link.*" $source keys were injected
-        // by this plugin (data received via an upstream edge-link server connection
-        // or a downstream edge-link client connection). Skip them only when the SK
-        // sources table cannot provide a proper original-sensor label — that case
-        // would produce wrong attribution on the receiver. When the sources table
-        // does resolve to a real label (e.g. "pypilot"), include the value so relay
-        // data reaches the upstream server after its restart; the receiver's
-        // normalizeDeltaSourceRefs will strip the stale $source and
-        // handleMessageBySource will dispatch under the original label.
-        const src = leaf.source ?? "";
-        if (
-          src === "signalk-edge-link" ||
-          src.startsWith("signalk-edge-link.") ||
-          src.startsWith("signalk-edge-link:")
-        ) {
-          const resolved = sourceLookup.get(src);
-          const resolvedLabel = typeof resolved?.label === "string" ? resolved.label.trim() : "";
-          if (
-            !resolvedLabel ||
-            resolvedLabel === "signalk-edge-link" ||
-            resolvedLabel.startsWith("signalk-edge-link.") ||
-            resolvedLabel.startsWith("signalk-edge-link:")
-          ) {
-            return; // No proper label available — skip to avoid wrong attribution
-          }
-          // Resolved to a real sensor label — fall through and include the value
-        }
-
-        const key = `${context}|${leaf.source ?? ""}|${leaf.timestamp}`;
-        const existing = grouped.get(key);
-        if (existing) {
-          existing.values.push({ path: leaf.path, value: leaf.value });
-        } else {
-          grouped.set(key, {
-            context,
-            source: leaf.source,
-            timestamp: leaf.timestamp,
-            values: [{ path: leaf.path, value: leaf.value }]
-          });
-        }
-      });
-    }
-  }
-
-  const deltas: Delta[] = [];
-  for (const entry of grouped.values()) {
-    if (entry.values.length === 0) {
-      continue;
-    }
-    const update: DeltaUpdate = {
-      timestamp: entry.timestamp,
-      values: entry.values
-    };
-    if (entry.source) {
-      update.$source = entry.source;
-      const sourceObj = resolveSource(entry.source, sourceLookup);
-      if (sourceObj) {
-        update.source = sourceObj;
-      }
-    }
-    deltas.push({ context: entry.context, updates: [update] });
-  }
-
-  return deltas;
+  const grouped = groupLeavesByMeasurement(tree, sourceLookup);
+  return buildSnapshotDeltas(grouped, sourceLookup);
 }

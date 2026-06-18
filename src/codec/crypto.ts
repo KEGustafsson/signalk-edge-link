@@ -236,6 +236,81 @@ export const decryptBinary = (
 };
 
 /**
+ * Throw when the ASCII key is a short repeating pattern
+ * (e.g., "abab...", "abcabc...", "abcdeabcde...") or a single repeated char.
+ */
+function assertNoRepeatingPattern(key: string): void {
+  if (/^(.)\1{31}$/.test(key)) {
+    throw new Error("Secret key has insufficient entropy (all same character)");
+  }
+  for (let len = 1; len <= 8; len++) {
+    const segment = key.slice(0, len);
+    if (segment.repeat(Math.ceil(32 / len)).slice(0, 32) === key) {
+      throw new Error("Secret key has insufficient entropy (repeating pattern)");
+    }
+  }
+}
+
+/**
+ * Throw when the ASCII key contains a long sequential character run
+ * (e.g., 20+ chars of "abcdefghij..."). Only flags extreme sequences
+ * (≥20 consecutive chars); short runs can appear legitimately in randomly-
+ * generated keys.
+ */
+function assertNoLongSequentialRun(key: string): void {
+  let maxRunLength = 1;
+  let currentRunLength = 1;
+  for (let i = 1; i < key.length; i++) {
+    if (key.charCodeAt(i) === key.charCodeAt(i - 1) + 1) {
+      currentRunLength++;
+      if (currentRunLength > maxRunLength) {
+        maxRunLength = currentRunLength;
+      }
+    } else {
+      currentRunLength = 1;
+    }
+  }
+  if (maxRunLength >= 20) {
+    throw new Error("Secret key has insufficient entropy (long sequential character run detected)");
+  }
+}
+
+/** Shannon entropy in bits per character of the supplied string. */
+function shannonEntropyPerChar(key: string): number {
+  const charFreq = new Map<string, number>();
+  for (const ch of key) {
+    charFreq.set(ch, (charFreq.get(ch) ?? 0) + 1);
+  }
+  let shannonEntropy = 0;
+  for (const count of charFreq.values()) {
+    const p = count / key.length;
+    shannonEntropy -= p * Math.log2(p);
+  }
+  return shannonEntropy;
+}
+
+/**
+ * Throw when the ASCII key lacks character diversity / Shannon entropy.
+ *
+ * A randomly generated 32-char ASCII key should have at least 3.0 bits/char
+ * (≥ 8 unique chars uniformly distributed gives log2(8) = 3.0). This catches
+ * patterns that slip past the simpler checks above, e.g. one character
+ * dominating most positions despite nominally having 8 unique chars.
+ */
+function assertSufficientDiversity(key: string): void {
+  const uniqueChars = new Set(key.split("")).size;
+  if (uniqueChars < 8) {
+    throw new Error("Secret key has insufficient diversity (use at least 8 different characters)");
+  }
+  const shannonEntropy = shannonEntropyPerChar(key);
+  if (shannonEntropy < 3.0) {
+    throw new Error(
+      `Secret key has insufficient entropy (${shannonEntropy.toFixed(2)} bits/char; need ≥ 3.0)`
+    );
+  }
+}
+
+/**
  * Validates secret key strength
  * @param key - Secret key to validate
  * @returns True if key is valid
@@ -252,63 +327,9 @@ export function validateSecretKey(key: string): boolean {
     return true;
   }
 
-  // Check for common weak patterns: all same character
-  if (/^(.)\1{31}$/.test(key)) {
-    throw new Error("Secret key has insufficient entropy (all same character)");
-  }
-
-  // Check for short repeating patterns (e.g., "abab...", "abcabc...", "abcdeabcde...")
-  for (let len = 1; len <= 8; len++) {
-    const segment = key.slice(0, len);
-    if (segment.repeat(Math.ceil(32 / len)).slice(0, 32) === key) {
-      throw new Error("Secret key has insufficient entropy (repeating pattern)");
-    }
-  }
-
-  // Check for long sequential character runs (e.g., 20+ chars of "abcdefghij...").
-  // Only flags extreme sequences (≥20 consecutive chars); short runs can appear
-  // legitimately in randomly-generated keys.
-  let maxRunLength = 1;
-  let currentRunLength = 1;
-  for (let i = 1; i < key.length; i++) {
-    if (key.charCodeAt(i) === key.charCodeAt(i - 1) + 1) {
-      currentRunLength++;
-      if (currentRunLength > maxRunLength) {
-        maxRunLength = currentRunLength;
-      }
-    } else {
-      currentRunLength = 1;
-    }
-  }
-  if (maxRunLength >= 20) {
-    throw new Error("Secret key has insufficient entropy (long sequential character run detected)");
-  }
-
-  // Check character diversity
-  const uniqueChars = new Set(key.split("")).size;
-  if (uniqueChars < 8) {
-    throw new Error("Secret key has insufficient diversity (use at least 8 different characters)");
-  }
-
-  // Compute Shannon entropy (bits per character).  A randomly generated 32-char
-  // ASCII key should have at least 3.0 bits/char (≥ 8 unique chars uniformly
-  // distributed gives log2(8) = 3.0).  This catches patterns that slip past
-  // the simpler checks above, e.g. one character dominating most positions
-  // despite nominally having 8 unique chars.
-  const charFreq = new Map<string, number>();
-  for (const ch of key) {
-    charFreq.set(ch, (charFreq.get(ch) ?? 0) + 1);
-  }
-  let shannonEntropy = 0;
-  for (const count of charFreq.values()) {
-    const p = count / key.length;
-    shannonEntropy -= p * Math.log2(p);
-  }
-  if (shannonEntropy < 3.0) {
-    throw new Error(
-      `Secret key has insufficient entropy (${shannonEntropy.toFixed(2)} bits/char; need ≥ 3.0)`
-    );
-  }
+  assertNoRepeatingPattern(key);
+  assertNoLongSequentialRun(key);
+  assertSufficientDiversity(key);
 
   return true;
 }

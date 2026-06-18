@@ -57,6 +57,42 @@ function isOwnDataPath(path: unknown): boolean {
   return false;
 }
 
+/** Result of stripping own data from a single update. */
+type StripUpdateResult =
+  | { kind: "unchanged"; update: DeltaUpdate }
+  | { kind: "replaced"; update: DeltaUpdate }
+  | { kind: "dropped" };
+
+/**
+ * Strip own-data value/meta entries from a single update.
+ * Returns whether the update is unchanged, replaced, or dropped entirely.
+ */
+function stripOwnDataFromUpdate(update: DeltaUpdate): StripUpdateResult {
+  const rawValues = Array.isArray(update.values) ? update.values : [];
+  const values = rawValues.filter((v) => !isOwnDataPath((v as DeltaValue)?.path));
+  const valuesChanged = values.length !== rawValues.length;
+
+  const rawMeta = Array.isArray(update.meta) ? update.meta : null;
+  const meta = rawMeta ? rawMeta.filter((m) => !isOwnDataPath(m?.path)) : null;
+  const metaChanged = rawMeta !== null && meta !== null && meta.length !== rawMeta.length;
+
+  if (values.length === 0 && (!meta || meta.length === 0)) {
+    return { kind: "dropped" };
+  }
+
+  if (!valuesChanged && !metaChanged) {
+    return { kind: "unchanged", update };
+  }
+
+  const next: DeltaUpdate = { ...update, values };
+  if (meta && meta.length > 0) {
+    next.meta = meta;
+  } else if (rawMeta) {
+    delete next.meta;
+  }
+  return { kind: "replaced", update: next };
+}
+
 /**
  * Drop value/meta entries whose paths are owned by this plugin. Returns null
  * when nothing remains to forward. Updates that become empty are dropped; the
@@ -71,30 +107,14 @@ export function stripOwnDataFromDelta(delta: Delta | null | undefined): Delta | 
   const surviving: DeltaUpdate[] = [];
 
   for (const update of delta.updates) {
-    const rawValues = Array.isArray(update.values) ? update.values : [];
-    const values = rawValues.filter((v) => !isOwnDataPath((v as DeltaValue)?.path));
-    const valuesChanged = values.length !== rawValues.length;
-
-    const rawMeta = Array.isArray(update.meta) ? update.meta : null;
-    const meta = rawMeta ? rawMeta.filter((m) => !isOwnDataPath(m?.path)) : null;
-    const metaChanged = rawMeta !== null && meta !== null && meta.length !== rawMeta.length;
-
-    if (values.length === 0 && (!meta || meta.length === 0)) {
+    const result = stripOwnDataFromUpdate(update);
+    if (result.kind === "dropped") {
       changed = true;
-      continue;
-    }
-
-    if (valuesChanged || metaChanged) {
-      changed = true;
-      const next: DeltaUpdate = { ...update, values };
-      if (meta && meta.length > 0) {
-        next.meta = meta;
-      } else if (rawMeta) {
-        delete next.meta;
-      }
-      surviving.push(next);
     } else {
-      surviving.push(update);
+      if (result.kind === "replaced") {
+        changed = true;
+      }
+      surviving.push(result.update);
     }
   }
 
@@ -113,6 +133,53 @@ function isValidValuePath(path: unknown): path is string {
   return typeof path === "string" && path.trim().length > 0;
 }
 
+/** Result of sanitizing a single update for Signal K. */
+type SanitizeUpdateResult =
+  | { kind: "unchanged"; update: DeltaUpdate }
+  | { kind: "replaced"; update: DeltaUpdate }
+  | { kind: "dropped" };
+
+/**
+ * Sanitize a single raw update: drop invalid value entries and report whether
+ * the update is unchanged, replaced, or dropped entirely (no valid values and
+ * no meta).
+ */
+function sanitizeUpdateForSignalK(rawUpdate: unknown): SanitizeUpdateResult {
+  if (!isObject(rawUpdate)) {
+    return { kind: "dropped" };
+  }
+
+  const update = rawUpdate as unknown as DeltaUpdate;
+  let updateChanged = false;
+  const rawValues = Array.isArray(update.values) ? (update.values as unknown[]) : [];
+  if (!Array.isArray(update.values)) {
+    updateChanged = true;
+  }
+
+  const values: DeltaValue[] = [];
+  for (const rawValue of rawValues) {
+    if (!isObject(rawValue) || !isValidValuePath(rawValue.path)) {
+      updateChanged = true;
+      continue;
+    }
+    values.push(rawValue as unknown as DeltaValue);
+  }
+
+  if (values.length !== rawValues.length) {
+    updateChanged = true;
+  }
+
+  const hasMeta = Array.isArray(update.meta) && update.meta.length > 0;
+  if (values.length === 0 && !hasMeta) {
+    return { kind: "dropped" };
+  }
+
+  if (!updateChanged) {
+    return { kind: "unchanged", update };
+  }
+  return { kind: "replaced", update: { ...update, values } };
+}
+
 /**
  * Remove Signal K value entries that the server will reject before calling
  * app.handleMessage or forwarding over the link. Metadata-only updates are
@@ -127,41 +194,15 @@ export function sanitizeDeltaForSignalK(delta: Delta | null | undefined): Delta 
   const sanitizedUpdates: DeltaUpdate[] = [];
 
   for (const rawUpdate of delta.updates as unknown[]) {
-    if (!isObject(rawUpdate)) {
+    const result = sanitizeUpdateForSignalK(rawUpdate);
+    if (result.kind === "dropped") {
       changed = true;
-      continue;
-    }
-
-    const update = rawUpdate as unknown as DeltaUpdate;
-    let updateChanged = false;
-    const rawValues = Array.isArray(update.values) ? (update.values as unknown[]) : [];
-    if (!Array.isArray(update.values)) {
-      updateChanged = true;
-    }
-
-    const values: DeltaValue[] = [];
-    for (const rawValue of rawValues) {
-      if (!isObject(rawValue) || !isValidValuePath(rawValue.path)) {
-        updateChanged = true;
-        continue;
+    } else {
+      if (result.kind === "replaced") {
+        changed = true;
       }
-      values.push(rawValue as unknown as DeltaValue);
+      sanitizedUpdates.push(result.update);
     }
-
-    if (values.length !== rawValues.length) {
-      updateChanged = true;
-    }
-
-    const hasMeta = Array.isArray(update.meta) && update.meta.length > 0;
-    if (values.length === 0 && !hasMeta) {
-      changed = true;
-      continue;
-    }
-
-    if (updateChanged) {
-      changed = true;
-    }
-    sanitizedUpdates.push(updateChanged ? { ...update, values } : update);
   }
 
   if (sanitizedUpdates.length === 0) {
