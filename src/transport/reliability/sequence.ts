@@ -106,23 +106,7 @@ export class SequenceTracker {
 
     // Packet is behind the expected window — treat as late arrival or resync trigger
     if (this._isBehind(sequence, this.expectedSeq)) {
-      const behindDistance = this._distanceForward(sequence, this.expectedSeq);
-      if (behindDistance > this.behindResyncThreshold) {
-        this._resync(sequence);
-        result.inOrder = true;
-        result.resynced = true;
-        return result;
-      }
-
-      // Late arrival that was already passed over - accept it
-      this.receivedSeqs.add(sequence);
-
-      // Cancel NAK timer if one was scheduled
-      if (this.nakTimers.has(sequence)) {
-        clearTimeout(this.nakTimers.get(sequence)!);
-        this.nakTimers.delete(sequence);
-      }
-
+      this._processBehind(sequence, result);
       return result;
     }
 
@@ -133,45 +117,86 @@ export class SequenceTracker {
       this._cleanupOldSequences();
     }
 
-    // In order
     if (sequence === this.expectedSeq) {
-      result.inOrder = true;
-      this.expectedSeq = (this.expectedSeq + 1) >>> 0;
-
-      // Advance past contiguous buffered sequences
-      while (this.receivedSeqs.has(this.expectedSeq)) {
-        // Cancel NAK timer for this sequence since it arrived
-        if (this.nakTimers.has(this.expectedSeq)) {
-          clearTimeout(this.nakTimers.get(this.expectedSeq)!);
-          this.nakTimers.delete(this.expectedSeq);
-        }
-        this.expectedSeq = (this.expectedSeq + 1) >>> 0;
-      }
-
-      this._cleanupOldSequences();
+      this._processInOrder(result);
     } else if (this._isAhead(sequence, this.expectedSeq)) {
-      // Gap detected - record missing sequences
-      const gapSize = this._distanceForward(this.expectedSeq, sequence);
-      if (gapSize > this.maxGapTracking) {
-        this._resync(sequence);
-        result.inOrder = true;
-        result.resynced = true;
-        return result;
-      }
-
-      let candidate = this.expectedSeq;
-      for (let i = 0; i < gapSize; i++) {
-        if (!this.receivedSeqs.has(candidate)) {
-          result.missing.push(candidate);
-          this._scheduleNAK(candidate);
-        }
-        candidate = (candidate + 1) >>> 0;
-      }
-
-      this._cleanupOldSequences();
+      this._processAhead(sequence, result);
     }
 
     return result;
+  }
+
+  /**
+   * Handle a packet whose sequence is behind the expected window: either trigger
+   * a resync (very old) or accept it as a late arrival and cancel any NAK timer.
+   * @private
+   */
+  private _processBehind(sequence: number, result: ProcessSequenceResult): void {
+    const behindDistance = this._distanceForward(sequence, this.expectedSeq!);
+    if (behindDistance > this.behindResyncThreshold) {
+      this._resync(sequence);
+      result.inOrder = true;
+      result.resynced = true;
+      return;
+    }
+
+    // Late arrival that was already passed over - accept it
+    this.receivedSeqs.add(sequence);
+
+    // Cancel NAK timer if one was scheduled
+    if (this.nakTimers.has(sequence)) {
+      clearTimeout(this.nakTimers.get(sequence)!);
+      this.nakTimers.delete(sequence);
+    }
+  }
+
+  /**
+   * Handle a packet that matches the expected sequence: advance past it and any
+   * contiguous buffered sequences, cancelling their NAK timers.
+   * @private
+   */
+  private _processInOrder(result: ProcessSequenceResult): void {
+    result.inOrder = true;
+    this.expectedSeq = (this.expectedSeq! + 1) >>> 0;
+
+    // Advance past contiguous buffered sequences
+    while (this.receivedSeqs.has(this.expectedSeq)) {
+      // Cancel NAK timer for this sequence since it arrived
+      if (this.nakTimers.has(this.expectedSeq)) {
+        clearTimeout(this.nakTimers.get(this.expectedSeq)!);
+        this.nakTimers.delete(this.expectedSeq);
+      }
+      this.expectedSeq = (this.expectedSeq + 1) >>> 0;
+    }
+
+    this._cleanupOldSequences();
+  }
+
+  /**
+   * Handle a packet ahead of the expected sequence: resync on a huge gap, or
+   * record the missing sequences in the gap and schedule NAKs for them.
+   * @private
+   */
+  private _processAhead(sequence: number, result: ProcessSequenceResult): void {
+    // Gap detected - record missing sequences
+    const gapSize = this._distanceForward(this.expectedSeq!, sequence);
+    if (gapSize > this.maxGapTracking) {
+      this._resync(sequence);
+      result.inOrder = true;
+      result.resynced = true;
+      return;
+    }
+
+    let candidate = this.expectedSeq!;
+    for (let i = 0; i < gapSize; i++) {
+      if (!this.receivedSeqs.has(candidate)) {
+        result.missing.push(candidate);
+        this._scheduleNAK(candidate);
+      }
+      candidate = (candidate + 1) >>> 0;
+    }
+
+    this._cleanupOldSequences();
   }
 
   /**
