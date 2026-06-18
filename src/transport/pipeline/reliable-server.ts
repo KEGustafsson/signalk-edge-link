@@ -989,15 +989,11 @@ function createPipelineV2Server(app: SignalKApp, state: InstanceState, metricsAp
    * client's periodic resend cycle.
    */
   async function _sendMetaRequest(session: ClientSession, secretKey: string): Promise<void> {
-    try {
-      const packet = packetBuilder.buildMetaRequestPacket({ secretKey });
-      await _sendUDP(packet, { address: session.address, port: session.port });
-      app.debug(`[v2-server] META_REQUEST sent to ${session.key}`);
-    } catch (err: unknown) {
-      // Re-throw so the caller's .catch() records it once, rather than
-      // double-logging here.
-      throw err;
-    }
+    // Errors propagate to the caller's .catch() so they are recorded once,
+    // rather than double-logging here.
+    const packet = packetBuilder.buildMetaRequestPacket({ secretKey });
+    await _sendUDP(packet, { address: session.address, port: session.port });
+    app.debug(`[v2-server] META_REQUEST sent to ${session.key}`);
   }
 
   /**

@@ -86,7 +86,7 @@ function isServer(options: ConnectionConfig): boolean {
 export function buildOutboundDedupeKey(delta: Delta): string {
   const parts: string[] = [];
   function push(tag: string, raw: unknown): void {
-    const s = raw == null ? "" : String(raw);
+    const s = raw === null || raw === undefined ? "" : String(raw);
     parts.push(tag, String(s.length), ":", s);
   }
   push("c", delta.context);

@@ -95,22 +95,14 @@ export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): Debounc
       return;
     }
 
-    let parsed: unknown;
-    try {
-      parsed = content ? JSON.parse(content) : readFallback;
-    } catch (parseErr) {
-      // Parse failure: do not advance the hash so a subsequent file event
-      // (presumably with corrected content) is not silently skipped.
-      throw parseErr;
-    }
+    // Parse failure propagates: we do not advance the hash (the update below
+    // is gated on success), so a subsequent file event with corrected content
+    // is not silently skipped.
+    const parsed: unknown = content ? JSON.parse(content) : readFallback;
 
-    try {
-      await processConfig(parsed);
-    } catch (err) {
-      // Processing failed: leave the previous hash intact so a retry can
-      // re-detect the same content as still-pending.
-      throw err;
-    }
+    // Processing failure propagates too: leaving the previous hash intact lets
+    // a retry re-detect the same content as still-pending.
+    await processConfig(parsed);
 
     // Only after processConfig completes successfully do we mark this
     // content as the last-known-good. Holding the hash update to the

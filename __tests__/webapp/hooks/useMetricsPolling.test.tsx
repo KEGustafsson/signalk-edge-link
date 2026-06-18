@@ -31,7 +31,7 @@ describe("useMetricsPolling", () => {
     (apiFetch as jest.Mock).mockResolvedValue({
       status: 200,
       ok: true,
-      json: async () => fakeMetrics
+      json: () => Promise.resolve(fakeMetrics)
     });
 
     const onData = jest.fn();
@@ -40,12 +40,17 @@ describe("useMetricsPolling", () => {
     await waitFor(() => expect(onData).toHaveBeenCalledWith(fakeMetrics));
   });
 
-  test("does not poll when connId is null", async () => {
-    (apiFetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => fakeMetrics });
+  test("does not poll when connId is null", () => {
+    (apiFetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(fakeMetrics)
+    });
     const onData = jest.fn();
 
     renderHook(() => useMetricsPolling(null, onData));
-    await act(async () => {
+    // Polling is disabled for a null connId, so no async work is scheduled and
+    // a synchronous act() is sufficient to advance the timers.
+    act(() => {
       jest.advanceTimersByTime(20000);
     });
 
@@ -54,7 +59,10 @@ describe("useMetricsPolling", () => {
   });
 
   test("cleans up interval on unmount", () => {
-    (apiFetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => fakeMetrics });
+    (apiFetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(fakeMetrics)
+    });
     const onData = jest.fn();
     const { unmount } = renderHook(() => useMetricsPolling("conn-1", onData));
     const clearSpy = jest.spyOn(global, "clearInterval");

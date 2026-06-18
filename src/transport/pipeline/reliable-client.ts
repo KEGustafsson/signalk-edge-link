@@ -681,7 +681,11 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
     }
 
     let finalChunks = chunks;
-    while (true) {
+    // Repeatedly rebuild packets, splitting any oversized multi-patch chunk in
+    // half, until every chunk fits the safe UDP payload (single-patch chunks
+    // cannot be split further, which guarantees termination).
+    let oversizedSplitPending = true;
+    while (oversizedSplitPending) {
       const packets: Array<{ sources: Record<string, unknown>; packet: Buffer }> = [];
       let splitIndex = -1;
 
@@ -705,6 +709,7 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
       }
 
       if (splitIndex === -1) {
+        oversizedSplitPending = false;
         return packets;
       }
 
@@ -717,6 +722,9 @@ function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsAp
         ...finalChunks.slice(splitIndex + 1)
       ];
     }
+    // Unreachable: the loop only exits via the return above, but TypeScript's
+    // control-flow analysis needs an explicit terminal return here.
+    return [];
   }
 
   function recordSentMetadataPacket(packet: Buffer, udpAddress: string, udpPort: number): void {
