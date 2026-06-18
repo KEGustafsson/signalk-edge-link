@@ -11,31 +11,11 @@
 
 import { promises as fsPromises, watch, FSWatcher } from "fs";
 import { join } from "path";
-import * as crypto from "crypto";
 import { loadConfigFileSafe, saveConfigFile } from "../../foundation/config-io";
-import {
-  DEFAULT_DELTA_TIMER,
-  FILE_WATCH_DEBOUNCE_DELAY,
-  CONTENT_HASH_ALGORITHM,
-  WATCHER_RECOVERY_DELAY
-} from "../../foundation/constants";
+import { DEFAULT_DELTA_TIMER, WATCHER_RECOVERY_DELAY } from "../../foundation/constants";
 import type { SignalKApp } from "../../foundation/types";
 
 const { readFile, writeFile, mkdir } = fsPromises;
-
-interface DebounceHandlerOpts {
-  name: string;
-  getFilePath: () => string | null;
-  processConfig: (config: unknown) => void | Promise<void>;
-  state: {
-    configDebounceTimers: Record<string, ReturnType<typeof setTimeout>>;
-    configContentHashes: Record<string, string>;
-    stopped?: boolean;
-  };
-  instanceId: string;
-  app: SignalKApp;
-  readFallback?: unknown;
-}
 
 interface WatcherRecoveryOpts {
   filePath: string | null;
@@ -51,136 +31,15 @@ interface WatcherHandle {
   close(): void;
 }
 
-/**
- * A debounced config-change handler. Calling the returned function schedules
- * the file (re)load on the standard debounce delay. The attached `flush()`
- * runs the same load immediately, bypassing the debounce timer — used for the
- * initial subscription wire-up at plugin start so that deltas produced by
- * co-located plugins aren't lost during the debounce window.
- */
-export interface DebouncedConfigHandler {
-  (): void;
-  flush(): Promise<void>;
-}
-
-/** Creates a config-file watcher whose reload calls are promise-serialised so a burst of file-change events cannot silently drop a reload if one is already in flight. */
-export function createDebouncedConfigHandler(opts: DebounceHandlerOpts): DebouncedConfigHandler {
-  const { name, getFilePath, processConfig, state, instanceId, app, readFallback } = opts;
-
-  // Serialize concurrent runLoad calls: while one is in flight, a follow-up
-  // call awaits its completion and only then evaluates its own work. The
-  // previous hash-claim trick had a window between "claim hash" and
-  // "processConfig await" in which a second runLoad could observe the new
-  // hash, skip, and silently drop a legitimate event if the first one then
-  // threw. A simple promise-chain serialization is strictly more correct.
-  let runInFlight: Promise<void> | null = null;
-
-  async function runLoadInner(): Promise<void> {
-    if (state.stopped) return;
-    let content: string | null;
-    const filePath = getFilePath();
-    if (readFallback !== undefined) {
-      content = filePath ? await readFile(filePath, "utf-8").catch(() => null) : null;
-    } else {
-      content = filePath ? await readFile(filePath, "utf-8") : null;
-    }
-
-    if (state.stopped) return;
-
-    const hashSource = content || JSON.stringify(readFallback) || "";
-    const contentHash = crypto.createHash(CONTENT_HASH_ALGORITHM).update(hashSource).digest("hex");
-
-    if (contentHash === state.configContentHashes[name]) {
-      app.debug(`[${instanceId}] ${name} file unchanged, skipping`);
-      return;
-    }
-
-    // Parse failure propagates: we do not advance the hash (the update below
-    // is gated on success), so a subsequent file event with corrected content
-    // is not silently skipped.
-    const parsed: unknown = content ? JSON.parse(content) : readFallback;
-
-    // Processing failure propagates too: leaving the previous hash intact lets
-    // a retry re-detect the same content as still-pending.
-    await processConfig(parsed);
-
-    // Only after processConfig completes successfully do we mark this
-    // content as the last-known-good. Holding the hash update to the
-    // success path means a failed apply does not silently swallow the next
-    // identical event.
-    if (!state.stopped) {
-      state.configContentHashes[name] = contentHash;
-    }
-  }
-
-  let rerunRequested = false;
-
-  async function runLoad(): Promise<void> {
-    // Single-producer serialization: only the first caller spawns the
-    // runLoadInner loop; later callers set rerunRequested and return,
-    // so the producer drains them before clearing runInFlight. A naive
-    // "attach + recreate" pattern would let two callers both spawn a
-    // fresh runLoadInner and reintroduce overlap.
-    if (runInFlight) {
-      rerunRequested = true;
-      await runInFlight.catch(() => {
-        /* errors surface through the caller's .catch */
-      });
-      return;
-    }
-    runInFlight = (async () => {
-      // Drain queued reruns even if an earlier pass threw — a parse or
-      // apply failure must not strand the queued follow-up that
-      // arrived between the failure and now. The latest error is
-      // reported once draining is complete.
-      let lastError: unknown;
-      while (!state.stopped) {
-        rerunRequested = false;
-        try {
-          await runLoadInner();
-          lastError = undefined;
-        } catch (err) {
-          lastError = err;
-        }
-        if (!rerunRequested) {
-          break;
-        }
-      }
-      if (lastError !== undefined) {
-        throw lastError;
-      }
-    })();
-    try {
-      await runInFlight;
-    } finally {
-      runInFlight = null;
-    }
-  }
-
-  const handleChange = function () {
-    clearTimeout(state.configDebounceTimers[name]);
-    state.configDebounceTimers[name] = setTimeout(() => {
-      runLoad().catch((err: unknown) => {
-        if (state.stopped) return;
-        const msg = err instanceof Error ? err.message : String(err);
-        app.error(`[${instanceId}] Error handling ${name} change: ${msg}`);
-      });
-    }, FILE_WATCH_DEBOUNCE_DELAY);
-  } as DebouncedConfigHandler;
-
-  handleChange.flush = async function flush(): Promise<void> {
-    clearTimeout(state.configDebounceTimers[name]);
-    try {
-      await runLoad();
-    } catch (err: unknown) {
-      if (state.stopped) return;
-      const msg = err instanceof Error ? err.message : String(err);
-      app.error(`[${instanceId}] Error handling ${name} change: ${msg}`);
-    }
-  };
-
-  return handleChange;
-}
+// `createDebouncedConfigHandler` now lives in the foundation layer (shared
+// config-reload infrastructure) so domain-layer consumers can use it without
+// importing upward into the app layer. Re-exported here for back-compat with
+// the legacy `lib/config-watcher` entrypoint.
+export {
+  createDebouncedConfigHandler,
+  type DebouncedConfigHandler,
+  type DebounceHandlerOpts
+} from "../../foundation/config-reload";
 
 /**
  * Create a file-system watcher with automatic recovery on error or rename.

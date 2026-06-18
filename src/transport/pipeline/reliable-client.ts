@@ -32,9 +32,9 @@ import { deltaBuffer, compressPayload } from "../../codec/compression";
 import { udpSendAsync as _udpSendAsyncShared } from "../udp-socket-manager";
 import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "../../codec/packet-codec";
 import { RetransmitQueue } from "../reliability/retransmit-queue";
-import { MetricsPublisher } from "../../domain/metrics/publisher";
+import { MetricsPublisher } from "../metrics/publisher";
 import { CongestionControl } from "../congestion";
-import { BondingManager } from "../../domain/bonding";
+import { BondingManager } from "../bonding";
 import { splitIntoPackets, buildMetaEnvelope } from "../../codec/metadata-codec";
 import type {
   SignalKApp,

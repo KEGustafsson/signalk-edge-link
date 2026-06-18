@@ -111,13 +111,13 @@
       "<rootDir>/jest.setup.ts"
     ],
     "moduleNameMapper": {
-      "^(?:\\.\\./)+lib/bonding$": "<rootDir>/src/domain/bonding",
+      "^(?:\\.\\./)+lib/bonding$": "<rootDir>/src/transport/bonding",
       "^(?:\\.\\./)+lib/compact-delta$": "<rootDir>/src/codec/compact-delta",
       "^(?:\\.\\./)+lib/congestion$": "<rootDir>/src/transport/congestion",
       "^(?:\\.\\./)+lib/crypto$": "<rootDir>/src/codec/crypto",
       "^(?:\\.\\./)+lib/delta-sanitizer$": "<rootDir>/src/codec/delta-sanitizer",
       "^(?:\\.\\./)+lib/metadata$": "<rootDir>/src/codec/metadata-codec",
-      "^(?:\\.\\./)+lib/metrics-publisher$": "<rootDir>/src/domain/metrics/publisher",
+      "^(?:\\.\\./)+lib/metrics-publisher$": "<rootDir>/src/transport/metrics/publisher",
       "^(?:\\.\\./)+lib/metrics$": "<rootDir>/src/domain/metrics/registry",
       "^(?:\\.\\./)+lib/monitoring$": "<rootDir>/src/domain/monitoring/index",
       "^(?:\\.\\./)+lib/packet-capture$": "<rootDir>/src/domain/monitoring/packet-capture",
@@ -140,6 +140,7 @@
       "^(?:\\.\\./)+lib/values-snapshot$": "<rootDir>/src/codec/values-snapshot",
       "^(?:\\.\\./)+lib/CircularBuffer$": "<rootDir>/src/foundation/circular-buffer",
       "^(?:\\.\\./)+lib/config-io$": "<rootDir>/src/foundation/config-io",
+      "^(?:\\.\\./)+lib/config-reload$": "<rootDir>/src/foundation/config-reload",
       "^(?:\\.\\./)+lib/config-watcher$": "<rootDir>/src/app/config/watcher",
       "^(?:\\.\\./)+lib/constants$": "<rootDir>/src/foundation/constants",
       "^(?:\\.\\./)+lib/(.*)$": "<rootDir>/src/$1"

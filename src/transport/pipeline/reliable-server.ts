@@ -29,7 +29,7 @@ import { mergeSourceSnapshot } from "../../codec/source-snapshot";
 import { PacketBuilder, PacketParser, PacketType, ParsedPacket } from "../../codec/packet-codec";
 import * as dgram from "dgram";
 import { SequenceTracker } from "../reliability/sequence";
-import { MetricsPublisher } from "../../domain/metrics/publisher";
+import { MetricsPublisher } from "../metrics/publisher";
 import type {
   SignalKApp,
   MetricsApi,

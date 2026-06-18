@@ -21,7 +21,10 @@
 
 import type { SignalKApp, InstanceState, MetricsApi, Delta, MetaConfig } from "../foundation/types";
 import { MetaCache } from "../codec/metadata-codec";
-import { createDebouncedConfigHandler, type DebouncedConfigHandler } from "../app/config/watcher";
+import {
+  createDebouncedConfigHandler,
+  type DebouncedConfigHandler
+} from "../foundation/config-reload";
 
 const SUBSCRIPTION_RETRY_BASE_DELAY = 5000;
 const SUBSCRIPTION_RETRY_MAX_DELAY = 300000;
