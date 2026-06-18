@@ -88,7 +88,18 @@ describe("Conformance: frozen wire/codec golden vectors", () => {
       const parsed = authParser.parseHeader(buf, { secretKey: golden.keyHex });
       expect(parsed.type).toBe(packetMod.PacketType.DATA);
       expect(parsed.flags.authenticatedHeader).toBe(true);
-      // Tag stripped → payload is the original fixed bytes.
+      expect(parsed.payload.toString("hex")).toBe(FIXED);
+    });
+
+    test("authenticated-header METADATA verifies its trailing HMAC tag", () => {
+      const authParser = new packetMod.PacketParser({
+        secretKey: golden.keyHex,
+        authenticatedHeaders: true
+      });
+      const buf = Buffer.from(golden.metadataPacketsAuthHeader.encrypted, "base64");
+      const parsed = authParser.parseHeader(buf, { secretKey: golden.keyHex });
+      expect(parsed.type).toBe(packetMod.PacketType.METADATA);
+      expect(parsed.flags.authenticatedHeader).toBe(true);
       expect(parsed.payload.toString("hex")).toBe(FIXED);
     });
 

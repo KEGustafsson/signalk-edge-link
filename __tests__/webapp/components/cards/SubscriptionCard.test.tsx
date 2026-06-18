@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import React from "react";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SubscriptionCard } from "../../../../src/webapp/components/cards/SubscriptionCard";
 import type { SubscriptionConfig } from "../../../../src/webapp/types";
 
@@ -48,9 +48,7 @@ describe("SubscriptionCard", () => {
       <SubscriptionCard connId="c1" config={baseConfig} onNotify={onNotify} onSaved={onSaved} />
     );
 
-    await act(async () => {
-      fireEvent.click(screen.getByText("Save Subscription"));
-    });
+    fireEvent.click(screen.getByText("Save Subscription"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(onNotify).toHaveBeenCalledWith(expect.stringMatching(/saved successfully/i), "success");
@@ -67,9 +65,7 @@ describe("SubscriptionCard", () => {
       <SubscriptionCard connId="c1" config={baseConfig} onNotify={onNotify} onSaved={() => {}} />
     );
 
-    await act(async () => {
-      fireEvent.click(screen.getByText("Save Subscription"));
-    });
+    fireEvent.click(screen.getByText("Save Subscription"));
 
     await waitFor(() =>
       expect(onNotify).toHaveBeenCalledWith(

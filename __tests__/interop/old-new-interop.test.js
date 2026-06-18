@@ -136,7 +136,6 @@ describe("Interop harness skeleton (loopback dgram)", () => {
       const parsed = parser.parseHeader(received, { secretKey: golden.keyHex });
       expect(parsed.type).toBe(type);
     }
-    // The source-snapshot envelope must still decode to the frozen shape.
     const snapParsed = parser.parseHeader(Buffer.from(golden.sourceSnapshotPacket, "base64"), {
       secretKey: golden.keyHex
     });

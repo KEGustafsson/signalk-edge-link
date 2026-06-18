@@ -42,7 +42,7 @@ scope: full repo
 
 - Purpose: Convert Signal K deltas and metadata into encrypted UDP packets and back.
 - Contains: v1 pipeline, v2/v3 client pipeline, v2/v3 server pipeline, retransmit handling, ACK/NAK, bonding, congestion control, and protocol telemetry.
-- Locations: `src/pipeline.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, `src/codec/packet-codec.ts`, `src/retransmit-queue.ts`, `src/sequence.ts`, `src/bonding.ts`, and `src/congestion.ts`.
+- Locations: `src/transport/pipeline/v1.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, `src/codec/packet-codec.ts`, `src/retransmit-queue.ts`, `src/sequence.ts`, `src/bonding.ts`, and `src/congestion.ts`.
 - Depends on: crypto, Brotli helpers, MessagePack, path dictionary, metrics, and dgram sockets.
 - Used by: `src/app/connection.ts`.
 
@@ -94,7 +94,7 @@ scope: full repo
 **Server Packet Receive:**
 
 1. UDP socket receives a packet in server mode.
-2. v1 decrypts/decompresses in `src/pipeline.ts`; v2/v3 parses headers in `src/codec/packet-codec.ts` and processes in `src/transport/pipeline/reliable-server.ts`.
+2. v1 decrypts/decompresses in `src/transport/pipeline/v1.ts`; v2/v3 parses headers in `src/codec/packet-codec.ts` and processes in `src/transport/pipeline/reliable-server.ts`.
 3. Sequence tracking detects duplicates and gaps; server emits ACK/NAK control packets.
 4. Payloads are decrypted, decompressed, decoded, sanitized, and source-normalized.
 5. Valid deltas are forwarded to Signal K with `app.handleMessage`.
