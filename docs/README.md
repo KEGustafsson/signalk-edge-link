@@ -55,9 +55,6 @@ Benchmarking and optimization records from development phases.
 - `planning/ack-nak-design.md`
 - `planning/sequence-spec.md`
 - `planning/metrics-spec.md`
-- `planning/phase-1-completion.md`
-- `planning/phase-2-completion.md`
-- `planning/phase-3-completion.md`
 
 Architecture and design notes retained for contributors and maintainers.
 
