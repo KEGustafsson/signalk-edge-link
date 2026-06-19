@@ -1,6 +1,6 @@
 ﻿# Batch 2 - Shared validation and key formats
 
-- Status: draft
+- Status: merged
 - Base: main
 - Head: multi_test_v2
 - Commit: 5ea4cc8215610514cf48689fdf1965a8f8ebfb1d

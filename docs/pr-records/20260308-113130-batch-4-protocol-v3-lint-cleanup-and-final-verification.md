@@ -1,6 +1,6 @@
 ﻿# Batch 4 - Protocol v3, lint cleanup, and final verification
 
-- Status: draft
+- Status: merged
 - Base: main
 - Head: multi_test_v2
 - Commit: 317cf0744b3a3d7facc47bd50d1e545a9961239a

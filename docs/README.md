@@ -37,6 +37,7 @@ These docs cover individual topics in depth and can be read independently:
 ## Migration
 
 - **[migration/v1-to-v2.md](migration/v1-to-v2.md)** — Practical migration path from protocol v1 to v2
+- **[migration/v2-to-v3.md](migration/v2-to-v3.md)** — Upgrading a v2 link to the authenticated v3 control plane (default in 3.0.0)
 
 ## Performance Reports
 

@@ -1,6 +1,6 @@
 ﻿# Batch 3 - Startup readiness and alert persistence
 
-- Status: draft
+- Status: merged
 - Base: main
 - Head: multi_test_v2
 - Commit: 0e7cd4defaa2bdeeff42f8f68e64d128eea54a93
