@@ -250,6 +250,65 @@ const SHARED_FIELDS = [
   "authenticatedHeaders"
 ];
 
+// Boolean toggles that, when on, mean the connection is using advanced options.
+const ADVANCED_BOOL_KEYS = [
+  "stretchAsciiKey",
+  "authenticatedHeaders",
+  "useMsgpack",
+  "useValueDedup",
+  "useCompactDeltas",
+  "usePathDictionary",
+  "skipOwnData",
+  "enableNotifications"
+];
+
+// Object groups that, when present and non-empty, mean advanced options are set.
+const ADVANCED_OBJECT_KEYS = [
+  "pathFilter",
+  "pathPrecision",
+  "pathThrottle",
+  "reliability",
+  "congestionControl",
+  "bonding",
+  "alertThresholds"
+];
+
+// Numeric fields whose default value is considered "not advanced"; any other
+// value means the user tuned it and the Advanced section should open on load.
+const ADVANCED_NUMERIC_DEFAULTS: Record<string, number> = {
+  brotliQuality: 6,
+  helloMessageSender: 60,
+  heartbeatInterval: 25000,
+  testAddress: NaN, // handled as string below
+  testPort: 80,
+  pingIntervalTime: 1
+};
+
+/**
+ * Decide whether a loaded connection already uses advanced options, so the
+ * Advanced section starts expanded instead of hiding settings the user has
+ * deliberately configured. Default-valued scalars (filled in on load by
+ * withSchemaDefaults) do not count as advanced.
+ */
+function connectionUsesAdvanced(conn: ConnectionData): boolean {
+  const c = conn as Record<string, unknown>;
+  for (const key of ADVANCED_BOOL_KEYS) {
+    if (c[key] === true) return true;
+  }
+  for (const key of ADVANCED_OBJECT_KEYS) {
+    const value = c[key];
+    if (value && typeof value === "object" && Object.keys(value as object).length > 0) {
+      return true;
+    }
+  }
+  for (const [key, dflt] of Object.entries(ADVANCED_NUMERIC_DEFAULTS)) {
+    if (key === "testAddress") continue;
+    if (c[key] !== undefined && c[key] !== dflt) return true;
+  }
+  if (typeof c.testAddress === "string" && c.testAddress !== "127.0.0.1") return true;
+  return false;
+}
+
 // ── Styles ────────────────────────────────────────────────────────────────────
 // Using `skel-` prefix (Signal K Edge Link) to avoid collisions with other
 // plugins that may inject CSS into the same admin panel page.
@@ -406,6 +465,29 @@ const css = `
 .skel-optional-group .form-control {
   max-width: 340px;
 }
+.skel-advanced-toggle {
+  margin-top: 8px;
+  background: none;
+  border: none;
+  color: #0d6efd;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.skel-advanced-toggle:hover { text-decoration: underline; }
+.skel-advanced-hint {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: #5c6773;
+  max-width: 560px;
+}
+.skel-intro {
+  font-size: 0.86rem;
+  color: #5c6773;
+  margin: 0 0 14px;
+  line-height: 1.4;
+}
 `;
 
 // ── ConnectionCard ────────────────────────────────────────────────────────────
@@ -430,7 +512,14 @@ function ConnectionCard({
   onRemove
 }: ConnectionCardProps) {
   const isClient = conn.serverType !== "server";
-  const schema = buildWebappConnectionSchema(isClient, conn.protocolVersion) as RJSFSchema;
+  // Start expanded only when the connection already carries advanced options;
+  // otherwise keep the form to the essentials so it is easy to approach.
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(() => connectionUsesAdvanced(conn));
+  const schema = buildWebappConnectionSchema(
+    isClient,
+    conn.protocolVersion,
+    showAdvanced
+  ) as RJSFSchema;
   const uiSchema = isClient ? uiSchemaClient : uiSchemaServer;
   const modeLabel = isClient ? "Client" : "Server";
   const displayName = (conn.name || `Connection ${index + 1}`).trim();
@@ -464,11 +553,32 @@ function ConnectionCard({
     // internal re-renders), and we do not want that to trip the dirty flag.
     // Order-insensitive compare so a reshuffled-but-equivalent formData does
     // not look like a real edit.
-    const proposed: ConnectionData = {
-      ...(next as Omit<ConnectionData, "_id">),
-      _id: conn._id,
-      connectionId: next.connectionId || conn.connectionId || conn._id
-    };
+    //
+    // Merge only the keys the ACTIVE schema manages. In the basic (advanced
+    // collapsed) view the form does not render advanced fields, so taking
+    // `next` wholesale would discard the connection's hidden advanced settings.
+    // Starting from `conn` and overlaying only managed keys preserves them.
+    const managedKeys = Object.keys(
+      (schema as { properties?: Record<string, unknown> }).properties || {}
+    );
+    const proposed: ConnectionData = { ...conn };
+    const proposedRecord = proposed as Record<string, unknown>;
+    const nextRecord = next as Record<string, unknown>;
+    for (const key of managedKeys) {
+      if (key === "_id") {
+        continue;
+      }
+      if (nextRecord[key] === undefined) {
+        delete proposedRecord[key];
+      } else {
+        proposedRecord[key] = nextRecord[key];
+      }
+    }
+    proposed._id = conn._id;
+    proposed.connectionId =
+      (typeof next.connectionId === "string" && next.connectionId.trim()) ||
+      conn.connectionId ||
+      conn._id;
     // v1-only ping monitor fields must be absent on v2/v3 clients (the
     // backend validator rejects them). Drop them when the user toggles the
     // protocol version up so a v1 → v2 upgrade doesn't leave stale fields
@@ -529,6 +639,20 @@ function ConnectionCard({
             {/* Hide the default submit button – saving is done from the outer toolbar */}
             <div />
           </Form>
+          <button
+            type="button"
+            className="skel-advanced-toggle"
+            aria-expanded={showAdvanced}
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            {showAdvanced ? "▲ Hide advanced settings" : "▼ Show advanced settings"}
+          </button>
+          {!showAdvanced && (
+            <div className="skel-advanced-hint">
+              Compression, reliability, bonding, congestion control and per-path tuning are hidden.
+              Defaults work for most setups — open advanced settings only if you need them.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -723,6 +847,13 @@ function PluginConfigurationPanelInner(_props: Record<string, unknown>) {
   return (
     <div className="skel-config">
       <style>{css}</style>
+
+      <p className="skel-intro">
+        Add one connection per link — pick <strong>Server mode</strong> to receive data or{" "}
+        <strong>Client mode</strong> to send it. Fill in the essentials (address, port, encryption
+        key, protocol); both ends must use the same key and protocol. Extra tuning lives under{" "}
+        <em>Advanced settings</em> on each connection and is safe to leave at the defaults.
+      </p>
 
       {isDirty && saveStatus?.type !== "saving" && (
         <div className="skel-dirty-banner">

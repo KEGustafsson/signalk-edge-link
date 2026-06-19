@@ -25,6 +25,16 @@ All notable changes to signalk-edge-link are documented here.
   streaming controls, bandwidth sparklines, path analytics, congestion-control
   and bonding dashboards.
 
+- **Simplified connection configurator (progressive disclosure).** Each
+  connection card now shows only the essential fields (name, mode, address,
+  port, encryption key, protocol) by default; compression, reliability,
+  bonding, congestion-control and per-path tuning are tucked behind a per-card
+  "Advanced settings" toggle. The advanced section auto-expands for connections
+  that already use those options, and collapsing it never discards configured
+  values — the form merges only the fields the active schema manages. Added an
+  intro guidance line explaining the server/client choice and the must-match
+  key/protocol requirement.
+
 - **Layered source tree cutover.** All temporary re-export shims at
   `src/CircularBuffer.ts`, `src/config-io.ts`, `src/constants.ts`,
   `src/config-watcher.ts`, and `src/shared/crypto-constants.ts` have been

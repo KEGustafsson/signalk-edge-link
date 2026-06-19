@@ -665,15 +665,47 @@ export function buildConnectionItemSchema(): SchemaFragment {
 // ── Builder consumed by the webapp (PluginConfigurationPanel.tsx) ─────────────
 
 /**
+ * The handful of fields a user needs to bring a link up. Everything else is
+ * tuning with safe defaults and is hidden behind the form's "Advanced
+ * settings" toggle (see {@link buildWebappConnectionSchema}'s `advanced` flag).
+ */
+export const ESSENTIAL_COMMON_KEYS = [
+  "name",
+  "serverType",
+  "udpPort",
+  "secretKey",
+  "protocolVersion"
+] as const;
+
+/**
  * Build the flat per-connection schema consumed by the webapp RJSF form.
  * Unlike the backend variant this is a flat object that is rebuilt whenever
- * the user toggles `serverType` or `protocolVersion` so RJSF re-renders with
- * the right subset of fields.
+ * the user toggles `serverType`, `protocolVersion`, or the "Advanced settings"
+ * disclosure so RJSF re-renders with the right subset of fields.
+ *
+ * @param advanced - When false, only the essential fields are returned so the
+ *   form stays approachable; when true (default) the full field set is exposed.
+ *   Hidden fields are never stripped from the stored config — the panel merges
+ *   only the keys the active schema manages.
  */
 export function buildWebappConnectionSchema(
   isClient: boolean,
-  protocolVersion: number | undefined
+  protocolVersion: number | undefined,
+  advanced: boolean = true
 ): SchemaFragment {
+  if (!advanced) {
+    const basicProps: Record<string, SchemaFragment> = {};
+    for (const key of ESSENTIAL_COMMON_KEYS) {
+      basicProps[key] = commonConnectionProperties[key];
+    }
+    const basicRequired = ["serverType", "udpPort", "secretKey"];
+    if (isClient) {
+      basicProps.udpAddress = clientTransportProperties.udpAddress;
+      basicRequired.push("udpAddress");
+    }
+    return { type: "object", required: basicRequired, properties: basicProps };
+  }
+
   const isReliableProtocol = Number(protocolVersion) >= 2;
   const props: Record<string, SchemaFragment> = { ...commonConnectionProperties };
   const required = ["serverType", "udpPort", "secretKey"];

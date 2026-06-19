@@ -597,4 +597,93 @@ describe("PluginConfigurationPanel", () => {
     fireEvent.click(screen.getByRole("checkbox"));
     expect(screen.getByText("You have unsaved changes.")).toBeInTheDocument();
   });
+
+  // ── Progressive disclosure (advanced settings) ─────────────────────────────
+
+  test("hides advanced fields by default, showing only essentials", async () => {
+    apiFetch.mockResolvedValueOnce(makeOk(ONE_SERVER));
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+
+    const props = Object.keys(latestRjsfForm().schema.properties);
+    expect(props).toEqual(expect.arrayContaining(["name", "serverType", "udpPort", "secretKey"]));
+    expect(props).not.toContain("useMsgpack");
+    expect(props).not.toContain("brotliQuality");
+    expect(props).not.toContain("reliability");
+    expect(screen.getByText(/Show advanced settings/)).toBeInTheDocument();
+  });
+
+  test("Show advanced settings reveals the full field set", async () => {
+    apiFetch.mockResolvedValueOnce(makeOk(ONE_SERVER));
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+
+    fireEvent.click(screen.getByText(/Show advanced settings/));
+
+    const props = Object.keys(latestRjsfForm().schema.properties);
+    expect(props).toContain("useMsgpack");
+    expect(props).toContain("brotliQuality");
+    expect(screen.getByText(/Hide advanced settings/)).toBeInTheDocument();
+  });
+
+  test("starts expanded when the connection already uses advanced options", async () => {
+    apiFetch.mockResolvedValueOnce(
+      makeOk({
+        success: true,
+        configuration: {
+          connections: [
+            {
+              name: "tuned",
+              serverType: "server",
+              udpPort: 4446,
+              secretKey: "a".repeat(32),
+              protocolVersion: 3,
+              useMsgpack: true
+            }
+          ]
+        }
+      })
+    );
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("tuned"));
+
+    expect(screen.getByText(/Hide advanced settings/)).toBeInTheDocument();
+    expect(Object.keys(latestRjsfForm().schema.properties)).toContain("useMsgpack");
+  });
+
+  test("editing a basic field preserves hidden advanced settings on save", async () => {
+    apiFetch
+      .mockResolvedValueOnce(makeOk(ONE_SERVER))
+      .mockResolvedValueOnce(makeOk({ success: true, message: "Saved." }));
+
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+
+    // Open advanced and set an advanced-only field.
+    fireEvent.click(screen.getByText(/Show advanced settings/));
+    await act(async () => {
+      latestRjsfForm().onChange({
+        formData: { ...currentRjsfFormData(), useMsgpack: true }
+      });
+    });
+
+    // Collapse back to the basic view and edit a basic field. The basic form
+    // does not include useMsgpack, mirroring real RJSF output.
+    fireEvent.click(screen.getByText(/Hide advanced settings/));
+    await act(async () => {
+      const basic = { ...currentRjsfFormData() };
+      delete basic.useMsgpack;
+      basic.udpPort = 5000;
+      latestRjsfForm().onChange({ formData: basic });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Save Changes"));
+    });
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    const saved = JSON.parse(apiFetch.mock.calls[1][1].body).connections[0];
+    expect(saved.udpPort).toBe(5000);
+    expect(saved.useMsgpack).toBe(true);
+  });
 });
