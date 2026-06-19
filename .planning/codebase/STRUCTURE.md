@@ -69,7 +69,7 @@ signalk-edge-link/
 
 **Files:**
 
-- Kebab-case for most modules: `pipeline-v2-client.ts`, `source-replication.ts`, `config-watcher.ts`.
+- Kebab-case for most modules: `reliable-client.ts`, `source-registry.ts`, `delta-batcher.ts`.
 - PascalCase only where established by type/component identity: `CircularBuffer.ts`, `PluginConfigurationPanel.tsx`.
 - Tests use `*.test.js`, mostly under `__tests__/`, with v2-specific tests under `__tests__/v2/`.
 - Root docs use uppercase names: `README.md`, `CHANGELOG.md`, `AGENTS.md`, `CLAUDE.md`.
