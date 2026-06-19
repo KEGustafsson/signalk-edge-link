@@ -659,7 +659,6 @@ describe("PluginConfigurationPanel", () => {
     render(React.createElement(PluginConfigurationPanel));
     await waitFor(() => screen.getByText("shore-server"));
 
-    // Open advanced and set an advanced-only field.
     fireEvent.click(screen.getByText(/Show advanced settings/));
     await act(async () => {
       latestRjsfForm().onChange({
@@ -667,8 +666,8 @@ describe("PluginConfigurationPanel", () => {
       });
     });
 
-    // Collapse back to the basic view and edit a basic field. The basic form
-    // does not include useMsgpack, mirroring real RJSF output.
+    // The crux of the test: the basic form omits useMsgpack (it is no longer in
+    // the schema), so an edit here must not clobber the value just set above.
     fireEvent.click(screen.getByText(/Hide advanced settings/));
     await act(async () => {
       const basic = { ...currentRjsfFormData() };
@@ -685,5 +684,51 @@ describe("PluginConfigurationPanel", () => {
     const saved = JSON.parse(apiFetch.mock.calls[1][1].body).connections[0];
     expect(saved.udpPort).toBe(5000);
     expect(saved.useMsgpack).toBe(true);
+  });
+
+  test("downgrading a client to protocol v1 drops v3-only codec flags on save", async () => {
+    apiFetch
+      .mockResolvedValueOnce(
+        makeOk({
+          success: true,
+          configuration: {
+            connections: [
+              {
+                name: "edge",
+                serverType: "client",
+                udpPort: 4446,
+                secretKey: "a".repeat(32),
+                udpAddress: "1.2.3.4",
+                protocolVersion: 3,
+                useMsgpack: true,
+                useValueDedup: true,
+                useCompactDeltas: true
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(makeOk({ success: true, message: "Saved." }));
+
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("edge"));
+
+    // The connection already uses advanced options, so the advanced view is
+    // open and the v3-only codec toggles are part of the rendered schema.
+    await act(async () => {
+      latestRjsfForm().onChange({
+        formData: { ...currentRjsfFormData(), protocolVersion: 1 }
+      });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Save Changes"));
+    });
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    const saved = JSON.parse(apiFetch.mock.calls[1][1].body).connections[0];
+    expect(saved.protocolVersion).toBe(1);
+    expect(saved).not.toHaveProperty("useValueDedup");
+    expect(saved).not.toHaveProperty("useCompactDeltas");
   });
 });

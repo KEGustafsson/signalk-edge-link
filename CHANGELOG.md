@@ -31,9 +31,8 @@ All notable changes to signalk-edge-link are documented here.
   bonding, congestion-control and per-path tuning are tucked behind a per-card
   "Advanced settings" toggle. The advanced section auto-expands for connections
   that already use those options, and collapsing it never discards configured
-  values — the form merges only the fields the active schema manages. Added an
-  intro guidance line explaining the server/client choice and the must-match
-  key/protocol requirement.
+  values. Added an intro guidance line explaining the server/client choice and
+  the must-match key/protocol requirement.
 
 - **Layered source tree cutover.** All temporary re-export shims at
   `src/CircularBuffer.ts`, `src/config-io.ts`, `src/constants.ts`,

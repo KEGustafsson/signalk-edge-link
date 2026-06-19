@@ -579,15 +579,22 @@ function ConnectionCard({
       (typeof next.connectionId === "string" && next.connectionId.trim()) ||
       conn.connectionId ||
       conn._id;
-    // v1-only ping monitor fields must be absent on v2/v3 clients (the
-    // backend validator rejects them). Drop them when the user toggles the
-    // protocol version up so a v1 → v2 upgrade doesn't leave stale fields
-    // attached to the form data.
+    // Keep version-gated fields consistent with the selected protocol so the
+    // field-preserving merge above can never leave a stale flag that the
+    // backend validator rejects (which would make the connection unsaveable):
+    //   • v1-only ping-monitor fields must be absent on v2/v3 clients, and
+    //   • the v3-only codec flags (useValueDedup / useCompactDeltas) must be
+    //     absent on v1 — otherwise a v3 → v1 downgrade carries them forward.
     const isClientNow = proposed.serverType !== "server";
-    if (isClientNow && (proposed.protocolVersion ?? 1) >= 2) {
+    const protocolNow = Number(proposed.protocolVersion ?? 1);
+    if (isClientNow && protocolNow >= 2) {
       delete proposed.testAddress;
       delete proposed.testPort;
       delete proposed.pingIntervalTime;
+    }
+    if (protocolNow < 2) {
+      delete proposed.useValueDedup;
+      delete proposed.useCompactDeltas;
     }
     const { _id: _aId, ...a } = proposed;
     const { _id: _bId, ...b } = conn;
