@@ -126,6 +126,10 @@ Use **Advanced** for any new deployment on a WAN or unreliable link. Use **Basic
 - API base path: `/plugins/signalk-edge-link`
 - Default API rate limit: **120 requests/minute/IP**
 
+For a walkthrough of the configuration panel (progressive-disclosure connection
+cards) and the runtime dashboard panels for server and client, see
+[`docs/web-ui.md`](docs/web-ui.md).
+
 Most used endpoints:
 
 - `GET /metrics`
