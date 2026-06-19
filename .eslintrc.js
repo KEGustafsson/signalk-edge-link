@@ -24,6 +24,16 @@ module.exports = {
         "no-console": "off"
       }
     },
+    // CLI executables: stdout is the product, not incidental logging. These
+    // entrypoints are gated by `require.main === module` and print
+    // user-facing output, so `console` is the correct sink (same rationale as
+    // the benchmark exemption above).
+    {
+      files: ["src/bin/**/*.{ts,tsx}", "src/scripts/**/*.{ts,tsx}"],
+      rules: {
+        "no-console": "off"
+      }
+    },
     {
       files: ["**/*.jsx"],
       parserOptions: {

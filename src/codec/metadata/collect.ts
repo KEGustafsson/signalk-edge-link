@@ -47,6 +47,34 @@ function stripUnsetDeep(value: unknown): unknown {
   return Object.keys(out).length > 0 ? out : STRIP_UNSET;
 }
 
+// Signal K "value", "timestamp", "$source" etc. are leaves, not sub-paths, so
+// walkMeta does not descend into them.
+const META_WALK_LEAF_KEYS = new Set([
+  "meta",
+  "value",
+  "values",
+  "timestamp",
+  "$source",
+  "sentence"
+]);
+
+/** Return the cleaned meta object for a node, or null if it has none / is empty. */
+function cleanedNodeMeta(obj: Record<string, unknown>): Record<string, unknown> | null {
+  if (!obj.meta || typeof obj.meta !== "object" || Array.isArray(obj.meta)) {
+    return null;
+  }
+  const cleanedMeta = stripUnsetDeep(obj.meta);
+  if (
+    cleanedMeta === STRIP_UNSET ||
+    !cleanedMeta ||
+    typeof cleanedMeta !== "object" ||
+    Array.isArray(cleanedMeta)
+  ) {
+    return null;
+  }
+  return cleanedMeta as Record<string, unknown>;
+}
+
 /**
  * Walks the value recursively and calls `onMeta(path, metaValue)` for every
  * subtree that has a `meta` child. Arrays are left alone — Signal K meta
@@ -61,27 +89,12 @@ function walkMeta(
     return;
   }
   const obj = node as Record<string, unknown>;
-  if (obj.meta && typeof obj.meta === "object" && !Array.isArray(obj.meta)) {
-    const cleanedMeta = stripUnsetDeep(obj.meta);
-    if (
-      cleanedMeta !== STRIP_UNSET &&
-      cleanedMeta &&
-      typeof cleanedMeta === "object" &&
-      !Array.isArray(cleanedMeta)
-    ) {
-      onMeta(pathParts.join("."), cleanedMeta as Record<string, unknown>);
-    }
+  const meta = cleanedNodeMeta(obj);
+  if (meta) {
+    onMeta(pathParts.join("."), meta);
   }
   for (const key of Object.keys(obj)) {
-    // Signal K "value", "timestamp", "$source" are leaves, not sub-paths.
-    if (
-      key === "meta" ||
-      key === "value" ||
-      key === "values" ||
-      key === "timestamp" ||
-      key === "$source" ||
-      key === "sentence"
-    ) {
+    if (META_WALK_LEAF_KEYS.has(key)) {
       continue;
     }
     walkMeta(obj[key], pathParts.concat(key), onMeta);
@@ -100,21 +113,53 @@ function walkMeta(
  * returns an empty array — live meta will still trickle in through
  * `extractLiveMeta` once providers emit meta updates.
  */
-export function collectSnapshot(app: SignalKApp, config: MetaConfig | null): MetaEntry[] {
-  if (!config || !config.enabled) {
-    return [];
-  }
+/** Retrieve the SK full-model tree, returning null when unavailable/malformed. */
+function retrieveTree(app: SignalKApp): Record<string, unknown> | null {
   if (!app.signalk || typeof app.signalk.retrieve !== "function") {
-    return [];
+    return null;
   }
-
   let tree: Record<string, unknown>;
   try {
     tree = app.signalk.retrieve();
   } catch {
-    return [];
+    return null;
   }
   if (!tree || typeof tree !== "object") {
+    return null;
+  }
+  return tree;
+}
+
+/** Collect meta entries for every context under one top-level context group. */
+function collectGroupMeta(
+  group: unknown,
+  contextGroup: string,
+  filter: (path: string) => boolean,
+  entries: MetaEntry[]
+): void {
+  if (!group || typeof group !== "object") {
+    return;
+  }
+  for (const contextId of Object.keys(group as Record<string, unknown>)) {
+    const contextNode = (group as Record<string, unknown>)[contextId];
+    if (!contextNode || typeof contextNode !== "object") {
+      continue;
+    }
+    const contextLabel = `${contextGroup}.${contextId}`;
+    walkMeta(contextNode, [], (path, meta) => {
+      if (filter(path)) {
+        entries.push({ context: contextLabel, path, meta });
+      }
+    });
+  }
+}
+
+export function collectSnapshot(app: SignalKApp, config: MetaConfig | null): MetaEntry[] {
+  if (!config || !config.enabled) {
+    return [];
+  }
+  const tree = retrieveTree(app);
+  if (!tree) {
     return [];
   }
 
@@ -128,23 +173,7 @@ export function collectSnapshot(app: SignalKApp, config: MetaConfig | null): Met
     if (contextGroup === "self" || contextGroup === "version") {
       continue;
     }
-    const group = tree[contextGroup];
-    if (!group || typeof group !== "object") {
-      continue;
-    }
-    for (const contextId of Object.keys(group as Record<string, unknown>)) {
-      const contextNode = (group as Record<string, unknown>)[contextId];
-      if (!contextNode || typeof contextNode !== "object") {
-        continue;
-      }
-      const contextLabel = `${contextGroup}.${contextId}`;
-      walkMeta(contextNode, [], (path, meta) => {
-        if (!filter(path)) {
-          return;
-        }
-        entries.push({ context: contextLabel, path, meta });
-      });
-    }
+    collectGroupMeta(tree[contextGroup], contextGroup, filter, entries);
   }
 
   return entries;
@@ -183,6 +212,68 @@ const META_MAX_PATHS_MAX = 5000;
  * spinning up an entire instance. The same parser is also used as the
  * single source of truth for the plugin runtime via instance.ts.
  */
+/**
+ * Parse a clamped numeric meta-config field. Returns the value when it is a
+ * finite number within [min, max]; otherwise reports the out-of-range error
+ * via `report` and returns `fallback`.
+ */
+function parseClampedNumber(
+  value: unknown,
+  bounds: { min: number; max: number; fallback: number },
+  report: MetaConfigErrorReporter,
+  describe: (raw: string) => string
+): number {
+  if (value === undefined) {
+    return bounds.fallback;
+  }
+  if (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= bounds.min &&
+    value <= bounds.max
+  ) {
+    return value;
+  }
+  report(describe(String(value)));
+  return bounds.fallback;
+}
+
+/**
+ * Parse `meta.includePathsMatching`. Returns the pattern when present, safe,
+ * and compilable; otherwise reports the reason via `report` and returns null.
+ */
+function parseIncludePathsMatching(
+  value: unknown,
+  tag: string,
+  report: MetaConfigErrorReporter
+): string | null {
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+  const pattern = value;
+  if (pattern.length > MAX_PATH_FILTER_PATTERN_LENGTH) {
+    report(
+      `${tag} meta.includePathsMatching exceeds ${MAX_PATH_FILTER_PATTERN_LENGTH} chars; ignoring filter`
+    );
+    return null;
+  }
+  if (isLikelyUnsafePathFilter(pattern)) {
+    report(
+      `${tag} meta.includePathsMatching "${pattern}" has a nested unbounded quantifier (ReDoS shape); ignoring filter`
+    );
+    return null;
+  }
+  try {
+    new RegExp(pattern);
+    return pattern;
+  } catch (err: unknown) {
+    report(
+      `${tag} meta.includePathsMatching "${pattern}" failed to compile: ${err instanceof Error ? err.message : String(err)}; ignoring filter`
+    );
+    return null;
+  }
+}
+
 export function parseMetaConfig(
   raw: unknown,
   report: MetaConfigErrorReporter,
@@ -203,62 +294,25 @@ export function parseMetaConfig(
 
   const tag = context ? `${META_CONFIG_LOG_PREFIX} [${context}]` : META_CONFIG_LOG_PREFIX;
 
-  let intervalSec = META_DEFAULT_INTERVAL_SEC;
-  if (mo.intervalSec !== undefined) {
-    if (
-      typeof mo.intervalSec === "number" &&
-      Number.isFinite(mo.intervalSec) &&
-      mo.intervalSec >= META_INTERVAL_MIN &&
-      mo.intervalSec <= META_INTERVAL_MAX
-    ) {
-      intervalSec = mo.intervalSec;
-    } else {
-      report(
-        `${tag} meta.intervalSec ${String(mo.intervalSec)} out of range ` +
-          `[${META_INTERVAL_MIN},${META_INTERVAL_MAX}]; using default ${META_DEFAULT_INTERVAL_SEC}s`
-      );
-    }
-  }
+  const intervalSec = parseClampedNumber(
+    mo.intervalSec,
+    { min: META_INTERVAL_MIN, max: META_INTERVAL_MAX, fallback: META_DEFAULT_INTERVAL_SEC },
+    report,
+    (raw) =>
+      `${tag} meta.intervalSec ${raw} out of range ` +
+      `[${META_INTERVAL_MIN},${META_INTERVAL_MAX}]; using default ${META_DEFAULT_INTERVAL_SEC}s`
+  );
 
-  let maxPathsPerPacket = META_DEFAULT_MAX_PATHS;
-  if (mo.maxPathsPerPacket !== undefined) {
-    if (
-      typeof mo.maxPathsPerPacket === "number" &&
-      Number.isFinite(mo.maxPathsPerPacket) &&
-      mo.maxPathsPerPacket >= META_MAX_PATHS_MIN &&
-      mo.maxPathsPerPacket <= META_MAX_PATHS_MAX
-    ) {
-      maxPathsPerPacket = mo.maxPathsPerPacket;
-    } else {
-      report(
-        `${tag} meta.maxPathsPerPacket ${String(mo.maxPathsPerPacket)} out of range ` +
-          `[${META_MAX_PATHS_MIN},${META_MAX_PATHS_MAX}]; using default ${META_DEFAULT_MAX_PATHS}`
-      );
-    }
-  }
+  const maxPathsPerPacket = parseClampedNumber(
+    mo.maxPathsPerPacket,
+    { min: META_MAX_PATHS_MIN, max: META_MAX_PATHS_MAX, fallback: META_DEFAULT_MAX_PATHS },
+    report,
+    (raw) =>
+      `${tag} meta.maxPathsPerPacket ${raw} out of range ` +
+      `[${META_MAX_PATHS_MIN},${META_MAX_PATHS_MAX}]; using default ${META_DEFAULT_MAX_PATHS}`
+  );
 
-  let includePathsMatching: string | null = null;
-  if (typeof mo.includePathsMatching === "string" && mo.includePathsMatching.length > 0) {
-    const pattern = mo.includePathsMatching;
-    if (pattern.length > MAX_PATH_FILTER_PATTERN_LENGTH) {
-      report(
-        `${tag} meta.includePathsMatching exceeds ${MAX_PATH_FILTER_PATTERN_LENGTH} chars; ignoring filter`
-      );
-    } else if (isLikelyUnsafePathFilter(pattern)) {
-      report(
-        `${tag} meta.includePathsMatching "${pattern}" has a nested unbounded quantifier (ReDoS shape); ignoring filter`
-      );
-    } else {
-      try {
-        new RegExp(pattern);
-        includePathsMatching = pattern;
-      } catch (err: unknown) {
-        report(
-          `${tag} meta.includePathsMatching "${pattern}" failed to compile: ${err instanceof Error ? err.message : String(err)}; ignoring filter`
-        );
-      }
-    }
-  }
+  const includePathsMatching = parseIncludePathsMatching(mo.includePathsMatching, tag, report);
 
   return {
     enabled: true,
@@ -312,6 +366,59 @@ export function resolveSelfContext(app: SignalKApp): string | null {
  * the delta object. Callers should invoke this BEFORE the delta is passed to
  * the pipeline encoder (which silently drops meta).
  */
+/**
+ * Resolve the effective context for a live-meta entry.
+ *
+ * Normalizes "vessels.self" to the concrete self URN so MetaCache keys match
+ * snapshot keys exactly. If the self URN isn't known yet, returns null so the
+ * caller skips the entry rather than emit it under a context that will never
+ * match collectSnapshot's output — otherwise the receiver would see two copies
+ * (one under vessels.self, one under the real URN) and the local MetaCache diff
+ * logic would never dedupe them.
+ */
+function resolveLiveMetaContext(
+  rawContext: string,
+  selfContext: string | null | undefined
+): string | null {
+  if (rawContext === "vessels.self") {
+    return selfContext ? selfContext : null;
+  }
+  return rawContext;
+}
+
+/** Convert a single live `DeltaMeta` entry into a `MetaEntry`, or null to skip. */
+function liveMetaEntry(
+  m: DeltaMeta,
+  delta: Delta,
+  filter: (path: string) => boolean,
+  selfContext: string | null | undefined
+): MetaEntry | null {
+  if (!m || typeof m.path !== "string" || !m.value || typeof m.value !== "object") {
+    return null;
+  }
+  if (!filter(m.path)) {
+    return null;
+  }
+  const context = resolveLiveMetaContext(delta.context || "vessels.self", selfContext);
+  if (context === null) {
+    return null;
+  }
+  const cleanedMeta = stripUnsetDeep(m.value);
+  if (
+    cleanedMeta === STRIP_UNSET ||
+    !cleanedMeta ||
+    typeof cleanedMeta !== "object" ||
+    Array.isArray(cleanedMeta)
+  ) {
+    return null;
+  }
+  return {
+    context,
+    path: m.path,
+    meta: cleanedMeta as Record<string, unknown>
+  };
+}
+
 export function extractLiveMeta(
   delta: Delta,
   config: MetaConfig | null,
@@ -331,42 +438,10 @@ export function extractLiveMeta(
       continue;
     }
     for (const m of metaArr) {
-      if (!m || typeof m.path !== "string" || !m.value || typeof m.value !== "object") {
-        continue;
+      const entry = liveMetaEntry(m, delta, filter, selfContext);
+      if (entry) {
+        out.push(entry);
       }
-      if (!filter(m.path)) {
-        continue;
-      }
-      const rawContext = delta.context || "vessels.self";
-      // Normalize "vessels.self" to the concrete self URN so MetaCache keys
-      // match snapshot keys exactly. If the self URN isn't known yet, skip
-      // the entry rather than emit it under a context that will never match
-      // collectSnapshot's output — otherwise the receiver would see two
-      // copies (one under vessels.self, one under the real URN) and the
-      // local MetaCache diff logic would never dedupe them.
-      let context: string;
-      if (rawContext === "vessels.self") {
-        if (!selfContext) {
-          continue;
-        }
-        context = selfContext;
-      } else {
-        context = rawContext;
-      }
-      const cleanedMeta = stripUnsetDeep(m.value);
-      if (
-        cleanedMeta === STRIP_UNSET ||
-        !cleanedMeta ||
-        typeof cleanedMeta !== "object" ||
-        Array.isArray(cleanedMeta)
-      ) {
-        continue;
-      }
-      out.push({
-        context,
-        path: m.path,
-        meta: cleanedMeta as Record<string, unknown>
-      });
     }
   }
   return out;

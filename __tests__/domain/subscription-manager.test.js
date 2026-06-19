@@ -10,7 +10,7 @@
  */
 
 let capturedOpts;
-jest.mock("../../lib/config-watcher", () => ({
+jest.mock("../../lib/config-reload", () => ({
   createDebouncedConfigHandler: jest.fn((opts) => {
     capturedOpts = opts;
     const fn = jest.fn();
