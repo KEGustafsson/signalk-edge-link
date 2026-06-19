@@ -310,6 +310,32 @@ function assertSufficientDiversity(key: string): void {
   }
 }
 
+/** Shannon entropy per byte of the normalized 32-byte key material. */
+function shannonEntropyPerByte(key: Buffer): number {
+  const byteFreq = new Map<number, number>();
+  for (const byte of key) {
+    byteFreq.set(byte, (byteFreq.get(byte) ?? 0) + 1);
+  }
+  let entropy = 0;
+  for (const count of byteFreq.values()) {
+    const p = count / key.length;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
+}
+
+/**
+ * Reject syntactically valid hex/base64 keys whose decoded bytes are trivially
+ * weak (e.g. all-zero or near-constant), which the encoded fast path would
+ * otherwise accept without any entropy gate.
+ */
+function assertSufficientBinaryDiversity(key: Buffer): void {
+  const uniqueBytes = new Set(key).size;
+  if (uniqueBytes < 8 || shannonEntropyPerByte(key) < 3.0) {
+    throw new Error("Secret key has insufficient binary entropy");
+  }
+}
+
 /**
  * Validates secret key strength
  * @param key - Secret key to validate
@@ -318,12 +344,14 @@ function assertSufficientDiversity(key: string): void {
  */
 export function validateSecretKey(key: string): boolean {
   // First verify the key can be normalized to 32 bytes
-  normalizeKey(key);
+  const normalizedKey = normalizeKey(key);
 
-  // For hex/base64 keys (standard or URL-safe), entropy validation on the raw
-  // string is not meaningful; entropy checks apply to the ASCII fallback path
-  // where the user typed the key.
+  // For hex/base64 keys (standard or URL-safe), per-character entropy on the
+  // raw string is not meaningful, but the decoded bytes must still clear a
+  // trivial-entropy gate so weak keys (all-zero hex, base64 zero bytes) are
+  // rejected. ASCII-typed keys fall through to the string-based checks below.
   if (/^[0-9a-fA-F]{64}$/.test(key) || /^[A-Za-z0-9+/\-_]{43}=?$/.test(key)) {
+    assertSufficientBinaryDiversity(normalizedKey);
     return true;
   }
 

@@ -217,6 +217,19 @@ describe("Crypto Module", () => {
       );
     });
 
+    test("should reject syntactically valid but trivially weak encoded keys", () => {
+      // 64 hex zeros and base64-encoded all-zero bytes decode to 32 zero bytes.
+      const allZeroHex = "0".repeat(64);
+      const allZeroBase64 = Buffer.alloc(32).toString("base64").replace(/=+$/, ""); // 43 chars
+      expect(() => validateSecretKey(allZeroHex)).toThrow("insufficient binary entropy");
+      expect(() => validateSecretKey(allZeroBase64)).toThrow("insufficient binary entropy");
+    });
+
+    test("should still accept a strong hex key", () => {
+      const strongHex = require("crypto").randomBytes(32).toString("hex");
+      expect(validateSecretKey(strongHex)).toBe(true);
+    });
+
     test("should accept key with 8 unique characters uniformly distributed", () => {
       // Palindrome + repeat (not a simple period-1..8 pattern): 8 unique chars,
       // each appearing 4 times → Shannon entropy = log2(8) = 3.0 bits/char

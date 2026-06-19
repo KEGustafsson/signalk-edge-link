@@ -39,13 +39,11 @@ function parseHeaderFields(packet: Buffer): {
     throw new Error(`Unsupported protocol version: ${version}`);
   }
 
-  // Parse type
   const type = packet[3];
   if (!VALID_PACKET_TYPES.has(type as (typeof PacketType)[keyof typeof PacketType])) {
     throw new Error(`Unknown packet type: 0x${type.toString(16)}`);
   }
 
-  // Parse flags
   const flagByte = packet[4];
   const flags = {
     compressed: !!(flagByte & PacketFlags.COMPRESSED),

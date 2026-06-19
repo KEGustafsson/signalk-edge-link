@@ -3,7 +3,7 @@
 /**
  * Signal K Edge Link - reliable client source snapshot sender.
  *
- * Extracted from the v2 client factory: source-patch flatten/merge helpers,
+ * Extracted from the reliable client factory: source-patch flatten/merge helpers,
  * MTU-aware chunking, and `sendSourceSnapshot`.
  *
  * @module transport/pipeline/reliable-client/source-snapshot

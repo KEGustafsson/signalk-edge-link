@@ -3,8 +3,9 @@
 /**
  * Signal K Edge Link - reliable client lifecycle + transport.
  *
- * Extracted from the v2 client factory: UDP send (bonding-aware), congestion
- * control timers, HELLO / heartbeat emission, and bonding init/teardown.
+ * Extracted from the reliable client factory: UDP send (bonding-aware),
+ * congestion control timers, HELLO / heartbeat emission, and bonding
+ * init/teardown.
  *
  * @module transport/pipeline/reliable-client/lifecycle
  */
@@ -66,7 +67,6 @@ export function udpSendAsync(
   });
 }
 
-/** Start the congestion control adjustment timer. */
 export function startCongestionControl(ctx: ClientContext): void {
   const { app, state, congestionControl, mut } = ctx;
   if (mut.congestionAdjustInterval) {
@@ -85,7 +85,6 @@ export function startCongestionControl(ctx: ClientContext): void {
   }, 1000);
 }
 
-/** Stop the congestion control adjustment timer. */
 export function stopCongestionControl(ctx: ClientContext): void {
   const { mut } = ctx;
   if (mut.congestionAdjustInterval) {
@@ -113,9 +112,9 @@ export async function sendHello(
     });
     await udpSendAsync(ctx, helloPacket, udpAddress, udpPort);
     state.lastPacketTime = Date.now();
-    app.debug("v2 HELLO sent");
+    app.debug("v3 HELLO sent");
   } catch (err: unknown) {
-    app.debug(`v2 HELLO send failed: ${err instanceof Error ? err.message : String(err)}`);
+    app.debug(`v3 HELLO send failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -135,9 +134,9 @@ export function startHeartbeat(
       const heartbeatPacket = packetBuilder.buildHeartbeatPacket();
       await udpSendAsync(ctx, heartbeatPacket, udpAddress, udpPort);
       state.lastPacketTime = Date.now();
-      app.debug("v2 heartbeat sent (NAT keepalive)");
+      app.debug("v3 heartbeat sent (NAT keepalive)");
     } catch (err: unknown) {
-      app.debug(`v2 heartbeat send failed: ${err instanceof Error ? err.message : String(err)}`);
+      app.debug(`v3 heartbeat send failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }, HEARTBEAT_INTERVAL);
 
@@ -151,7 +150,6 @@ export function startHeartbeat(
   };
 }
 
-/** Initialize connection bonding. */
 export async function initBonding(
   ctx: ClientContext,
   bondingConfig: Record<string, unknown>
@@ -186,11 +184,29 @@ export async function initBonding(
     });
   });
 
-  await bondingManager.initialize();
-  return bondingManager;
+  try {
+    await bondingManager.initialize();
+    return bondingManager;
+  } catch (error: unknown) {
+    // Initialization may throw after partially opening sockets. Clear the
+    // shared reference so later sends cannot route through a half-built
+    // manager, and best-effort stop the failed instance to release resources.
+    if (mut.bondingManager === bondingManager) {
+      mut.bondingManager = null;
+    }
+    try {
+      bondingManager.stop();
+    } catch (stopError: unknown) {
+      app.debug(
+        `Bonding cleanup after failed initialize failed: ${
+          stopError instanceof Error ? stopError.message : String(stopError)
+        }`
+      );
+    }
+    throw error;
+  }
 }
 
-/** Stop connection bonding and clean up resources. */
 export function stopBonding(ctx: ClientContext): void {
   const { mut } = ctx;
   if (mut.bondingManager) {

@@ -14,7 +14,6 @@ import { createControlPacketAuthTag, CONTROL_AUTH_TAG_LENGTH } from "../crypto";
 
 // --- Flag byte assembly ---
 
-/** Assemble the header flag byte from the flag set + header-auth bit. */
 function buildFlagByte(
   flags: {
     compressed?: boolean;

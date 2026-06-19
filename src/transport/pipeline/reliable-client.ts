@@ -280,7 +280,7 @@ function buildControlApi(ctx: ClientContext) {
 }
 
 /**
- * Creates the v2 client pipeline
+ * Creates the reliable (v3) client pipeline
  * @param app       - SignalK app object (for logging)
  * @param state     - Shared mutable state
  * @param metricsApi - Metrics API from lib/metrics.js

@@ -21,7 +21,7 @@ import { receiveACK, receiveNAK } from "./reliability";
  */
 function invokeRequestHandler(
   ctx: ClientContext,
-  handler: (() => void) | null,
+  handler: (() => void | PromiseLike<unknown>) | null,
   label: string
 ): void {
   const { app } = ctx;

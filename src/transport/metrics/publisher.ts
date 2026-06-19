@@ -63,7 +63,6 @@ class MetricsPublisher {
     this._collectThroughputMetrics(metrics, values);
     this._collectQualityMetrics(metrics, values);
 
-    // Only publish if values changed
     if (this._hasChanged(values)) {
       // Use a `$source` string rather than a structured `source` object.
       // signalk-server's getSourceId() turns a label-only source object into

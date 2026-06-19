@@ -139,6 +139,6 @@ export function handleClientSocketError(ctx: ConnectionContext, err: NodeJS.Errn
         return;
       }
       recoverClientSocket(ctx);
-    }, 5000);
+    }, SOCKET_RECOVERY_BASE_MS);
   }
 }

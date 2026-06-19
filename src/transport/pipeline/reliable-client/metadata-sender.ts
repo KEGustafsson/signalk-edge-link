@@ -3,7 +3,7 @@
 /**
  * Signal K Edge Link - reliable client metadata sender.
  *
- * Extracted from the v2 client factory: `sendMetadata` and the shared
+ * Extracted from the reliable client factory: `sendMetadata` and the shared
  * monitoring/metrics bookkeeping for sent META/source packets.
  *
  * @module transport/pipeline/reliable-client/metadata-sender
