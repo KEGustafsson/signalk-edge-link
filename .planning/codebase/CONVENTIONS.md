@@ -10,7 +10,7 @@ scope: full repo
 
 **Files:**
 
-- Use kebab-case for most TypeScript modules: `connection-config.ts`, `config-watcher.ts`, `pipeline-v2-server.ts`.
+- Use kebab-case for most TypeScript modules: `connection-config.ts`, `delta-batcher.ts`, `reliable-server.ts`.
 - Preserve established PascalCase names where already used for class/component identity: `CircularBuffer.ts`, `PluginConfigurationPanel.tsx`.
 - Keep route groups in `src/routes/` named for the API area: `metrics.ts`, `monitoring.ts`, `connections.ts`.
 - Keep tests in `__tests__/` with `.test.js`; v2/v3 protocol tests go under `__tests__/v2/`.

@@ -19,6 +19,13 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+# Cancel superseded runs for the same ref so rapid pushes don't pile up
+# redundant CI. The scheduled audit uses a distinct group key so it is never
+# cancelled by branch activity.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'schedule' && 'schedule' || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ubuntu-latest
