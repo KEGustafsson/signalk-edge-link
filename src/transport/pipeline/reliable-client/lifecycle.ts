@@ -118,7 +118,6 @@ export async function sendHello(
   }
 }
 
-/** Start periodic heartbeat for NAT keepalive. */
 export function startHeartbeat(
   ctx: ClientContext,
   udpAddress: string,
@@ -169,7 +168,6 @@ export async function initBonding(
   mut.bondingManager = bondingManager;
   bondingManager.setMetricsPublisher(metricsPublisher);
 
-  // Forward control packets from bonding sockets to pipeline
   bondingManager.onControlPacket((linkName: string, msg: Buffer) => {
     if (!mut.bondingManager) {
       return;

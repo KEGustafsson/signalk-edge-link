@@ -28,12 +28,10 @@ function parseHeaderFields(packet: Buffer): {
   sequence: number;
   payloadLength: number;
 } {
-  // Validate magic bytes
   if (packet[0] !== MAGIC[0] || packet[1] !== MAGIC[1]) {
     throw new Error("Invalid magic bytes");
   }
 
-  // Validate version
   const version = packet[2];
   if (!SUPPORTED_PROTOCOL_VERSIONS.has(version)) {
     throw new Error(`Unsupported protocol version: ${version}`);
@@ -67,7 +65,6 @@ function parseHeaderFields(packet: Buffer): {
  * actual payload bytes present. Throws on mismatch.
  */
 function validateHeaderIntegrity(packet: Buffer, payloadLength: number): void {
-  // Validate CRC16
   const expectedCRC = crc16(packet.subarray(0, 13));
   const actualCRC = packet.readUInt16BE(13);
   if (expectedCRC !== actualCRC) {
@@ -76,7 +73,6 @@ function validateHeaderIntegrity(packet: Buffer, payloadLength: number): void {
     );
   }
 
-  // Validate payload length against actual data
   const actualPayloadLength = packet.length - HEADER_SIZE;
   if (payloadLength !== actualPayloadLength) {
     throw new Error(
@@ -127,7 +123,6 @@ export class PacketParser {
     const { version, type, flags, sequence, payloadLength } = parseHeaderFields(packet);
     validateHeaderIntegrity(packet, payloadLength);
 
-    // Extract payload
     let payload = packet.subarray(HEADER_SIZE);
 
     const isDataOrMeta = type === PacketType.DATA || type === PacketType.METADATA;

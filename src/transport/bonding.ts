@@ -161,6 +161,11 @@ export class BondingManager {
 
     // Primary starts as active
     this.links.primary.health.status = LinkStatus.ACTIVE;
+    // Anchor the soft-failover dwell window at startup: shouldFailover() gates
+    // degradation-driven failover on time-since-primary-active, so leaving this
+    // at 0 would let the very first noisy RTT/loss sample flap off the primary.
+    // A hard primary failure (no heartbeat responses) still fails over instantly.
+    this.lastFailbackTime = Date.now();
 
     this._initialized = true;
 
