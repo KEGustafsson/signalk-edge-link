@@ -14,6 +14,7 @@ These docs cover individual topics in depth and can be read independently:
 
 - **[architecture-overview.md](architecture-overview.md)** — System architecture, topology patterns, and data-flow pipelines
 - **[configuration-reference.md](configuration-reference.md)** — Complete settings reference with defaults and valid ranges
+- **[web-ui.md](web-ui.md)** — Configuration panel and runtime dashboard walkthrough (server and client)
 - **[api-reference.md](api-reference.md)** — REST API endpoint reference
 - **[protocol-v2.md](protocol-v2.md)** — Basic (v1) and v2 protocol wire format and ACK/NAK handshake
 - **[protocol-v3-spec.md](protocol-v3-spec.md)** — Advanced (v3) HMAC control-plane authentication
