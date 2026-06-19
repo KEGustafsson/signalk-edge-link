@@ -12,6 +12,13 @@ The configuration panel writes the plugin config (and restarts the plugin on
 save). The runtime dashboard is read-mostly: it polls live metrics and exposes a
 few runtime controls (delta timer, subscriptions, manual failover).
 
+> **Note.** This guide describes the UI layout and behavior to orient new users.
+> Specific field names, card titles, and which panels appear are part of an
+> evolving UI — for the current, authoritative list, consult the running UI
+> itself, [configuration-reference.md](configuration-reference.md) for config
+> fields, and [metrics.md](metrics.md) for metric names. Treat the enumerations
+> below as illustrative of the structure, not an exhaustive contract.
+
 ---
 
 ## 1. Configuration panel (Admin → Plugin Config)

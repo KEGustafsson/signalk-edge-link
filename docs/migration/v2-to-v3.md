@@ -14,6 +14,14 @@ HELLO sessions).
 material and no data-format change — both peers just need to agree on
 `protocolVersion: 3`.
 
+> **Authoritative references.** Field names (`protocolVersion`, `secretKey`,
+> `authenticatedHeaders`) and the `"basic"`/`"advanced"` string aliases are
+> defined in [configuration-reference.md](../configuration-reference.md); metric
+> names (`deltasSent`, `deltasReceived`, `malformedPackets`) are defined in
+> [metrics.md](../metrics.md). Those documents are the single source of truth —
+> if a name or alias changes in the implementation, update it there and keep the
+> references in this guide in sync.
+
 ## What changes between v2 and v3
 
 | Aspect                        | v2                   | v3            |
