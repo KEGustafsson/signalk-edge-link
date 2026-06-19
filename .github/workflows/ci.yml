@@ -100,7 +100,9 @@ jobs:
 
   # Non-blocking dependency audit. Kept out of the required `ci` gate so a
   # newly-published advisory or registry/network hiccup cannot block merges.
-  # The audit test is skipped in the default suite unless RUN_NPM_AUDIT is set.
+  # The npm-audit test also runs in the main suite, but there it tolerates an
+  # unreachable registry (reads as zero vulnerabilities); this isolated job
+  # surfaces advisories explicitly without gating merges.
   audit:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -121,8 +123,6 @@ jobs:
         run: npm ci
 
       - name: Run npm audit test
-        env:
-          RUN_NPM_AUDIT: "1"
         run: npx jest __tests__/npm-audit.test.js
 
   # Blocking dependency audit, runs ONLY on the weekly schedule. Unlike the
