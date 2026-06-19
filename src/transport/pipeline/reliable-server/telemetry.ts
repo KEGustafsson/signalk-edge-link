@@ -25,6 +25,79 @@ export function isFreshRemoteTelemetry(ctx: ServerContext, now: number = Date.no
   return Number.isFinite(last) && last! > 0 && now - last! <= ctx.REMOTE_TELEMETRY_TTL_MS;
 }
 
+type Metrics = MetricsApi["metrics"];
+type TelemetryApplier = (remote: RemoteQuality, metrics: Metrics, value: unknown) => boolean;
+
+/**
+ * Path → applier table. Each applier validates the value and writes it to the
+ * remote-quality accumulator (and, where applicable, the top-level metrics),
+ * returning true when applied. Replaces a large switch so the dispatch itself
+ * carries no branching cost.
+ */
+const TELEMETRY_APPLIERS: Record<string, TelemetryApplier> = {
+  "networking.edgeLink.rtt": (remote, metrics, value) => {
+    const rtt = toFiniteNumber(value);
+    if (rtt === null || rtt < 0) {
+      return false;
+    }
+    remote.rtt = rtt;
+    metrics.rtt = rtt;
+    return true;
+  },
+  "networking.edgeLink.jitter": (remote, metrics, value) => {
+    const jitter = toFiniteNumber(value);
+    if (jitter === null || jitter < 0) {
+      return false;
+    }
+    remote.jitter = jitter;
+    metrics.jitter = jitter;
+    return true;
+  },
+  "networking.edgeLink.packetLoss": (remote, _metrics, value) => {
+    const loss = toFiniteNumber(value);
+    if (loss === null) {
+      return false;
+    }
+    remote.packetLoss = Math.max(0, Math.min(1, loss));
+    return true;
+  },
+  "networking.edgeLink.retransmissions": (remote, metrics, value) => {
+    const retransmissions = toFiniteNumber(value);
+    if (retransmissions === null || retransmissions < 0) {
+      return false;
+    }
+    const rounded = Math.round(retransmissions);
+    remote.retransmissions = rounded;
+    metrics.retransmissions = rounded;
+    return true;
+  },
+  "networking.edgeLink.queueDepth": (remote, metrics, value) => {
+    const queueDepth = toFiniteNumber(value);
+    if (queueDepth === null || queueDepth < 0) {
+      return false;
+    }
+    const rounded = Math.round(queueDepth);
+    remote.queueDepth = rounded;
+    metrics.queueDepth = rounded;
+    return true;
+  },
+  "networking.edgeLink.retransmitRate": (remote, _metrics, value) => {
+    const retransmitRate = toFiniteNumber(value);
+    if (retransmitRate === null) {
+      return false;
+    }
+    remote.retransmitRate = Math.max(0, Math.min(1, retransmitRate));
+    return true;
+  },
+  "networking.edgeLink.activeLink": (remote, _metrics, value) => {
+    if (typeof value !== "string" || value.length === 0) {
+      return false;
+    }
+    remote.activeLink = value;
+    return true;
+  }
+};
+
 /**
  * Apply a single telemetry value to the remote-quality accumulator and (where
  * applicable) the top-level metrics. Returns true when the value was a
@@ -36,71 +109,8 @@ function applyTelemetryValue(
   remote: RemoteQuality,
   entry: DeltaValue
 ): boolean {
-  const { metrics } = ctx;
-  switch (entry.path) {
-    case "networking.edgeLink.rtt": {
-      const rtt = toFiniteNumber(entry.value);
-      if (rtt !== null && rtt >= 0) {
-        remote.rtt = rtt;
-        metrics.rtt = rtt;
-        return true;
-      }
-      return false;
-    }
-    case "networking.edgeLink.jitter": {
-      const jitter = toFiniteNumber(entry.value);
-      if (jitter !== null && jitter >= 0) {
-        remote.jitter = jitter;
-        metrics.jitter = jitter;
-        return true;
-      }
-      return false;
-    }
-    case "networking.edgeLink.packetLoss": {
-      const loss = toFiniteNumber(entry.value);
-      if (loss !== null) {
-        remote.packetLoss = Math.max(0, Math.min(1, loss));
-        return true;
-      }
-      return false;
-    }
-    case "networking.edgeLink.retransmissions": {
-      const retransmissions = toFiniteNumber(entry.value);
-      if (retransmissions !== null && retransmissions >= 0) {
-        const rounded = Math.round(retransmissions);
-        remote.retransmissions = rounded;
-        metrics.retransmissions = rounded;
-        return true;
-      }
-      return false;
-    }
-    case "networking.edgeLink.queueDepth": {
-      const queueDepth = toFiniteNumber(entry.value);
-      if (queueDepth !== null && queueDepth >= 0) {
-        const rounded = Math.round(queueDepth);
-        remote.queueDepth = rounded;
-        metrics.queueDepth = rounded;
-        return true;
-      }
-      return false;
-    }
-    case "networking.edgeLink.retransmitRate": {
-      const retransmitRate = toFiniteNumber(entry.value);
-      if (retransmitRate !== null) {
-        remote.retransmitRate = Math.max(0, Math.min(1, retransmitRate));
-        return true;
-      }
-      return false;
-    }
-    case "networking.edgeLink.activeLink":
-      if (typeof entry.value === "string" && entry.value.length > 0) {
-        remote.activeLink = entry.value;
-        return true;
-      }
-      return false;
-    default:
-      return false;
-  }
+  const applier = typeof entry.path === "string" ? TELEMETRY_APPLIERS[entry.path] : undefined;
+  return applier ? applier(remote, ctx.metrics, entry.value) : false;
 }
 
 /**
@@ -131,12 +141,57 @@ function processTelemetryUpdateValues(
   return { remainingValues, changed };
 }
 
+type DeltaUpdate = Delta["updates"][number];
+
+/**
+ * Consume one update: pass through non-telemetry updates, drop telemetry from
+ * unidentified peers or peers that don't own the telemetry slot, and otherwise
+ * apply the telemetry values. Returns whether the accumulator changed and the
+ * (possibly trimmed) update to forward into the SK tree, or null to drop it.
+ */
+function consumeTelemetryUpdate(
+  ctx: ServerContext,
+  remote: RemoteQuality,
+  update: DeltaUpdate,
+  session: ClientSession | null | undefined,
+  peerIdentified: boolean
+): { changed: boolean; forward: DeltaUpdate | null } {
+  const { mut, CLIENT_TELEMETRY_SOURCE, REMOTE_TELEMETRY_TTL_MS } = ctx;
+  if (!update || !Array.isArray(update.values)) {
+    return { changed: false, forward: update };
+  }
+  const sourceLabel = update.source && update.source.label;
+  if (sourceLabel !== CLIENT_TELEMETRY_SOURCE) {
+    return { changed: false, forward: update };
+  }
+
+  // Telemetry from an unidentified peer is dropped (never forwarded as a
+  // regular SK update either).
+  if (!peerIdentified) {
+    return { changed: false, forward: null };
+  }
+  const now = Date.now();
+  const ttl =
+    mut.telemetryOwnerLastSeen > 0 && now - mut.telemetryOwnerLastSeen <= REMOTE_TELEMETRY_TTL_MS;
+  if (mut.telemetryOwnerSessionKey && ttl && mut.telemetryOwnerSessionKey !== session!.key) {
+    // Another peer holds the telemetry slot; drop these values.
+    return { changed: false, forward: null };
+  }
+  mut.telemetryOwnerSessionKey = session!.key;
+  mut.telemetryOwnerLastSeen = now;
+
+  const result = processTelemetryUpdateValues(ctx, remote, update.values);
+  const forward =
+    result.remainingValues.length > 0 ? { ...update, values: result.remainingValues } : null;
+  return { changed: result.changed, forward };
+}
+
 export function ingestRemoteTelemetry(
   ctx: ServerContext,
   deltaMessage: Delta,
   session?: ClientSession | null
 ): void {
-  const { metrics, mut, CLIENT_TELEMETRY_SOURCE, REMOTE_TELEMETRY_TTL_MS } = ctx;
+  const { metrics } = ctx;
   if (!deltaMessage || !Array.isArray(deltaMessage.updates)) {
     return;
   }
@@ -151,38 +206,18 @@ export function ingestRemoteTelemetry(
   const filteredUpdates: Delta["updates"] = [];
 
   for (const update of deltaMessage.updates) {
-    if (!update || !Array.isArray(update.values)) {
-      filteredUpdates.push(update);
-      continue;
-    }
-
-    const sourceLabel = update.source && update.source.label;
-    if (sourceLabel !== CLIENT_TELEMETRY_SOURCE) {
-      filteredUpdates.push(update);
-      continue;
-    }
-
-    const now = Date.now();
-    const ttl =
-      mut.telemetryOwnerLastSeen > 0 && now - mut.telemetryOwnerLastSeen <= REMOTE_TELEMETRY_TTL_MS;
-    if (!peerIdentified) {
-      // Drop telemetry values silently from unidentified peers; do not
-      // forward as regular SK tree updates either.
-      continue;
-    }
-    if (mut.telemetryOwnerSessionKey && ttl && mut.telemetryOwnerSessionKey !== session!.key) {
-      // Another peer holds the telemetry slot; drop these values.
-      continue;
-    }
-    mut.telemetryOwnerSessionKey = session!.key;
-    mut.telemetryOwnerLastSeen = now;
-
-    const result = processTelemetryUpdateValues(ctx, remote, update.values);
-    if (result.changed) {
+    const { changed: updateChanged, forward } = consumeTelemetryUpdate(
+      ctx,
+      remote,
+      update,
+      session,
+      peerIdentified
+    );
+    if (updateChanged) {
       changed = true;
     }
-    if (result.remainingValues.length > 0) {
-      filteredUpdates.push({ ...update, values: result.remainingValues });
+    if (forward) {
+      filteredUpdates.push(forward);
     }
   }
 

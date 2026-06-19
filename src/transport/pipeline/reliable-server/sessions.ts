@@ -16,6 +16,30 @@ import { MAX_CLIENT_SESSIONS } from "../../../foundation/constants";
 /**
  * Get or create a session object for the given rinfo.
  */
+/** Evict the oldest session (by last-packet time) when the table is at capacity. */
+function evictOldestSessionIfFull(ctx: ServerContext): void {
+  const { app, clientSessions } = ctx;
+  if (clientSessions.size < MAX_CLIENT_SESSIONS) {
+    return;
+  }
+  let oldestKey: string | null = null;
+  let oldestTime = Infinity;
+  for (const [k, s] of clientSessions) {
+    if (s.lastPacketTime < oldestTime) {
+      oldestTime = s.lastPacketTime;
+      oldestKey = k;
+    }
+  }
+  if (oldestKey) {
+    const evicted = clientSessions.get(oldestKey);
+    if (evicted) {
+      evicted.sequenceTracker.reset();
+    }
+    clientSessions.delete(oldestKey);
+    app.error(`[v2-server] Session evicted (at capacity ${MAX_CLIENT_SESSIONS}): ${oldestKey}`);
+  }
+}
+
 export function getOrCreateSession(
   ctx: ServerContext,
   rinfo: { address: string; port: number }
@@ -31,24 +55,7 @@ export function getOrCreateSession(
   }
 
   // Evict the oldest idle session if we are at capacity.
-  if (clientSessions.size >= MAX_CLIENT_SESSIONS) {
-    let oldestKey: string | null = null;
-    let oldestTime = Infinity;
-    for (const [k, s] of clientSessions) {
-      if (s.lastPacketTime < oldestTime) {
-        oldestTime = s.lastPacketTime;
-        oldestKey = k;
-      }
-    }
-    if (oldestKey) {
-      const evicted = clientSessions.get(oldestKey);
-      if (evicted) {
-        evicted.sequenceTracker.reset();
-      }
-      clientSessions.delete(oldestKey);
-      app.error(`[v2-server] Session evicted (at capacity ${MAX_CLIENT_SESSIONS}): ${oldestKey}`);
-    }
-  }
+  evictOldestSessionIfFull(ctx);
 
   // Create new session. Guard against a re-entrant creation that may have
   // already added the session during the eviction scan above.

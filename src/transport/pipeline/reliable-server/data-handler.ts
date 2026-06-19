@@ -136,6 +136,28 @@ function decodeDeltas(ctx: ServerContext, jsonContent: unknown): Delta[] {
   return Object.values(jsonContent as Record<string, Delta>);
 }
 
+/** Upsert a delta into the source registry under a stable source-client id. */
+function upsertSourceRegistry(
+  ctx: ServerContext,
+  deltaMessage: Delta,
+  session: ClientSession | null
+): void {
+  const { state } = ctx;
+  if (!state.sourceRegistry || typeof state.sourceRegistry.upsertFromDelta !== "function") {
+    return;
+  }
+  const deltaRecord = deltaMessage as unknown as Record<string, unknown>;
+  const deltaSourceInstanceId =
+    typeof deltaRecord.sourceClientInstanceId === "string"
+      ? (deltaRecord.sourceClientInstanceId as string) || null
+      : null;
+  const stableSourceClientId =
+    (session && (session.sourceClientInstanceId || session.clientId)) ||
+    deltaSourceInstanceId ||
+    "unknown";
+  state.sourceRegistry.upsertFromDelta(deltaMessage, stableSourceClientId);
+}
+
 /** Process a single decoded delta: dedup-expand, sanitize, ingest, dispatch. */
 function processDelta(
   ctx: ServerContext,
@@ -145,7 +167,7 @@ function processDelta(
   decompressedLength: number,
   totalDeltas: number
 ): void {
-  const { app, state, trackPathStats, metrics } = ctx;
+  const { app, trackPathStats, metrics } = ctx;
   let deltaMessage: Delta | null | undefined = rawDelta;
 
   if (deltaMessage === null || deltaMessage === undefined) {
@@ -180,25 +202,137 @@ function processDelta(
   if (!Array.isArray(deltaMessage.updates) || deltaMessage.updates.length === 0) {
     return;
   }
-  if (state.sourceRegistry && typeof state.sourceRegistry.upsertFromDelta === "function") {
-    const deltaRecord = deltaMessage as unknown as Record<string, unknown>;
-    const deltaSourceInstanceId =
-      deltaMessage &&
-      typeof deltaMessage === "object" &&
-      typeof deltaRecord.sourceClientInstanceId === "string"
-        ? (deltaRecord.sourceClientInstanceId as string) || null
-        : null;
-    const stableSourceClientId =
-      (session && (session.sourceClientInstanceId || session.clientId)) ||
-      deltaSourceInstanceId ||
-      "unknown";
-    state.sourceRegistry.upsertFromDelta(deltaMessage, stableSourceClientId);
-  }
+  upsertSourceRegistry(ctx, deltaMessage, session);
 
   trackPathStats(deltaMessage, decompressedLength / totalDeltas);
 
   handleMessageBySource(app, deltaMessage);
   metrics.deltasReceived++;
+}
+
+/**
+ * Sequence-track an authenticated DATA packet. Returns false (stop) for a
+ * duplicate (after reflecting an immediate ACK); otherwise records the accepted
+ * packet's bookkeeping (counters, full-status trigger, loss window) and returns
+ * true to continue with payload processing.
+ */
+async function trackDataSequence(
+  ctx: ServerContext,
+  session: ClientSession | null,
+  parsed: ParsedPacket,
+  secretKey: string,
+  rinfo?: { address: string; port: number }
+): Promise<boolean> {
+  const { app, state, metrics } = ctx;
+  const seqResult = session
+    ? session.sequenceTracker.processSequence(parsed.sequence)
+    : { duplicate: false, resynced: false };
+
+  if (seqResult.duplicate) {
+    app.debug(`v2 duplicate packet: seq=${parsed.sequence}`);
+    metrics.duplicatePackets = (metrics.duplicatePackets ?? 0) + 1;
+    if (session && session.sequenceTracker.expectedSeq !== null && rinfo) {
+      await ackDuplicate(ctx, session, rinfo);
+    }
+    return false;
+  }
+
+  // Count valid DATA packets for accurate packet loss calculation
+  metrics.dataPacketsReceived = (metrics.dataPacketsReceived ?? 0) + 1;
+  if (session) {
+    session.hasReceivedData = true;
+  }
+  // On first DATA from a new session, request full-status replay if enabled.
+  if (session && !session.statusRequested && state.options?.requestFullStatusOnRestart) {
+    session.statusRequested = true;
+    sendFullStatusRequest(ctx, session, secretKey).catch((err: unknown) => {
+      app.debug(
+        `[v2-server] FULL_STATUS_REQUEST (data trigger) send failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    });
+  }
+  if (session) {
+    updateLossWindow(ctx, session, parsed.sequence >>> 0, seqResult.resynced);
+  }
+  return true;
+}
+
+/**
+ * Parse a decompressed DATA payload (MessagePack with JSON fallback, or JSON).
+ * Returns null (after recording the error) when the payload is too large or is
+ * not an object/array.
+ */
+function parsePayloadContent(
+  ctx: ServerContext,
+  decompressed: Buffer,
+  parsed: ParsedPacket
+): unknown | null {
+  const { app, recordError } = ctx;
+  // Reject payloads that exceed the safe parse limit to prevent DoS.
+  if (decompressed.length > MAX_PARSE_PAYLOAD_SIZE) {
+    app.error(
+      `[v2] Received decompressed payload too large to parse: ${decompressed.length} bytes ` +
+        `(limit ${MAX_PARSE_PAYLOAD_SIZE})`
+    );
+    recordError(
+      "general",
+      `[v2] Payload too large to parse: ${decompressed.length} bytes (limit ${MAX_PARSE_PAYLOAD_SIZE})`
+    );
+    return null;
+  }
+
+  let jsonContent: unknown;
+  if (parsed.flags.messagepack) {
+    try {
+      jsonContent = msgpack.decode(decompressed);
+    } catch (msgpackErr: unknown) {
+      app.debug(
+        `MessagePack decode failed (${msgpackErr instanceof Error ? msgpackErr.message : String(msgpackErr)}), falling back to JSON`
+      );
+      jsonContent = JSON.parse(decompressed.toString());
+    }
+  } else {
+    jsonContent = JSON.parse(decompressed.toString());
+  }
+
+  if (jsonContent === null || typeof jsonContent !== "object") {
+    app.error("v2 received non-object payload, skipping");
+    recordError("general", "v2 received non-object payload");
+    return null;
+  }
+  return jsonContent;
+}
+
+/** Decode the payload into deltas (capped) and dispatch each one. */
+function decodeAndDispatchPayload(
+  ctx: ServerContext,
+  decompressed: Buffer,
+  session: ClientSession | null,
+  packet: Buffer,
+  parsed: ParsedPacket
+): void {
+  const { app } = ctx;
+  const jsonContent = parsePayloadContent(ctx, decompressed, parsed);
+  if (jsonContent === null) {
+    return;
+  }
+
+  // Process deltas: payload may be compact-encoded, a plain Array, a bare
+  // Delta, or an indexed object.
+  const deltas = decodeDeltas(ctx, jsonContent);
+  const deltaCount = Math.min(deltas.length, MAX_DELTAS_PER_PACKET);
+
+  if (deltas.length > MAX_DELTAS_PER_PACKET) {
+    app.error(
+      `v2 received ${deltas.length} deltas in one packet (limit ${MAX_DELTAS_PER_PACKET}), truncating`
+    );
+  }
+
+  for (let i = 0; i < deltaCount; i++) {
+    processDelta(ctx, deltas[i], i, session, decompressed.length, deltas.length);
+  }
+
+  app.debug(`v2 received: seq=${parsed.sequence}, ${deltaCount} deltas, ${packet.length} bytes`);
 }
 
 /**
@@ -212,7 +346,7 @@ export async function handleDataPacket(
   secretKey: string,
   rinfo?: { address: string; port: number }
 ): Promise<void> {
-  const { app, state, metrics, recordError, stretchAsciiKey, clientSessions } = ctx;
+  const { metrics, stretchAsciiKey, clientSessions } = ctx;
 
   // DATA packet. AES-GCM payload decryption is the first hard authentication
   // boundary, so rate-limit and decrypt BEFORE allocating a session.
@@ -246,88 +380,9 @@ export async function handleDataPacket(
     session.rateLimitWindowStart = Date.now();
   }
 
-  // Use the per-client sequence tracker
-  const seqResult = session
-    ? session.sequenceTracker.processSequence(parsed.sequence)
-    : { duplicate: false, resynced: false };
-
-  if (seqResult.duplicate) {
-    app.debug(`v2 duplicate packet: seq=${parsed.sequence}`);
-    metrics.duplicatePackets = (metrics.duplicatePackets ?? 0) + 1;
-    if (session && session.sequenceTracker.expectedSeq !== null && rinfo) {
-      await ackDuplicate(ctx, session, rinfo);
-    }
+  if (!(await trackDataSequence(ctx, session, parsed, secretKey, rinfo))) {
     return;
   }
 
-  // Count valid DATA packets for accurate packet loss calculation
-  metrics.dataPacketsReceived = (metrics.dataPacketsReceived ?? 0) + 1;
-  if (session) {
-    session.hasReceivedData = true;
-  }
-  // On first DATA from a new session, request full-status replay if enabled.
-  if (session && !session.statusRequested && state.options?.requestFullStatusOnRestart) {
-    session.statusRequested = true;
-    sendFullStatusRequest(ctx, session, secretKey).catch((err: unknown) => {
-      app.debug(
-        `[v2-server] FULL_STATUS_REQUEST (data trigger) send failed: ${err instanceof Error ? err.message : String(err)}`
-      );
-    });
-  }
-  const dataSeq = parsed.sequence >>> 0;
-  if (session) {
-    updateLossWindow(ctx, session, dataSeq, seqResult.resynced);
-  }
-
-  // Reject payloads that exceed the safe parse limit to prevent DoS.
-  if (decompressed.length > MAX_PARSE_PAYLOAD_SIZE) {
-    app.error(
-      `[v2] Received decompressed payload too large to parse: ${decompressed.length} bytes ` +
-        `(limit ${MAX_PARSE_PAYLOAD_SIZE})`
-    );
-    recordError(
-      "general",
-      `[v2] Payload too large to parse: ${decompressed.length} bytes (limit ${MAX_PARSE_PAYLOAD_SIZE})`
-    );
-    return;
-  }
-
-  // Parse content
-  let jsonContent: unknown;
-  if (parsed.flags.messagepack) {
-    try {
-      jsonContent = msgpack.decode(decompressed);
-    } catch (msgpackErr: unknown) {
-      app.debug(
-        `MessagePack decode failed (${msgpackErr instanceof Error ? msgpackErr.message : String(msgpackErr)}), falling back to JSON`
-      );
-      jsonContent = JSON.parse(decompressed.toString());
-    }
-  } else {
-    jsonContent = JSON.parse(decompressed.toString());
-  }
-
-  // Validate parsed content is an object or array
-  if (jsonContent === null || typeof jsonContent !== "object") {
-    app.error("v2 received non-object payload, skipping");
-    recordError("general", "v2 received non-object payload");
-    return;
-  }
-
-  // Process deltas: payload may be compact-encoded, a plain Array, a bare
-  // Delta, or an indexed object.
-  const deltas = decodeDeltas(ctx, jsonContent);
-  const deltaCount = Math.min(deltas.length, MAX_DELTAS_PER_PACKET);
-
-  if (deltas.length > MAX_DELTAS_PER_PACKET) {
-    app.error(
-      `v2 received ${deltas.length} deltas in one packet (limit ${MAX_DELTAS_PER_PACKET}), truncating`
-    );
-  }
-
-  for (let i = 0; i < deltaCount; i++) {
-    processDelta(ctx, deltas[i], i, session, decompressed.length, deltas.length);
-  }
-
-  app.debug(`v2 received: seq=${parsed.sequence}, ${deltaCount} deltas, ${packet.length} bytes`);
+  decodeAndDispatchPayload(ctx, decompressed, session, packet, parsed);
 }

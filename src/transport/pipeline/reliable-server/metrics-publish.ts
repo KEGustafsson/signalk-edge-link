@@ -75,6 +75,37 @@ function logSourceReplicationDeltas(
   mut.previousSourceConflicts = sourceReplicationMetrics.conflicts;
 }
 
+interface NetworkQuality {
+  rtt?: number;
+  jitter?: number;
+  packetLoss?: number;
+  retransmissions?: number;
+  queueDepth?: number;
+  retransmitRate?: number;
+  activeLink?: string;
+}
+
+/**
+ * Blend the published network-quality scalars: fresh remote telemetry wins when
+ * present, otherwise everything falls back to neutral defaults (with the locally
+ * measured packet loss).
+ */
+function resolveEffectiveQuality(
+  remote: NetworkQuality,
+  hasRemoteTelemetry: boolean,
+  packetLoss: number
+): Required<NetworkQuality> {
+  return {
+    rtt: hasRemoteTelemetry ? remote.rtt || 0 : 0,
+    jitter: hasRemoteTelemetry ? remote.jitter || 0 : 0,
+    packetLoss: hasRemoteTelemetry ? remote.packetLoss || 0 : packetLoss,
+    retransmissions: hasRemoteTelemetry ? remote.retransmissions || 0 : 0,
+    queueDepth: hasRemoteTelemetry ? remote.queueDepth || 0 : 0,
+    retransmitRate: hasRemoteTelemetry ? remote.retransmitRate || 0 : 0,
+    activeLink: hasRemoteTelemetry ? remote.activeLink || "primary" : "primary"
+  };
+}
+
 /**
  * Collect and publish server-side metrics to Signal K.
  */
@@ -98,14 +129,11 @@ export function publishServerMetrics(ctx: ServerContext): void {
   const packetLoss = aggregatePacketLoss(ctx);
 
   const hasRemoteTelemetry = isFreshRemoteTelemetry(ctx, now);
-  const remote = metrics.remoteNetworkQuality || {};
-  const effectiveRtt = hasRemoteTelemetry ? remote.rtt || 0 : 0;
-  const effectiveJitter = hasRemoteTelemetry ? remote.jitter || 0 : 0;
-  const effectivePacketLoss = hasRemoteTelemetry ? remote.packetLoss || 0 : packetLoss;
-  const effectiveRetransmissions = hasRemoteTelemetry ? remote.retransmissions || 0 : 0;
-  const effectiveQueueDepth = hasRemoteTelemetry ? remote.queueDepth || 0 : 0;
-  const effectiveRetransmitRate = hasRemoteTelemetry ? remote.retransmitRate || 0 : 0;
-  const effectiveActiveLink = hasRemoteTelemetry ? remote.activeLink || "primary" : "primary";
+  const effective = resolveEffectiveQuality(
+    metrics.remoteNetworkQuality || {},
+    hasRemoteTelemetry,
+    packetLoss
+  );
   const sourceReplicationMetrics = state.sourceRegistry
     ? state.sourceRegistry.getMetrics()
     : { upserts: 0, noops: 0, missingIdentity: 0, conflicts: 0 };
@@ -113,15 +141,15 @@ export function publishServerMetrics(ctx: ServerContext): void {
 
   // Publish to Signal K
   metricsPublisher.publish({
-    rtt: effectiveRtt,
-    jitter: effectiveJitter,
+    rtt: effective.rtt,
+    jitter: effective.jitter,
     downloadBandwidth: downloadBandwidth,
     packetsReceivedPerSec: packetsReceivedPerSec,
-    packetLoss: effectivePacketLoss,
-    retransmissions: effectiveRetransmissions,
-    queueDepth: effectiveQueueDepth,
-    retransmitRate: effectiveRetransmitRate,
-    activeLink: effectiveActiveLink,
+    packetLoss: effective.packetLoss,
+    retransmissions: effective.retransmissions,
+    queueDepth: effective.queueDepth,
+    retransmitRate: effective.retransmitRate,
+    activeLink: effective.activeLink,
     sequenceNumber: getFirstSessionTracker(ctx).expectedSeq ?? undefined,
     compressionRatio: metrics.bandwidth.compressionRatio || 0
   });

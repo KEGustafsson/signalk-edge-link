@@ -130,6 +130,14 @@ export interface CreateContextDeps {
   metricsApi: MetricsApi;
 }
 
+/** Seed the reliability counters so consumers always see numeric zeros. */
+function seedServerReliabilityMetrics(metrics: MetricsApi["metrics"]): void {
+  metrics.acksSent = metrics.acksSent || 0;
+  metrics.naksSent = metrics.naksSent || 0;
+  metrics.duplicatePackets = metrics.duplicatePackets || 0;
+  metrics.dataPacketsReceived = metrics.dataPacketsReceived || 0;
+}
+
 /**
  * Construct the shared server context. Mirrors the original factory's setup of
  * deps, config constants and shared mutable state.
@@ -158,11 +166,7 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
   const ackResendInterval: number = reliabilityConfig.ackResendInterval ?? 1000;
   const nakTimeout: number = reliabilityConfig.nakTimeout || 100;
 
-  // Reliability metrics
-  metrics.acksSent = metrics.acksSent || 0;
-  metrics.naksSent = metrics.naksSent || 0;
-  metrics.duplicatePackets = metrics.duplicatePackets || 0;
-  metrics.dataPacketsReceived = metrics.dataPacketsReceived || 0;
+  seedServerReliabilityMetrics(metrics);
 
   const metricsPublisher = new MetricsPublisher(app, {
     pathPrefix: state.instanceId

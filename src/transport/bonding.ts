@@ -31,7 +31,6 @@ import {
 import {
   buildHeartbeatProbe,
   classifyHeartbeatResponse,
-  computeHbHmac,
   expirePendingHeartbeats,
   computeLossRatio,
   calculateQuality,
@@ -207,18 +206,6 @@ export class BondingManager {
     } else if (this._shouldFailback()) {
       this.failback();
     }
-  }
-
-  /**
-   * Compute a truncated HMAC-SHA256 tag over the 12-byte heartbeat header.
-   * Used to authenticate probe sends and verify probe responses.
-   * @private
-   */
-  private _computeHbHmac(header: Buffer): Buffer {
-    if (!this.secretKey) {
-      throw new Error("BondingManager: secretKey is required for HMAC authentication");
-    }
-    return computeHbHmac(header, this.secretKey, this.stretchAsciiKey);
   }
 
   /**

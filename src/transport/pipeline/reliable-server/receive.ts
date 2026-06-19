@@ -115,14 +115,63 @@ function applyHelloIdentity(session: ClientSession, info: Record<string, unknown
       : peerSuffix;
 }
 
+/** Parse a HELLO payload and, on success, bind the session identity. */
+function parseHelloInfo(
+  ctx: ServerContext,
+  parsed: ParsedPacket,
+  session: ClientSession | null
+): void {
+  const { app } = ctx;
+  try {
+    const info = JSON.parse(parsed.payload.toString());
+    app.debug(`v2 hello from client: ${JSON.stringify(info)}`);
+    if (session && info && typeof info === "object") {
+      applyHelloIdentity(session, info);
+    }
+  } catch (parseErr: unknown) {
+    const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+    // Truncate so an attacker-controlled JSON parse error can't bloat the log.
+    const truncated = parseMsg.length > 256 ? parseMsg.slice(0, 256) + "…" : parseMsg;
+    app.error(`v2 failed to parse HELLO payload: ${truncated}`);
+  }
+}
+
+/**
+ * Prime the one-per-session control requests off the back of a HELLO: demand a
+ * fresh metadata snapshot, and (when enabled) a full values snapshot.
+ */
+function primeSessionRequests(ctx: ServerContext, session: ClientSession, secretKey: string): void {
+  const { app, state } = ctx;
+  // HELLO is the earliest reliable indication of a live peer, so use it to
+  // demand a fresh metadata snapshot. Capped at one per session.
+  if (!session.metaRequested) {
+    session.metaRequested = true;
+    sendMetaRequest(ctx, session, secretKey).catch((err: unknown) => {
+      app.debug(
+        `[v2-server] META_REQUEST send failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    });
+  }
+  // If the operator enabled full-status-on-restart, also request a values
+  // snapshot. Capped at one per session.
+  if (!session.statusRequested && state.options?.requestFullStatusOnRestart) {
+    session.statusRequested = true;
+    sendFullStatusRequest(ctx, session, secretKey).catch((err: unknown) => {
+      app.debug(
+        `[v2-server] FULL_STATUS_REQUEST send failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    });
+  }
+}
+
 /** Handle a HELLO (0x04) packet: bind identity and prime meta/status requests. */
-async function handleHelloPacket(
+function handleHelloPacket(
   ctx: ServerContext,
   parsed: ParsedPacket,
   secretKey: string,
   rinfo?: { address: string; port: number }
-): Promise<void> {
-  const { app, metrics, state } = ctx;
+): void {
+  const { app, metrics } = ctx;
   // HELLO is HMAC-authenticated by parseHeader, so it is safe to allocate a
   // long-lived session here (the handshake is the intended trigger).
   const session = rinfo ? getOrCreateSession(ctx, rinfo) : null;
@@ -137,37 +186,9 @@ async function handleHelloPacket(
     metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
     return;
   }
-  try {
-    const info = JSON.parse(parsed.payload.toString());
-    app.debug(`v2 hello from client: ${JSON.stringify(info)}`);
-    if (session && info && typeof info === "object") {
-      applyHelloIdentity(session, info);
-    }
-  } catch (parseErr: unknown) {
-    const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-    // Truncate so an attacker-controlled JSON parse error can't bloat the log.
-    const truncated = parseMsg.length > 256 ? parseMsg.slice(0, 256) + "…" : parseMsg;
-    app.error(`v2 failed to parse HELLO payload: ${truncated}`);
-  }
-  // HELLO is the earliest reliable indication of a live peer, so use it to
-  // demand a fresh metadata snapshot. Capped at one per session.
-  if (session && !session.metaRequested) {
-    session.metaRequested = true;
-    sendMetaRequest(ctx, session, secretKey).catch((err: unknown) => {
-      app.debug(
-        `[v2-server] META_REQUEST send failed: ${err instanceof Error ? err.message : String(err)}`
-      );
-    });
-  }
-  // If the operator enabled full-status-on-restart, also request a values
-  // snapshot. Capped at one per session.
-  if (session && !session.statusRequested && state.options?.requestFullStatusOnRestart) {
-    session.statusRequested = true;
-    sendFullStatusRequest(ctx, session, secretKey).catch((err: unknown) => {
-      app.debug(
-        `[v2-server] FULL_STATUS_REQUEST send failed: ${err instanceof Error ? err.message : String(err)}`
-      );
-    });
+  parseHelloInfo(ctx, parsed, session);
+  if (session) {
+    primeSessionRequests(ctx, session, secretKey);
   }
 }
 
