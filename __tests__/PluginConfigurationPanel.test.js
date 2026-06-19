@@ -20,8 +20,8 @@ jest.mock("../src/webapp/utils/apiFetch", () => ({
 const mockRjsfForms = [];
 jest.mock("@rjsf/core", () => {
   const ReactMock = require("react");
-  function MockForm({ children, formData, schema, onChange }) {
-    mockRjsfForms.push({ formData, schema, onChange });
+  function MockForm({ children, formData, schema, uiSchema, onChange }) {
+    mockRjsfForms.push({ formData, schema, uiSchema, onChange });
     return ReactMock.createElement(
       "div",
       {
@@ -241,6 +241,33 @@ describe("PluginConfigurationPanel", () => {
     render(React.createElement(PluginConfigurationPanel));
     await waitFor(() => screen.getByText("shore-server"));
     expect(screen.getByTestId("rjsf-form")).toBeInTheDocument();
+  });
+
+  test("RJSF order covers every rendered schema property", async () => {
+    apiFetch.mockResolvedValueOnce(
+      makeOk({
+        success: true,
+        configuration: {
+          connections: [
+            {
+              name: "advanced-server",
+              serverType: "server",
+              udpPort: 4446,
+              secretKey: "a".repeat(32),
+              protocolVersion: 3
+            }
+          ]
+        }
+      })
+    );
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("advanced-server"));
+
+    const form = latestRjsfForm();
+    const orderedFields = new Set(form.uiSchema["ui:order"]);
+    for (const propertyName of Object.keys(form.schema.properties)) {
+      expect(orderedFields.has(propertyName)).toBe(true);
+    }
   });
 
   test("clicking card header collapses then re-expands it", async () => {

@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { useConnections } from "../../../src/webapp/hooks/useConnections";
 
 jest.mock("../../../src/webapp/utils/apiFetch", () => ({
@@ -56,7 +56,11 @@ describe("useConnections", () => {
     const { result } = renderHook(() => useConnections());
     await waitFor(() => expect(result.current.connections).toHaveLength(1));
 
-    await result.current.refetch();
+    // Wrap the refetch: it produces hook state updates that must be flushed
+    // inside act() to avoid "not wrapped in act(...)" warnings.
+    await act(async () => {
+      await result.current.refetch();
+    });
     await waitFor(() => expect(result.current.connections).toHaveLength(2));
   });
 });

@@ -211,6 +211,60 @@ describe("validateConnectionConfig", () => {
     });
   });
 
+  describe("timing bounds (shared-schema parity)", () => {
+    test("helloMessageSender within range passes; out-of-range and non-finite fail", () => {
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 60 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 10 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 3600 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 9 }))).toMatch(
+        /helloMessageSender/
+      );
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 3601 }))).toMatch(
+        /helloMessageSender/
+      );
+      // Non-integer / non-finite are rejected.
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 60.5 }))).toMatch(
+        /helloMessageSender/
+      );
+      expect(
+        validateConnectionConfig(makeValidClient({ helloMessageSender: Number.POSITIVE_INFINITY }))
+      ).toMatch(/helloMessageSender/);
+    });
+
+    test("heartbeatInterval within range passes; out-of-range fails", () => {
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: 25000 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: 5000 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: 120000 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: 4999 }))).toMatch(
+        /heartbeatInterval/
+      );
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: 120001 }))).toMatch(
+        /heartbeatInterval/
+      );
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: NaN }))).toMatch(
+        /heartbeatInterval/
+      );
+    });
+
+    test("pingIntervalTime (v1 only) within range passes; out-of-range fails", () => {
+      expect(
+        validateConnectionConfig(makeValidClient({ protocolVersion: 1, pingIntervalTime: 1 }))
+      ).toBeNull();
+      expect(
+        validateConnectionConfig(makeValidClient({ protocolVersion: 1, pingIntervalTime: 0.1 }))
+      ).toBeNull();
+      expect(
+        validateConnectionConfig(makeValidClient({ protocolVersion: 1, pingIntervalTime: 60 }))
+      ).toBeNull();
+      expect(
+        validateConnectionConfig(makeValidClient({ protocolVersion: 1, pingIntervalTime: 0.05 }))
+      ).toMatch(/pingIntervalTime/);
+      expect(
+        validateConnectionConfig(makeValidClient({ protocolVersion: 1, pingIntervalTime: 61 }))
+      ).toMatch(/pingIntervalTime/);
+    });
+  });
+
   describe("server mode validation", () => {
     test("valid server config passes", () => {
       expect(validateConnectionConfig(makeValidServer())).toBeNull();

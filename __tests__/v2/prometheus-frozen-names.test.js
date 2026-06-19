@@ -153,4 +153,12 @@ describe("Prometheus frozen metric-name surface", () => {
       "signalk_edge_link_uptime_seconds"
     ]);
   });
+
+  test("every exported metric name is documented in docs/metrics.md", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const docs = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "metrics.md"), "utf8");
+    const undocumented = staticMetricNames().filter((name) => !docs.includes(name));
+    expect(undocumented).toEqual([]);
+  });
 });

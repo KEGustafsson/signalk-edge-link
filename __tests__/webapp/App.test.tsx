@@ -20,11 +20,14 @@ function mockOkJson(data: unknown) {
 describe("App", () => {
   beforeEach(() => jest.clearAllMocks());
 
-  test("renders header", () => {
+  test("renders header", async () => {
     (apiFetch as jest.Mock).mockResolvedValue({ status: 200, ok: false });
     render(<App />);
-    expect(screen.getByText("SignalK Edge Link")).toBeInTheDocument();
-    expect(screen.getByText("Configuration and runtime monitoring")).toBeInTheDocument();
+    // App fires async fetches on mount whose resolution updates state after the
+    // synchronous render. `findBy*` polls inside act(), absorbing those updates
+    // so we don't log "not wrapped in act(...)".
+    expect(await screen.findByText("SignalK Edge Link")).toBeInTheDocument();
+    expect(await screen.findByText("Configuration and runtime monitoring")).toBeInTheDocument();
   });
 
   test("renders client dashboard for client connection", async () => {

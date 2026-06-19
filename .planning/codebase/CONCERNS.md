@@ -8,14 +8,14 @@ scope: full repo
 
 ## Tech Debt
 
-**Large lifecycle orchestrator in `src/instance.ts`:**
+**Large lifecycle orchestrator in `src/app/connection.ts`:**
 
-- Issue: `src/instance.ts` owns plugin-instance lifecycle, sockets, timers, config watchers, Signal K subscriptions, metadata/source snapshot dispatch, and pipeline startup/teardown in one large module.
+- Issue: `src/app/connection.ts` owns plugin-instance lifecycle, sockets, timers, config watchers, Signal K subscriptions, metadata/source snapshot dispatch, and pipeline startup/teardown in one large module.
 - Why: The module is the natural point where Signal K app state, connection options, and runtime resources meet.
 - Impact: Changes to one feature can accidentally affect stop/start ordering, cleanup, or recovery behavior for unrelated features.
 - Fix approach: Extract focused lifecycle helpers only when changing that area, and keep regression tests around socket recovery, timer cleanup, and watcher cleanup.
 
-**Reliable transport complexity in `src/pipeline-v2-client.ts` and `src/pipeline-v2-server.ts`:**
+**Reliable transport complexity in `src/transport/pipeline/reliable-client.ts` and `src/transport/pipeline/reliable-server.ts`:**
 
 - Issue: Reliability, retransmission, telemetry, metadata/source snapshots, congestion, and bonding behavior are concentrated in large pipeline modules.
 - Why: v2/v3 behavior evolved from an initially simpler UDP pipeline.
@@ -88,14 +88,14 @@ scope: full repo
 
 **Timer and socket cleanup:**
 
-- Why fragile: `src/instance.ts`, `src/pipeline-v2-client.ts`, `src/pipeline-v2-server.ts`, `src/bonding.ts`, and `src/sequence.ts` create timers, intervals, sockets, and listener callbacks.
+- Why fragile: `src/app/connection.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, `src/bonding.ts`, and `src/sequence.ts` create timers, intervals, sockets, and listener callbacks.
 - Common failures: Leaked timers after stop, duplicate socket listeners after recovery, stale pipeline workers, or cleanup order regressions.
 - Safe modification: Pair every new timer/listener/resource with explicit cleanup and add tests around stop/restart/recovery.
 - Test coverage: Existing tests cover many recovery paths, but `docs/code-quality-report.md` still lists lifecycle modules as coverage gaps.
 
 **Shared schema and validation parity:**
 
-- Why fragile: Connection fields must align across `src/shared/connection-schema.ts`, `src/connection-config.ts`, `src/types.ts`, webapp form behavior, route validation, docs, and samples.
+- Why fragile: Connection fields must align across `src/shared/connection-schema.ts`, `src/connection-config.ts`, `src/foundation/types/`, webapp form behavior, route validation, docs, and samples.
 - Common failures: UI accepts a field the backend rejects, backend stores a field the UI drops, or docs show stale ranges/defaults.
 - Safe modification: Update schema, validation, types, docs, samples, and tests in the same change.
 - Test coverage: `__tests__/connection-config.test.js`, `__tests__/schema-compat.test.js`, `__tests__/PluginConfigurationPanel.test.js`, and route config tests are the important guardrails.
@@ -111,7 +111,7 @@ scope: full repo
 
 **In-memory client session tracking:**
 
-- Current capacity: Server pipeline limits client sessions globally and per source IP in `src/pipeline-v2-server.ts`.
+- Current capacity: Server pipeline limits client sessions globally and per source IP in `src/transport/pipeline/reliable-server.ts`.
 - Limit: `MAX_CLIENT_SESSIONS` and the per-IP cap guard resource growth but also define maximum simultaneous remote session behavior.
 - Symptoms at limit: Session eviction, rejected new sessions, and debug/error logs.
 - Scaling path: Adjust constants carefully with DoS and memory tests if higher fan-in is needed.
@@ -152,7 +152,7 @@ _No outstanding critical-feature gaps in this area at the time of last mapping p
 
 **Lifecycle and pipeline branch coverage:**
 
-- What's not fully covered: File-level branch coverage for `src/instance.ts`, `src/pipeline-v2-client.ts`, `src/pipeline-v2-server.ts`, and `src/config-watcher.ts` is called out in `docs/code-quality-report.md`.
+- What's not fully covered: File-level branch coverage for `src/app/connection.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, and `src/config-watcher.ts` is called out in `docs/code-quality-report.md`.
 - Risk: Regressions in rare error/recovery paths can escape broad tests.
 - Priority: High for protocol/lifecycle changes.
 - Difficulty to test: Requires carefully controlled sockets, timers, filesystem watcher behavior, and packet-loss scenarios.

@@ -8,6 +8,12 @@
 
 ## Core Data Endpoints
 
+> **Multi-instance note:** the top-level JSON endpoints below (`/metrics`,
+> `/network-metrics`, the `/monitoring/*` and `/capture` routes, etc.) report the
+> **first instance** only — they are legacy/single-instance views. `/prometheus`
+> aggregates across all instances. For multi-instance deployments use the
+> per-connection endpoints under [`/connections/:id/...`](#per-connection-endpoints).
+
 ### GET /metrics
 
 Returns comprehensive real-time statistics. Available in client and server mode.
@@ -60,6 +66,10 @@ Returns comprehensive real-time statistics. Available in client and server mode.
   }
 }
 ```
+
+> The `managementAuth` block is present **only when a `managementApiToken` is
+> configured**. In open-access mode it is omitted from `/status` and `/metrics`,
+> and the equivalent management-auth metrics are omitted from `/prometheus`.
 
 ### GET /network-metrics
 
@@ -281,7 +291,7 @@ Alert cooldown is 60 seconds. Notifications fire at `notifications.signalk-edge-
 
 ### GET /monitoring/inspector
 
-WebSocket live packet inspector statistics.
+Returns packet-inspector statistics (a plain JSON snapshot from a `GET`; there is no WebSocket/live-stream endpoint).
 
 ```json
 { "enabled": true, "packetsInspected": 5000, "clientsConnected": 1 }
@@ -401,9 +411,9 @@ Additional required for client: `udpAddress`.
 
 Patch one instance configuration. Triggers a plugin restart. Returns `200` on success.
 
-Updatable: `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`, `udpMetaPort`, `udpAddress`, `helloMessageSender`, `testAddress`, `testPort`, `pingIntervalTime`, `reliability`, `congestionControl`, `bonding`, `alertThresholds`.
+Updatable: `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`, `udpAddress`, `helloMessageSender`, `reliability`, `congestionControl`, `bonding`, `alertThresholds`.
 
-**Not updatable via this endpoint:** `serverType`, `udpPort`, `secretKey`.
+**Not updatable via this endpoint:** `serverType`, `udpPort`, `secretKey`. Any other field (including `udpMetaPort`, `testAddress`, `testPort`, and `pingIntervalTime`) is rejected with `400`; change those by replacing the full configuration via `POST /plugin-config`.
 
 **Errors:** `400` (unsupported field, validation), `401`, `404`, `503`.
 

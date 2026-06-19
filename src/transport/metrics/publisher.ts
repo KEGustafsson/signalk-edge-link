@@ -59,7 +59,40 @@ class MetricsPublisher {
   publish(metrics: Record<string, number | string | undefined>): void {
     const values: Array<{ path: string; value: unknown }> = [];
 
-    // Core metrics
+    this._collectCoreMetrics(metrics, values);
+    this._collectThroughputMetrics(metrics, values);
+    this._collectQualityMetrics(metrics, values);
+
+    if (this._hasChanged(values)) {
+      // Use a `$source` string rather than a structured `source` object.
+      // signalk-server's getSourceId() turns a label-only source object into
+      // `${label}.XX` (and rewrites our `signalk-edge-link:<instanceId>` label
+      // to the plugin id first), which would create a spurious
+      // `signalk-edge-link.XX` source bucket alongside the canonical one. A
+      // plain `$source` string is stored verbatim. See src/source-dispatch.ts.
+      this.app.handleMessage(this.sourceLabel, {
+        context: "vessels.self",
+        updates: [
+          {
+            $source: "signalk-edge-link",
+            timestamp: new Date().toISOString(),
+            values: values
+          }
+        ]
+      });
+
+      this._updateLastPublished(values);
+    }
+  }
+
+  /**
+   * Push RTT/jitter/packet-loss moving averages onto the values array.
+   * @private
+   */
+  private _collectCoreMetrics(
+    metrics: Record<string, number | string | undefined>,
+    values: Array<{ path: string; value: unknown }>
+  ): void {
     if (typeof metrics.rtt === "number") {
       this._addToWindow(this.rttWindow, metrics.rtt);
       const avgRtt = this._calculateAverage(this.rttWindow);
@@ -77,7 +110,16 @@ class MetricsPublisher {
       const avgLoss = this._calculateAverage(this.lossWindow);
       values.push({ path: `${this.pathPrefix}.packetLoss`, value: parseFloat(avgLoss.toFixed(3)) });
     }
+  }
 
+  /**
+   * Push bandwidth and per-second performance counters onto the values array.
+   * @private
+   */
+  private _collectThroughputMetrics(
+    metrics: Record<string, number | string | undefined>,
+    values: Array<{ path: string; value: unknown }>
+  ): void {
     // Bandwidth
     if (typeof metrics.uploadBandwidth === "number") {
       values.push({
@@ -128,7 +170,17 @@ class MetricsPublisher {
         value: parseFloat(metrics.queueDepth.toFixed(0))
       });
     }
+  }
 
+  /**
+   * Push the computed link-quality score plus active-link and compression-ratio
+   * values onto the values array.
+   * @private
+   */
+  private _collectQualityMetrics(
+    metrics: Record<string, number | string | undefined>,
+    values: Array<{ path: string; value: unknown }>
+  ): void {
     // Calculate and publish link quality
     const quality = this.calculateLinkQuality({
       rtt: this._calculateAverage(this.rttWindow),
@@ -156,28 +208,6 @@ class MetricsPublisher {
         path: `${this.pathPrefix}.compressionRatio`,
         value: parseFloat(metrics.compressionRatio.toFixed(2))
       });
-    }
-
-    // Only publish if values changed
-    if (this._hasChanged(values)) {
-      // Use a `$source` string rather than a structured `source` object.
-      // signalk-server's getSourceId() turns a label-only source object into
-      // `${label}.XX` (and rewrites our `signalk-edge-link:<instanceId>` label
-      // to the plugin id first), which would create a spurious
-      // `signalk-edge-link.XX` source bucket alongside the canonical one. A
-      // plain `$source` string is stored verbatim. See src/source-dispatch.ts.
-      this.app.handleMessage(this.sourceLabel, {
-        context: "vessels.self",
-        updates: [
-          {
-            $source: "signalk-edge-link",
-            timestamp: new Date().toISOString(),
-            values: values
-          }
-        ]
-      });
-
-      this._updateLastPublished(values);
     }
   }
 

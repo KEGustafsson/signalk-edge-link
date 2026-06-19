@@ -17,10 +17,20 @@ function normaliseLevel(raw: unknown): string {
   return level;
 }
 
+function numberOrZero(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 export function MonitoringAlertsCard({ data }: Props) {
   if (!data) return null;
   const hasData = data.alerts || data.packetLoss || data.retransmissions;
   if (!hasData) return null;
+  const packetLossSummary = data.packetLoss?.summary;
+  const totalLost = numberOrZero(packetLossSummary?.totalLost);
+  const totalExpected = numberOrZero(packetLossSummary?.totalExpected);
+  const lossRate = numberOrZero(packetLossSummary?.lossRate);
+  const totalRetransmissions = numberOrZero(data.retransmissions?.totalRetransmissions);
+  const retransmitRate = numberOrZero(data.retransmissions?.retransmitRate);
 
   return (
     <Card
@@ -68,23 +78,20 @@ export function MonitoringAlertsCard({ data }: Props) {
           </div>
         )}
 
-        {data.packetLoss?.summary && (
+        {packetLossSummary && (
           <div className="monitoring-subsection">
             <h5>Packet Loss</h5>
             <div className="stats-grid">
               <StatItem
                 label="Total Lost"
-                value={data.packetLoss.summary.totalLost.toLocaleString()}
-                hasError={data.packetLoss.summary.totalLost > 0}
+                value={totalLost.toLocaleString()}
+                hasError={totalLost > 0}
               />
-              <StatItem
-                label="Total Expected"
-                value={data.packetLoss.summary.totalExpected.toLocaleString()}
-              />
+              <StatItem label="Total Expected" value={totalExpected.toLocaleString()} />
               <StatItem
                 label="Loss Rate"
-                value={`${(data.packetLoss.summary.lossRate * 100).toFixed(1)}%`}
-                hasError={data.packetLoss.summary.lossRate > 0.05}
+                value={`${(lossRate * 100).toFixed(1)}%`}
+                hasError={lossRate > 0.05}
               />
             </div>
           </div>
@@ -96,13 +103,13 @@ export function MonitoringAlertsCard({ data }: Props) {
             <div className="stats-grid">
               <StatItem
                 label="Total Retransmissions"
-                value={data.retransmissions.totalRetransmissions.toLocaleString()}
-                hasError={data.retransmissions.totalRetransmissions > 0}
+                value={totalRetransmissions.toLocaleString()}
+                hasError={totalRetransmissions > 0}
               />
               <StatItem
                 label="Retransmit Rate"
-                value={`${(data.retransmissions.retransmitRate * 100).toFixed(1)}%`}
-                hasError={data.retransmissions.retransmitRate > 0.05}
+                value={`${(retransmitRate * 100).toFixed(1)}%`}
+                hasError={retransmitRate > 0.05}
               />
             </div>
           </div>

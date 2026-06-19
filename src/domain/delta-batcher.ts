@@ -59,109 +59,141 @@ export interface DeltaBatcher {
   flushDeltaBatch(batchSize?: number, retryCount?: number): Promise<void>;
 }
 
+/** Shared mutable context for the batcher's module-level helpers. */
+interface BatcherContext {
+  deps: DeltaBatcherDeps;
+  scheduleDeltaTimer: () => void;
+  flushDeltaBatch: (batchSize?: number, retryCount?: number) => Promise<void>;
+}
+
+function scheduleDeltaTimer(ctx: BatcherContext): void {
+  const { state } = ctx.deps;
+  clearTimeout(state.deltaTimer ?? undefined);
+  state.deltaTimer = setTimeout(() => {
+    if (state.stopped) {
+      return;
+    }
+    state.timer = true;
+    ctx.scheduleDeltaTimer();
+  }, state.deltaTimerTime);
+}
+
+async function sendDeltaBatch(ctx: BatcherContext, batch: Delta[]): Promise<void> {
+  const { state, options, getV1Pipeline } = ctx.deps;
+  if (state.pipeline) {
+    await state.pipeline.sendDelta(
+      batch,
+      options.secretKey,
+      options.udpAddress ?? "",
+      options.udpPort
+    );
+  } else {
+    await getV1Pipeline().packCrypt(
+      batch,
+      options.secretKey,
+      options.udpAddress ?? "",
+      options.udpPort
+    );
+  }
+}
+
+function scheduleBatchRetry(ctx: BatcherContext, batchSize: number, retryCount: number): void {
+  const { state } = ctx.deps;
+  if (state.pendingRetry || state.stopped) {
+    return;
+  }
+
+  state.pendingRetry = setTimeout(() => {
+    state.pendingRetry = null;
+    ctx.flushDeltaBatch(batchSize, retryCount);
+  }, DELTA_SEND_RETRY_BACKOFF_MS);
+}
+
+/** Handle a failed batch send: retry while attempts remain, else drop and record. */
+function handleBatchSendFailure(
+  ctx: BatcherContext,
+  err: unknown,
+  actualBatchSize: number,
+  retryCount: number
+): void {
+  const { state, metrics, app, instanceId, recordError } = ctx.deps;
+  const nextRetryCount = retryCount + 1;
+  app.debug(
+    `[${instanceId}] Batch send failed (attempt ${nextRetryCount}/${DELTA_SEND_MAX_RETRIES + 1}): ${err instanceof Error ? err.message : String(err)}`
+  );
+
+  if (nextRetryCount <= DELTA_SEND_MAX_RETRIES) {
+    scheduleBatchRetry(ctx, actualBatchSize, nextRetryCount);
+    return;
+  }
+
+  state.deltas.splice(0, actualBatchSize);
+  state.timer = false;
+  state.droppedDeltaBatches++;
+  state.droppedDeltaCount += actualBatchSize;
+  metrics.droppedDeltaBatches = (metrics.droppedDeltaBatches || 0) + 1;
+  metrics.droppedDeltaCount = (metrics.droppedDeltaCount || 0) + actualBatchSize;
+  const dropMessage = `[${instanceId}] Dropped delta batch after ${nextRetryCount} failed attempts (${actualBatchSize} deltas)`;
+  app.error(dropMessage);
+  // Use the "udpSend" category so the udpSendErrors counter (and the
+  // udpSend errors_by_category bucket) reflects dropped sends; the bare
+  // "sendFailure" category maps to no Prometheus counter.
+  recordError("udpSend", dropMessage);
+}
+
+async function flushDeltaBatch(
+  ctx: BatcherContext,
+  batchSize: number = ctx.deps.state.deltas.length,
+  retryCount: number = 0
+): Promise<void> {
+  const { state } = ctx.deps;
+  if (
+    state.batchSendInFlight ||
+    state.pendingRetry ||
+    state.stopped ||
+    !state.readyToSend ||
+    state.socketRecoveryInProgress
+  ) {
+    return;
+  }
+
+  if (!Number.isInteger(batchSize) || batchSize <= 0 || state.deltas.length === 0) {
+    state.timer = false;
+    return;
+  }
+
+  const actualBatchSize = Math.min(batchSize, state.deltas.length, state.maxDeltasPerBatch);
+  const batch = state.deltas.slice(0, actualBatchSize);
+  state.batchSendInFlight = true;
+
+  try {
+    await sendDeltaBatch(ctx, batch);
+    state.deltas.splice(0, actualBatchSize);
+    state.timer = false;
+    state.lastPacketTime = Date.now(); // suppress hello sends right after real data
+  } catch (err: unknown) {
+    handleBatchSendFailure(ctx, err, actualBatchSize, retryCount);
+  } finally {
+    state.batchSendInFlight = false;
+    if (state.deltas.length > 0 && !state.pendingRetry && !state.stopped) {
+      setImmediate(() => {
+        ctx.flushDeltaBatch();
+      });
+    }
+  }
+}
+
 /** Create the outbound delta send loop: periodic flush timer and batch-flush state machine. */
 export function createDeltaBatcher(deps: DeltaBatcherDeps): DeltaBatcher {
-  const { state, metrics, app, options, instanceId, recordError, getV1Pipeline } = deps;
+  const ctx: BatcherContext = {
+    deps,
+    scheduleDeltaTimer: () => scheduleDeltaTimer(ctx),
+    flushDeltaBatch: (batchSize?: number, retryCount?: number) =>
+      flushDeltaBatch(ctx, batchSize, retryCount)
+  };
 
-  function scheduleDeltaTimer(): void {
-    clearTimeout(state.deltaTimer ?? undefined);
-    state.deltaTimer = setTimeout(() => {
-      if (state.stopped) {
-        return;
-      }
-      state.timer = true;
-      scheduleDeltaTimer();
-    }, state.deltaTimerTime);
-  }
-
-  async function sendDeltaBatch(batch: Delta[]): Promise<void> {
-    if (state.pipeline) {
-      await state.pipeline.sendDelta(
-        batch,
-        options.secretKey,
-        options.udpAddress ?? "",
-        options.udpPort
-      );
-    } else {
-      await getV1Pipeline().packCrypt(
-        batch,
-        options.secretKey,
-        options.udpAddress ?? "",
-        options.udpPort
-      );
-    }
-  }
-
-  function scheduleBatchRetry(batchSize: number, retryCount: number): void {
-    if (state.pendingRetry || state.stopped) {
-      return;
-    }
-
-    state.pendingRetry = setTimeout(() => {
-      state.pendingRetry = null;
-      flushDeltaBatch(batchSize, retryCount);
-    }, DELTA_SEND_RETRY_BACKOFF_MS);
-  }
-
-  async function flushDeltaBatch(
-    batchSize: number = state.deltas.length,
-    retryCount: number = 0
-  ): Promise<void> {
-    if (
-      state.batchSendInFlight ||
-      state.pendingRetry ||
-      state.stopped ||
-      !state.readyToSend ||
-      state.socketRecoveryInProgress
-    ) {
-      return;
-    }
-
-    if (!Number.isInteger(batchSize) || batchSize <= 0 || state.deltas.length === 0) {
-      state.timer = false;
-      return;
-    }
-
-    const actualBatchSize = Math.min(batchSize, state.deltas.length, state.maxDeltasPerBatch);
-    const batch = state.deltas.slice(0, actualBatchSize);
-    state.batchSendInFlight = true;
-
-    try {
-      await sendDeltaBatch(batch);
-      state.deltas.splice(0, actualBatchSize);
-      state.timer = false;
-      state.lastPacketTime = Date.now(); // suppress hello sends right after real data
-    } catch (err: unknown) {
-      const nextRetryCount = retryCount + 1;
-      app.debug(
-        `[${instanceId}] Batch send failed (attempt ${nextRetryCount}/${DELTA_SEND_MAX_RETRIES + 1}): ${err instanceof Error ? err.message : String(err)}`
-      );
-
-      if (nextRetryCount <= DELTA_SEND_MAX_RETRIES) {
-        scheduleBatchRetry(actualBatchSize, nextRetryCount);
-      } else {
-        state.deltas.splice(0, actualBatchSize);
-        state.timer = false;
-        state.droppedDeltaBatches++;
-        state.droppedDeltaCount += actualBatchSize;
-        metrics.droppedDeltaBatches = (metrics.droppedDeltaBatches || 0) + 1;
-        metrics.droppedDeltaCount = (metrics.droppedDeltaCount || 0) + actualBatchSize;
-        const dropMessage = `[${instanceId}] Dropped delta batch after ${nextRetryCount} failed attempts (${actualBatchSize} deltas)`;
-        app.error(dropMessage);
-        // Use the "udpSend" category so the udpSendErrors counter (and the
-        // udpSend errors_by_category bucket) reflects dropped sends; the bare
-        // "sendFailure" category maps to no Prometheus counter.
-        recordError("udpSend", dropMessage);
-      }
-    } finally {
-      state.batchSendInFlight = false;
-      if (state.deltas.length > 0 && !state.pendingRetry && !state.stopped) {
-        setImmediate(() => {
-          flushDeltaBatch();
-        });
-      }
-    }
-  }
-
-  return { scheduleDeltaTimer, flushDeltaBatch };
+  return {
+    scheduleDeltaTimer: ctx.scheduleDeltaTimer,
+    flushDeltaBatch: ctx.flushDeltaBatch
+  };
 }

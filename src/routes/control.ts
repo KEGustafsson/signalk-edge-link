@@ -11,9 +11,32 @@ function register(router: Router, ctx: RouteContext): void {
     rateLimitMiddleware,
     requireJson,
     getFirstBundle,
+    getFirstClientBundle,
     instanceRegistry,
     managementAuthMiddleware
   } = ctx;
+
+  /**
+   * Resolve the first CLIENT-capable bundle for client-only singleton routes.
+   * Returns the bundle, or sends the appropriate response and returns null:
+   *   - 503 when the plugin has no instances at all (not started)
+   *   - 404 "Not available in server mode" when instances exist but none is a
+   *     client. Using the first *client* bundle (rather than the first bundle)
+   *     means these routes still work when instance #0 is a server and a later
+   *     instance is a client.
+   */
+  function resolveClientBundle(res: RouteResponse): InstanceBundle | null {
+    const bundle = getFirstClientBundle();
+    if (bundle) {
+      return bundle;
+    }
+    if (getFirstBundle()) {
+      res.status(404).json({ error: "Not available in server mode" });
+    } else {
+      res.status(503).json({ error: "Plugin not started" });
+    }
+    return null;
+  }
 
   router.get(
     "/congestion",
@@ -21,14 +44,11 @@ function register(router: Router, ctx: RouteContext): void {
     managementAuthMiddleware("congestion.read"),
     (req: RouteRequest, res: RouteResponse) => {
       try {
-        const bundle = getFirstBundle();
+        const bundle = resolveClientBundle(res);
         if (!bundle) {
-          return res.status(503).json({ error: "Plugin not started" });
+          return;
         }
         const { state } = bundle;
-        if (state.isServerMode) {
-          return res.status(404).json({ error: "Not available in server mode" });
-        }
 
         if (!state.pipeline || !state.pipeline.getCongestionControl) {
           return res.status(503).json({ error: "Congestion control not initialized" });
@@ -49,14 +69,11 @@ function register(router: Router, ctx: RouteContext): void {
     requireJson,
     (req: RouteRequest, res: RouteResponse) => {
       try {
-        const bundle = getFirstBundle();
+        const bundle = resolveClientBundle(res);
         if (!bundle) {
-          return res.status(503).json({ error: "Plugin not started" });
+          return;
         }
         const { state } = bundle;
-        if (state.isServerMode) {
-          return res.status(404).json({ error: "Not available in server mode" });
-        }
 
         const { value, mode } = req.body;
 
@@ -201,14 +218,11 @@ function register(router: Router, ctx: RouteContext): void {
     managementAuthMiddleware("bonding.failover"),
     (req: RouteRequest, res: RouteResponse) => {
       try {
-        const bundle = getFirstBundle();
+        const bundle = resolveClientBundle(res);
         if (!bundle) {
-          return res.status(503).json({ error: "Plugin not started" });
+          return;
         }
         const { state } = bundle;
-        if (state.isServerMode) {
-          return res.status(404).json({ error: "Not available in server mode" });
-        }
 
         if (!state.pipeline || !state.pipeline.getBondingManager) {
           return res.status(503).json({ error: "Bonding not available" });

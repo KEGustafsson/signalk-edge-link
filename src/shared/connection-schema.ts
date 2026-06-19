@@ -678,6 +678,14 @@ export function buildWebappConnectionSchema(
   const props: Record<string, SchemaFragment> = { ...commonConnectionProperties };
   const required = ["serverType", "udpPort", "secretKey"];
 
+  // useValueDedup / useCompactDeltas are reliable-transport (v3) features; the
+  // backend validator rejects them on v1. Remove them from the v1 form so the
+  // UI never offers a toggle that would fail validation on save.
+  if (!isReliableProtocol) {
+    delete props.useValueDedup;
+    delete props.useCompactDeltas;
+  }
+
   if (isClient) {
     Object.assign(props, clientTransportProperties);
     props.enableNotifications = enableNotificationsProperty;

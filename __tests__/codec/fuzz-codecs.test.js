@@ -13,7 +13,14 @@
  * what gets fuzzed.
  */
 
-const nodeCrypto = require("crypto");
+const { createSeededRandom, iters, logSeed } = require("../helpers/seeded-random");
+
+// Deterministic, reproducible PRNG (seed via FUZZ_SEED). `nodeCrypto` is kept
+// as a thin shim so the existing randomBytes() call sites stay readable while
+// drawing from the seeded generator instead of the OS CSPRNG.
+const rng = createSeededRandom();
+beforeAll(() => logSeed("fuzz-codecs", rng.seed));
+const nodeCrypto = { randomBytes: (n) => rng.bytes(n) };
 
 const { encryptBinary, decryptBinary } = require("../../lib/codec/crypto");
 const {
@@ -30,7 +37,7 @@ const { encodePath, decodePath, getAllPaths } = require("../../lib/codec/path-di
 const { encodeCompactDelta, decodeCompactDelta } = require("../../lib/codec/compact-delta");
 const { mergeSourceSnapshot } = require("../../lib/codec/source-codec");
 
-const rand = (n) => Math.floor(Math.random() * n);
+const rand = (n) => Math.floor(rng.random() * n);
 const pick = (arr) => arr[rand(arr.length)];
 
 // Errors thrown by node's native crypto cross the Jest vm realm boundary, so
@@ -54,7 +61,7 @@ const PATHS = ["navigation.speedOverGround", "environment.wind.speedApparent", "
 function randomValue(depth = 0) {
   switch (rand(depth > 1 ? 4 : 6)) {
     case 0:
-      return rand(1000) - 500 + Math.random();
+      return rand(1000) - 500 + rng.random();
     case 1:
       return nodeCrypto.randomBytes(rand(8)).toString("hex");
     case 2:
@@ -64,7 +71,7 @@ function randomValue(depth = 0) {
     case 4:
       return Array.from({ length: rand(4) }, () => randomValue(depth + 1));
     default:
-      return { lat: Math.random(), lon: Math.random() };
+      return { lat: rng.random(), lon: rng.random() };
   }
 }
 
@@ -83,7 +90,7 @@ function randomDelta() {
 
 describe("codec fuzz — crypto AES-256-GCM", () => {
   test("round-trips random plaintext under every key format", () => {
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < iters(300); i++) {
       const key = randomKey();
       // Non-empty: real DATA payloads always carry a delta, and decryptBinary
       // deliberately rejects a zero-length ciphertext (length <= IV+tag).
@@ -94,7 +101,7 @@ describe("codec fuzz — crypto AES-256-GCM", () => {
   });
 
   test("a wrong key fails authentication (throws, never returns garbage)", () => {
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < iters(100); i++) {
       const pt = nodeCrypto.randomBytes(1 + rand(256));
       const blob = encryptBinary(pt, randomKey());
       expect(() => decryptBinary(blob, randomKey())).toThrow();
@@ -103,7 +110,7 @@ describe("codec fuzz — crypto AES-256-GCM", () => {
 
   test("never crashes on random ciphertext", () => {
     const key = randomKey();
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < iters(300); i++) {
       try {
         decryptBinary(nodeCrypto.randomBytes(rand(80)), key);
       } catch (e) {
@@ -115,7 +122,7 @@ describe("codec fuzz — crypto AES-256-GCM", () => {
 
 describe("codec fuzz — compression", () => {
   test("compressPayload/brotli round-trips random buffers (text + generic)", async () => {
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < iters(120); i++) {
       const buf = nodeCrypto.randomBytes(rand(4096));
       const useMsgpack = rand(2) === 0;
       const restored = await brotliDecompressAsync(await compressPayload(buf, useMsgpack));
@@ -124,7 +131,7 @@ describe("codec fuzz — compression", () => {
   });
 
   test("deltaBuffer is decodable JSON/MessagePack for random deltas", () => {
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < iters(200); i++) {
       const delta = randomDelta();
       const json = deltaBuffer(delta, false);
       expect(JSON.parse(json.toString("utf8"))).toEqual(delta);
@@ -154,7 +161,7 @@ describe("codec fuzz — path dictionary", () => {
   });
 
   test("arbitrary path strings are preserved (encode→decode identity)", () => {
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < iters(300); i++) {
       const path = Array.from({ length: 1 + rand(5) }, () =>
         nodeCrypto.randomBytes(2).toString("hex")
       ).join(".");
@@ -167,7 +174,7 @@ describe("codec fuzz — path dictionary", () => {
 
 describe("codec fuzz — compact delta", () => {
   test("encode→decode reconstructs generated deltas", () => {
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < iters(200); i++) {
       const delta = randomDelta();
       const decoded = decodeCompactDelta(encodeCompactDelta(delta));
       // Absent context normalizes (undefined → null/"") through the codec.
@@ -178,7 +185,7 @@ describe("codec fuzz — compact delta", () => {
   });
 
   test("decodeCompactDelta never crashes on random arrays", () => {
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < iters(300); i++) {
       const junk = Array.from({ length: rand(7) }, () => randomValue());
       try {
         decodeCompactDelta(junk);
@@ -200,7 +207,7 @@ describe("codec fuzz — source snapshot merge (DoS / pollution safety)", () => 
   }
 
   test("merges hostile random input without throwing or polluting the prototype", () => {
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < iters(200); i++) {
       const app = fakeApp();
       const hostile = {
         __proto__: { polluted: true },

@@ -225,5 +225,70 @@
         }
       }
     ]
-  }
+  },
+  "metaEnvelopeDiff": {
+    "v": 1,
+    "kind": "diff",
+    "seq": 8,
+    "idx": 1,
+    "total": 2,
+    "entries": [
+      {
+        "path": "navigation.speedOverGround",
+        "meta": {
+          "units": "m/s",
+          "description": "Vessel speed over ground"
+        }
+      },
+      {
+        "path": "environment.depth.belowTransducer",
+        "meta": {
+          "units": "m"
+        }
+      }
+    ]
+  },
+  "dataPackets": {
+    "plain": "U0sDAQAAAAAAAAAAEG00ABEiM0RVZneImaq7zN3u/w==",
+    "compressed": "U0sDAQEAAAAAAAAAEIYXABEiM0RVZneImaq7zN3u/w==",
+    "encrypted": "U0sDAQIAAAAAAAAAEKtTABEiM0RVZneImaq7zN3u/w==",
+    "messagepack": "U0sDAQQAAAAAAAAAEPHbABEiM0RVZneImaq7zN3u/w==",
+    "pathDictionary": "U0sDAQgAAAAAAAAAEETLABEiM0RVZneImaq7zN3u/w==",
+    "compressedEncrypted": "U0sDAQMAAAAAAAAAEEBwABEiM0RVZneImaq7zN3u/w==",
+    "all": "U0sDAQ8AAAAAAAAAEPVgABEiM0RVZneImaq7zN3u/w=="
+  },
+  "metadataPackets": {
+    "plain": "U0sDBgAAAAAAAAAAEHHOABEiM0RVZneImaq7zN3u/w==",
+    "compressed": "U0sDBgEAAAAAAAAAEJrtABEiM0RVZneImaq7zN3u/w==",
+    "encrypted": "U0sDBgIAAAAAAAAAELepABEiM0RVZneImaq7zN3u/w==",
+    "messagepack": "U0sDBgQAAAAAAAAAEO0hABEiM0RVZneImaq7zN3u/w==",
+    "pathDictionary": "U0sDBggAAAAAAAAAEFgxABEiM0RVZneImaq7zN3u/w==",
+    "compressedEncrypted": "U0sDBgMAAAAAAAAAEFyKABEiM0RVZneImaq7zN3u/w==",
+    "all": "U0sDBg8AAAAAAAAAEOmaABEiM0RVZneImaq7zN3u/w=="
+  },
+  "dataPacketsAuthHeader": {
+    "encrypted": "U0sDARIAAAAAAAAAIM7+ABEiM0RVZneImaq7zN3u/5Pc+kIUSAQqmVARXy2pYVY=",
+    "all": "U0sDAR8AAAAAAAAAIJDNABEiM0RVZneImaq7zN3u/6tItL2bUyoM1q5UIbBPRe8="
+  },
+  "metadataPacketsAuthHeader": {
+    "encrypted": "U0sDBhIAAAAAAAAAINIEABEiM0RVZneImaq7zN3u/5kjzBPFieWNtdsaKntYHnU="
+  },
+  "sourceSnapshotEnvelope": {
+    "v": 1,
+    "kind": "sources",
+    "seq": 3,
+    "idx": 0,
+    "total": 1,
+    "sources": {
+      "sensor.gps": {
+        "label": "sensor.gps",
+        "type": "NMEA0183"
+      },
+      "n2k.1": {
+        "label": "n2k",
+        "type": "NMEA2000"
+      }
+    }
+  },
+  "sourceSnapshotPacket": "U0sDBgAAAAAAAAAAngGIeyJ2IjoxLCJraW5kIjoic291cmNlcyIsInNlcSI6MywiaWR4IjowLCJ0b3RhbCI6MSwic291cmNlcyI6eyJzZW5zb3IuZ3BzIjp7ImxhYmVsIjoic2Vuc29yLmdwcyIsInR5cGUiOiJOTUVBMDE4MyJ9LCJuMmsuMSI6eyJsYWJlbCI6Im4yayIsInR5cGUiOiJOTUVBMjAwMCJ9fX0="
 }

@@ -28,6 +28,8 @@
     "check:ts": "tsc --noEmit",
     "check:release-docs": "node scripts/check-release-truth.js",
     "verify": "npm run check:ts && npm run lint && npm test",
+    "check:ts:webapp": "tsc -p tsconfig.webapp.json --noEmit",
+    "verify:ci-local": "npm run check:ts && npm run lint && npm run test:coverage && npm run check:ts:webapp && npm run build && npm run conformance:generate && git diff --exit-code -- __conformance__/vectors/golden.json && npm run check:release-docs",
     "conformance:generate": "npm run build:ts && node __conformance__/generate-vectors.js",
     "dev": "webpack --mode development --watch",
     "test": "jest --runInBand",
@@ -35,7 +37,7 @@
     "test:integration": "jest __tests__/integration/",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx --max-warnings 0",
     "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "format": "prettier --write \"**/*.{js,ts,json,md}\"",
     "migrate:config": "node lib/scripts/migrate-config.js",
@@ -50,7 +52,7 @@
     "ping-monitor": "^0.8.2"
   },
   "devDependencies": {
-    "@babel/core": "^7.22.0",
+    "@babel/core": "^7.29.7",
     "@babel/preset-env": "^7.22.0",
     "@babel/preset-react": "^7.22.0",
     "@testing-library/dom": "^10.4.1",
@@ -83,6 +85,10 @@
     "webpack": "^5.102.1",
     "webpack-cli": "^5.1.4"
   },
+  "overrides": {
+    "js-yaml": "4.2.0",
+    "ws": "8.21.0"
+  },
   "engines": {
     "node": ">=20.9.0"
   },
@@ -105,13 +111,13 @@
       "<rootDir>/jest.setup.ts"
     ],
     "moduleNameMapper": {
-      "^(?:\\.\\./)+lib/bonding$": "<rootDir>/src/domain/bonding",
+      "^(?:\\.\\./)+lib/bonding$": "<rootDir>/src/transport/bonding",
       "^(?:\\.\\./)+lib/compact-delta$": "<rootDir>/src/codec/compact-delta",
       "^(?:\\.\\./)+lib/congestion$": "<rootDir>/src/transport/congestion",
       "^(?:\\.\\./)+lib/crypto$": "<rootDir>/src/codec/crypto",
       "^(?:\\.\\./)+lib/delta-sanitizer$": "<rootDir>/src/codec/delta-sanitizer",
       "^(?:\\.\\./)+lib/metadata$": "<rootDir>/src/codec/metadata-codec",
-      "^(?:\\.\\./)+lib/metrics-publisher$": "<rootDir>/src/domain/metrics/publisher",
+      "^(?:\\.\\./)+lib/metrics-publisher$": "<rootDir>/src/transport/metrics/publisher",
       "^(?:\\.\\./)+lib/metrics$": "<rootDir>/src/domain/metrics/registry",
       "^(?:\\.\\./)+lib/monitoring$": "<rootDir>/src/domain/monitoring/index",
       "^(?:\\.\\./)+lib/packet-capture$": "<rootDir>/src/domain/monitoring/packet-capture",
@@ -134,6 +140,7 @@
       "^(?:\\.\\./)+lib/values-snapshot$": "<rootDir>/src/codec/values-snapshot",
       "^(?:\\.\\./)+lib/CircularBuffer$": "<rootDir>/src/foundation/circular-buffer",
       "^(?:\\.\\./)+lib/config-io$": "<rootDir>/src/foundation/config-io",
+      "^(?:\\.\\./)+lib/config-reload$": "<rootDir>/src/foundation/config-reload",
       "^(?:\\.\\./)+lib/config-watcher$": "<rootDir>/src/app/config/watcher",
       "^(?:\\.\\./)+lib/constants$": "<rootDir>/src/foundation/constants",
       "^(?:\\.\\./)+lib/(.*)$": "<rootDir>/src/$1"
@@ -182,6 +189,7 @@
       "/node_modules/",
       "/public/",
       "/__tests__/benchmarks/",
+      "/__tests__/helpers/",
       "/__tests__/network-simulator\\.js$",
       "/__conformance__/(?:generate-vectors|build-vectors)\\.js$"
     ],
@@ -191,6 +199,18 @@
         "functions": 65,
         "lines": 65,
         "statements": 65
+      },
+      "./src/transport/pipeline/v1-helpers.ts": {
+        "branches": 60,
+        "functions": 40,
+        "lines": 65,
+        "statements": 65
+      },
+      "./src/webapp/components/cards/": {
+        "branches": 65,
+        "functions": 60,
+        "lines": 70,
+        "statements": 70
       }
     }
   },

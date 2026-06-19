@@ -46,7 +46,7 @@ function makeResponse() {
 }
 
 function makeCtx(overrides = {}) {
-  return {
+  const ctx = {
     rateLimitMiddleware: (req, res, next) => next(),
     requireJson: (req, res, next) => next(),
     getFirstBundle: () => null,
@@ -55,6 +55,16 @@ function makeCtx(overrides = {}) {
     managementAuthMiddleware: () => (req, res, next) => next(),
     ...overrides
   };
+  // Mirror the real implementation: getFirstClientBundle returns the first
+  // bundle only when it is a client. Tests inject the bundle via getFirstBundle;
+  // unless a test overrides getFirstClientBundle explicitly, derive it here.
+  if (!("getFirstClientBundle" in overrides)) {
+    ctx.getFirstClientBundle = () => {
+      const b = ctx.getFirstBundle();
+      return b && !(b.state && b.state.isServerMode) ? b : null;
+    };
+  }
+  return ctx;
 }
 
 function findHandler(router, method, path) {
@@ -112,6 +122,31 @@ describe("GET /congestion", () => {
     const handler = findHandler(router, "get", "/congestion");
     const res = makeResponse();
     handler({}, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual(ccState);
+  });
+
+  test("uses the first client bundle when instance #0 is a server", () => {
+    const router = makeRouterCollector();
+    const ccState = { cwnd: 7, state: "congestion_avoidance" };
+    const serverBundle = { state: { isServerMode: true } };
+    const clientBundle = {
+      state: {
+        isServerMode: false,
+        pipeline: { getCongestionControl: () => ({ getState: () => ccState }) }
+      }
+    };
+    controlRoutes.register(
+      router,
+      makeCtx({
+        getFirstBundle: () => serverBundle,
+        getFirstClientBundle: () => clientBundle
+      })
+    );
+    const handler = findHandler(router, "get", "/congestion");
+    const res = makeResponse();
+    handler({}, res);
+    // Must NOT 404 just because the first instance is a server.
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual(ccState);
   });

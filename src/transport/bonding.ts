@@ -17,126 +17,41 @@
  * @module domain/bonding
  */
 
-import * as crypto from "crypto";
 import * as dgram from "dgram";
 import CircularBuffer from "../foundation/circular-buffer";
 import type { SignalKApp } from "../foundation/types";
-import { normalizeKey } from "../codec/crypto";
 import {
   BONDING_HEALTH_CHECK_INTERVAL,
   BONDING_RTT_THRESHOLD,
   BONDING_LOSS_THRESHOLD,
   BONDING_FAILBACK_DELAY,
-  BONDING_FAILOVER_MIN_DWELL,
   BONDING_HEARTBEAT_TIMEOUT,
-  BONDING_FAILBACK_RTT_HYSTERESIS,
-  BONDING_FAILBACK_LOSS_HYSTERESIS,
-  BONDING_HEALTH_WINDOW_SIZE,
-  BONDING_RTT_EMA_ALPHA
+  BONDING_HEALTH_WINDOW_SIZE
 } from "../foundation/constants";
-
-/**
- * Link status values
- * @enum {string}
- */
-const LinkStatus = Object.freeze({
-  UNKNOWN: "unknown",
-  ACTIVE: "active",
-  STANDBY: "standby",
-  DOWN: "down"
-});
-
-/**
- * Bonding mode values
- * @enum {string}
- */
-const BondingMode = Object.freeze({
-  MAIN_BACKUP: "main-backup"
-});
-
-interface LinkConfig {
-  address: string;
-  port: number;
-  interface?: string;
-}
-
-interface LinkHealth {
-  rtt: number;
-  loss: number;
-  quality: number;
-  status: string;
-}
-
-interface LinkState {
-  name: string;
-  address: string;
-  port: number;
-  interface: string | null;
-  socket: dgram.Socket | null;
-  health: LinkHealth;
-  heartbeatSeq: number;
-  pendingHeartbeats: Map<number, number>;
-  heartbeatResponses: number;
-  heartbeatsSent: number;
-  lossSamples: CircularBuffer;
-  rttSamples: CircularBuffer;
-  lastHeartbeatResponse: number;
-  _recoveryTimer?: ReturnType<typeof setTimeout> | null;
-}
-
-interface FailoverConfig {
-  rttThreshold?: number;
-  lossThreshold?: number;
-  healthCheckInterval?: number;
-  failbackDelay?: number;
-  heartbeatTimeout?: number;
-}
-
-interface BondingConfig {
-  mode?: string;
-  primary: LinkConfig;
-  backup: LinkConfig;
-  failover?: FailoverConfig;
-  instanceId?: string;
-  notificationsEnabled?: boolean;
-  /** Shared secret used to authenticate heartbeat probes (HMAC-SHA256). */
-  secretKey?: string;
-  /** When true, 32-char ASCII keys are stretched via PBKDF2 before use.
-   *  Both ends must agree. Defaults to false. */
-  stretchAsciiKey?: boolean;
-}
-
-// Length in bytes of the truncated HMAC appended to authenticated heartbeat probes.
-const BONDING_HMAC_TAG_LENGTH = 8;
-
-/**
- * Create initial state for a single link
- * @param {string} name - Link name
- * @param {Object} linkConfig - Link configuration {address, port, interface}
- * @returns {Object} Link state object
- */
-function _createLinkState(name: string, linkConfig: LinkConfig): LinkState {
-  return {
-    name,
-    address: linkConfig.address,
-    port: linkConfig.port,
-    interface: linkConfig.interface || null,
-    socket: null,
-    health: {
-      rtt: 0,
-      loss: 0,
-      quality: 100,
-      status: LinkStatus.UNKNOWN
-    },
-    heartbeatSeq: 0,
-    pendingHeartbeats: new Map(),
-    heartbeatResponses: 0,
-    heartbeatsSent: 0,
-    lossSamples: new CircularBuffer(BONDING_HEALTH_WINDOW_SIZE),
-    rttSamples: new CircularBuffer(BONDING_HEALTH_WINDOW_SIZE),
-    lastHeartbeatResponse: 0
-  };
-}
+import {
+  buildHeartbeatProbe,
+  classifyHeartbeatResponse,
+  expirePendingHeartbeats,
+  computeLossRatio,
+  calculateQuality,
+  updateRttEma,
+  shouldFailover,
+  shouldFailback,
+  buildFailoverNotification,
+  bindLinkInterface,
+  recreateLinkSocket
+} from "./bonding-health";
+import type { FailoverDecisionInput } from "./bonding-health";
+import { LinkStatus, BondingMode, createLinkState, linkHealthSnapshot } from "./bonding-types";
+import type {
+  LinkState,
+  LinkHealth,
+  BondingConfig,
+  LinkMetricsPublisher,
+  FailoverThresholds,
+  LinkHealthSnapshot,
+  BondingState
+} from "./bonding-types";
 
 export class BondingManager {
   private app: SignalKApp;
@@ -149,14 +64,7 @@ export class BondingManager {
   private stretchAsciiKey: boolean;
   private links: { primary: LinkState; backup: LinkState };
   private activeLink: string;
-  failoverThresholds: {
-    rttThreshold: number;
-    lossThreshold: number;
-    healthCheckInterval: number;
-    failbackDelay: number;
-    heartbeatTimeout: number;
-    [key: string]: number;
-  };
+  failoverThresholds: FailoverThresholds;
   private lastFailoverTime: number;
   // Timestamp primary last became active (startup or last failback). Used to
   // enforce a minimum dwell before a *soft* (degradation-driven) failover so a
@@ -165,19 +73,7 @@ export class BondingManager {
   private healthCheckTimer: ReturnType<typeof setInterval> | null;
   private _initialized: boolean;
   private _stopped: boolean;
-  public metricsPublisher: {
-    publishLinkMetrics(
-      linkName: string,
-      metrics: {
-        rtt?: number;
-        jitter?: number;
-        loss?: number;
-        packetLoss?: number;
-        retransmitRate?: number;
-        status?: string;
-      }
-    ): void;
-  } | null;
+  public metricsPublisher: LinkMetricsPublisher | null;
   private _onFailover: ((from: string, to: string) => void) | null;
   private _onFailback: ((from: string, to: string) => void) | null;
   private _onControlPacket?: ((linkName: string, msg: Buffer) => void) | null;
@@ -212,8 +108,8 @@ export class BondingManager {
 
     // Link definitions
     this.links = {
-      primary: _createLinkState("primary", config.primary),
-      backup: _createLinkState("backup", config.backup)
+      primary: createLinkState("primary", config.primary),
+      backup: createLinkState("backup", config.backup)
     };
 
     this.activeLink = "primary";
@@ -255,45 +151,21 @@ export class BondingManager {
       link.socket = dgram.createSocket("udp4");
 
       if (link.interface) {
-        await new Promise<void>((resolve, reject) => {
-          // dgram bind() reports failures via the 'error' event, not the
-          // callback (which only fires on success). Attach a one-time error
-          // listener so a bind failure rejects instead of surfacing as an
-          // unhandled 'error' that crashes the process; remove it once bound.
-          const onBindError = (err: Error) => {
-            try {
-              link.socket!.close();
-            } catch (_e) {
-              /* already closed */
-            }
-            link.socket = null;
-            reject(err);
-          };
-          link.socket!.once("error", onBindError);
-          link.socket!.bind({ address: link.interface!, port: 0 }, () => {
-            link.socket!.removeListener("error", onBindError);
-            resolve();
-          });
-        });
+        await bindLinkInterface(link);
       }
 
-      // Set up message handler for heartbeat responses
-      link.socket.on("message", (msg: Buffer, _rinfo: dgram.RemoteInfo) => {
-        this._handleHeartbeatResponse(name, msg);
-      });
-
-      link.socket.on("error", (err: Error) => {
-        this.app.debug(`[Bonding] ${name} socket error: ${err.message}`);
-        link.health.status = LinkStatus.DOWN;
-        // Attempt socket recreation after a short delay
-        this._scheduleSocketRecovery(name, link);
-      });
+      this._attachSocketHandlers(name, link, "socket error");
 
       link.health.status = LinkStatus.STANDBY;
     }
 
     // Primary starts as active
     this.links.primary.health.status = LinkStatus.ACTIVE;
+    // Anchor the soft-failover dwell window at startup: shouldFailover() gates
+    // degradation-driven failover on time-since-primary-active, so leaving this
+    // at 0 would let the very first noisy RTT/loss sample flap off the primary.
+    // A hard primary failure (no heartbeat responses) still fails over instantly.
+    this.lastFailbackTime = Date.now();
 
     this._initialized = true;
 
@@ -342,25 +214,6 @@ export class BondingManager {
   }
 
   /**
-   * Compute a truncated HMAC-SHA256 tag over the 12-byte heartbeat header.
-   * Used to authenticate probe sends and verify probe responses.
-   * @private
-   */
-  private _computeHbHmac(header: Buffer): Buffer {
-    if (!this.secretKey) {
-      throw new Error("BondingManager: secretKey is required for HMAC authentication");
-    }
-    const keyBuffer = normalizeKey(this.secretKey, {
-      stretchAsciiKey: this.stretchAsciiKey
-    });
-    return crypto
-      .createHmac("sha256", keyBuffer)
-      .update(header)
-      .digest()
-      .subarray(0, BONDING_HMAC_TAG_LENGTH);
-  }
-
-  /**
    * Measure health of a specific link by sending a heartbeat probe
    * and evaluating recent response data
    * @private
@@ -377,54 +230,21 @@ export class BondingManager {
     // after the fixed 12-byte header so the server can reject forged probes.
     const seq = link.heartbeatSeq++;
     const timestamp = Date.now();
-    const header = Buffer.alloc(12);
-    header.write("HBPROBE", 0, 7, "ascii");
-    header.writeUInt32BE(seq, 7);
-    header.writeUInt8(0, 11); // padding
-
-    let probe: Buffer;
-    if (this.secretKey) {
-      const tag = this._computeHbHmac(header);
-      probe = Buffer.concat([header, tag]);
-    } else {
-      probe = header;
-    }
+    const probe = buildHeartbeatProbe(seq, this.secretKey, this.stretchAsciiKey);
 
     link.pendingHeartbeats.set(seq, timestamp);
     link.heartbeatsSent++;
-
-    try {
-      link.socket.send(probe, link.port, link.address, (err?: Error | null) => {
-        if (err) {
-          this.app.debug(`[Bonding] ${name} heartbeat send error: ${err.message}`);
-        }
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.app.debug(`[Bonding] ${name} heartbeat send exception: ${msg}`);
-    }
+    this._sendProbe(name, link, probe);
 
     // Clean up old pending heartbeats (older than timeout)
     const timeout = this.failoverThresholds.heartbeatTimeout;
-    for (const [pendingSeq, pendingTs] of link.pendingHeartbeats) {
-      if (timestamp - pendingTs > timeout) {
-        link.pendingHeartbeats.delete(pendingSeq);
-        link.lossSamples.push(false);
-      }
-    }
+    expirePendingHeartbeats(link.pendingHeartbeats, link.lossSamples, timestamp, timeout);
 
     // Calculate health metrics
     this._updateLinkMetrics(name, link);
 
     // Check if link is down (no responses for heartbeatTimeout)
-    if (link.heartbeatsSent > 3 && timestamp - link.lastHeartbeatResponse > timeout) {
-      if (link.health.status !== LinkStatus.DOWN) {
-        this.app.debug(
-          `[Bonding] ${name} link appears down (no heartbeat response for ${timeout}ms)`
-        );
-        link.health.status = LinkStatus.DOWN;
-      }
-    }
+    this._maybeMarkLinkDown(name, link, timestamp, timeout);
 
     // Publish per-link metrics
     if (this.metricsPublisher) {
@@ -435,6 +255,44 @@ export class BondingManager {
         retransmitRate: 0,
         status: link.health.status
       });
+    }
+  }
+
+  /**
+   * Send a heartbeat probe on a link's socket, logging (but swallowing) any
+   * async send error or synchronous send exception.
+   * @private
+   */
+  private _sendProbe(name: string, link: LinkState, probe: Buffer): void {
+    try {
+      link.socket!.send(probe, link.port, link.address, (err?: Error | null) => {
+        if (err) {
+          this.app.debug(`[Bonding] ${name} heartbeat send error: ${err.message}`);
+        }
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.app.debug(`[Bonding] ${name} heartbeat send exception: ${msg}`);
+    }
+  }
+
+  /**
+   * Mark a link DOWN when it has sent enough probes but received no response
+   * within the heartbeat timeout window.
+   * @private
+   */
+  private _maybeMarkLinkDown(
+    name: string,
+    link: LinkState,
+    timestamp: number,
+    timeout: number
+  ): void {
+    const noResponse = link.heartbeatsSent > 3 && timestamp - link.lastHeartbeatResponse > timeout;
+    if (noResponse && link.health.status !== LinkStatus.DOWN) {
+      this.app.debug(
+        `[Bonding] ${name} link appears down (no heartbeat response for ${timeout}ms)`
+      );
+      link.health.status = LinkStatus.DOWN;
     }
   }
 
@@ -450,58 +308,49 @@ export class BondingManager {
       return;
     }
 
-    // Validate response format: must start with "HBPROBE" and be at least 12 bytes.
-    if (msg.length < 12 || msg.toString("ascii", 0, 7) !== "HBPROBE") {
+    const classification = classifyHeartbeatResponse(msg, this.secretKey, this.stretchAsciiKey);
+    if (classification === "not-heartbeat") {
       // Not a heartbeat response — might be a control packet, pass through.
       if (this._onControlPacket) {
         this._onControlPacket(name, msg);
       }
       return;
     }
-
-    // When a secretKey is configured, verify the HMAC tag that follows the
-    // fixed 12-byte header.  Drop unauthenticated (or forged) responses silently
-    // to prevent an on-path attacker from triggering false-positive link recovery.
-    if (this.secretKey) {
-      const expectedTag = this._computeHbHmac(msg.subarray(0, 12));
-      const minLen = 12 + BONDING_HMAC_TAG_LENGTH;
-      if (msg.length < minLen) {
-        this.app.debug(`[Bonding] ${name} heartbeat response too short for HMAC — dropping`);
-        return;
-      }
-      const receivedTag = msg.subarray(msg.length - BONDING_HMAC_TAG_LENGTH);
-      if (!crypto.timingSafeEqual(expectedTag, receivedTag)) {
-        this.app.debug(`[Bonding] ${name} heartbeat HMAC mismatch — dropping`);
-        return;
-      }
+    if (classification === "drop") {
+      this.app.debug(`[Bonding] ${name} heartbeat response failed validation — dropping`);
+      return;
     }
 
     const seq = msg.readUInt32BE(7);
     const sendTime = link.pendingHeartbeats.get(seq);
+    if (sendTime === undefined) {
+      return;
+    }
 
-    if (sendTime !== undefined) {
-      const rtt = Date.now() - sendTime;
-      link.pendingHeartbeats.delete(seq);
-      link.heartbeatResponses++;
-      link.lastHeartbeatResponse = Date.now();
-      link.lossSamples.push(true);
+    this._recordHeartbeatRtt(name, link, seq, Date.now() - sendTime);
+  }
 
-      // Track RTT sample
-      link.rttSamples.push(rtt);
+  /**
+   * Record a successful heartbeat response: update counters, push samples,
+   * refresh the EMA RTT, and recover the link if it was previously DOWN.
+   * @private
+   */
+  private _recordHeartbeatRtt(name: string, link: LinkState, seq: number, rtt: number): void {
+    link.pendingHeartbeats.delete(seq);
+    link.heartbeatResponses++;
+    link.lastHeartbeatResponse = Date.now();
+    link.lossSamples.push(true);
 
-      // Update RTT using EMA
-      if (link.health.rtt === 0) {
-        link.health.rtt = rtt;
-      } else {
-        link.health.rtt =
-          BONDING_RTT_EMA_ALPHA * rtt + (1 - BONDING_RTT_EMA_ALPHA) * link.health.rtt;
-      }
+    // Track RTT sample
+    link.rttSamples.push(rtt);
 
-      // If link was down, mark it as recovering
-      if (link.health.status === LinkStatus.DOWN) {
-        link.health.status = this.activeLink === name ? LinkStatus.ACTIVE : LinkStatus.STANDBY;
-        this.app.debug(`[Bonding] ${name} link recovered (RTT: ${rtt}ms)`);
-      }
+    // Update RTT using EMA
+    link.health.rtt = updateRttEma(link.health.rtt, rtt);
+
+    // If link was down, mark it as recovering
+    if (link.health.status === LinkStatus.DOWN) {
+      link.health.status = this.activeLink === name ? LinkStatus.ACTIVE : LinkStatus.STANDBY;
+      this.app.debug(`[Bonding] ${name} link recovered (RTT: ${rtt}ms)`);
     }
   }
 
@@ -512,16 +361,11 @@ export class BondingManager {
    * @param {Object} link - Link object
    */
   private _updateLinkMetrics(name: string, link: LinkState): void {
-    // Calculate loss ratio from recent heartbeat outcomes when available.
-    if (link.lossSamples && link.lossSamples.length > 0) {
-      const samples = link.lossSamples.toArray();
-      const received = samples.filter(Boolean).length;
-      link.health.loss = Math.max(0, Math.min(1, 1 - received / samples.length));
-    } else if (link.heartbeatsSent > 0) {
-      // Fallback for tests/diagnostics that only populate aggregate counters.
-      const expected = link.heartbeatsSent;
-      const received = link.heartbeatResponses;
-      link.health.loss = Math.max(0, Math.min(1, 1 - received / expected));
+    // Calculate loss ratio from recent heartbeat outcomes (or aggregate
+    // counters as a fallback for tests/diagnostics).
+    const loss = computeLossRatio(link.lossSamples, link.heartbeatsSent, link.heartbeatResponses);
+    if (loss !== null) {
+      link.health.loss = loss;
     }
 
     // Calculate quality score
@@ -529,22 +373,13 @@ export class BondingManager {
   }
 
   /**
-   * Calculate link quality score (0-100)
+   * Calculate link quality score (0-100) from a link's RTT and loss.
    * @private
    * @param {Object} health - Health metrics {rtt, loss}
    * @returns {number} Quality score 0-100
    */
   private _calculateQuality(health: LinkHealth): number {
-    // RTT component: 0-1 (1 = perfect, 0 = worst)
-    const rttScore = Math.max(0, Math.min(1, 1 - health.rtt / 1000));
-
-    // Loss component: 0-1 (1 = no loss, 0 = total loss)
-    const lossScore = Math.max(0, 1 - health.loss);
-
-    // Weighted: loss matters more (60%) than RTT (40%)
-    const quality = lossScore * 60 + rttScore * 40;
-
-    return Math.round(quality);
+    return calculateQuality(health);
   }
 
   /**
@@ -567,46 +402,40 @@ export class BondingManager {
       if (this._stopped) {
         return;
       }
-
-      this.app.debug(`[Bonding] Attempting socket recovery for ${name}`);
-      try {
-        if (link.socket) {
-          try {
-            link.socket.close();
-          } catch (_e) {
-            /* already closed */
-          }
-        }
-        link.socket = dgram.createSocket("udp4");
-
-        link.socket.on("message", (msg: Buffer, _rinfo: dgram.RemoteInfo) => {
-          this._handleHeartbeatResponse(name, msg);
-        });
-
-        link.socket.on("error", (err: Error) => {
-          this.app.debug(`[Bonding] ${name} socket error after recovery: ${err.message}`);
-          link.health.status = LinkStatus.DOWN;
-          this._scheduleSocketRecovery(name, link);
-        });
-
-        if (link.interface) {
-          // bind() failures arrive on the 'error' listener attached above
-          // (which marks the link DOWN and reschedules recovery), so the
-          // callback only needs to handle the success path.
-          link.socket.bind({ address: link.interface, port: 0 }, () => {
-            link.health.status = LinkStatus.STANDBY;
-            this.app.debug(`[Bonding] ${name} socket recovered`);
-          });
-        } else {
-          link.health.status = LinkStatus.STANDBY;
-          this.app.debug(`[Bonding] ${name} socket recovered`);
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.app.debug(`[Bonding] ${name} socket recovery failed: ${msg}`);
-        link.health.status = LinkStatus.DOWN;
-      }
+      this._recreateSocket(name, link);
     }, 5000);
+  }
+
+  /**
+   * Recreate a link's UDP socket after an error, re-attaching handlers and
+   * rebinding to the configured interface when one is set.
+   * @private
+   */
+  private _recreateSocket(name: string, link: LinkState): void {
+    recreateLinkSocket(
+      link,
+      name,
+      (msg: string) => this.app.debug(msg),
+      (l: LinkState) => this._attachSocketHandlers(name, l, "socket error after recovery"),
+      { standby: LinkStatus.STANDBY, down: LinkStatus.DOWN }
+    );
+  }
+
+  /**
+   * Attach the heartbeat-response message handler and an error handler that
+   * marks the link DOWN and reschedules recovery. `errorContext` distinguishes
+   * the initial wiring from a post-recovery wiring in debug output.
+   * @private
+   */
+  private _attachSocketHandlers(name: string, link: LinkState, errorContext: string): void {
+    link.socket!.on("message", (msg: Buffer, _rinfo: dgram.RemoteInfo) => {
+      this._handleHeartbeatResponse(name, msg);
+    });
+    link.socket!.on("error", (err: Error) => {
+      this.app.debug(`[Bonding] ${name} ${errorContext}: ${err.message}`);
+      link.health.status = LinkStatus.DOWN;
+      this._scheduleSocketRecovery(name, link);
+    });
   }
 
   /**
@@ -615,35 +444,7 @@ export class BondingManager {
    * @returns {boolean}
    */
   private _shouldFailover(): boolean {
-    if (this.activeLink !== "primary") {
-      return false;
-    }
-
-    const primary = this.links.primary.health;
-    const backup = this.links.backup.health;
-
-    // Don't failover if backup is also down
-    if (backup.status === LinkStatus.DOWN) {
-      return false;
-    }
-
-    // Hard failure: failover immediately (availability over stability).
-    if (primary.status === LinkStatus.DOWN) {
-      return true;
-    }
-
-    // Soft degradation (RTT/loss over threshold): only failover after the
-    // primary has been active for the minimum dwell, mirroring failbackDelay so
-    // a primary oscillating around the threshold cannot flap on every tick.
-    const timeSincePrimaryActive = Date.now() - this.lastFailbackTime;
-    if (timeSincePrimaryActive < BONDING_FAILOVER_MIN_DWELL) {
-      return false;
-    }
-
-    return (
-      primary.rtt > this.failoverThresholds.rttThreshold ||
-      primary.loss > this.failoverThresholds.lossThreshold
-    );
+    return shouldFailover(this._failoverDecisionInput());
   }
 
   /**
@@ -652,30 +453,24 @@ export class BondingManager {
    * @returns {boolean}
    */
   private _shouldFailback(): boolean {
-    if (this.activeLink !== "backup") {
-      return false;
-    }
+    return shouldFailback(this._failoverDecisionInput());
+  }
 
-    const primary = this.links.primary.health;
-    const timeSinceFailover = Date.now() - this.lastFailoverTime;
-
-    // Wait for failback delay
-    if (timeSinceFailover < this.failoverThresholds.failbackDelay) {
-      return false;
-    }
-
-    // Don't failback if primary is down
-    if (primary.status === LinkStatus.DOWN) {
-      return false;
-    }
-
-    // Hysteresis: require significantly better metrics before failback
-    const rttOk =
-      primary.rtt < this.failoverThresholds.rttThreshold * BONDING_FAILBACK_RTT_HYSTERESIS;
-    const lossOk =
-      primary.loss < this.failoverThresholds.lossThreshold * BONDING_FAILBACK_LOSS_HYSTERESIS;
-
-    return rttOk && lossOk;
+  /**
+   * Build the snapshot of state used by the failover/failback decision helpers.
+   * @private
+   */
+  private _failoverDecisionInput(): FailoverDecisionInput {
+    return {
+      activeLink: this.activeLink,
+      primary: this.links.primary.health,
+      backup: this.links.backup.health,
+      thresholds: this.failoverThresholds,
+      lastFailbackTime: this.lastFailbackTime,
+      lastFailoverTime: this.lastFailoverTime,
+      now: Date.now(),
+      downStatus: LinkStatus.DOWN
+    };
   }
 
   /**
@@ -736,29 +531,10 @@ export class BondingManager {
       return;
     }
     try {
-      // Emit a `$source` string rather than a structured `source` object:
-      // signalk-server derives `${label}.XX` from a label-only source object,
-      // which would split this notification across a spurious
-      // `signalk-edge-link.XX` bucket. See src/source-dispatch.ts.
-      this.app.handleMessage(this.sourceLabel, {
-        context: "vessels.self",
-        updates: [
-          {
-            $source: "signalk-edge-link",
-            timestamp: new Date().toISOString(),
-            values: [
-              {
-                path: `notifications.signalk-edge-link.${this.instanceId ? this.instanceId + "." : ""}linkFailover`,
-                value: {
-                  state: "alert",
-                  message: `Link switched: ${from} to ${to}`,
-                  method: ["visual", "sound"]
-                }
-              }
-            ]
-          }
-        ]
-      });
+      this.app.handleMessage(
+        this.sourceLabel,
+        buildFailoverNotification(this.instanceId, from, to)
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.app.debug(`[Bonding] Failed to emit failover notification: ${msg}`);
@@ -806,43 +582,10 @@ export class BondingManager {
    * Get health information for all links
    * @returns {Object} Link health data
    */
-  getLinkHealth(): Record<
-    string,
-    {
-      address: string;
-      port: number;
-      status: string;
-      rtt: number;
-      loss: number;
-      quality: number;
-      heartbeatsSent: number;
-      heartbeatResponses: number;
-    }
-  > {
-    const result: Record<
-      string,
-      {
-        address: string;
-        port: number;
-        status: string;
-        rtt: number;
-        loss: number;
-        quality: number;
-        heartbeatsSent: number;
-        heartbeatResponses: number;
-      }
-    > = {};
+  getLinkHealth(): Record<string, LinkHealthSnapshot> {
+    const result: Record<string, LinkHealthSnapshot> = {};
     for (const [name, link] of Object.entries(this.links)) {
-      result[name] = {
-        address: link.address,
-        port: link.port,
-        status: link.health.status,
-        rtt: Math.round(link.health.rtt),
-        loss: link.health.loss,
-        quality: link.health.quality,
-        heartbeatsSent: link.heartbeatsSent,
-        heartbeatResponses: link.heartbeatResponses
-      };
+      result[name] = linkHealthSnapshot(link);
     }
     return result;
   }
@@ -851,14 +594,7 @@ export class BondingManager {
    * Get full bonding state for API/diagnostics
    * @returns {Object} Bonding state
    */
-  getState(): {
-    enabled: boolean;
-    mode: string;
-    activeLink: string;
-    lastFailoverTime: number;
-    failoverThresholds: Record<string, number>;
-    links: Record<string, unknown>;
-  } {
+  getState(): BondingState {
     return {
       enabled: true,
       mode: this.mode,
@@ -898,21 +634,7 @@ export class BondingManager {
    * Set the metrics publisher for per-link metrics
    * @param {Object} publisher - MetricsPublisher instance
    */
-  setMetricsPublisher(
-    publisher: {
-      publishLinkMetrics(
-        linkName: string,
-        metrics: {
-          rtt?: number;
-          jitter?: number;
-          loss?: number;
-          packetLoss?: number;
-          retransmitRate?: number;
-          status?: string;
-        }
-      ): void;
-    } | null
-  ): void {
+  setMetricsPublisher(publisher: LinkMetricsPublisher | null): void {
     this.metricsPublisher = publisher;
   }
 

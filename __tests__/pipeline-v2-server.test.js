@@ -176,11 +176,26 @@ describe("receivePacket – plugin stopped", () => {
 // ── receivePacket – heartbeat probe ───────────────────────────────────────────
 
 describe("receivePacket – heartbeat probe (HBPROBE)", () => {
-  test("echoes heartbeat probe back to sender via UDP", async () => {
+  function makeHbProbe(withTag = true) {
+    const crypto = require("crypto");
+    const header = Buffer.alloc(12);
+    Buffer.from("HBPROBE", "ascii").copy(header, 0);
+    header.writeUInt32BE(3, 7);
+    if (!withTag) {
+      return header;
+    }
+    // SECRET_KEY is a 32-char ASCII key → used as raw bytes (no stretch).
+    const tag = crypto
+      .createHmac("sha256", Buffer.from(SECRET_KEY))
+      .update(header)
+      .digest()
+      .subarray(0, 8);
+    return Buffer.concat([header, tag]);
+  }
+
+  test("echoes authenticated heartbeat probe back to sender via UDP", async () => {
     const { pipeline, state } = makeServer();
-    // Minimal HBPROBE packet: 7 ASCII bytes + padding to >= 12 bytes
-    const probe = Buffer.alloc(16);
-    Buffer.from("HBPROBE", "ascii").copy(probe, 0);
+    const probe = makeHbProbe(true);
     const rinfo = { address: "10.0.0.1", port: 9999 };
 
     await pipeline.receivePacket(probe, SECRET_KEY, rinfo);
@@ -191,6 +206,16 @@ describe("receivePacket – heartbeat probe (HBPROBE)", () => {
       rinfo.address,
       expect.any(Function)
     );
+  });
+
+  test("drops a forged (untagged) heartbeat probe when a secret is configured", async () => {
+    const { pipeline, state } = makeServer();
+    const probe = makeHbProbe(false);
+    const rinfo = { address: "10.0.0.1", port: 9999 };
+
+    await pipeline.receivePacket(probe, SECRET_KEY, rinfo);
+
+    expect(state.socketUdp.send).not.toHaveBeenCalled();
   });
 
   test("does not echo when no rinfo", async () => {

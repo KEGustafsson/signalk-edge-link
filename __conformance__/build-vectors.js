@@ -146,6 +146,75 @@ module.exports = function buildVectors(mods) {
     { path: "environment.depth.belowTransducer", meta: { units: "m" } }
   ];
   const metaEnvelope = metadata.buildMetaEnvelope(metaEntries, "snapshot", 7, 0, 1);
+  // Freeze the diff variant too so the metadata envelope `kind` surface is pinned.
+  const metaEnvelopeDiff = metadata.buildMetaEnvelope(metaEntries, "diff", 8, 1, 2);
+
+  // ── 8. DATA / METADATA packet wire format across flag combinations ────────
+  // The builder wraps a PROVIDED payload (it does not encrypt), so with a fixed
+  // payload buffer the entire packet (header + flags + CRC + payload + optional
+  // authenticated-header tag) is byte-reproducible. This freezes the header /
+  // flag / CRC / type surface independent of the (non-deterministic) AEAD layer.
+  const fixedPayload = Buffer.from("00112233445566778899aabbccddeeff", "hex");
+  const flagCombos = [
+    ["plain", {}],
+    ["compressed", { compressed: true }],
+    ["encrypted", { encrypted: true }],
+    ["messagepack", { messagepack: true }],
+    ["pathDictionary", { pathDictionary: true }],
+    ["compressedEncrypted", { compressed: true, encrypted: true }],
+    ["all", { compressed: true, encrypted: true, messagepack: true, pathDictionary: true }]
+  ];
+  const dataPackets = {};
+  const metadataPackets = {};
+  for (const [name, flags] of flagCombos) {
+    dataPackets[name] = b64(mkBuilder().buildDataPacket(fixedPayload, flags));
+    metadataPackets[name] = b64(mkBuilder().buildMetadataPacket(fixedPayload, flags));
+  }
+  // Authenticated-header variants: the trailing HMAC tag covers header[0..13)
+  // plus the payload, so it is deterministic for a fixed payload + key.
+  const mkAuthBuilder = () =>
+    new packet.PacketBuilder({
+      protocolVersion: 3,
+      secretKey: KEY_HEX,
+      authenticatedHeaders: true
+    });
+  const dataPacketsAuthHeader = {
+    encrypted: b64(mkAuthBuilder().buildDataPacket(fixedPayload, { encrypted: true })),
+    all: b64(
+      mkAuthBuilder().buildDataPacket(fixedPayload, {
+        compressed: true,
+        encrypted: true,
+        messagepack: true,
+        pathDictionary: true
+      })
+    )
+  };
+  const metadataPacketsAuthHeader = {
+    encrypted: b64(mkAuthBuilder().buildMetadataPacket(fixedPayload, { encrypted: true }))
+  };
+
+  // ── 9. Source-snapshot envelope (application-level wire shape) ────────────
+  // Mirrors the `{ v, kind: "sources", seq, idx, total, sources }` envelope the
+  // client emits inside a METADATA payload. Frozen as JSON so its shape cannot
+  // drift unnoticed; a METADATA packet is also frozen wrapping a fixed-byte
+  // serialization of it to pin the carrier framing.
+  const sourceSnapshotEnvelope = {
+    v: 1,
+    kind: "sources",
+    seq: 3,
+    idx: 0,
+    total: 1,
+    sources: {
+      "sensor.gps": { label: "sensor.gps", type: "NMEA0183" },
+      "n2k.1": { label: "n2k", type: "NMEA2000" }
+    }
+  };
+  const sourceSnapshotPacket = b64(
+    mkBuilder().buildMetadataPacket(Buffer.from(JSON.stringify(sourceSnapshotEnvelope), "utf8"), {
+      compressed: false,
+      encrypted: false
+    })
+  );
 
   return {
     schema: 1,
@@ -159,6 +228,13 @@ module.exports = function buildVectors(mods) {
     compactDelta: compactDeltaVector,
     valueDedup: valueDedupVector,
     pathDictionary,
-    metaEnvelope
+    metaEnvelope,
+    metaEnvelopeDiff,
+    dataPackets,
+    metadataPackets,
+    dataPacketsAuthHeader,
+    metadataPacketsAuthHeader,
+    sourceSnapshotEnvelope,
+    sourceSnapshotPacket
   };
 };

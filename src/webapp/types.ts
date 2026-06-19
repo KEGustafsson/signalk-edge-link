@@ -97,14 +97,14 @@ export interface MonitoringData {
   };
   packetLoss?: {
     summary?: {
-      totalLost: number;
-      totalExpected: number;
-      lossRate: number;
+      totalLost?: number;
+      totalExpected?: number;
+      lossRate?: number;
     };
   };
   retransmissions?: {
-    totalRetransmissions: number;
-    retransmitRate: number;
+    totalRetransmissions?: number;
+    retransmitRate?: number;
   };
 }
 

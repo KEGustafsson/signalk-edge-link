@@ -268,7 +268,7 @@ CLI commands support `--token=<token>` or the `SIGNALK_EDGE_LINK_MANAGEMENT_TOKE
 Management pages automatically attach auth headers when a token is available. Token sources are checked in this order:
 
 1. `window.__EDGE_LINK_AUTH__.token` — injected global (preferred for server-side injection)
-2. URL query parameter `?edgeLinkToken=<token>`
+2. URL query parameter `?edgeLinkToken=<token>` — **disabled by default**; opt in with `includeTokenInQuery: true`. Avoid it: tokens in URLs leak via browser history, server access logs, and `Referer` headers.
 3. `localStorage.setItem("signalkEdgeLinkManagementToken", "<token>")`
 
 The UI sends both `X-Edge-Link-Token` and `Authorization: Bearer <token>` by default. Override with:
@@ -298,7 +298,6 @@ window.__EDGE_LINK_AUTH__ = {
 - `docs/performance-tuning.md` (deployment tuning recommendations by hardware profile)
 - `docs/troubleshooting.md` (issue-oriented diagnostics)
 - `samples/` (example JSON configurations for minimal/dev/v2-bonding setups)
-- `grafana/dashboards/edge-link.json` (starter Grafana dashboard)
 - `src/scripts/migrate-config.ts` (legacy config migration utility)
 - `src/bin/edge-link-cli.ts` (CLI wrapper for migration and instance/bonding management)
 

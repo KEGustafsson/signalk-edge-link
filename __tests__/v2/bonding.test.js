@@ -7,7 +7,8 @@ const {
   BONDING_LOSS_THRESHOLD,
   BONDING_FAILBACK_DELAY,
   BONDING_HEARTBEAT_TIMEOUT,
-  BONDING_HEALTH_WINDOW_SIZE
+  BONDING_HEALTH_WINDOW_SIZE,
+  BONDING_FAILOVER_MIN_DWELL
 } = require("../../lib/constants");
 
 // Mock dgram with proper event emitter behavior
@@ -531,6 +532,8 @@ describe("BondingManager", () => {
 
     test("triggers failover when RTT exceeds threshold", async () => {
       await bm.initialize();
+      // Primary has been active past the soft-failover dwell window.
+      bm.lastFailbackTime -= BONDING_FAILOVER_MIN_DWELL + 1;
       bm.links.primary.health.rtt = 600;
       expect(bm._shouldFailover()).toBe(true);
     });
@@ -543,6 +546,8 @@ describe("BondingManager", () => {
 
     test("triggers failover when loss exceeds threshold", async () => {
       await bm.initialize();
+      // Primary has been active past the soft-failover dwell window.
+      bm.lastFailbackTime -= BONDING_FAILOVER_MIN_DWELL + 1;
       bm.links.primary.health.loss = 0.15;
       expect(bm._shouldFailover()).toBe(true);
     });

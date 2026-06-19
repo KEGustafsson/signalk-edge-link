@@ -777,6 +777,9 @@ describe("E2E Pipeline Tests", () => {
     });
 
     test("v2 factory: multiple sequential sends maintain sequence", async () => {
+      // The client randomizes its initial DATA sequence (anti-replay), so assert
+      // the server's expectedSeq relative to that base rather than an absolute 5.
+      const startSeq = clientPipeline.getPacketBuilder().getCurrentSequence();
       for (let i = 0; i < 5; i++) {
         const delta = makeNavigationDelta(60 + i * 0.001, 24);
         const batch = { 0: delta };
@@ -793,7 +796,7 @@ describe("E2E Pipeline Tests", () => {
       }
 
       expect(receivedMessages).toHaveLength(5);
-      expect(serverPipeline.getSequenceTracker().expectedSeq).toBe(5);
+      expect(serverPipeline.getSequenceTracker().expectedSeq).toBe((startSeq + 5) >>> 0);
     });
 
     test("v2 factory: duplicate packet is rejected", async () => {

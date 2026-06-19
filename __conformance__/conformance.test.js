@@ -50,6 +50,69 @@ describe("Conformance: frozen wire/codec golden vectors", () => {
     });
   });
 
+  describe("v3 DATA/METADATA packets across flag combinations", () => {
+    const parser = new packetMod.PacketParser();
+    const FIXED = "00112233445566778899aabbccddeeff";
+
+    test.each(Object.keys(golden.dataPackets))("DATA[%s] parses with the expected type", (name) => {
+      const buf = Buffer.from(golden.dataPackets[name], "base64");
+      const parsed = parser.parseHeader(buf);
+      expect(parsed.type).toBe(packetMod.PacketType.DATA);
+      expect(parsed.payload.toString("hex")).toBe(FIXED);
+    });
+
+    test.each(Object.keys(golden.metadataPackets))(
+      "METADATA[%s] parses with the expected type",
+      (name) => {
+        const buf = Buffer.from(golden.metadataPackets[name], "base64");
+        const parsed = parser.parseHeader(buf);
+        expect(parsed.type).toBe(packetMod.PacketType.METADATA);
+        expect(parsed.payload.toString("hex")).toBe(FIXED);
+      }
+    );
+
+    test("flag bits are reflected in the parsed flags", () => {
+      const parsed = parser.parseHeader(Buffer.from(golden.dataPackets.all, "base64"));
+      expect(parsed.flags.compressed).toBe(true);
+      expect(parsed.flags.encrypted).toBe(true);
+      expect(parsed.flags.messagepack).toBe(true);
+      expect(parsed.flags.pathDictionary).toBe(true);
+    });
+
+    test("authenticated-header DATA verifies its trailing HMAC tag", () => {
+      const authParser = new packetMod.PacketParser({
+        secretKey: golden.keyHex,
+        authenticatedHeaders: true
+      });
+      const buf = Buffer.from(golden.dataPacketsAuthHeader.encrypted, "base64");
+      const parsed = authParser.parseHeader(buf, { secretKey: golden.keyHex });
+      expect(parsed.type).toBe(packetMod.PacketType.DATA);
+      expect(parsed.flags.authenticatedHeader).toBe(true);
+      expect(parsed.payload.toString("hex")).toBe(FIXED);
+    });
+
+    test("authenticated-header METADATA verifies its trailing HMAC tag", () => {
+      const authParser = new packetMod.PacketParser({
+        secretKey: golden.keyHex,
+        authenticatedHeaders: true
+      });
+      const buf = Buffer.from(golden.metadataPacketsAuthHeader.encrypted, "base64");
+      const parsed = authParser.parseHeader(buf, { secretKey: golden.keyHex });
+      expect(parsed.type).toBe(packetMod.PacketType.METADATA);
+      expect(parsed.flags.authenticatedHeader).toBe(true);
+      expect(parsed.payload.toString("hex")).toBe(FIXED);
+    });
+
+    test("source-snapshot METADATA carries the frozen sources envelope", () => {
+      const buf = Buffer.from(golden.sourceSnapshotPacket, "base64");
+      const parsed = parser.parseHeader(buf);
+      expect(parsed.type).toBe(packetMod.PacketType.METADATA);
+      const env = JSON.parse(parsed.payload.toString("utf8"));
+      expect(env.kind).toBe("sources");
+      expect(env).toEqual(golden.sourceSnapshotEnvelope);
+    });
+  });
+
   describe("v3 control packets round-trip through the parser", () => {
     const parser = new packetMod.PacketParser();
     const KEY = golden.keyHex;

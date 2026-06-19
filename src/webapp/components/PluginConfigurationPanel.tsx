@@ -9,6 +9,10 @@ import { ErrorBoundary } from "./ErrorBoundary";
 // API_BASE is a plain string constant bundled into the federated remote (it is
 // not a shared singleton), so importing it from utils is safe.
 import { API_BASE } from "../utils";
+// Type-only import (erased at build time, so it adds no runtime coupling to the
+// federated remote) — derive the UI connection type from the canonical backend
+// config shape so the form is typed against the real fields.
+import type { ConnectionConfig } from "../../foundation/types/config";
 
 // ── Stable ID helper ──────────────────────────────────────────────────────────
 // Each connection object carries a frontend-only `_id` for use as React key.
@@ -21,26 +25,17 @@ function makeId(): string {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface ConnectionData {
+// Derived from the canonical ConnectionConfig so the known fields (including
+// bonding, congestionControl, reliability, alertThresholds, pathFilter, the
+// reliable-only toggles, etc.) are typed against the backend truth. `_id` is a
+// frontend-only React key; `serverType` is widened to string because the form
+// holds in-progress values, and the index signature keeps RJSF-driven extras
+// permissive.
+type ConnectionData = Partial<Omit<ConnectionConfig, "serverType">> & {
   _id: string;
-  connectionId?: string;
-  name?: string;
   serverType?: string;
-  udpPort?: number;
-  secretKey?: string;
-  stretchAsciiKey?: boolean;
-  useMsgpack?: boolean;
-  usePathDictionary?: boolean;
-  enableNotifications?: boolean;
-  skipOwnData?: boolean;
-  protocolVersion?: number;
-  udpAddress?: string;
-  helloMessageSender?: number;
-  testAddress?: string;
-  testPort?: number;
-  pingIntervalTime?: number;
   [key: string]: unknown;
-}
+};
 
 type ConnectionFormData = Partial<ConnectionData> & Record<string, unknown>;
 
@@ -173,6 +168,7 @@ const uiSchemaClient: UiSchema = {
     "udpPort",
     "secretKey",
     "stretchAsciiKey",
+    "authenticatedHeaders",
     "protocolVersion",
     "useMsgpack",
     "useValueDedup",
@@ -221,6 +217,7 @@ const uiSchemaServer: UiSchema = {
     "udpPort",
     "secretKey",
     "stretchAsciiKey",
+    "authenticatedHeaders",
     "useMsgpack",
     "useValueDedup",
     "useCompactDeltas",
@@ -249,7 +246,8 @@ const SHARED_FIELDS = [
   "stretchAsciiKey",
   "useMsgpack",
   "usePathDictionary",
-  "protocolVersion"
+  "protocolVersion",
+  "authenticatedHeaders"
 ];
 
 // ── Styles ────────────────────────────────────────────────────────────────────

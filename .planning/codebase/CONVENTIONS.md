@@ -10,7 +10,7 @@ scope: full repo
 
 **Files:**
 
-- Use kebab-case for most TypeScript modules: `connection-config.ts`, `config-watcher.ts`, `pipeline-v2-server.ts`.
+- Use kebab-case for most TypeScript modules: `connection-config.ts`, `delta-batcher.ts`, `reliable-server.ts`.
 - Preserve established PascalCase names where already used for class/component identity: `CircularBuffer.ts`, `PluginConfigurationPanel.tsx`.
 - Keep route groups in `src/routes/` named for the API area: `metrics.ts`, `monitoring.ts`, `connections.ts`.
 - Keep tests in `__tests__/` with `.test.js`; v2/v3 protocol tests go under `__tests__/v2/`.
@@ -31,7 +31,7 @@ scope: full repo
 **Types:**
 
 - Use PascalCase interfaces and types without an `I` prefix: `ConnectionConfig`, `InstanceState`, `MetricsApi`, `RouteContext`.
-- Keep shared contract interfaces in `src/types.ts` or `src/routes/types.ts`.
+- Keep shared contract interfaces in `src/foundation/types/` or `src/routes/types.ts`.
 - Prefer literal string unions and object constants over TypeScript enums in protocol code.
 
 ## Code Style
@@ -89,7 +89,7 @@ scope: full repo
 **Async and resources:**
 
 - Timers, sockets, watchers, and pipeline intervals must be cleared from `stop()` paths.
-- If a change adds a timer or listener to `src/instance.ts`, `src/pipeline-v2-client.ts`, `src/pipeline-v2-server.ts`, or `src/bonding.ts`, add matching cleanup.
+- If a change adds a timer or listener to `src/app/connection.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, or `src/bonding.ts`, add matching cleanup.
 - Prefer atomic file writes through `saveConfigFile` rather than direct writes for runtime JSON.
 
 ## Logging

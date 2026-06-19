@@ -1,6 +1,7 @@
 "use strict";
 
 const { BondingManager, LinkStatus } = require("../../lib/bonding");
+const { BONDING_FAILOVER_MIN_DWELL } = require("../../lib/constants");
 const dgram = require("dgram");
 
 // Mock dgram with proper event emitter behavior
@@ -370,6 +371,8 @@ describe("Bonding Failover & Recovery Lifecycle", () => {
       bm = new BondingManager(createDefaultConfig(), app);
       await bm.initialize();
       bm.stopHealthMonitoring();
+      // Primary has been active past the soft-failover dwell window.
+      bm.lastFailbackTime -= BONDING_FAILOVER_MIN_DWELL + 1;
 
       // Gradual RTT increase — use _shouldFailover directly since _checkHealth
       // recalculates metrics from heartbeat data
@@ -410,6 +413,8 @@ describe("Bonding Failover & Recovery Lifecycle", () => {
       bm = new BondingManager(createDefaultConfig(), app);
       await bm.initialize();
       bm.stopHealthMonitoring();
+      // Primary has been active past the soft-failover dwell window.
+      bm.lastFailbackTime -= BONDING_FAILOVER_MIN_DWELL + 1;
 
       // Gradual loss increase
       bm.links.primary.health.loss = 0.03;

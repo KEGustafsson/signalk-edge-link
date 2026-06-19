@@ -236,38 +236,28 @@ export const decryptBinary = (
 };
 
 /**
- * Validates secret key strength
- * @param key - Secret key to validate
- * @returns True if key is valid
- * @throws Error if key is weak or invalid
+ * Throw when the ASCII key is a short repeating pattern
+ * (e.g., "abab...", "abcabc...", "abcdeabcde...") or a single repeated char.
  */
-export function validateSecretKey(key: string): boolean {
-  // First verify the key can be normalized to 32 bytes
-  normalizeKey(key);
-
-  // For hex/base64 keys (standard or URL-safe), entropy validation on the raw
-  // string is not meaningful; entropy checks apply to the ASCII fallback path
-  // where the user typed the key.
-  if (/^[0-9a-fA-F]{64}$/.test(key) || /^[A-Za-z0-9+/\-_]{43}=?$/.test(key)) {
-    return true;
-  }
-
-  // Check for common weak patterns: all same character
+function assertNoRepeatingPattern(key: string): void {
   if (/^(.)\1{31}$/.test(key)) {
     throw new Error("Secret key has insufficient entropy (all same character)");
   }
-
-  // Check for short repeating patterns (e.g., "abab...", "abcabc...", "abcdeabcde...")
   for (let len = 1; len <= 8; len++) {
     const segment = key.slice(0, len);
     if (segment.repeat(Math.ceil(32 / len)).slice(0, 32) === key) {
       throw new Error("Secret key has insufficient entropy (repeating pattern)");
     }
   }
+}
 
-  // Check for long sequential character runs (e.g., 20+ chars of "abcdefghij...").
-  // Only flags extreme sequences (≥20 consecutive chars); short runs can appear
-  // legitimately in randomly-generated keys.
+/**
+ * Throw when the ASCII key contains a long sequential character run
+ * (e.g., 20+ chars of "abcdefghij..."). Only flags extreme sequences
+ * (≥20 consecutive chars); short runs can appear legitimately in randomly-
+ * generated keys.
+ */
+function assertNoLongSequentialRun(key: string): void {
   let maxRunLength = 1;
   let currentRunLength = 1;
   for (let i = 1; i < key.length; i++) {
@@ -283,18 +273,10 @@ export function validateSecretKey(key: string): boolean {
   if (maxRunLength >= 20) {
     throw new Error("Secret key has insufficient entropy (long sequential character run detected)");
   }
+}
 
-  // Check character diversity
-  const uniqueChars = new Set(key.split("")).size;
-  if (uniqueChars < 8) {
-    throw new Error("Secret key has insufficient diversity (use at least 8 different characters)");
-  }
-
-  // Compute Shannon entropy (bits per character).  A randomly generated 32-char
-  // ASCII key should have at least 3.0 bits/char (≥ 8 unique chars uniformly
-  // distributed gives log2(8) = 3.0).  This catches patterns that slip past
-  // the simpler checks above, e.g. one character dominating most positions
-  // despite nominally having 8 unique chars.
+/** Shannon entropy in bits per character of the supplied string. */
+function shannonEntropyPerChar(key: string): number {
   const charFreq = new Map<string, number>();
   for (const ch of key) {
     charFreq.set(ch, (charFreq.get(ch) ?? 0) + 1);
@@ -304,11 +286,78 @@ export function validateSecretKey(key: string): boolean {
     const p = count / key.length;
     shannonEntropy -= p * Math.log2(p);
   }
+  return shannonEntropy;
+}
+
+/**
+ * Throw when the ASCII key lacks character diversity / Shannon entropy.
+ *
+ * A randomly generated 32-char ASCII key should have at least 3.0 bits/char
+ * (≥ 8 unique chars uniformly distributed gives log2(8) = 3.0). This catches
+ * patterns that slip past the simpler checks above, e.g. one character
+ * dominating most positions despite nominally having 8 unique chars.
+ */
+function assertSufficientDiversity(key: string): void {
+  const uniqueChars = new Set(key.split("")).size;
+  if (uniqueChars < 8) {
+    throw new Error("Secret key has insufficient diversity (use at least 8 different characters)");
+  }
+  const shannonEntropy = shannonEntropyPerChar(key);
   if (shannonEntropy < 3.0) {
     throw new Error(
       `Secret key has insufficient entropy (${shannonEntropy.toFixed(2)} bits/char; need ≥ 3.0)`
     );
   }
+}
+
+/** Shannon entropy per byte of the normalized 32-byte key material. */
+function shannonEntropyPerByte(key: Buffer): number {
+  const byteFreq = new Map<number, number>();
+  for (const byte of key) {
+    byteFreq.set(byte, (byteFreq.get(byte) ?? 0) + 1);
+  }
+  let entropy = 0;
+  for (const count of byteFreq.values()) {
+    const p = count / key.length;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
+}
+
+/**
+ * Reject syntactically valid hex/base64 keys whose decoded bytes are trivially
+ * weak (e.g. all-zero or near-constant), which the encoded fast path would
+ * otherwise accept without any entropy gate.
+ */
+function assertSufficientBinaryDiversity(key: Buffer): void {
+  const uniqueBytes = new Set(key).size;
+  if (uniqueBytes < 8 || shannonEntropyPerByte(key) < 3.0) {
+    throw new Error("Secret key has insufficient binary entropy");
+  }
+}
+
+/**
+ * Validates secret key strength
+ * @param key - Secret key to validate
+ * @returns True if key is valid
+ * @throws Error if key is weak or invalid
+ */
+export function validateSecretKey(key: string): boolean {
+  // First verify the key can be normalized to 32 bytes
+  const normalizedKey = normalizeKey(key);
+
+  // For hex/base64 keys (standard or URL-safe), per-character entropy on the
+  // raw string is not meaningful, but the decoded bytes must still clear a
+  // trivial-entropy gate so weak keys (all-zero hex, base64 zero bytes) are
+  // rejected. ASCII-typed keys fall through to the string-based checks below.
+  if (/^[0-9a-fA-F]{64}$/.test(key) || /^[A-Za-z0-9+/\-_]{43}=?$/.test(key)) {
+    assertSufficientBinaryDiversity(normalizedKey);
+    return true;
+  }
+
+  assertNoRepeatingPattern(key);
+  assertNoLongSequentialRun(key);
+  assertSufficientDiversity(key);
 
   return true;
 }

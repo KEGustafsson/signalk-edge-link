@@ -56,51 +56,66 @@ function sanitizeKeyPart(value: string): string {
     .slice(0, 128);
 }
 
-function toCanonicalIdentity(
-  update: DeltaUpdate,
-  sourceClientInstanceId: string
-): SourceReplicationRecord["identity"] | null {
+/** Parsed source fields extracted from a delta update, before identity resolution. */
+interface ParsedSourceFields {
+  sourceRef: string | undefined;
+  label: string | undefined;
+  type: string;
+  src: string | undefined;
+  instance: string | undefined;
+  pgn: number | undefined;
+  parsedDeviceId: string | undefined;
+}
+
+function parseSourceFields(update: DeltaUpdate): ParsedSourceFields {
   const source =
     update.source && typeof update.source === "object"
       ? (update.source as Record<string, unknown>)
       : undefined;
   const sourceRef = normalizeText(update.$source);
+  return {
+    sourceRef,
+    label: normalizeText(source?.label) || (sourceRef ? `legacy:${sourceRef}` : undefined),
+    type: normalizeText(source?.type) || (sourceRef ? "legacy" : "unknown"),
+    src: normalizeText(source?.src),
+    instance: normalizeText(source?.instance),
+    pgn: Number.isFinite(Number(source?.pgn)) ? Number(source?.pgn) : undefined,
+    parsedDeviceId: normalizeText(source?.deviceId)
+  };
+}
 
-  const label = normalizeText(source?.label) || (sourceRef ? `legacy:${sourceRef}` : undefined);
-  const type = normalizeText(source?.type) || (sourceRef ? "legacy" : "unknown");
+/** True when the update carried at least one usable source field. */
+function hasAnySourceMetadata(fields: ParsedSourceFields): boolean {
+  return (
+    !!fields.label ||
+    !!fields.sourceRef ||
+    fields.src !== undefined ||
+    fields.instance !== undefined ||
+    fields.pgn !== undefined ||
+    fields.parsedDeviceId !== undefined
+  );
+}
 
-  const src = normalizeText(source?.src);
-  const instance = normalizeText(source?.instance);
-  const pgn = Number.isFinite(Number(source?.pgn)) ? Number(source?.pgn) : undefined;
-  const parsedDeviceId = normalizeText(source?.deviceId);
-  const hasMetadata =
-    !!label ||
-    !!sourceRef ||
-    src !== undefined ||
-    instance !== undefined ||
-    pgn !== undefined ||
-    parsedDeviceId !== undefined;
-
-  if (
-    !label &&
-    !sourceRef &&
-    src === undefined &&
-    instance === undefined &&
-    pgn === undefined &&
-    parsedDeviceId === undefined
-  ) {
+function toCanonicalIdentity(
+  update: DeltaUpdate,
+  sourceClientInstanceId: string
+): SourceReplicationRecord["identity"] | null {
+  const fields = parseSourceFields(update);
+  if (!hasAnySourceMetadata(fields)) {
     return null;
   }
 
+  const deviceId =
+    fields.parsedDeviceId ||
+    (sourceClientInstanceId ? sanitizeKeyPart(sourceClientInstanceId) : undefined);
+
   return {
-    label: label || "unknown-source",
-    type: normalizeText(type) || "unknown",
-    src,
-    instance,
-    pgn,
-    deviceId:
-      parsedDeviceId ||
-      (hasMetadata && sourceClientInstanceId ? sanitizeKeyPart(sourceClientInstanceId) : undefined)
+    label: fields.label || "unknown-source",
+    type: normalizeText(fields.type) || "unknown",
+    src: fields.src,
+    instance: fields.instance,
+    pgn: fields.pgn,
+    deviceId
   };
 }
 
@@ -177,239 +192,261 @@ function chooseValue(
   return incomingTs >= currentTs ? incoming : current;
 }
 
-/** Create a per-process LRU+TTL source identity registry, keyed by source-ref or identity hash. */
-export function createSourceRegistry(app: { debug: (msg: string) => void }) {
+/** Shared mutable state + deps for the source registry's module-level helpers. */
+interface RegistryContext {
+  app: { debug: (msg: string) => void };
   // Insertion-order Map doubles as an LRU: refresh() moves an entry to the
   // tail (delete + set), evict() drops from the head.
-  const records = new Map<string, SourceReplicationRecord>();
-  let lastLoggedRegistrySize = 0;
-  const metrics: SourceRegistryMetrics = {
-    upserts: 0,
-    noops: 0,
-    missingIdentity: 0,
-    conflicts: 0
-  };
-  let evictions = 0;
+  records: Map<string, SourceReplicationRecord>;
+  metrics: SourceRegistryMetrics;
+  evictions: number;
+  lastLoggedRegistrySize: number;
+}
 
-  function evictStaleAndOverflow(nowMs: number): void {
-    // TTL pass: scan from oldest (insertion order). Map iteration order is
-    // insertion order, so we can stop at the first non-stale entry.
-    const cutoff = nowMs - SOURCE_REGISTRY_TTL_MS;
-    for (const [key, record] of records) {
-      const ts = Date.parse(record.lastSeenAt);
-      if (Number.isFinite(ts) && ts < cutoff) {
-        records.delete(key);
-        evictions++;
-        continue;
-      }
+function evictStaleAndOverflow(ctx: RegistryContext, nowMs: number): void {
+  const { records } = ctx;
+  // TTL pass: scan from oldest (insertion order). Map iteration order is
+  // insertion order, so we can stop at the first non-stale entry.
+  const cutoff = nowMs - SOURCE_REGISTRY_TTL_MS;
+  for (const [key, record] of records) {
+    const ts = Date.parse(record.lastSeenAt);
+    if (Number.isFinite(ts) && ts < cutoff) {
+      records.delete(key);
+      ctx.evictions++;
+      continue;
+    }
+    break;
+  }
+  // Hard cap: if still over the limit, drop oldest until under.
+  while (records.size > SOURCE_REGISTRY_MAX_RECORDS) {
+    const oldest = records.keys().next();
+    if (oldest.done) {
       break;
     }
-    // Hard cap: if still over the limit, drop oldest until under.
-    while (records.size > SOURCE_REGISTRY_MAX_RECORDS) {
-      const oldest = records.keys().next();
-      if (oldest.done) {
-        break;
-      }
-      records.delete(oldest.value);
-      evictions++;
+    records.delete(oldest.value);
+    ctx.evictions++;
+  }
+}
+
+/** Build the pre-merge record for an update, copying identity from `identity`
+ *  and provenance/raw fields from the update. */
+function buildMergedBase(
+  update: DeltaUpdate,
+  identity: NonNullable<SourceReplicationRecord["identity"]>,
+  key: string,
+  sourceClientInstanceId: string,
+  existing: SourceReplicationRecord | undefined,
+  nowIso: string
+): Omit<SourceReplicationRecord, "mergeHash"> {
+  const sourceRef = normalizeText(update.$source);
+  const updateTs = normalizeText(update.timestamp);
+  const sourceObj =
+    update.source && typeof update.source === "object"
+      ? ({ ...(update.source as Record<string, unknown>) } as Record<string, unknown>)
+      : undefined;
+
+  return {
+    schemaVersion: SOURCE_REPLICATION_SCHEMA_VERSION,
+    key,
+    identity: {
+      label: identity.label,
+      type: identity.type,
+      src: identity.src,
+      instance: identity.instance,
+      pgn: identity.pgn,
+      deviceId: identity.deviceId
+    },
+    metadata: {},
+    firstSeenAt: existing ? existing.firstSeenAt : nowIso,
+    lastSeenAt: existing ? existing.lastSeenAt : nowIso,
+    lastUpdatedAt: existing ? existing.lastUpdatedAt : nowIso,
+    provenance: {
+      lastUpdatedBy: sourceObj ? "source" : update.$source ? "$source" : "merge",
+      sourceClientInstanceId,
+      updateTimestamp: updateTs
+    },
+    raw: {
+      source: sourceObj,
+      $source: sourceRef
     }
+  };
+}
+
+/** Resolve the timestamp (ms) to use as the "current" side when merging an
+ *  existing record against an incoming update. */
+function resolveExistingTs(existing: SourceReplicationRecord): number {
+  const existingUpdateTs = normalizeText(existing.provenance?.updateTimestamp);
+  const parsedExistingTs = existingUpdateTs ? Date.parse(existingUpdateTs) : NaN;
+  const parsedExistingUpdatedAt = Date.parse(existing.lastUpdatedAt);
+  return Number.isFinite(parsedExistingTs)
+    ? parsedExistingTs
+    : Number.isFinite(parsedExistingUpdatedAt)
+      ? parsedExistingUpdatedAt
+      : Date.now();
+}
+
+/** Merge an existing record's identity + metadata into `mergedBase` in place,
+ *  returning the number of conflicts observed. */
+function mergeExistingRecord(
+  existing: SourceReplicationRecord,
+  mergedBase: Omit<SourceReplicationRecord, "mergeHash">,
+  updateTsMs: number
+): number {
+  const conflictCounter = { count: 0 };
+  const currentTs = resolveExistingTs(existing);
+  const pick = (current: unknown, incoming: unknown): unknown =>
+    chooseValue(current, incoming, currentTs, updateTsMs, conflictCounter);
+
+  const id = mergedBase.identity;
+  id.label = pick(existing.identity.label, id.label) as string;
+  id.type = pick(existing.identity.type, id.type) as string;
+  id.src = pick(existing.identity.src, id.src) as string | undefined;
+  id.instance = pick(existing.identity.instance, id.instance) as string | undefined;
+  id.pgn = pick(existing.identity.pgn, id.pgn) as number | undefined;
+  id.deviceId = pick(existing.identity.deviceId, id.deviceId) as string | undefined;
+
+  const incomingMeta = mergedBase.metadata;
+  const allKeys = new Set([...Object.keys(existing.metadata), ...Object.keys(incomingMeta)]);
+  for (const metaKey of allKeys) {
+    mergedBase.metadata[metaKey] = pick(existing.metadata[metaKey], incomingMeta[metaKey]);
+  }
+  return conflictCounter.count;
+}
+
+/** Upsert a single update into the registry (one iteration of the loop). */
+function upsertSingleUpdate(
+  ctx: RegistryContext,
+  update: DeltaUpdate,
+  sourceClientInstanceId: string
+): void {
+  const { records, metrics } = ctx;
+  const identity = toCanonicalIdentity(update, sourceClientInstanceId);
+  if (!identity) {
+    metrics.missingIdentity++;
+    return;
+  }
+  const key = createSourceKey(update, identity);
+  const nowIso = new Date().toISOString();
+  const updateTs = normalizeText(update.timestamp);
+  const parsedIncomingTs = updateTs ? Date.parse(updateTs) : NaN;
+  const updateTsMs = Number.isFinite(parsedIncomingTs) ? parsedIncomingTs : Date.now();
+
+  const existing = records.get(key);
+  const mergedBase = buildMergedBase(
+    update,
+    identity,
+    key,
+    sourceClientInstanceId,
+    existing,
+    nowIso
+  );
+
+  if (existing) {
+    metrics.conflicts += mergeExistingRecord(existing, mergedBase, updateTsMs);
   }
 
-  function upsertFromDelta(delta: Delta, sourceClientInstanceId: string): void {
-    if (!delta || !Array.isArray(delta.updates)) {
-      return;
-    }
-
-    for (const update of delta.updates) {
-      if (!update || typeof update !== "object") {
-        continue;
-      }
-
-      const identity = toCanonicalIdentity(update, sourceClientInstanceId);
-      if (!identity) {
-        metrics.missingIdentity++;
-        continue;
-      }
-      const sourceRef = normalizeText(update.$source);
-      const key = createSourceKey(update, identity);
-
-      const nowIso = new Date().toISOString();
-      const updateTs = normalizeText(update.timestamp);
-      const parsedIncomingTs = updateTs ? Date.parse(updateTs) : NaN;
-      const updateTsMs = Number.isFinite(parsedIncomingTs) ? parsedIncomingTs : Date.now();
-
-      const sourceObj =
-        update.source && typeof update.source === "object"
-          ? ({ ...(update.source as Record<string, unknown>) } as Record<string, unknown>)
-          : undefined;
-
-      const existing = records.get(key);
-      const mergedBase: Omit<SourceReplicationRecord, "mergeHash"> = {
-        schemaVersion: SOURCE_REPLICATION_SCHEMA_VERSION,
-        key,
-        identity: {
-          label: identity.label,
-          type: identity.type,
-          src: identity.src,
-          instance: identity.instance,
-          pgn: identity.pgn,
-          deviceId: identity.deviceId
-        },
-        metadata: {},
-        firstSeenAt: existing ? existing.firstSeenAt : nowIso,
-        lastSeenAt: existing ? existing.lastSeenAt : nowIso,
-        lastUpdatedAt: existing ? existing.lastUpdatedAt : nowIso,
-        provenance: {
-          lastUpdatedBy: sourceObj ? "source" : update.$source ? "$source" : "merge",
-          sourceClientInstanceId,
-          updateTimestamp: updateTs
-        },
-        raw: {
-          source: sourceObj,
-          $source: sourceRef
-        }
-      };
-
-      if (existing) {
-        const conflictCounter = { count: 0 };
-        const existingUpdateTs = normalizeText(existing.provenance?.updateTimestamp);
-        const parsedExistingTs = existingUpdateTs ? Date.parse(existingUpdateTs) : NaN;
-        const parsedExistingUpdatedAt = Date.parse(existing.lastUpdatedAt);
-        const currentTs = Number.isFinite(parsedExistingTs)
-          ? parsedExistingTs
-          : Number.isFinite(parsedExistingUpdatedAt)
-            ? parsedExistingUpdatedAt
-            : Date.now();
-        mergedBase.identity.label = chooseValue(
-          existing.identity.label,
-          mergedBase.identity.label,
-          currentTs,
-          updateTsMs,
-          conflictCounter
-        ) as string;
-        mergedBase.identity.type = chooseValue(
-          existing.identity.type,
-          mergedBase.identity.type,
-          currentTs,
-          updateTsMs,
-          conflictCounter
-        ) as string;
-        mergedBase.identity.src = chooseValue(
-          existing.identity.src,
-          mergedBase.identity.src,
-          currentTs,
-          updateTsMs,
-          conflictCounter
-        ) as string | undefined;
-        mergedBase.identity.instance = chooseValue(
-          existing.identity.instance,
-          mergedBase.identity.instance,
-          currentTs,
-          updateTsMs,
-          conflictCounter
-        ) as string | undefined;
-        mergedBase.identity.pgn = chooseValue(
-          existing.identity.pgn,
-          mergedBase.identity.pgn,
-          currentTs,
-          updateTsMs,
-          conflictCounter
-        ) as number | undefined;
-        mergedBase.identity.deviceId = chooseValue(
-          existing.identity.deviceId,
-          mergedBase.identity.deviceId,
-          currentTs,
-          updateTsMs,
-          conflictCounter
-        ) as string | undefined;
-
-        const incomingMeta = mergedBase.metadata;
-        const allKeys = new Set([...Object.keys(existing.metadata), ...Object.keys(incomingMeta)]);
-        for (const metaKey of allKeys) {
-          mergedBase.metadata[metaKey] = chooseValue(
-            existing.metadata[metaKey],
-            incomingMeta[metaKey],
-            currentTs,
-            updateTsMs,
-            conflictCounter
-          );
-        }
-        metrics.conflicts += conflictCounter.count;
-      }
-
-      const mergeHash = toMergeHash(mergedBase);
-      if (existing && existing.mergeHash === mergeHash) {
-        existing.lastSeenAt = nowIso;
-        // Refresh LRU position so an actively-seen record is not evicted
-        // ahead of stale ones at the head of the insertion-order Map.
-        records.delete(key);
-        records.set(key, existing);
-        metrics.noops++;
-        continue;
-      }
-
-      mergedBase.lastSeenAt = nowIso;
-      mergedBase.lastUpdatedAt = nowIso;
-      // Re-insert at the tail of the LRU order: delete-then-set so updates
-      // to an existing record refresh its position the same way as noops.
-      if (existing) {
-        records.delete(key);
-      }
-      records.set(key, { ...mergedBase, mergeHash });
-      metrics.upserts++;
-      // Cap mid-loop so a single oversized delta cannot push records far
-      // above SOURCE_REGISTRY_MAX_RECORDS before cleanup runs.
-      if (records.size > SOURCE_REGISTRY_MAX_RECORDS) {
-        evictStaleAndOverflow(Date.now());
-      }
-    }
-
-    evictStaleAndOverflow(Date.now());
-
-    if (records.size % 50 === 0 && records.size > 0 && records.size !== lastLoggedRegistrySize) {
-      app.debug(`[source-replication] registry-size=${records.size}`);
-      lastLoggedRegistrySize = records.size;
-    }
+  const mergeHash = toMergeHash(mergedBase);
+  if (existing && existing.mergeHash === mergeHash) {
+    existing.lastSeenAt = nowIso;
+    // Refresh LRU position so an actively-seen record is not evicted
+    // ahead of stale ones at the head of the insertion-order Map.
+    records.delete(key);
+    records.set(key, existing);
+    metrics.noops++;
+    return;
   }
 
-  function snapshot(): SourceRegistrySnapshot {
-    // Prune on read so callers never observe TTL-expired entries that
-    // only happen to be reachable because no write has landed yet.
-    evictStaleAndOverflow(Date.now());
-    const sources = [...records.values()].sort((a, b) => a.key.localeCompare(b.key));
-    const legacyByLabel: Record<string, string> = {};
-    const legacyBySourceRef: Record<string, string> = {};
+  mergedBase.lastSeenAt = nowIso;
+  mergedBase.lastUpdatedAt = nowIso;
+  // Re-insert at the tail of the LRU order: delete-then-set so updates
+  // to an existing record refresh its position the same way as noops.
+  if (existing) {
+    records.delete(key);
+  }
+  records.set(key, { ...mergedBase, mergeHash });
+  metrics.upserts++;
+  // Cap mid-loop so a single oversized delta cannot push records far
+  // above SOURCE_REGISTRY_MAX_RECORDS before cleanup runs.
+  if (records.size > SOURCE_REGISTRY_MAX_RECORDS) {
+    evictStaleAndOverflow(ctx, Date.now());
+  }
+}
 
-    for (const source of sources) {
-      legacyByLabel[source.identity.label] = source.key;
-      if (source.raw.$source) {
-        legacyBySourceRef[source.raw.$source] = source.key;
-      }
+function upsertFromDelta(ctx: RegistryContext, delta: Delta, sourceClientInstanceId: string): void {
+  if (!delta || !Array.isArray(delta.updates)) {
+    return;
+  }
+
+  for (const update of delta.updates) {
+    if (!update || typeof update !== "object") {
+      continue;
     }
-
-    return {
-      schemaVersion: SOURCE_REPLICATION_SCHEMA_VERSION,
-      size: sources.length,
-      sources,
-      legacy: {
-        byLabel: legacyByLabel,
-        bySourceRef: legacyBySourceRef
-      }
-    };
+    upsertSingleUpdate(ctx, update, sourceClientInstanceId);
   }
 
-  function getMetrics(): SourceRegistryMetrics {
-    return { ...metrics, evictions };
-  }
+  evictStaleAndOverflow(ctx, Date.now());
 
-  function getSize(): number {
-    evictStaleAndOverflow(Date.now());
-    return records.size;
+  const { records } = ctx;
+  if (records.size % 50 === 0 && records.size > 0 && records.size !== ctx.lastLoggedRegistrySize) {
+    ctx.app.debug(`[source-replication] registry-size=${records.size}`);
+    ctx.lastLoggedRegistrySize = records.size;
+  }
+}
+
+function snapshot(ctx: RegistryContext): SourceRegistrySnapshot {
+  // Prune on read so callers never observe TTL-expired entries that
+  // only happen to be reachable because no write has landed yet.
+  evictStaleAndOverflow(ctx, Date.now());
+  const sources = [...ctx.records.values()].sort((a, b) => a.key.localeCompare(b.key));
+  const legacyByLabel: Record<string, string> = {};
+  const legacyBySourceRef: Record<string, string> = {};
+
+  for (const source of sources) {
+    legacyByLabel[source.identity.label] = source.key;
+    if (source.raw.$source) {
+      legacyBySourceRef[source.raw.$source] = source.key;
+    }
   }
 
   return {
-    upsertFromDelta,
-    snapshot,
+    schemaVersion: SOURCE_REPLICATION_SCHEMA_VERSION,
+    size: sources.length,
+    sources,
+    legacy: {
+      byLabel: legacyByLabel,
+      bySourceRef: legacyBySourceRef
+    }
+  };
+}
+
+/** Create a per-process LRU+TTL source identity registry, keyed by source-ref or identity hash. */
+export function createSourceRegistry(app: { debug: (msg: string) => void }) {
+  const ctx: RegistryContext = {
+    app,
+    records: new Map<string, SourceReplicationRecord>(),
+    metrics: {
+      upserts: 0,
+      noops: 0,
+      missingIdentity: 0,
+      conflicts: 0
+    },
+    evictions: 0,
+    lastLoggedRegistrySize: 0
+  };
+
+  function getMetrics(): SourceRegistryMetrics {
+    return { ...ctx.metrics, evictions: ctx.evictions };
+  }
+
+  function getSize(): number {
+    evictStaleAndOverflow(ctx, Date.now());
+    return ctx.records.size;
+  }
+
+  return {
+    upsertFromDelta: (delta: Delta, sourceClientInstanceId: string) =>
+      upsertFromDelta(ctx, delta, sourceClientInstanceId),
+    snapshot: () => snapshot(ctx),
     getMetrics,
     getSize
   };

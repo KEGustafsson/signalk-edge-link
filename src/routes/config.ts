@@ -231,7 +231,7 @@ function register(router: Router, ctx: RouteContext): void {
     rateLimitMiddleware,
     managementAuthMiddleware("config.update"),
     requireJson,
-    (req: RouteRequest, res: RouteResponse) => {
+    async (req: RouteRequest, res: RouteResponse) => {
       try {
         if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
           return res
@@ -325,7 +325,9 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         if (typeof pluginRef._restartPlugin === "function") {
-          pluginRef._restartPlugin(finalConfig);
+          // Await the restart so a failure becomes a 500 (caught below) instead
+          // of a false "success" reported before the restart actually ran.
+          await pluginRef._restartPlugin(finalConfig);
           return res.json({
             success: true,
             message: "Configuration saved. Plugin restarting...",
@@ -333,17 +335,22 @@ function register(router: Router, ctx: RouteContext): void {
           });
         }
 
-        app.savePluginOptions?.(finalConfig, (error) => {
-          if (error) {
-            app.error(`Error saving plugin config: ${error.message}`);
-            return res.status(500).json({ success: false, error: error.message });
-          }
-
+        if (typeof app.savePluginOptions === "function") {
+          await new Promise<void>((resolve, reject) => {
+            app.savePluginOptions!(finalConfig, (error) => (error ? reject(error) : resolve()));
+          });
           return res.json({
             success: true,
             message: "Configuration saved. Restart plugin to apply changes.",
             restarting: false
           });
+        }
+
+        // Neither a restart handler nor a save handler is available — fail
+        // deterministically instead of leaving the request hanging.
+        return res.status(503).json({
+          success: false,
+          error: "No restart or save handler available to persist configuration"
         });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
