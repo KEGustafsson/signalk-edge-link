@@ -1708,7 +1708,7 @@ Additional required for client: `udpAddress`.
 
 Patch one instance configuration. Triggers a plugin restart. Returns `200` on success.
 
-Updatable: `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`, `udpMetaPort`, `udpAddress`, `helloMessageSender`, `testAddress`, `testPort`, `pingIntervalTime`, `reliability`, `congestionControl`, `bonding`, `alertThresholds`.
+Updatable: `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`, `udpAddress`, `helloMessageSender`, `reliability`, `congestionControl`, `bonding`, `alertThresholds`.
 
 **Not updatable via this endpoint:** `serverType`, `udpPort`, `secretKey`.
 

@@ -229,6 +229,41 @@ describe("authorizeManagement auth guard", () => {
     );
   });
 
+  test("auth fails closed (503) when persisted config cannot be read", async () => {
+    // Stopped plugin (_currentOptions cleared) + a transient persisted-config
+    // read failure must NOT degrade to open access. The request is denied with
+    // 503 and the route body is never reached.
+    const pluginRef = { _currentOptions: null };
+    const app = {
+      debug: () => {},
+      error: () => {},
+      readPluginOptions: () => {
+        throw new Error("EIO: persisted config read failed");
+      }
+    };
+    const instanceRegistry = {
+      getAll: jest.fn().mockReturnValue([]),
+      getFirst: jest.fn().mockReturnValue(null)
+    };
+    const routes = createRoutes(app, instanceRegistry, pluginRef);
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+    const handler = findHandler(router, "get", "/status");
+
+    const res = makeResponse();
+    await handler({ headers: {}, ip: "127.0.0.1" }, res);
+
+    expect(res.statusCode).toBe(503);
+    expect(instanceRegistry.getAll).not.toHaveBeenCalled();
+
+    // Recovery: once the config reads again, normal auth resumes (open access
+    // here since no token is configured) and the handler runs past the guard.
+    app.readPluginOptions = () => ({ configuration: {} });
+    const res2 = makeResponse();
+    await handler({ headers: {}, ip: "127.0.0.1" }, res2);
+    expect(instanceRegistry.getAll).toHaveBeenCalled();
+  });
+
   test("GET /status records required-unconfigured fail-closed decisions", async () => {
     const bundle = makeBundle();
     const { router, pluginRef } = setupRoutes(null, {

@@ -26,7 +26,8 @@ type ManagementAuthReason =
   | "valid_token"
   | "missing_token"
   | "invalid_token"
-  | "token_required_unconfigured";
+  | "token_required_unconfigured"
+  | "config_read_error";
 
 interface ManagementAuthActionCounters {
   total: number;
@@ -146,19 +147,39 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
    * read and mutate persisted configuration even while stopped.
    * @private
    */
-  function getAuthOptions(): Record<string, unknown> | null {
+  function resolveAuthOptions(): {
+    options: Record<string, unknown> | null;
+    readError: boolean;
+  } {
     if (pluginRef && pluginRef._currentOptions) {
-      return pluginRef._currentOptions as Record<string, unknown>;
+      return { options: pluginRef._currentOptions as Record<string, unknown>, readError: false };
     }
     try {
       const opts = typeof app.readPluginOptions === "function" ? app.readPluginOptions() : null;
       const configuration = opts && opts.configuration;
-      return configuration && typeof configuration === "object"
-        ? (configuration as Record<string, unknown>)
-        : null;
-    } catch {
-      return null;
+      return {
+        options:
+          configuration && typeof configuration === "object"
+            ? (configuration as Record<string, unknown>)
+            : null,
+        readError: false
+      };
+    } catch (err) {
+      // A failed persisted-config read leaves the auth state UNDETERMINED.
+      // Returning null here would let auth decisions silently degrade to open
+      // access, so the read failure is surfaced and callers fail closed.
+      if (app && typeof app.error === "function") {
+        app.error(
+          "[management-api] failed to read persisted plugin options for auth decision: " +
+            (err instanceof Error ? err.message : String(err))
+        );
+      }
+      return { options: null, readError: true };
     }
+  }
+
+  function getAuthOptions(): Record<string, unknown> | null {
+    return resolveAuthOptions().options;
   }
 
   function getManagementToken(): string | null {
@@ -258,12 +279,21 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
   }
 
   function authorizeManagement(req: RouteRequest, res: RouteResponse, action?: string): boolean {
+    // Fail closed when the auth configuration cannot be read: an undetermined
+    // config must never silently degrade to open access.
+    if (resolveAuthOptions().readError) {
+      recordManagementAuthDecision("denied", "config_read_error", action);
+      res
+        .status(503)
+        .json({ error: "Management API temporarily unavailable: unable to read configuration" });
+      return false;
+    }
+
     const expectedToken = getManagementToken();
     if (!expectedToken) {
       // No token configured → allow open access unless the admin explicitly
       // requires one.  This preserves backwards-compatible behaviour for
-      // existing deployments.  A startup warning is logged to encourage
-      // operators to configure a token (see registerWithRouter below).
+      // existing deployments.
       if (!isTokenRequired()) {
         recordManagementAuthDecision("allowed", "open_access", action);
         return true;
