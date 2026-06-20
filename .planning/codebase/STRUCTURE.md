@@ -93,7 +93,7 @@ signalk-edge-link/
 - Implementation: `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, `src/codec/packet/` (parser/builder), or focused helpers under `src/codec/` and `src/transport/`.
 - Types: `src/foundation/types/` (e.g. `config.ts`, `instance.ts`).
 - Tests: `__tests__/v2/` plus `__tests__/integration/` if cross-pipeline behavior changes.
-- Docs: `docs/protocol-v2-spec.md`, `docs/protocol-v3-spec.md`, or relevant operational docs.
+- Docs: `docs/protocol-v3-spec.md`, `docs/protocol-v3.md`, or relevant operational docs.
 
 **New management endpoint:**
 
