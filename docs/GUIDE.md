@@ -44,17 +44,22 @@ Standard Signal K uses TCP/WebSocket subscriptions. These work well on reliable 
 - **Multi-hop relay** — No mechanism to chain instances together
 - **Bandwidth optimization** — No compression, no batching, no path deduplication
 
-Signal K Edge Link solves each of these with UDP transport, Brotli compression, AES-256-GCM encryption, and (in v2/v3) a reliability layer with ACK/NAK retransmission, congestion control, and dual-link failover.
+Signal K Edge Link solves each of these with UDP transport, Brotli compression, AES-256-GCM encryption, and (in v3, the Advanced mode) a reliability layer with ACK/NAK retransmission, congestion control, and dual-link failover.
 
 ### Protocol version at a glance
 
-| Version | Best for                                         | Key features                                                           |
-| ------- | ------------------------------------------------ | ---------------------------------------------------------------------- |
-| **v1**  | Stable local links, simplest setup               | Encrypted UDP, Brotli compression. No retransmission or metrics.       |
-| **v2**  | WAN links with packet loss or variable latency   | v1 + ACK/NAK reliability, congestion control, bonding, rich monitoring |
-| **v3**  | Untrusted WAN links (recommended for new setups) | v2 + HMAC-SHA256 authentication on all control packets                 |
+| Version           | Best for                                           | Key features                                                                                                                  |
+| ----------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **v1** (Basic)    | Stable local links, simplest setup                 | Encrypted UDP, Brotli compression. No retransmission or metrics.                                                              |
+| **v3** (Advanced) | WAN / untrusted links (recommended for new setups) | v1 + ACK/NAK reliability, congestion control, bonding, rich monitoring, and HMAC-SHA256 authentication on all control packets |
 
-**Recommendation:** Use **v3** for any new deployment. Fall back to v2 only when you need backward compatibility with an existing v2 peer that cannot be upgraded.
+**Recommendation:** Use **v3** for any new deployment; fall back to **v1** (Basic) only on trusted/private links where you want the absolute lowest overhead.
+
+> **What happened to v2?** An earlier reliable-transport version (v2) used a CRC-only,
+> unauthenticated control plane and was **removed in 3.0.0** because its control packets
+> were forgeable. A stored `protocolVersion: 2` is accepted for config back-compat and
+> silently coerced to `3`. Peers running pre-3.0.0 builds still speak v2 and cannot
+> exchange data with v3 peers.
 
 ---
 
@@ -164,14 +169,14 @@ One Signal K instance can run **both** a server and a client simultaneously — 
             │
             ▼
  ┌──────────────────┐
- │ Packet header    │  v2/v3 only: prepend 15-byte binary header
- │ (v2/v3)          │  with magic, version, type, flags, seq, CRC
+ │ Packet header    │  v3 only: prepend 15-byte binary header
+ │ (v3)          │  with magic, version, type, flags, seq, CRC
  └──────────┬───────┘
             │
             ▼
  ┌──────────────────┐
- │ Retransmit queue │  v2/v3: store copy for possible retransmission
- │ (v2/v3)          │  (up to 5000 entries)
+ │ Retransmit queue │  v3: store copy for possible retransmission
+ │ (v3)          │  (up to 5000 entries)
  └──────────┬───────┘
             │
             ▼
@@ -185,14 +190,14 @@ One Signal K instance can run **both** a server and a client simultaneously — 
             │
             ▼
  ┌──────────────────┐
- │ Rate limit       │  v2/v3: 200 DATA packets/sec per client IP
+ │ Rate limit       │  v3: 200 DATA packets/sec per client IP
  │ per client       │  Prevents DoS; 5 sessions max per IP
  └──────────┬───────┘
             │
             ▼
  ┌──────────────────┐
- │ Parse header     │  v2/v3: verify magic "SK", version, CRC-16
- │ (v2/v3)          │  Silently discard on mismatch
+ │ Parse header     │  v3: verify magic "SK", version, CRC-16
+ │ (v3)          │  Silently discard on mismatch
  └──────────┬───────┘
             │
             ▼
@@ -209,7 +214,7 @@ One Signal K instance can run **both** a server and a client simultaneously — 
             ▼
  ┌──────────────────┐
  │ Path dictionary  │  (optional) Decode numeric IDs back to paths
- │ decode (v2/v3)   │
+ │ decode (v3)   │
  └──────────┬───────┘
             │
             ▼
@@ -219,7 +224,7 @@ One Signal K instance can run **both** a server and a client simultaneously — 
             │
             ▼
  ┌──────────────────┐
- │ Sequence check   │  v2/v3: detect gaps, send NAK for missing seqs
+ │ Sequence check   │  v3: detect gaps, send NAK for missing seqs
  │ + ACK generation │  Send cumulative ACK every 100 ms
  └──────────┬───────┘
             │
@@ -348,7 +353,7 @@ v1 is the simplest protocol. Every batch of deltas is compressed and encrypted a
        Total overhead per packet: 28 bytes
 ```
 
-The receiver identifies v1 packets because they **do not** start with the `SK` magic bytes used by v2/v3.
+The receiver identifies v1 packets because they **do not** start with the `SK` magic bytes used by v3.
 
 #### When to use v1
 
@@ -383,13 +388,13 @@ The receiver identifies v1 packets because they **do not** start with the `SK` m
 }
 ```
 
-The `testAddress` / `testPort` / `pingIntervalTime` fields configure an external ping monitor for RTT estimation. These fields **must not** appear in v2/v3 configs.
+The `testAddress` / `testPort` / `pingIntervalTime` fields configure an external ping monitor for RTT estimation. These fields **must not** appear in v3 (Advanced) configs.
 
 ---
 
-### v2 — Reliable Transport
+### v3 — Reliable, Authenticated Transport (Advanced)
 
-v2 adds a 15-byte binary header to every packet, enabling sequence tracking, ACK/NAK retransmission, heartbeat-based RTT measurement, congestion control, and bonding.
+v3 adds a 15-byte binary header to every packet, enabling sequence tracking, ACK/NAK retransmission, heartbeat-based RTT measurement, congestion control, and bonding. Every control packet additionally carries a 16-byte HMAC-SHA256 authentication tag keyed by the shared `secretKey`.
 
 #### Packet header format
 
@@ -397,7 +402,7 @@ v2 adds a 15-byte binary header to every packet, enabling sequence tracking, ACK
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|    Magic "SK" (0x534B)        |  Version(02)  |  Type         |
+|    Magic "SK" (0x534B)        |  Version(03)  |  Type         |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |    Flags      |          Sequence Number (uint32, BE)          |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -407,15 +412,15 @@ v2 adds a 15-byte binary header to every packet, enabling sequence tracking, ACK
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-| Offset | Size | Field    | Description                                   |
-| ------ | ---- | -------- | --------------------------------------------- |
-| 0      | 2 B  | Magic    | `0x53 0x4B` ("SK") — identifies v2/v3 packets |
-| 2      | 1 B  | Version  | `0x02` (v2) or `0x03` (v3)                    |
-| 3      | 1 B  | Type     | Packet type (see table below)                 |
-| 4      | 1 B  | Flags    | Feature flags (see table below)               |
-| 5      | 4 B  | Sequence | Packet sequence number (uint32, big-endian)   |
-| 9      | 4 B  | Length   | Payload length in bytes (uint32, big-endian)  |
-| 13     | 2 B  | CRC16    | CRC-CCITT checksum of header bytes 0–12       |
+| Offset | Size | Field    | Description                                  |
+| ------ | ---- | -------- | -------------------------------------------- |
+| 0      | 2 B  | Magic    | `0x53 0x4B` ("SK") — identifies v3 packets   |
+| 2      | 1 B  | Version  | `0x03` (v3)                                  |
+| 3      | 1 B  | Type     | Packet type (see table below)                |
+| 4      | 1 B  | Flags    | Feature flags (see table below)              |
+| 5      | 4 B  | Sequence | Packet sequence number (uint32, big-endian)  |
+| 9      | 4 B  | Length   | Payload length in bytes (uint32, big-endian) |
+| 13     | 2 B  | CRC16    | CRC-CCITT checksum of header bytes 0–12      |
 
 After the header comes the payload: `[12B IV][ciphertext][16B GCM auth tag]`
 
@@ -476,42 +481,40 @@ Both peers must be configured identically for `useMsgpack` and `usePathDictionar
 
 ---
 
-### v3 — Authenticated Control Packets
+#### Authenticated control packets
 
-v3 is identical to v2 in data path and wire format. The only difference is that **control packets** (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_REQUEST) carry a **16-byte HMAC-SHA256 authentication tag** appended after the payload.
+Every **control packet** (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_REQUEST) carries a **16-byte HMAC-SHA256 authentication tag** appended after the payload:
 
-#### Control packet layout in v3
-
-| Packet    | v2 payload        | v3 payload                           |
+| Packet    | Base payload      | On-the-wire payload                  |
 | --------- | ----------------- | ------------------------------------ |
 | ACK       | `uint32 ackedSeq` | `uint32 ackedSeq` + 16-byte HMAC tag |
 | NAK       | N × `uint32 seq`  | N × `uint32 seq` + 16-byte HMAC tag  |
 | HEARTBEAT | (empty)           | 16-byte HMAC tag only                |
 | HELLO     | JSON payload      | JSON payload + 16-byte HMAC tag      |
 
-The HMAC tag covers `header[0..12] ‖ payload`, keyed by the shared `secretKey`. The header CRC16 remains in place for fast corruption detection.
+The HMAC tag covers `header[0..12] ‖ payload`, keyed by the shared `secretKey`. The header CRC16 remains in place for fast corruption detection. DATA packets are unaffected — they are already authenticated by the AES-256-GCM auth tag.
 
 #### Why this matters
 
-In v2, any host that can reach the UDP port can forge a valid control packet:
+Without control-packet authentication, any host that can reach the UDP port could forge a valid control packet:
 
 - **Forged FULL_STATUS_REQUEST** — triggers a full snapshot replay (reflection amplifier)
 - **Forged NAK** — causes spurious retransmissions
 - **Forged HELLO** — creates a spurious server session
 
-v3 closes all of these because forging requires knowledge of the shared secret. The plugin emits a startup warning when a v2 connection is configured with a publicly reachable port.
+v3 closes all of these because forging requires knowledge of the shared secret. (This is why the earlier unauthenticated v2 control plane was removed in 3.0.0.)
 
 #### Security comparison
 
-| Property                      | v1      | v2                   | v3            |
-| ----------------------------- | ------- | -------------------- | ------------- |
-| Data payload confidentiality  | ✓       | ✓                    | ✓             |
-| Data payload integrity (GCM)  | ✓       | ✓                    | ✓             |
-| Control packet authentication | —       | CRC only (forgeable) | HMAC-SHA256 ✓ |
-| Retransmission on loss        | —       | ✓                    | ✓             |
-| Congestion control            | —       | ✓                    | ✓             |
-| Bonding / failover            | —       | ✓                    | ✓             |
-| Safe on untrusted networks    | partial | **No**               | **Yes**       |
+| Property                      | v1 (Basic) | v3 (Advanced) |
+| ----------------------------- | ---------- | ------------- |
+| Data payload confidentiality  | ✓          | ✓             |
+| Data payload integrity (GCM)  | ✓          | ✓             |
+| Control packet authentication | —          | HMAC-SHA256 ✓ |
+| Retransmission on loss        | —          | ✓             |
+| Congestion control            | —          | ✓             |
+| Bonding / failover            | —          | ✓             |
+| Safe on untrusted networks    | partial    | **Yes**       |
 
 **Both sides must run the same version. Upgrading one side without the other causes immediate link failure** — `malformedPackets` increments and no data flows.
 
@@ -545,7 +548,7 @@ These sit outside `connections[]`, at the root of the plugin config:
 | `name`                | string  | `"connection"` | Label shown in UI and logs. Used as directory name for runtime config files. Max 40 characters.                        |
 | `serverType`          | string  | `"client"`     | `"client"` sends data; `"server"` receives data.                                                                       |
 | `udpPort`             | integer | `4446`         | UDP port. Range 1024–65535. Must match on both ends.                                                                   |
-| `udpMetaPort`         | integer | —              | Optional separate UDP port for v1 metadata packets. Ignored by v2/v3 (which multiplex metadata on the main port).      |
+| `udpMetaPort`         | integer | —              | Optional separate UDP port for v1 metadata packets. Ignored by v3 (which multiplex metadata on the main port).         |
 | `secretKey`           | string  | — (required)   | AES-256 encryption key. Accepts 32-char ASCII, 64-char hex, or 44-char base64. Must match exactly on both ends.        |
 | `stretchAsciiKey`     | boolean | `false`        | When `true`, runs a 32-char ASCII key through PBKDF2-SHA256 (600,000 iterations) before use. **Both ends must match.** |
 | `protocolVersion`     | integer | `2`            | `1`, `2`, or `3`. Must match on both ends.                                                                             |
@@ -556,15 +559,15 @@ These sit outside `connections[]`, at the root of the plugin config:
 
 ### 7.3 Client transport fields
 
-| Field                | Type    | Default       | Description                                                                                                                  |
-| -------------------- | ------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `udpAddress`         | string  | `"127.0.0.1"` | Hostname or IP address of the remote server. Required for client connections.                                                |
-| `helloMessageSender` | integer | `60`          | Interval in **seconds** between HELLO keepalive messages. Keeps NAT/firewall mappings alive. Range 10–3600.                  |
-| `heartbeatInterval`  | integer | `25000`       | Interval in **ms** between HEARTBEAT probes (v2/v3 only). Used for RTT measurement and NAT hole-punching. Range 1000–120000. |
+| Field                | Type    | Default       | Description                                                                                                               |
+| -------------------- | ------- | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `udpAddress`         | string  | `"127.0.0.1"` | Hostname or IP address of the remote server. Required for client connections.                                             |
+| `helloMessageSender` | integer | `60`          | Interval in **seconds** between HELLO keepalive messages. Keeps NAT/firewall mappings alive. Range 10–3600.               |
+| `heartbeatInterval`  | integer | `25000`       | Interval in **ms** between HEARTBEAT probes (v3 only). Used for RTT measurement and NAT hole-punching. Range 1000–120000. |
 
 ### 7.4 v1 ping monitor fields (client, v1 only)
 
-These fields **must not** appear in v2/v3 configurations.
+These fields **must not** appear in v3 configurations.
 
 | Field              | Type    | Default       | Description                                       |
 | ------------------ | ------- | ------------- | ------------------------------------------------- |
@@ -572,7 +575,7 @@ These fields **must not** appear in v2/v3 configurations.
 | `testPort`         | integer | `80`          | Port to probe (e.g., 53, 80, 443).                |
 | `pingIntervalTime` | number  | `1`           | Probe frequency in **minutes**. Range 0.1–60.     |
 
-### 7.5 Reliability — server mode (v2/v3 only)
+### 7.5 Reliability — server mode (v3 only)
 
 Nested under `reliability`:
 
@@ -582,7 +585,7 @@ Nested under `reliability`:
 | `ackResendInterval` | integer | `1000`  | 100–10000  | Re-send the last ACK after this interval of silence. |
 | `nakTimeout`        | integer | `100`   | 20–5000    | Idle delay before sending NAK for a detected gap.    |
 
-### 7.6 Reliability — client mode (v2/v3 only)
+### 7.6 Reliability — client mode (v3 only)
 
 Nested under `reliability`:
 
@@ -601,7 +604,7 @@ Nested under `reliability`:
 | `recoveryBurstIntervalMs` | integer | `200`    | 50–5000     | Interval between recovery burst cycles in ms.                      |
 | `recoveryAckGapMs`        | integer | `4000`   | 500–120000  | Minimum ACK silence before triggering fast recovery bursts.        |
 
-### 7.7 Congestion control (client, v2/v3 only)
+### 7.7 Congestion control (client, v3 only)
 
 Nested under `congestionControl`. See [Section 9](#9-congestion-control) for the full algorithm.
 
@@ -613,7 +616,7 @@ Nested under `congestionControl`. See [Section 9](#9-congestion-control) for the
 | `minDeltaTimer`     | integer | `100`   | 50–1000 ms    | Fastest allowed send rate.                                                   |
 | `maxDeltaTimer`     | integer | `5000`  | 1000–30000 ms | Slowest allowed send rate under congestion.                                  |
 
-### 7.8 Connection bonding (client, v2/v3 only)
+### 7.8 Connection bonding (client, v3 only)
 
 Nested under `bonding`. See [Section 10](#10-connection-bonding-dual-link-failover) for the full explanation.
 
@@ -633,7 +636,7 @@ Nested under `bonding`. See [Section 10](#10-connection-bonding-dual-link-failov
 | `failover.failbackDelay`       | integer | `30000`         | 5000–300000 ms    | Hold-off after primary recovers before switching back. |
 | `failover.heartbeatTimeout`    | integer | `5000`          | 1000–30000 ms     | Link marked DOWN after no response for this long.      |
 
-### 7.9 Alert thresholds (client, v2/v3 only)
+### 7.9 Alert thresholds (client, v3 only)
 
 Nested under `alertThresholds`. Each metric has `warning` and `critical` levels. When exceeded, a Signal K notification fires at `notifications.signalk-edge-link.<connectionName>.*`.
 
@@ -647,9 +650,9 @@ Nested under `alertThresholds`. Each metric has `warning` and `critical` levels.
 
 ### 7.10 Server-specific fields
 
-| Field                        | Type    | Default | Description                                                                                                                                                                                                                |
-| ---------------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `requestFullStatusOnRestart` | boolean | `false` | (v2/v3) When `true`, the server sends a FULL_STATUS_REQUEST to each client on first contact after a restart. The client replays its complete current Signal K state. Rate-limited to one replay per 10 seconds per client. |
+| Field                        | Type    | Default | Description                                                                                                                                                                                                             |
+| ---------------------------- | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `requestFullStatusOnRestart` | boolean | `false` | (v3) When `true`, the server sends a FULL_STATUS_REQUEST to each client on first contact after a restart. The client replays its complete current Signal K state. Rate-limited to one replay per 10 seconds per client. |
 
 ### 7.11 Internal constants (source-level tuning)
 
@@ -730,7 +733,7 @@ Controls which Signal K paths are transmitted, and optionally enables metadata s
 
 **How metadata streaming works:** When enabled, the client forwards an initial full snapshot shortly after subscribing, coalesces live `updates[].meta[]` changes over a short debounce window, and re-broadcasts the full snapshot every `intervalSec`. A restarted server may also send `META_REQUEST` to demand an immediate snapshot.
 
-**v1 caveat:** v1 has no packet-type byte, so metadata is transmitted on a separate UDP port (`udpMetaPort`). If `udpMetaPort` is not configured, metadata is a no-op on v1. v2/v3 multiplex metadata on the main data port using packet type `0x06`.
+**v1 caveat:** v1 has no packet-type byte, so metadata is transmitted on a separate UDP port (`udpMetaPort`). If `udpMetaPort` is not configured, metadata is a no-op on v1. v3 multiplex metadata on the main data port using packet type `0x06`.
 
 ### sentence_filter.json
 
@@ -1041,14 +1044,14 @@ A 32-character ASCII key has ~208 bits of raw entropy. Setting `stretchAsciiKey:
 
 ### Security properties
 
-| Property                      | Status     | Detail                                         |
-| ----------------------------- | ---------- | ---------------------------------------------- |
-| Data confidentiality          | ✓ Strong   | AES-256-GCM                                    |
-| Data integrity                | ✓ Strong   | GCM auth tag (16 bytes)                        |
-| Control packet authentication | v3 only    | HMAC-SHA256; v2 uses CRC only                  |
-| Forward secrecy               | ✗ None     | Same pre-shared key for lifetime of connection |
-| Client authentication         | ✗ None     | Any holder of the key can connect              |
-| Compression side-channel      | ✗ Low risk | Brotli before encryption — size observable     |
+| Property                      | Status     | Detail                                                                |
+| ----------------------------- | ---------- | --------------------------------------------------------------------- |
+| Data confidentiality          | ✓ Strong   | AES-256-GCM                                                           |
+| Data integrity                | ✓ Strong   | GCM auth tag (16 bytes)                                               |
+| Control packet authentication | v3 only    | HMAC-SHA256 on every control packet (v1 Basic has no control packets) |
+| Forward secrecy               | ✗ None     | Same pre-shared key for lifetime of connection                        |
+| Client authentication         | ✗ None     | Any holder of the key can connect                                     |
+| Compression side-channel      | ✗ Low risk | Brotli before encryption — size observable                            |
 
 ### Key rotation procedure
 
@@ -1118,7 +1121,7 @@ These counters and gauges appear in `GET /metrics` under `stats` and `bandwidth`
 - `compressionRatio` below 70% suggests short delta batches — increase `deltaTimer` for better batching
 - `malformedPackets > 0` with no key change usually means a protocol version mismatch
 
-### 13.2 Reliability metrics (v2/v3 only)
+### 13.2 Reliability metrics (v3 only)
 
 From `GET /metrics` under `networkQuality`:
 
@@ -1219,7 +1222,7 @@ Intentionally excluded: token values, transport secrets, client addresses, user 
 | Signal K path                                   | Type         | Unit    | Description                    |
 | ----------------------------------------------- | ------------ | ------- | ------------------------------ |
 | `networking.modem.rtt`                          | number       | seconds | v1 external ping RTT           |
-| `networking.edgeLink.rtt`                       | number       | ms      | v2/v3 heartbeat RTT            |
+| `networking.edgeLink.rtt`                       | number       | ms      | v3 heartbeat RTT               |
 | `networking.edgeLink.jitter`                    | number       | ms      | RTT variance                   |
 | `networking.edgeLink.packetLoss`                | number       | ratio   | Packet loss (0–1)              |
 | `networking.edgeLink.linkQuality`               | number       | 0–100   | Composite link quality         |
@@ -2127,8 +2130,8 @@ Also add `sentence_filter.json` excluding `GSV`, `GSA`, `VTG`.
 | --------------------------------------------- | ---------------------------------- | ---------------------------------------------------- |
 | `ECONNREFUSED`                                | Server not listening or wrong port | Verify server running; check `udpPort` matches       |
 | `ENETUNREACH`                                 | No route to host                   | Check network connectivity                           |
-| `testAddress is only supported on v1 clients` | v1-only fields in v2/v3 config     | Remove `testAddress`, `testPort`, `pingIntervalTime` |
-| `Invalid magic bytes`                         | v1 client sending to v2/v3 server  | Set same `protocolVersion` on both ends              |
+| `testAddress is only supported on v1 clients` | v1-only fields in v3 config        | Remove `testAddress`, `testPort`, `pingIntervalTime` |
+| `Invalid magic bytes`                         | v1 client sending to v3 server     | Set same `protocolVersion` on both ends              |
 | Protocol version mismatch warning             | Mismatched `protocolVersion`       | Set same version on both ends and restart            |
 
 ### No data flowing
@@ -2143,12 +2146,12 @@ curl http://shore:3000/plugins/signalk-edge-link/metrics | jq '{rcvd:.stats.delt
 
 ### Bonding not failing over
 
-| Symptom                     | Check                                                                                       |
-| --------------------------- | ------------------------------------------------------------------------------------------- |
-| Failover not triggering     | Verify `bonding.enabled: true`; check backup is not `"down"` in `GET /bonding`              |
-| Backup shows `"down"`       | Ensure UDP is allowed bidirectionally; server must echo HEARTBEAT probes                    |
-| Frequent failover/failback  | Increase `failbackDelay` (try 60 s); increase `rttThreshold`                                |
-| `POST /bonding` returns 400 | Check field names and ranges against [Section 7.8](#78-connection-bonding-client-v2v3-only) |
+| Symptom                     | Check                                                                                     |
+| --------------------------- | ----------------------------------------------------------------------------------------- |
+| Failover not triggering     | Verify `bonding.enabled: true`; check backup is not `"down"` in `GET /bonding`            |
+| Backup shows `"down"`       | Ensure UDP is allowed bidirectionally; server must echo HEARTBEAT probes                  |
+| Frequent failover/failback  | Increase `failbackDelay` (try 60 s); increase `rttThreshold`                              |
+| `POST /bonding` returns 400 | Check field names and ranges against [Section 7.8](#78-connection-bonding-client-v3-only) |
 
 ### Congestion control not adapting
 
@@ -2270,7 +2273,7 @@ Source replication is populated from normal DATA delta ingest (`update.source` /
 npm run build          # TypeScript compile + webpack (web UI)
 npm run dev            # Watch mode (TypeScript)
 npm test               # All unit tests
-npm run test:v2        # v2 protocol tests only
+npm run test:v2        # reliable-transport (v3) protocol tests
 npm run test:integration  # End-to-end pipeline tests
 npm run lint           # ESLint check
 npm run lint:fix       # ESLint auto-fix
@@ -2280,62 +2283,62 @@ npm run cli -- help
 
 ### Source file map
 
-| File                              | Purpose                                                                              |
-| --------------------------------- | ------------------------------------------------------------------------------------ |
-| `src/index.ts`                    | Plugin entry point; instance registry, Express routes, start/stop lifecycle          |
-| `src/types.ts`                    | All TypeScript interfaces: Delta, ConnectionConfig, Metrics, InstanceState           |
-| `src/connection-config.ts`        | Configuration validation and normalization                                           |
-| `src/constants.ts`                | All tuning constants (MTU, buffer sizes, timeouts, retry counts)                     |
-| `src/instance.ts`                 | Single connection lifecycle: subscribes, batches, manages socket, drives monitoring  |
-| `src/pipeline.ts`                 | v1 protocol: compress → encrypt → send (client); receive → decrypt → inject (server) |
-| `src/pipeline-v2-client.ts`       | v2/v3 client: packet building, retransmit queue, ACK/NAK handling, congestion hook   |
-| `src/pipeline-v2-server.ts`       | v2/v3 server: packet parsing, per-client sessions, ACK/NAK generation                |
-| `src/pipeline-factory.ts`         | Selects pipeline based on `serverType` and `protocolVersion`                         |
-| `src/pipeline-utils.ts`           | Shared Brotli, encryption, UDP send utilities                                        |
-| `src/packet.ts`                   | v2/v3 header encode/decode; magic/version/type/flags/seq/CRC validation              |
-| `src/retransmit-queue.ts`         | Bounded queue for retransmit candidates; timeout-based eviction                      |
-| `src/sequence.ts`                 | Sequence number tracking, gap detection, NAK scheduling (server side)                |
-| `src/congestion.ts`               | AIMD congestion control; adjusts delta timer every 5 s based on RTT/loss             |
-| `src/bonding.ts`                  | Primary/backup link health monitoring; automatic failover/failback                   |
-| `src/crypto.ts`                   | AES-256-GCM encrypt/decrypt; PBKDF2 key derivation; HMAC (v3)                        |
-| `src/delta-sanitizer.ts`          | Strip own telemetry; validate paths; normalize outbound deltas                       |
-| `src/pathDictionary.ts`           | Bidirectional Signal K path ↔ 2-byte numeric ID encoding                             |
-| `src/metadata.ts`                 | Collect/diff Signal K path metadata; package for transmission                        |
-| `src/values-snapshot.ts`          | Capture full current Signal K state for FULL_STATUS_REQUEST replay                   |
-| `src/source-replication.ts`       | Server-side registry tracking source identities across clients                       |
-| `src/source-dispatch.ts`          | Normalize delta source references for correct Signal K routing                       |
-| `src/metrics.ts`                  | Per-instance metrics accumulation                                                    |
-| `src/metrics-publisher.ts`        | Publish link metrics to Signal K (`networking.edgeLink.*`)                           |
-| `src/monitoring.ts`               | Packet loss heatmap, path latency tracking, retransmit charts, alert thresholds      |
-| `src/routes.ts`                   | Route dispatcher; management auth; rate limiting                                     |
-| `src/routes/metrics.ts`           | `/metrics`, `/network-metrics`, `/prometheus`                                        |
-| `src/routes/config.ts`            | `/plugin-config`, `/connections/:id/config/*`                                        |
-| `src/routes/connections.ts`       | `/connections`, `/instances`                                                         |
-| `src/routes/control.ts`           | `/bonding/failover`, `/delta-timer`                                                  |
-| `src/routes/monitoring.ts`        | `/monitoring/alerts`, packet capture                                                 |
-| `src/prometheus.ts`               | Prometheus metrics exporter                                                          |
-| `src/config-io.ts`                | Load/save runtime JSON config files                                                  |
-| `src/config-watcher.ts`           | File system watcher; debounce and reload on modification                             |
-| `src/CircularBuffer.ts`           | Fixed-size circular buffer for metrics history                                       |
-| `src/bin/edge-link-cli.ts`        | CLI tool: instance/bonding management, config migration                              |
-| `src/scripts/migrate-config.ts`   | Migrate legacy flat config to `connections[]` format                                 |
-| `src/shared/connection-schema.ts` | Single source of truth for plugin config schema                                      |
-| `src/webapp/`                     | React management UI source (compiled to `public/`)                                   |
+| File                                            | Purpose                                                                              |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `src/index.ts`                                  | Plugin entry point; instance registry, Express routes, start/stop lifecycle          |
+| `src/types.ts`                                  | All TypeScript interfaces: Delta, ConnectionConfig, Metrics, InstanceState           |
+| `src/connection-config.ts`                      | Configuration validation and normalization                                           |
+| `src/constants.ts`                              | All tuning constants (MTU, buffer sizes, timeouts, retry counts)                     |
+| `src/instance.ts`                               | Single connection lifecycle: subscribes, batches, manages socket, drives monitoring  |
+| `src/pipeline.ts`                               | v1 protocol: compress → encrypt → send (client); receive → decrypt → inject (server) |
+| `src/transport/pipeline/reliable-client.ts`     | v3 client: packet building, retransmit queue, ACK/NAK handling, congestion hook      |
+| `src/transport/pipeline/reliable-server.ts`     | v3 server: packet parsing, per-client sessions, ACK/NAK generation                   |
+| `src/pipeline-factory.ts`                       | Selects pipeline based on `serverType` and `protocolVersion`                         |
+| `src/pipeline-utils.ts`                         | Shared Brotli, encryption, UDP send utilities                                        |
+| `src/packet.ts`                                 | v3 header encode/decode; magic/version/type/flags/seq/CRC validation                 |
+| `src/transport/reliability/retransmit-queue.ts` | Bounded queue for retransmit candidates; timeout-based eviction                      |
+| `src/transport/reliability/sequence.ts`         | Sequence number tracking, gap detection, NAK scheduling (server side)                |
+| `src/transport/congestion.ts`                   | AIMD congestion control; adjusts delta timer every 5 s based on RTT/loss             |
+| `src/transport/bonding.ts`                      | Primary/backup link health monitoring; automatic failover/failback                   |
+| `src/codec/crypto.ts`                           | AES-256-GCM encrypt/decrypt; PBKDF2 key derivation; HMAC (v3)                        |
+| `src/delta-sanitizer.ts`                        | Strip own telemetry; validate paths; normalize outbound deltas                       |
+| `src/pathDictionary.ts`                         | Bidirectional Signal K path ↔ 2-byte numeric ID encoding                             |
+| `src/metadata.ts`                               | Collect/diff Signal K path metadata; package for transmission                        |
+| `src/values-snapshot.ts`                        | Capture full current Signal K state for FULL_STATUS_REQUEST replay                   |
+| `src/source-replication.ts`                     | Server-side registry tracking source identities across clients                       |
+| `src/source-dispatch.ts`                        | Normalize delta source references for correct Signal K routing                       |
+| `src/metrics.ts`                                | Per-instance metrics accumulation                                                    |
+| `src/metrics-publisher.ts`                      | Publish link metrics to Signal K (`networking.edgeLink.*`)                           |
+| `src/monitoring.ts`                             | Packet loss heatmap, path latency tracking, retransmit charts, alert thresholds      |
+| `src/routes.ts`                                 | Route dispatcher; management auth; rate limiting                                     |
+| `src/routes/metrics.ts`                         | `/metrics`, `/network-metrics`, `/prometheus`                                        |
+| `src/routes/config.ts`                          | `/plugin-config`, `/connections/:id/config/*`                                        |
+| `src/routes/connections.ts`                     | `/connections`, `/instances`                                                         |
+| `src/routes/control.ts`                         | `/bonding/failover`, `/delta-timer`                                                  |
+| `src/routes/monitoring.ts`                      | `/monitoring/alerts`, packet capture                                                 |
+| `src/prometheus.ts`                             | Prometheus metrics exporter                                                          |
+| `src/config-io.ts`                              | Load/save runtime JSON config files                                                  |
+| `src/config-watcher.ts`                         | File system watcher; debounce and reload on modification                             |
+| `src/CircularBuffer.ts`                         | Fixed-size circular buffer for metrics history                                       |
+| `src/bin/edge-link-cli.ts`                      | CLI tool: instance/bonding management, config migration                              |
+| `src/scripts/migrate-config.ts`                 | Migrate legacy flat config to `connections[]` format                                 |
+| `src/shared/connection-schema.ts`               | Single source of truth for plugin config schema                                      |
+| `src/webapp/`                                   | React management UI source (compiled to `public/`)                                   |
 
 ### Key functions
 
-| Function                        | File                    | What it does                                                                     |
-| ------------------------------- | ----------------------- | -------------------------------------------------------------------------------- |
-| `processDelta()`                | `instance.ts`           | Receives a raw Signal K delta; filters, deduplicates, buffers, triggers batching |
-| `flushDeltaBatch()`             | `instance.ts`           | Takes buffered deltas, serializes, compresses, encrypts, sends via pipeline      |
-| `sendDelta()`                   | `pipeline-v2-client.ts` | v2/v3: builds DATA packet, adds to retransmit queue, sends via UDP               |
-| `parsePacket()`                 | `pipeline-v2-server.ts` | v2/v3: validates header, decrypts, dispatches by packet type                     |
-| `onDataPacket()`                | `pipeline-v2-server.ts` | Processes a decrypted DATA payload: sequence tracking, delta injection, ACK      |
-| `normalizeKey()`                | `crypto.ts`             | Converts any of the three key formats to a raw 32-byte Buffer                    |
-| `encodeDelta()`                 | `pathDictionary.ts`     | Replaces Signal K path strings with numeric IDs in a delta                       |
-| `decodeDelta()`                 | `pathDictionary.ts`     | Reverses path dictionary encoding back to path strings                           |
-| `RetransmitQueue.add()`         | `retransmit-queue.ts`   | Stores a packet copy for potential retransmission                                |
-| `RetransmitQueue.acknowledge()` | `retransmit-queue.ts`   | Removes all entries up to the cumulative ACK sequence                            |
+| Function                        | File                  | What it does                                                                     |
+| ------------------------------- | --------------------- | -------------------------------------------------------------------------------- |
+| `processDelta()`                | `instance.ts`         | Receives a raw Signal K delta; filters, deduplicates, buffers, triggers batching |
+| `flushDeltaBatch()`             | `instance.ts`         | Takes buffered deltas, serializes, compresses, encrypts, sends via pipeline      |
+| `sendDelta()`                   | `reliable-client.ts`  | v3: builds DATA packet, adds to retransmit queue, sends via UDP                  |
+| `parsePacket()`                 | `reliable-server.ts`  | v3: validates header, decrypts, dispatches by packet type                        |
+| `onDataPacket()`                | `reliable-server.ts`  | Processes a decrypted DATA payload: sequence tracking, delta injection, ACK      |
+| `normalizeKey()`                | `crypto.ts`           | Converts any of the three key formats to a raw 32-byte Buffer                    |
+| `encodeDelta()`                 | `pathDictionary.ts`   | Replaces Signal K path strings with numeric IDs in a delta                       |
+| `decodeDelta()`                 | `pathDictionary.ts`   | Reverses path dictionary encoding back to path strings                           |
+| `RetransmitQueue.add()`         | `retransmit-queue.ts` | Stores a packet copy for potential retransmission                                |
+| `RetransmitQueue.acknowledge()` | `retransmit-queue.ts` | Removes all entries up to the cumulative ACK sequence                            |
 
 ### Configuration validation rules
 
@@ -2344,14 +2347,13 @@ The validator (`src/connection-config.ts`) enforces:
 - `serverType` must be `"server"` or `"client"`
 - `udpPort` must be an integer 1024–65535
 - `secretKey` must match one of the three accepted formats
-- `protocolVersion` must be 1, 2, or 3
+- `protocolVersion` must be 1 (Basic) or 3 (Advanced); a legacy `2` is accepted and coerced to `3`
 - Server connections must not include `congestionControl`, `bonding`, `alertThresholds`, or `skipOwnData`
-- v2/v3 clients must not include `testAddress`, `testPort`, or `pingIntervalTime`
-- v1 clients must not include `heartbeatInterval`
+- v3 clients must not include `testAddress`, `testPort`, or `pingIntervalTime`
 - Bonding: primary and backup must have different address:port pairs
 - Reliability values must be within documented ranges
 - Alert thresholds: `warning` ≤ `critical`; ratio metrics 0–1
 
-### Protocol v2 technical specification
+### Protocol v3 technical specification
 
-For the exact wire-level specification including METADATA envelope schema, source snapshot variant, v1 metadata port details, and the full sequence number semantics, see `docs/protocol-v2-spec.md`.
+For the exact wire-level specification including METADATA envelope schema, source snapshot variant, v1 metadata port details, and the full sequence number semantics, see `docs/protocol-v3-spec.md`.
