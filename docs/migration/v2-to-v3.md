@@ -24,13 +24,13 @@ material and no data-format change — both peers just need to agree on
 
 ## What changes between v2 and v3
 
-| Aspect                        | v2                   | v3            |
-| ----------------------------- | -------------------- | ------------- |
-| Data payload (GCM)            | encrypted + integrity | unchanged    |
-| Wire format / header          | 15-byte binary header | unchanged    |
-| Control packet authentication | CRC only (forgeable) | HMAC-SHA256   |
-| Retransmission / congestion / bonding | ✓            | ✓ (unchanged) |
-| Safe on untrusted networks    | **No**               | **Yes**       |
+| Aspect                                | v2                    | v3            |
+| ------------------------------------- | --------------------- | ------------- |
+| Data payload (GCM)                    | encrypted + integrity | unchanged     |
+| Wire format / header                  | 15-byte binary header | unchanged     |
+| Control packet authentication         | CRC only (forgeable)  | HMAC-SHA256   |
+| Retransmission / congestion / bonding | ✓                     | ✓ (unchanged) |
+| Safe on untrusted networks            | **No**                | **Yes**       |
 
 Everything else — AES-256-GCM encryption, Brotli compression, MessagePack,
 path-dictionary encoding, the configuration UI, and all REST endpoints — stays
@@ -42,8 +42,9 @@ Existing connection configs with `protocolVersion: 2` are **silently coerced to
 `3` on first start** of 3.0.0. No manual migration is required for the common
 case: upgrade the plugin on both peers, restart, and the link comes up on v3.
 
-If you need to stay on v2 (see Rollback below), you must set
-`protocolVersion: 2` explicitly after upgrading.
+The v2 wire protocol was **removed** in 3.0.0 — there is no way to re-select it
+in a 3.0.0+ build. A stored `protocolVersion: 2` always resolves to `3`. See
+Rollback below for how to interoperate with a peer that cannot be upgraded.
 
 ## How to migrate
 
@@ -104,33 +105,31 @@ tampering. It adds 16 bytes/packet and **both ends must match**.
 
 See `docs/security.md` for the threat model.
 
-## Rollback to v2
+## Rollback
 
-Because configs are coerced to v3 automatically, downgrading is an explicit
-action:
+The v2 wire protocol was removed in 3.0.0, so you cannot roll a 3.0.0+ build
+back to v2 — `protocolVersion: 2` is coerced to `3`. Your options are:
 
-1. Set `protocolVersion: 2` on **both** peers (the coercion will not override an
-   explicit `2`).
-2. Restart both peers simultaneously.
+- **Interoperate with an un-upgradable peer:** keep that peer on its older
+  (< 3.0.0) build, which still speaks v2, and keep the other peer on its old
+  build too. v3 and v2 peers cannot exchange data.
+- **Downgrade to Basic (v1):** set `protocolVersion: 1` on **both** peers. This
+  drops the reliability/authentication layer entirely (no ACK/NAK, congestion
+  control, or bonding) and should only be used on trusted/private links.
 
-No data loss occurs — the v2 pipeline is byte-compatible with v3 on the data
-path.
+No data loss occurs on the data path during either change.
 
 ## Troubleshooting
 
 ### Link does not recover after upgrade / `malformedPackets` climbing
 
-One peer is on v3 and the other is still on v2 (or has a different
-`secretKey`). v3 control packets fail HMAC verification against the wrong key or
-are rejected by a v2 peer. Align `protocolVersion` and `secretKey` on both ends.
+One peer is on v3 and the other is still on v2 (running a pre-3.0.0 build) or
+has a different `secretKey`. v3 control packets fail HMAC verification against
+the wrong key or are rejected by a v2 peer. Upgrade both ends to 3.0.0+ and
+align `secretKey`.
 
 ### Config rejected after upgrade
 
 The Basic (v1) ping-monitor fields `testAddress`, `testPort`, and
 `pingIntervalTime` are not valid on a v3 connection — v3 derives RTT from
 HEARTBEAT exchanges. Remove them if present.
-
-### Startup warning about a publicly reachable v2 port
-
-This is the expected nudge to upgrade: a v2 connection on a publicly reachable
-UDP port has a forgeable control plane. Move it to v3.

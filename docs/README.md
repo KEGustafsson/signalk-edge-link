@@ -16,8 +16,7 @@ These docs cover individual topics in depth and can be read independently:
 - **[configuration-reference.md](configuration-reference.md)** — Complete settings reference with defaults and valid ranges
 - **[web-ui.md](web-ui.md)** — Configuration panel and runtime dashboard walkthrough (server and client)
 - **[api-reference.md](api-reference.md)** — REST API endpoint reference
-- **[protocol-v2.md](protocol-v2.md)** — Basic (v1) and v2 protocol wire format and ACK/NAK handshake
-- **[protocol-v3-spec.md](protocol-v3-spec.md)** — Advanced (v3) HMAC control-plane authentication
+- **[protocol-v3.md](protocol-v3.md)** — Basic (v1) and Advanced (v3) protocol wire format, ACK/NAK handshake, and HMAC control-plane authentication
 - **[bonding.md](bonding.md)** — Dual-link failover configuration and monitoring
 - **[congestion-control.md](congestion-control.md)** — AIMD adaptive send-rate algorithm and tuning
 - **[metrics.md](metrics.md)** — All metrics: REST, Signal K paths, and Prometheus
@@ -28,7 +27,7 @@ These docs cover individual topics in depth and can be read independently:
 
 ## Wire Protocol Specification
 
-**[protocol-v2-spec.md](protocol-v2-spec.md)** — RFC-style specification of the binary wire format, packet types, flags, CRC16, sequence semantics, and METADATA envelope schema. Read this for bit-level implementation details not covered in GUIDE.md.
+**[protocol-v3-spec.md](protocol-v3-spec.md)** — RFC-style specification of the binary wire format, packet types, flags, CRC16, HMAC control-packet authentication, sequence semantics, and METADATA envelope schema. Read this for bit-level implementation details not covered in GUIDE.md.
 
 ## Process Docs
 
@@ -37,8 +36,7 @@ These docs cover individual topics in depth and can be read independently:
 
 ## Migration
 
-- **[migration/v1-to-v2.md](migration/v1-to-v2.md)** — Practical migration path from protocol v1 to v2
-- **[migration/v2-to-v3.md](migration/v2-to-v3.md)** — Upgrading a v2 link to the authenticated v3 control plane (default in 3.0.0)
+- **[migration/v2-to-v3.md](migration/v2-to-v3.md)** — Upgrading to the authenticated v3 control plane (default in 3.0.0); covers the automatic coercion of legacy `protocolVersion: 2` configs
 
 ## Performance Reports
 
@@ -60,7 +58,7 @@ Architecture and design notes retained for contributors and maintainers.
 
 ## Sample Configs
 
-- `../samples/` — Sample config files for minimal, development, and v2-bonding setups
+- `../samples/` — Sample config files for minimal, development, and bonding setups
 
 ## Dashboard Assets
 
@@ -87,6 +85,6 @@ Architecture and design notes retained for contributors and maintainers.
 ### Contributors
 
 1. `GUIDE.md` §20 Developer Reference
-2. `protocol-v2-spec.md`
+2. `protocol-v3-spec.md`
 3. `release-checklist.md`
 4. `planning/` and `performance/` docs relevant to your area

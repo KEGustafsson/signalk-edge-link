@@ -1,22 +1,295 @@
-# Signal K Edge Link — Protocol v3 (Advanced Mode)
+# Signal K Edge Link Protocol v3.0 Specification
 
-> Authenticated control-plane details for Advanced (v3) mode.
-> For packet header format, types, and flags shared with v2, see [protocol-v2.md](protocol-v2.md).
-> For bit-level wire specification, see [protocol-v2-spec.md](protocol-v2-spec.md).
+## 1. Introduction
 
----
+The Signal K Edge Link Protocol v3.0 is a binary UDP protocol designed for reliable, bandwidth-efficient transmission of Signal K delta data between vessels and shore servers. It operates in challenging maritime network environments including cellular edge areas, satellite links, and multi-path connections.
 
-## What v3 Adds to v2
+The v3 protocol adds a comprehensive binary packet header layer to the v1 (Basic) encryption/compression pipeline, enabling:
 
-v3 (Advanced mode) **builds on v2's header layout**, using a different version byte (0x03 vs 0x02) and adding a **16-byte truncated HMAC-SHA256 authentication tag** (first 16 bytes of the 32-byte HMAC output) to every **control packet** (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_REQUEST).
+- **Sequence tracking** for packet loss detection
+- **Packet type differentiation** (DATA, ACK, NAK, HEARTBEAT, HELLO)
+- **Flag-based feature negotiation** (compression, encryption, msgpack, path dictionary)
+- **CRC16 integrity checking** at the header level
+- **HMAC-SHA256 authentication** on all control packets
+- **ACK/NAK retransmission** for reliable delivery (>99.9% at 5% loss)
+- **Dynamic congestion control** using AIMD algorithm
+- **Connection bonding** with automatic failover between primary/backup links
+- **Backward compatibility** with the v1 (Basic) protocol (auto-detection via magic bytes)
 
-DATA packets (type `0x01`) are unaffected — they are already authenticated by the AES-256-GCM auth tag.
+> **Protocol history.** An earlier reliable-transport version (v2) used a CRC-only,
+> unauthenticated control plane. It was removed in 3.0.0 because any host that could
+> reach the UDP port could forge control packets. On the wire the node now speaks v3
+> only; a stored `protocolVersion: 2` is accepted for config back-compat and silently
+> coerced to `3`. See §5.
 
----
+## 2. Packet Format
 
-## Control Packet Layout in v3
+All multi-byte integers are big-endian (network byte order).
 
-| Packet              | v2 payload        | v3 payload                           |
+### Wire Format
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Magic (0x534B = "SK")    |   Version     |     Type      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Flags     |                Sequence Number                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Seq (cont.)  |              Payload Length                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| PLen (cont.)  |           CRC16 (CCITT)       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                      Payload (variable)                       |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+### Header Fields (15 bytes total)
+
+| Offset | Size    | Field    | Description                                  |
+| ------ | ------- | -------- | -------------------------------------------- |
+| 0      | 2 bytes | Magic    | `0x53 0x4B` ("SK") - identifies v3 packets   |
+| 2      | 1 byte  | Version  | `0x03` for v3 protocol                       |
+| 3      | 1 byte  | Type     | Packet type (see section 3)                  |
+| 4      | 1 byte  | Flags    | Feature flags (see section 4)                |
+| 5      | 4 bytes | Sequence | Packet sequence number (uint32, big-endian)  |
+| 9      | 4 bytes | Length   | Payload length in bytes (uint32, big-endian) |
+| 13     | 2 bytes | CRC16    | CRC-CCITT checksum of header bytes 0-12      |
+
+## 3. Packet Types
+
+| Value | Name                | Direction       | Description                                                        | Payload                             |
+| ----- | ------------------- | --------------- | ------------------------------------------------------------------ | ----------------------------------- |
+| 0x01  | DATA                | Client → Server | Signal K delta data                                                | Encrypted/compressed delta          |
+| 0x02  | ACK                 | Server → Client | Cumulative acknowledgement                                         | uint32 acked sequence + HMAC tag    |
+| 0x03  | NAK                 | Server → Client | Negative acknowledgement                                           | Array of uint32 missing seqs + HMAC |
+| 0x04  | HEARTBEAT           | Bidirectional   | Keep-alive                                                         | 16-byte HMAC tag only               |
+| 0x05  | HELLO               | Client → Server | Connection establishment                                           | JSON with protocol info + HMAC tag  |
+| 0x06  | METADATA            | Client → Server | Signal K path metadata (units, ...)                                | Encrypted/compressed meta envelope  |
+| 0x07  | META_REQUEST        | Server → Client | Demand a fresh metadata snapshot                                   | 16-byte HMAC tag only               |
+| 0x08  | FULL_STATUS_REQUEST | Server → Client | Demand a full values-snapshot replay (e.g. after a server restart) | 16-byte HMAC tag only               |
+
+### DATA Packet
+
+Carries Signal K delta data through the processing pipeline:
+
+1. Delta batch collected (1-50 deltas per batch)
+2. Serialized (JSON or MessagePack)
+3. Optionally path-encoded (path dictionary)
+4. Compressed (Brotli quality 10)
+5. Encrypted (AES-256-GCM with unique IV)
+
+The resulting ciphertext is the packet payload. Wire format of the encrypted payload:
+
+```
+[IV (12 bytes)][Encrypted Data][Auth Tag (16 bytes)]
+```
+
+Total per-packet overhead: 15 bytes (header) + 28 bytes (encryption) = 43 bytes.
+
+### ACK Packet
+
+Payload: 4 bytes containing the uint32 cumulative acknowledged sequence number, followed by a 16-byte HMAC-SHA256 authentication tag (see §5). All packets up to and including this sequence have been received.
+
+ACKs are sent periodically by the server to confirm receipt. The client uses cumulative ACKs to clear its retransmission queue.
+
+### NAK Packet
+
+Payload: N × 4 bytes (each uint32 a missing sequence number) followed by a 16-byte HMAC-SHA256 authentication tag (see §5). Sent when the receiver detects gaps in the sequence. The client retransmits the requested packets from its retransmission queue.
+
+Retransmission limits:
+
+- Maximum retransmit attempts per packet: 3
+- Retransmit queue capacity: 5,000 packets
+- Packets exceeding max attempts are discarded
+
+### HEARTBEAT Packet
+
+Payload: a 16-byte HMAC-SHA256 authentication tag only. Sent periodically to indicate the connection is alive. The default heartbeat interval is 60 seconds, configurable from 10 to 3,600 seconds.
+
+### HELLO Packet
+
+Payload: JSON string with connection metadata, followed by a 16-byte HMAC-SHA256 authentication tag (see §5):
+
+```json
+{
+  "protocolVersion": 3,
+  "clientId": "vessel-xxx",
+  "timestamp": 1707321234567
+}
+```
+
+Sent once at connection establishment to identify the client and negotiate protocol version.
+
+### METADATA Packet (0x06)
+
+Optional packet type carrying Signal K path metadata (`units`, `description`,
+`zones`, `displayName`, ...) so the server can populate `updates[].meta[]` for
+the local Signal K instance.
+
+**Sequence space.** METADATA carries an independent uint32 sequence number
+that does not advance the DATA sequence counter. METADATA is therefore outside
+the cumulative ACK/NAK stream — losing or reordering METADATA never generates
+spurious DATA NAKs.
+
+**Reliability.** METADATA is **not** ACK/NAK'd. Loss is recovered at the
+application level by:
+
+- Periodic full-snapshot resend at `intervalSec` cadence
+- Server-initiated `META_REQUEST` (0x07) on first contact from a new session
+- Sender-restart detection: a receiver MUST treat an incoming envelope with
+  `seq == 0` as a sender-lifecycle reset (clear any per-session
+  `lastMetaEnvSeq` / chunk-replay state) rather than dropping it as stale,
+  so a freshly-restarted sender's first envelope is accepted.
+
+**Payload pipeline** (mirrors DATA):
+
+```text
+envelope → JSON|MessagePack → Brotli → AES-256-GCM
+```
+
+with the same flag bits (`COMPRESSED`, `ENCRYPTED`, `MESSAGEPACK`,
+`PATH_DICTIONARY`).
+
+**Envelope schema** (versioned):
+
+```json
+{
+  "v": 1,
+  "kind": "snapshot" | "diff",
+  "seq": <uint32>,
+  "idx": <uint32>,
+  "total": <uint32>,
+  "entries": [
+    { "context": "vessels.urn:mrn:imo:mmsi:12345",
+      "path": "navigation.speedOverGround",
+      "meta": { "units": "m/s", "description": "Speed over ground" } },
+    ...
+  ]
+}
+```
+
+- `v` — envelope schema version, currently `1`. Receivers MUST drop envelopes
+  whose `v` they do not understand.
+- `kind` — `"snapshot"` for a full re-broadcast (additive over `meta[path]`,
+  not full-state replacement); `"diff"` for an incremental update derived from
+  live `updates[].meta[]` events.
+- `seq` — monotonic per sender, identifies the **batch**. Multi-chunk batches
+  share one `seq`. Receivers MUST drop envelopes whose `seq` is behind the
+  last-seen value in uint32 space (wrap-aware comparison: distance ≥ 0x80000000
+  ⇒ stale).
+- `idx`, `total` — chunk index / count within a batch. Receivers MAY apply
+  chunks individually (current additive semantics) and MUST drop exact
+  `(seq, idx)` replays within the same batch.
+- `entries[].path` — string, or path-dictionary integer when the
+  `PATH_DICTIONARY` flag is set on the packet header.
+
+**Receiver semantics.** Each entry is dispatched to the local Signal K server
+as a Signal K delta with `updates[].meta[]`:
+
+```json
+{
+  "context": "<entry.context>",
+  "updates": [{
+    "timestamp": "<now>",
+    "values": [],
+    "meta": [{ "path": "<entry.path>", "value": <entry.meta> }]
+  }]
+}
+```
+
+Implementations SHOULD batch entries by context (one `app.handleMessage`
+per context, not per entry) for snapshot efficiency.
+
+### META_REQUEST Packet (0x07)
+
+Control packet. Server → Client. Payload: a 16-byte HMAC-SHA256 tag (see §5).
+
+Sent by the server **once per session** when a HELLO arrives, to demand an
+immediate metadata snapshot rather than waiting up to `intervalSec` for the
+client's next periodic resend.
+
+The client SHOULD rate-limit its response to at most one snapshot per ~5
+seconds to protect against malformed or hostile receivers spamming requests.
+
+### FULL_STATUS_REQUEST Packet (0x08)
+
+Control packet. Server → Client. Payload: a 16-byte HMAC-SHA256 tag (see §5).
+
+Sent by the server **once per session** when the operator enabled
+`requestFullStatusOnRestart` and a HELLO from a client arrives. The client
+walks the current Signal K tree and replays every leaf as a synthetic
+delta through the normal DATA pipeline — so a server that lost in-flight
+state across a restart can rebuild it without waiting for the next live
+update on each path.
+
+The client rate-limits FULL_STATUS_REQUEST handling to at most one replay
+per 10 seconds. In multi-hop proxy chains, when a client-mode instance
+receives FULL_STATUS_REQUEST it MAY cascade the request to all clients
+connected to a co-located server-mode instance, so a tree restart at the
+top of the chain replays all the way to the leaves.
+
+### METADATA Packet — Source Snapshot Variant
+
+The METADATA packet type (0x06) also carries periodic source-tree
+snapshots. The envelope is structurally identical to the metadata
+envelope above, but uses `kind: "sources"` and replaces `entries` with a
+`sources` object copied from the sender's `app.signalk.retrieve().sources`
+tree. Receivers MUST verify both the envelope schema version (`v`) and
+recognize `kind: "sources"`; unknown `kind` values are dropped.
+
+A separate per-sender sequence counter (server-side) prevents source
+resends from making in-flight metadata chunks look stale.
+
+Receivers MUST validate the merged tree to prevent an authenticated
+peer from polluting the local Signal K tree with arbitrary content:
+provider keys are restricted to printable ASCII, key length and string-
+value length are capped, the per-snapshot provider count is bounded,
+and recursion depth is limited. Exact numeric limits are
+implementation-defined.
+
+### v1 metadata transport (separate UDP port)
+
+The legacy v1 (Basic) wire format has no packet-type byte, so meta cannot be
+multiplexed onto the DATA port without confusing existing v1 receivers.
+Instead, when a v1 client has `udpMetaPort` configured, meta is sent to that
+**separate UDP port** with the 4-byte ASCII magic `SKM1` prefixed inside the
+encrypted plaintext (i.e. before Brotli/AES). Receivers without the magic-aware
+unpacker fail to JSON-parse the payload and silently drop it, preserving
+backwards compatibility.
+
+## 4. Flags
+
+Byte 4 of the header contains feature flags:
+
+| Bit | Mask | Name                 | Description                                                                                                                               |
+| --- | ---- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | 0x01 | COMPRESSED           | Payload is Brotli compressed                                                                                                              |
+| 1   | 0x02 | ENCRYPTED            | Payload is AES-256-GCM encrypted                                                                                                          |
+| 2   | 0x04 | MESSAGEPACK          | Data serialized with MessagePack (vs JSON)                                                                                                |
+| 3   | 0x08 | PATH_DICTIONARY      | Paths encoded with path dictionary                                                                                                        |
+| 4   | 0x10 | AUTHENTICATED_HEADER | DATA/METADATA carry a trailing HMAC tag binding the header to the AEAD ciphertext (opt-in; both peers must enable `authenticatedHeaders`) |
+| 5-7 | -    | Reserved             | Must be 0                                                                                                                                 |
+
+Both client and server must agree on flag settings via configuration. Mismatched flags will cause decoding failures.
+
+## 5. CRC16 Checksum and Control-Packet Authentication
+
+The CRC16 field in the 15-byte header uses the CRC-CCITT polynomial (0x1021) with initial value 0xFFFF.
+
+The checksum is computed over header bytes 0 through 12 (everything except the CRC16 field itself). This provides header integrity verification without the overhead of checksumming the entire payload (DATA/METADATA payloads carry their own AES-GCM authentication tag).
+
+Packets with invalid CRC16 are silently discarded.
+
+### Control packet authentication — HMAC-SHA256
+
+Every control packet (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST,
+FULL_STATUS_REQUEST) carries a **16-byte truncated HMAC-SHA256 tag** (the
+first 16 bytes of the 32-byte HMAC output) appended after the payload:
+
+| Packet              | Base payload      | v3 payload (on the wire)             |
 | ------------------- | ----------------- | ------------------------------------ |
 | ACK                 | `uint32 ackedSeq` | `uint32 ackedSeq` + 16-byte HMAC tag |
 | NAK                 | N × `uint32 seq`  | N × `uint32 seq` + 16-byte HMAC tag  |
@@ -25,67 +298,299 @@ DATA packets (type `0x01`) are unaffected — they are already authenticated by 
 | META_REQUEST        | (empty)           | 16-byte HMAC tag only                |
 | FULL_STATUS_REQUEST | (empty)           | 16-byte HMAC tag only                |
 
-The HMAC tag covers `header[0..12] ‖ payload`, keyed by the shared `secretKey`. The header CRC16 remains in place for fast corruption detection.
+The HMAC tag covers `header[0..12] ‖ payload`, keyed by the shared
+`secretKey`. The header CRC16 remains in place for fast corruption detection.
+DATA packets (type `0x01`) are unaffected — they are already authenticated by
+the AES-256-GCM auth tag.
 
----
+### Why HMAC matters
 
-## Why This Matters
+A CRC trailer is **not** a security primitive. The removed v2 control plane used
+CRC only, so any host that could reach the UDP port could mint a valid control
+frame:
 
-In v2, any host that can reach the UDP port can forge a valid control packet:
+- A spoofed `HELLO` creates a server-side session.
+- A spoofed `FULL_STATUS_REQUEST` triggers a full-tree snapshot replay toward the spoofed source address (usable as a reflection amplifier).
+- A spoofed `NAK` causes spurious retransmissions.
+- A spoofed `META_REQUEST` triggers a meta snapshot replay.
 
-- **Forged FULL_STATUS_REQUEST** — triggers a full snapshot replay (reflection amplifier)
-- **Forged NAK** — causes spurious retransmissions
-- **Forged HELLO** — creates a spurious server session
+v3 closes all of these: forging a control frame requires knowledge of the
+shared secret. Only a peer holding `secretKey` can mint a valid v3 control
+frame. Use v1 (Basic, no reliability layer) only on trusted/private links.
 
-v3 closes all of these because forging requires knowledge of the shared secret. The plugin emits a startup warning when a v2 connection is configured with a publicly reachable port.
+## 6. Sequence Numbers
 
----
+- Sequence numbers are unsigned 32-bit integers (0 to 4,294,967,295)
+- DATA packets increment the sequence by 1 after each send
+- ACK, NAK, HEARTBEAT, and HELLO packets use the current sequence without incrementing
+- Sequence wraparound occurs from 0xFFFFFFFF back to 0x00000000
 
-## Security Comparison
+### Loss Detection
 
-| Property                      | v1 (Basic) | v2                   | v3 (Advanced) |
-| ----------------------------- | ---------- | -------------------- | ------------- |
-| Data payload confidentiality  | ✓          | ✓                    | ✓             |
-| Data payload integrity (GCM)  | ✓          | ✓                    | ✓             |
-| Control packet authentication | —          | CRC only (forgeable) | HMAC-SHA256 ✓ |
-| Retransmission on loss        | —          | ✓                    | ✓             |
-| Congestion control            | —          | ✓                    | ✓             |
-| Bonding / failover            | —          | ✓                    | ✓             |
-| Safe on untrusted networks    | partial    | **No**               | **Yes**       |
+The receiver maintains a `SequenceTracker` that:
 
----
+1. Expects sequences in order (0, 1, 2, ...)
+2. Detects gaps when a higher-than-expected sequence arrives
+3. Schedules NAK callbacks after a configurable timeout
+4. Handles out-of-order delivery by buffering and advancing when contiguous
+5. Detects and discards duplicate packets
 
-## Version Byte
+### Retransmission
 
-The packet header version byte (`offset 2`) is `0x03` for v3. The server uses this to enable HMAC verification. A packet with version `0x02` received by a v3 server is rejected; similarly a v3 packet received by a v2 server is rejected.
+The sender maintains a `RetransmitQueue` that:
 
-**Both sides must run the same version. Upgrading one side without the other causes immediate link failure** — `malformedPackets` increments and no data flows.
+1. Stores a copy of each sent DATA packet (up to 5,000 packets)
+2. On receiving a NAK, retransmits the requested sequences
+3. Limits retransmission attempts to 3 per packet
+4. Clears acknowledged packets on cumulative ACK receipt
+5. Evicts oldest entries when queue reaches capacity
 
----
+## 7. Reliability Mechanism
 
-## v3 Upgrade Checklist
+The protocol provides reliable delivery through a cumulative ACK / selective NAK scheme:
 
-1. Set `protocolVersion: 3` on both client and server
-2. Restart both peers simultaneously
-3. Confirm data flow resumes — check `deltasSent` / `deltasReceived`
-4. Confirm ACK/NAK traffic is present in `GET /metrics`
-5. If the link does not recover, verify both sides use the same `protocolVersion` and `secretKey`
+```
+Client                          Server
+  |                                |
+  |--- HELLO (version, id) ------>|
+  |                                |
+  |--- DATA (seq=0, delta) ------>|
+  |--- DATA (seq=1, delta) ------>|
+  |--- DATA (seq=2, delta) ------>|
+  |                                |
+  |<--- ACK (seq=2) --------------|  (all received)
+  |                                |
+  |--- DATA (seq=3, delta) ------>|
+  |--- DATA (seq=5, delta) ------>|  (seq 4 lost in transit)
+  |                                |
+  |<--- NAK ([4]) ----------------|  (gap detected)
+  |                                |
+  |--- DATA (seq=4, retransmit) ->|  (retransmitted)
+  |                                |
+  |<--- ACK (seq=5) --------------|  (all caught up)
+  |                                |
+  |--- HEARTBEAT ---------------->|  (periodic keep-alive)
+```
 
----
+**Delivery guarantees:**
 
-## Version Selection in Configuration
+- > 99.9% delivery rate under 5% packet loss conditions
+- Automatic retransmission of lost packets
+- Duplicate detection and suppression
+- Cumulative acknowledgement reduces ACK traffic
 
-In the plugin configuration, `protocolVersion` accepts:
+## 8. Congestion Control
 
-| Value | Mode     | Config UI label |
-| ----- | -------- | --------------- |
-| `1`   | Basic    | Basic           |
-| `3`   | Advanced | Advanced        |
+The protocol implements an AIMD (Additive Increase, Multiplicative Decrease) algorithm to dynamically adjust the delta timer (send interval) based on network conditions.
 
-The configuration also accepts string aliases `"basic"` and `"advanced"` for hand edits; these are normalized to numeric on save.
+### Algorithm
 
----
+The congestion controller evaluates network conditions every 5 seconds (configurable):
 
-## Wire Specification
+1. **Additive increase**: When packet loss < 1% AND RTT < target RTT, decrease the timer by 5% (increase send rate)
+2. **Multiplicative decrease**: When packet loss > 5% OR RTT > 1.5× target RTT, increase the timer by 50% (decrease send rate)
+3. **Neutral**: No change when conditions are moderate
 
-For the full wire-level specification including METADATA envelope schema, source snapshot format, sequence number semantics, and v1 metadata port details, see [protocol-v2-spec.md](protocol-v2-spec.md).
+### Smoothing
+
+Network metrics (RTT and packet loss) are smoothed using an Exponential Moving Average (EMA) with alpha = 0.2:
+
+```
+avgRTT = 0.2 × currentRTT + 0.8 × previousAvgRTT
+```
+
+### Bounds
+
+| Parameter               | Default  | Range             |
+| ----------------------- | -------- | ----------------- |
+| Minimum delta timer     | 100 ms   | 50 - 1,000 ms     |
+| Maximum delta timer     | 5,000 ms | 1,000 - 30,000 ms |
+| Target RTT              | 200 ms   | 50 - 2,000 ms     |
+| Adjustment interval     | 5,000 ms | -                 |
+| Max adjustment per step | 20%      | -                 |
+
+### Manual Override
+
+The delta timer can be manually set via the REST API, which disables automatic congestion control. Automatic mode can be re-enabled via the API.
+
+## 9. Connection Bonding
+
+Connection bonding provides dual-link redundancy with automatic failover between a primary and backup network connection (e.g., LTE + Starlink).
+
+### Architecture
+
+```
+                    ┌─────────────────┐
+                    │  Reliable       │
+                    │  Client         │
+                    └───────┬─────────┘
+                            │
+                    ┌───────▼─────────┐
+                    │  Bonding        │
+                    │  Manager        │
+                    └───┬─────────┬───┘
+                        │         │
+               ┌────────▼──┐  ┌──▼────────┐
+               │  Primary   │  │  Backup    │
+               │  (LTE)     │  │  (Starlink)│
+               │  UDP Socket│  │  UDP Socket│
+               └────────────┘  └───────────┘
+```
+
+### Operating Mode: Main/Backup
+
+- Primary link is active by default
+- Backup link is in standby (health-monitored but not used for data)
+- Failover triggers when primary exceeds thresholds
+- Failback to primary after recovery + delay period
+
+### Health Monitoring
+
+Each link is independently monitored via heartbeat probes:
+
+- Heartbeat probes sent every 1,000 ms (configurable)
+- RTT measured from probe round-trip time
+- Packet loss calculated from heartbeat response ratio
+- Link quality score (0-100) computed from weighted RTT (40%) and loss (60%)
+- Link marked DOWN after no response for 5,000 ms
+
+### Failover Conditions
+
+Failover from primary to backup triggers when ANY condition is met:
+
+- Primary RTT > 500 ms (configurable)
+- Primary packet loss > 10% (configurable)
+- Primary link status = DOWN
+
+### Failback Conditions
+
+Failback from backup to primary requires ALL conditions:
+
+- At least 30,000 ms since failover (prevents oscillation)
+- Primary RTT < 400 ms (threshold × 0.8 hysteresis)
+- Primary packet loss < 5% (threshold × 0.5 hysteresis)
+- Primary link not DOWN
+
+### Signal K Notifications
+
+Failover events emit Signal K notifications at `notifications.signalk-edge-link.<instanceId>.linkFailover` with state `alert` and both visual and sound methods. The source label is `signalk-edge-link:<instanceId>`.
+
+## 10. Security
+
+### Encryption
+
+All DATA payloads are encrypted with AES-256-GCM:
+
+| Property    | Detail                                                                                  |
+| ----------- | --------------------------------------------------------------------------------------- |
+| Algorithm   | AES-256-GCM                                                                             |
+| Key size    | 256 bits (32-byte secret: 32-character ASCII, 64-character hex, or 44-character base64) |
+| IV          | 12 bytes, unique per message (random)                                                   |
+| Auth tag    | 16 bytes, tamper detection                                                              |
+| Wire format | `[IV (12B)][Encrypted Data][Auth Tag (16B)]`                                            |
+
+### Key Requirements
+
+- Exactly 32 characters (256 bits)
+- Minimum 8 unique characters (entropy check)
+- Must match on both client and server
+
+### Security Properties
+
+- **Confidentiality**: AES-256-GCM encryption
+- **Integrity**: GCM authentication tag (16 bytes)
+- **Control authentication**: HMAC-SHA256 on every control packet
+- **Replay protection**: Sequence numbers with duplicate detection
+- **Header integrity**: CRC16 checksum on packet headers
+- **Outbound-only**: No open inbound ports required on the vessel
+
+## 11. Performance Characteristics
+
+### Compression
+
+| Batch Size | Raw JSON | Compressed | Ratio  | Per-Delta |
+| ---------- | -------- | ---------- | ------ | --------- |
+| 1 delta    | 221 B    | 193 B      | 1.15x  | 193 B     |
+| 5 deltas   | 1.1 KB   | 227 B      | 5.03x  | 45 B      |
+| 10 deltas  | 2.3 KB   | 253 B      | 9.13x  | 25 B      |
+| 20 deltas  | 4.5 KB   | 341 B      | 13.65x | 17 B      |
+| 50 deltas  | 11.3 KB  | 537 B      | 21.59x | 11 B      |
+
+### Latency (per stage, excluding network)
+
+| Stage           | p50      | p95      | p99      |
+| --------------- | -------- | -------- | -------- |
+| Serialize       | 0.004 ms | 0.008 ms | 0.017 ms |
+| Brotli compress | 0.782 ms | 0.992 ms | 1.291 ms |
+| Encrypt         | 0.013 ms | 0.027 ms | 0.102 ms |
+| Packet build    | 0.001 ms | 0.002 ms | 0.009 ms |
+| Full TX→RX      | 1.076 ms | 1.446 ms | 2.067 ms |
+
+### Smart Batching
+
+UDP packets are kept under the MTU limit (1,400 bytes) using adaptive smart batching:
+
+| Constant         | Value     | Purpose                                   |
+| ---------------- | --------- | ----------------------------------------- |
+| Safety margin    | 85%       | Target 85% of MTU (1,190 bytes effective) |
+| Smoothing factor | 0.2       | Rolling average weight                    |
+| Initial estimate | 200 bytes | Starting bytes-per-delta                  |
+| Min deltas       | 1         | Always send at least 1                    |
+| Max deltas       | 50        | Cap to prevent excessive latency          |
+
+## 12. Protocol Negotiation
+
+### Version Detection
+
+The server detects v3 packets by checking:
+
+1. First two bytes are `0x53 0x4B` ("SK")
+2. Third byte is `0x03` (version)
+
+v1 (Basic) packets do not start with these magic bytes (they start with the random AES-GCM IV), so the server can handle both the Basic and reliable modes simultaneously.
+
+### Backward Compatibility
+
+- The v1 (Basic) pipeline is unchanged and fully functional
+- A pipeline factory selects v1 or v3 based on configuration
+- The server can distinguish packet versions by magic bytes
+- All v1 tests continue to pass
+- v3 is selected via `protocolVersion: 3` (or `"advanced"`); a stored `protocolVersion: 2` is accepted and coerced to `3`
+
+## 13. Implementation Files
+
+| File                                            | Purpose                                             |
+| ----------------------------------------------- | --------------------------------------------------- |
+| `src/codec/packet-codec.ts`                     | Packet builder/parser, packet type constants        |
+| `src/transport/reliability/sequence.ts`         | SequenceTracker for loss detection                  |
+| `src/transport/reliability/retransmit-queue.ts` | RetransmitQueue for reliable delivery               |
+| `src/transport/pipeline/factory.ts`             | Pipeline selector (v1 or v3)                        |
+| `src/transport/pipeline/reliable-client.ts`     | Reliable client pipeline (send side)                |
+| `src/transport/pipeline/reliable-server.ts`     | Reliable server pipeline (receive side)             |
+| `src/transport/congestion.ts`                   | CongestionControl with AIMD algorithm               |
+| `src/transport/bonding.ts`                      | BondingManager with failover/failback               |
+| `src/domain/monitoring/`                        | PacketLossTracker, PathLatencyTracker, AlertManager |
+| `src/domain/metrics/prometheus.ts`              | Prometheus metrics exporter                         |
+| `src/transport/metrics/publisher.ts`            | Signal K metrics publisher                          |
+| `src/codec/crypto.ts`                           | AES-256-GCM encryption/decryption; HMAC             |
+| `src/foundation/constants.ts`                   | Protocol constants and defaults                     |
+
+## 14. Signal K Paths Published
+
+The reliable (v3) protocol publishes the following metrics to the Signal K data model:
+
+| Path                                             | Type           | Description                        |
+| ------------------------------------------------ | -------------- | ---------------------------------- |
+| `networking.modem.rtt`                           | number (s)     | Round-trip time to test endpoint   |
+| `networking.edgeLink.rtt`                        | number (ms)    | Pipeline RTT                       |
+| `networking.edgeLink.jitter`                     | number (ms)    | RTT jitter                         |
+| `networking.edgeLink.packetLoss`                 | number (ratio) | Packet loss ratio (0-1)            |
+| `networking.edgeLink.retransmitRate`             | number (ratio) | Retransmission rate                |
+| `networking.edgeLink.linkQuality`                | number (0-100) | Composite link quality score       |
+| `networking.edgeLink.queueDepth`                 | number         | Retransmit queue depth             |
+| `networking.edgeLink.throughput.out`             | number (B/s)   | Outbound throughput                |
+| `networking.edgeLink.throughput.in`              | number (B/s)   | Inbound throughput                 |
+| `networking.edgeLink.bonding.activeLink`         | string         | Active bonding link name           |
+| `networking.edgeLink.bonding.primary.*`          | object         | Primary link health metrics        |
+| `networking.edgeLink.bonding.backup.*`           | object         | Backup link health metrics         |
+| `notifications.signalk-edge-link.<instanceId>.*` | notification   | Alert notifications (per-instance) |

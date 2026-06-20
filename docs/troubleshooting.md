@@ -33,7 +33,7 @@
 | --------------------------------------------- | --------------------------------------- | ---------------------------------------------------- |
 | `ECONNREFUSED`                                | Server not listening or wrong port      | Verify server running; check `udpPort` matches       |
 | `ENETUNREACH`                                 | No route to host                        | Check network connectivity                           |
-| `testAddress is only supported on v1 clients` | v1-only fields in v2/v3 config          | Remove `testAddress`, `testPort`, `pingIntervalTime` |
+| `testAddress is only supported on v1 clients` | v1-only fields in a v3 config           | Remove `testAddress`, `testPort`, `pingIntervalTime` |
 | `Invalid magic bytes`                         | Basic client sending to Advanced server | Set same protocol mode on both ends                  |
 | Protocol version mismatch warning             | Mismatched `protocolVersion`            | Set same version on both ends and restart            |
 

@@ -175,7 +175,7 @@ Configuration is an array of independent connections:
 - Each connection runs independently.
 - Legacy single-object config is auto-normalized to one connection.
 - Client runtime JSON files (`delta_timer.json`, `subscription.json`, `sentence_filter.json`) are stored per connection and can be edited via API.
-- `requestFullStatusOnRestart` (server mode, v2/v3, default `false`): when enabled, the server sends a `FULL_STATUS_REQUEST` to each client on first contact after a (re)start; the client immediately replays its complete values snapshot so the server rebuilds state without waiting for incremental deltas. Client-side rate-limited to 10 s to prevent replay floods across rapid restarts.
+- `requestFullStatusOnRestart` (server mode, v3, default `false`): when enabled, the server sends a `FULL_STATUS_REQUEST` to each client on first contact after a (re)start; the client immediately replays its complete values snapshot so the server rebuilds state without waiting for incremental deltas. Client-side rate-limited to 10 s to prevent replay floods across rapid restarts.
 
 For complete setting definitions and ranges, use `docs/configuration-reference.md`.
 
@@ -292,8 +292,8 @@ window.__EDGE_LINK_AUTH__ = {
 - `docs/architecture-overview.md` (system architecture and lifecycle)
 - `docs/configuration-reference.md` (settings and defaults)
 - `docs/api-reference.md`
-- `docs/protocol-v2.md` (reliable protocol operational overview)
-- `docs/protocol-v3-spec.md` (authenticated control-plane details)
+- `docs/protocol-v3.md` (Basic/Advanced protocol operational overview)
+- `docs/protocol-v3-spec.md` (RFC-style wire specification with authenticated control plane)
 - `docs/bonding.md` (bonding concepts and API usage)
 - `docs/congestion-control.md` (congestion-control behavior and tuning)
 - `docs/metrics.md` (metrics and monitoring reference)
@@ -301,7 +301,7 @@ window.__EDGE_LINK_AUTH__ = {
 - `docs/security.md` (security guidance and deployment hardening)
 - `docs/performance-tuning.md` (deployment tuning recommendations by hardware profile)
 - `docs/troubleshooting.md` (issue-oriented diagnostics)
-- `samples/` (example JSON configurations for minimal/dev/v2-bonding setups)
+- `samples/` (example JSON configurations for minimal/dev/bonding setups)
 - `src/scripts/migrate-config.ts` (legacy config migration utility)
 - `src/bin/edge-link-cli.ts` (CLI wrapper for migration and instance/bonding management)
 
