@@ -89,17 +89,22 @@ HMAC.
 3. If the link does not recover, verify both sides use the same
    `protocolVersion` **and** `secretKey`.
 
-### Step 5 (optional): Authenticate DATA/METADATA headers
+### Step 5: Authenticated DATA/METADATA headers (on by default)
 
-v3 also supports `authenticatedHeaders` (default `false`). When `true`, each
+Since 3.0.0, v3 enables `authenticatedHeaders` by default (`true`). Each
 DATA/METADATA packet carries a 16-byte HMAC tag binding the header
 (type/flags/sequence/length) to the encrypted payload, preventing on-path header
-tampering. It adds 16 bytes/packet and **both ends must match**.
+tampering. It adds 16 bytes/packet and **both ends must match** — two
+default-configured v3 peers authenticate headers automatically, so no action is
+needed in the common case.
+
+Only if one peer cannot enable it (e.g. a constrained custom client), disable it
+explicitly on **both** ends to fall back to the legacy CRC-only header:
 
 ```json
 {
   "protocolVersion": 3,
-  "authenticatedHeaders": true
+  "authenticatedHeaders": false
 }
 ```
 

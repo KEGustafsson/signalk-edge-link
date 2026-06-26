@@ -55,7 +55,7 @@ describe("pipeline-v2-server METADATA handling", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test"
     };
@@ -237,7 +237,7 @@ describe("pipeline-v2-server META_REQUEST emission", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: {
         send: jest.fn((pkt, port, addr, cb) => {
           sent.push({ pkt, port, addr });

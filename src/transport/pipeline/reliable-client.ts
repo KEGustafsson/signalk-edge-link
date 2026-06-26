@@ -88,7 +88,9 @@ function buildPacketCodecs(
   protocolVersion: number,
   stretchAsciiKey: boolean
 ): { packetBuilder: PacketBuilder; packetParser: PacketParser } {
-  const authenticatedHeaders = !!state.options?.authenticatedHeaders;
+  // Default ON (v3): authenticate DATA/METADATA headers unless explicitly
+  // disabled. Both ends must agree (see connection schema).
+  const authenticatedHeaders = state.options?.authenticatedHeaders !== false;
   const secretKey = state.options?.secretKey ?? undefined;
 
   // Randomize the initial DATA sequence number per session start (anti-replay

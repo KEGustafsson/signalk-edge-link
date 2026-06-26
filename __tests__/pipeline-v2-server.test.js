@@ -36,6 +36,9 @@ function makeState(overrides = {}) {
       secretKey: SECRET_KEY,
       udpPort: 12345,
       protocolVersion: 3,
+      // This suite feeds legacy (unauthenticated) packets; header auth defaults
+      // ON in v3, so opt out explicitly here.
+      authenticatedHeaders: false,
       useMsgpack: false,
       usePathDictionary: false,
       reliability: {}

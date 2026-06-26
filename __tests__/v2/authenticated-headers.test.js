@@ -207,6 +207,49 @@ describe("authenticated headers end-to-end (server pipeline)", () => {
     expect(app.handleMessage).not.toHaveBeenCalled();
   });
 
+  test("header authentication is ON by default (option omitted)", async () => {
+    // A v3 server built WITHOUT specifying authenticatedHeaders must default to
+    // ON: it rejects a legacy unauthenticated packet and accepts an authenticated
+    // one. This locks in the secure-by-default behavior.
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      handleMessage: jest.fn(),
+      setPluginStatus: jest.fn(),
+      setProviderStatus: jest.fn()
+    };
+    const state = {
+      instanceId: null,
+      options: {
+        secretKey: SECRET_KEY,
+        protocolVersion: 3,
+        // authenticatedHeaders intentionally omitted — must default to true.
+        reliability: { ackInterval: 100, ackResendInterval: 1000, nakTimeout: 50 }
+      },
+      socketUdp: { send: jest.fn((data, port, address, cb) => cb && cb(null)) }
+    };
+    const server = createPipelineV2Server(app, state, createMetrics());
+
+    const delta = [{ updates: [{ values: [{ path: "navigation.speedOverGround", value: 4 }] }] }];
+    const compressed = await brotliCompress(Buffer.from(JSON.stringify(delta)));
+    const encrypted = encryptBinary(compressed, SECRET_KEY);
+
+    // Legacy packet → rejected (default requires authentication).
+    const legacy = new PacketBuilder({ secretKey: SECRET_KEY }).buildDataPacket(encrypted, {
+      compressed: true,
+      encrypted: true
+    });
+    await server.receivePacket(legacy, SECRET_KEY, client);
+    expect(app.handleMessage).not.toHaveBeenCalled();
+
+    // Authenticated packet → accepted.
+    const authed = authBuilder().buildDataPacket(encrypted, { compressed: true, encrypted: true });
+    await server.receivePacket(authed, SECRET_KEY, { address: "10.0.0.99", port: 5555 });
+    server.stopACKTimer();
+    server.stopMetricsPublishing();
+    expect(app.handleMessage).toHaveBeenCalled();
+  });
+
   test("server with auth OFF rejects an authenticated packet with a clear mismatch diagnostic", async () => {
     const app = {
       debug: jest.fn(),

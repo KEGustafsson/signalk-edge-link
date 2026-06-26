@@ -16,6 +16,14 @@ All notable changes to signalk-edge-link are documented here.
   required, but downgrading a peer back to 2.x will require setting
   `protocolVersion: 2` explicitly.
 
+- **`authenticatedHeaders` now defaults to `true` (v3).** DATA/METADATA packet
+  headers are authenticated with an HMAC tag by default, preventing on-path
+  header tampering (e.g. sequence-number forgery). Two default-configured v3
+  peers interoperate automatically. **Both ends must use the same setting** — to
+  pair with a peer that cannot enable it, set `authenticatedHeaders: false` on
+  both ends (restores the legacy CRC-only header). Adds 16 bytes/packet. See
+  `docs/security.md`.
+
 ### Architecture
 
 - **React 19 webapp rewrite.** The plugin configuration UI is now a modular

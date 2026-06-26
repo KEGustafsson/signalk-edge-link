@@ -264,14 +264,14 @@ backwards compatibility.
 
 Byte 4 of the header contains feature flags:
 
-| Bit | Mask | Name                 | Description                                                                                                                               |
-| --- | ---- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | 0x01 | COMPRESSED           | Payload is Brotli compressed                                                                                                              |
-| 1   | 0x02 | ENCRYPTED            | Payload is AES-256-GCM encrypted                                                                                                          |
-| 2   | 0x04 | MESSAGEPACK          | Data serialized with MessagePack (vs JSON)                                                                                                |
-| 3   | 0x08 | PATH_DICTIONARY      | Paths encoded with path dictionary                                                                                                        |
-| 4   | 0x10 | AUTHENTICATED_HEADER | DATA/METADATA carry a trailing HMAC tag binding the header to the AEAD ciphertext (opt-in; both peers must enable `authenticatedHeaders`) |
-| 5-7 | -    | Reserved             | Must be 0                                                                                                                                 |
+| Bit | Mask | Name                 | Description                                                                                                                                                       |
+| --- | ---- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | 0x01 | COMPRESSED           | Payload is Brotli compressed                                                                                                                                      |
+| 1   | 0x02 | ENCRYPTED            | Payload is AES-256-GCM encrypted                                                                                                                                  |
+| 2   | 0x04 | MESSAGEPACK          | Data serialized with MessagePack (vs JSON)                                                                                                                        |
+| 3   | 0x08 | PATH_DICTIONARY      | Paths encoded with path dictionary                                                                                                                                |
+| 4   | 0x10 | AUTHENTICATED_HEADER | DATA/METADATA carry a trailing HMAC tag binding the header to the AEAD ciphertext (default on in v3; both peers must use the same `authenticatedHeaders` setting) |
+| 5-7 | -    | Reserved             | Must be 0                                                                                                                                                         |
 
 Both client and server must agree on flag settings via configuration. Mismatched flags will cause decoding failures.
 

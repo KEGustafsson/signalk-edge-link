@@ -94,7 +94,7 @@
           "description": "1 (legacy) or 3 (authenticated reliable transport). A stored value of 2 is accepted as a backward-compatible alias and normalized to 3."
         },
         "stretchAsciiKey": { "type": "boolean", "default": false },
-        "authenticatedHeaders": { "type": "boolean", "default": false },
+        "authenticatedHeaders": { "type": "boolean", "default": true },
         "useMsgpack": { "type": "boolean", "default": false },
         "useValueDedup": {
           "type": "boolean",

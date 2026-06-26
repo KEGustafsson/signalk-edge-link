@@ -77,7 +77,7 @@ describe("pipeline-v2-server", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
@@ -109,7 +109,7 @@ describe("pipeline-v2-server", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
@@ -152,7 +152,7 @@ describe("pipeline-v2-server", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
@@ -193,7 +193,7 @@ describe("pipeline-v2-server", () => {
     };
     const send = jest.fn((_pkt, _port, _addr, cb) => cb && cb(null));
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
@@ -236,7 +236,7 @@ describe("pipeline-v2-server", () => {
       signalk: { retrieve: jest.fn(() => root) }
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
@@ -274,7 +274,7 @@ describe("pipeline-v2-server", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
@@ -331,7 +331,7 @@ describe("pipeline-v2-server", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test"
     };
@@ -364,8 +364,9 @@ describe("pipeline-v2-server", () => {
     const send = jest.fn((_pkt, _port, _addr, cb) => cb && cb(null));
     const state = {
       // v3 control packets (the NAK the server schedules) are HMAC-authenticated,
-      // so the server needs the secret key to build them.
-      options: { secretKey, reliability: { nakTimeout: 10 } },
+      // so the server needs the secret key to build them. This test feeds legacy
+      // (unauthenticated) DATA packets, so opt out of the v3 header-auth default.
+      options: { secretKey, authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send },
       instanceId: "test"
     };
@@ -421,6 +422,7 @@ describe("pipeline-v2-server", () => {
       options: {
         protocolVersion: 3,
         secretKey,
+        authenticatedHeaders: false,
         reliability: { nakTimeout: 10 }
       },
       socketUdp: { send },
@@ -478,6 +480,7 @@ describe("pipeline-v2-server", () => {
       options: {
         protocolVersion: 3,
         secretKey,
+        authenticatedHeaders: false,
         reliability: { nakTimeout: 10 }
       },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },

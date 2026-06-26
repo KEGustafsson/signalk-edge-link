@@ -117,14 +117,14 @@ All control packets (everything except DATA) carry a trailing 16-byte HMAC-SHA25
 
 ### Feature flags (byte 4)
 
-| Bit | Mask | Name                 | Set when                                               |
-| --- | ---- | -------------------- | ------------------------------------------------------ |
-| 0   | 0x01 | COMPRESSED           | Payload is Brotli-compressed                           |
-| 1   | 0x02 | ENCRYPTED            | Payload is AES-256-GCM encrypted                       |
-| 2   | 0x04 | MESSAGEPACK          | Payload is MessagePack-encoded                         |
-| 3   | 0x08 | PATH_DICTIONARY      | Paths encoded as numeric IDs                           |
-| 4   | 0x10 | AUTHENTICATED_HEADER | DATA/METADATA carry a header-binding HMAC tag (opt-in) |
-| 5–7 | —    | Reserved             | Always 0                                               |
+| Bit | Mask | Name                 | Set when                                                   |
+| --- | ---- | -------------------- | ---------------------------------------------------------- |
+| 0   | 0x01 | COMPRESSED           | Payload is Brotli-compressed                               |
+| 1   | 0x02 | ENCRYPTED            | Payload is AES-256-GCM encrypted                           |
+| 2   | 0x04 | MESSAGEPACK          | Payload is MessagePack-encoded                             |
+| 3   | 0x08 | PATH_DICTIONARY      | Paths encoded as numeric IDs                               |
+| 4   | 0x10 | AUTHENTICATED_HEADER | DATA/METADATA carry a header-binding HMAC tag (default on) |
+| 5–7 | —    | Reserved             | Always 0                                                   |
 
 Both peers must be configured identically for `useMsgpack` and `usePathDictionary`.
 
@@ -172,9 +172,9 @@ FULL_STATUS_REQUEST) carries a 16-byte truncated HMAC-SHA256 tag over
 | FULL_STATUS_REQUEST | (empty)           | 16-byte HMAC tag only                |
 
 DATA packets (type `0x01`) are unaffected — they are already authenticated by
-the AES-256-GCM auth tag. `authenticatedHeaders` (default `false`) optionally
-adds a header-binding HMAC tag to DATA/METADATA packets too; both peers must
-enable it.
+the AES-256-GCM auth tag. `authenticatedHeaders` (default `true`) adds a
+header-binding HMAC tag to DATA/METADATA packets too; both peers must use the
+same setting.
 
 ---
 
