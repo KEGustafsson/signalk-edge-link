@@ -939,9 +939,8 @@ describe("E2E Pipeline Tests", () => {
     });
 
     test("NAK callback fires on gap detection after timeout", () => {
-      // Fake timers: deterministic and immune to CI scheduling jitter (a real
-      // wall-clock done() variant flaked under macOS load). Advances the
-      // nakTimeout, then runs the follow-up coalescing flush (setTimeout(…, 0)).
+      // Fake timers keep this deterministic under CI scheduling jitter: advance
+      // the nakTimeout, then run the follow-up coalescing flush (setTimeout(…, 0)).
       jest.useFakeTimers();
       const naks = [];
       const tracker = new SequenceTracker({

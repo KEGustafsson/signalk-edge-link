@@ -77,10 +77,9 @@ export class ReplayWindow {
       return true;
     }
 
-    // seq === highest, or behind it.
     const behind = (this.highest - seq) >>> 0;
     if (behind >= this.size) {
-      // Older than the window — cannot prove it is fresh, so reject as replay.
+      // Older than the window — freshness cannot be proven, so reject as replay.
       return false;
     }
     if (this.seen.has(seq)) {

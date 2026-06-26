@@ -57,16 +57,16 @@ Cost: 16 extra bytes per DATA/METADATA packet plus one HMAC per packet. **Both p
 
 ### DATA anti-replay window
 
-Encrypted-and-authenticated DATA packets are still replayable by capture-and-resend: the AES-256-GCM tag stays valid on a verbatim copy. The per-session sequence tracker blocks duplicates only while the session is live, so a captured datagram replayed **after** the session's state is gone — idle expiry (5 min), eviction at capacity, or a forced resync — would be re-injected as a stale value (e.g. an old position or depth).
+Encrypted-and-authenticated DATA packets are still replayable by capture-and-resend: the AES-256-GCM tag stays valid on a verbatim copy. The per-session sequence tracker blocks duplicates only while the session is live, so a captured datagram replayed **after** the session's state is gone — idle expiry, eviction at capacity, or a forced resync — would be re-injected as a stale value (e.g. an old position or depth).
 
-The server keeps a **per-peer anti-replay window** (a strict IPsec/DTLS-style sliding window: a high-water mark plus a record of recently-accepted sequences) that **survives session idle expiry and eviction**. A DATA sequence that was already accepted, or that falls more than `REPLAY_WINDOW_SIZE` (1024) positions behind the high-water mark, is rejected and counted as `replayedPackets`.
+The server keeps a **per-peer anti-replay window** — a strict IPsec/DTLS-style sliding window (a high-water mark plus a record of recently-accepted sequences) that **survives session idle expiry and eviction**. A DATA sequence that was already accepted, or that falls outside the window behind the high-water mark, is rejected as a replay.
 
-To tell a legitimate peer **restart** (which picks a fresh random sequence baseline) from a replay, the window is reset only when the client advertises a strictly higher **connection epoch** in its (HMAC-authenticated) HELLO. A replayed old HELLO carries an epoch ≤ the recorded one and is ignored, so it cannot be used to clear the window.
+To tell a legitimate peer **restart** (which picks a fresh random sequence baseline) from a replay, the window is re-baselined only when the client advertises a strictly higher **connection epoch** in its (HMAC-authenticated) HELLO. A replayed old HELLO carries an epoch ≤ the recorded one and is ignored, so it cannot be used to clear the window.
 
-This closes the deterministic idle-expiry and eviction replay vectors with no per-packet wire change (the epoch is an optional HELLO field). Two residuals remain, both narrow and documented:
+This closes the deterministic idle-expiry and eviction replay vectors with no per-packet wire change (the epoch is an optional HELLO field). Two narrow residuals remain:
 
-- **Cross-epoch replay** — a packet captured before a restart whose random 32-bit sequence happens to land inside the post-restart window (~1-in-2-million per replayed packet, and only in the seconds after a restart). Closing it fully requires binding the epoch into per-packet authentication, which would couple the codec to session state and break the DATA-before-HELLO path; it is deferred to a future handshake redesign.
-- **Post-server-restart race** — the in-memory window is not persisted across a _server_ restart, so an attacker who wins the race against the legitimate client's reconnect in the seconds after a server reboot could replay once. The client re-establishes a higher epoch on reconnect, so the window self-heals.
+- **Cross-epoch replay** — a packet captured before a restart whose random sequence baseline happens to fall inside the post-restart window (vanishingly unlikely, and only briefly after a restart). Fully closing it would require binding the epoch into per-packet authentication; that is intentionally out of scope, because it would couple the wire codec to session state and break the path where DATA legitimately precedes HELLO.
+- **Post-server-restart race** — the replay window is in-memory, so it does not persist across a _server_ restart; an attacker who beats the legitimate client's reconnect in that brief window could replay once. The client re-establishes a higher epoch on reconnect, so it self-heals.
 
 For pre-H3 peers that do not advertise an epoch, the strict window is not enforced (backward compatibility); those peers retain the previous behavior.
 

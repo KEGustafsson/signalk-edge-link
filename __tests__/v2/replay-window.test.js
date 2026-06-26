@@ -54,7 +54,7 @@ describe("ReplayWindow", () => {
     expect(w.accept(0xffffffff)).toBe(true);
     expect(w.accept(0)).toBe(true); // wraps forward past 2^32-1
     expect(w.accept(1)).toBe(true);
-    expect(w.accept(0xffffffff)).toBe(false); // now behind the window → replay
+    expect(w.accept(0xffffffff)).toBe(false); // already seen within the wraparound window
   });
 
   test("bounds memory under sustained sequential advance and still catches replays", () => {

@@ -189,11 +189,13 @@ export function getReplayGuard(ctx: ServerContext, peerKey: string): ReplayGuard
 
 /**
  * Apply a HELLO-advertised connection epoch to a peer's replay guard. A strictly
- * higher epoch from a peer that already had one is a legitimate restart: reset
- * the window so the new (random) sequence baseline is accepted. A stale/equal
- * epoch (a replayed HELLO) is ignored. Epochs <= 0 / non-finite mean a pre-H3
- * peer that does not participate — left at epoch 0 (window not strictly
- * enforced) for backward compatibility.
+ * each epoch increase re-baselines the window so the new (random) sequence
+ * space is accepted: the first HELLO (0 -> positive) discards any high-water
+ * mark recorded from pre-handshake DATA, and a strictly higher epoch from a peer
+ * that already handshaked handles a legitimate restart. A stale/equal epoch (a
+ * replayed HELLO) is ignored. Epochs <= 0 / non-finite mean a pre-H3 peer that
+ * does not participate — left at epoch 0 (window not strictly enforced) for
+ * backward compatibility.
  */
 export function applyHelloEpoch(ctx: ServerContext, peerKey: string, epoch: unknown): void {
   if (typeof epoch !== "number" || !Number.isFinite(epoch) || epoch <= 0) {
@@ -201,10 +203,10 @@ export function applyHelloEpoch(ctx: ServerContext, peerKey: string, epoch: unkn
   }
   const guard = getReplayGuard(ctx, peerKey);
   if (epoch > guard.epoch) {
-    if (guard.epoch > 0) {
-      // Higher epoch from a peer that already handshaked = restart: re-baseline.
-      guard.window.reset();
-    }
+    // Re-baseline on any epoch increase so the newly-negotiated epoch starts
+    // from a clean window — pre-handshake (epoch 0) DATA must not carry its
+    // high-water mark into the first authenticated epoch.
+    guard.window.reset();
     guard.epoch = epoch;
   }
 }
