@@ -44,7 +44,7 @@ import {
 import { sendDelta } from "./reliable-client/delta-sender";
 import { sendMetadata } from "./reliable-client/metadata-sender";
 import { sendSourceSnapshot } from "./reliable-client/source-snapshot";
-import { receiveACK, receiveNAK } from "./reliable-client/reliability";
+import { receiveACK, receiveNAK, stopRecoveryBurst } from "./reliable-client/reliability";
 import { handleControlPacket } from "./reliable-client/control-packets";
 import { startMetricsPublishing, stopMetricsPublishing } from "./reliable-client/metrics";
 import {
@@ -281,6 +281,12 @@ function buildControlApi(ctx: ClientContext) {
     },
     stopBonding() {
       return stopBonding(ctx);
+    },
+    stop() {
+      stopRecoveryBurst(ctx, "pipeline stop");
+      stopMetricsPublishing(ctx);
+      stopCongestionControl(ctx);
+      stopBonding(ctx);
     },
     setMonitoring(hooks: MonitoringState | null) {
       ctx.mut.monitoringHooks = hooks;

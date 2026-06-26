@@ -147,7 +147,7 @@ export interface ConnectionConfig {
    * per DATA/METADATA packet.
    */
   authenticatedHeaders?: boolean;
-  /** Wire protocol version (1, 2, or 3). Default 2. */
+  /** Wire protocol version (1 or 3). Legacy stored 2 is coerced to 3. Default 3. */
   protocolVersion?: number;
   /** Serialize deltas with MessagePack instead of JSON (smaller, faster). Default false. */
   useMsgpack?: boolean;
@@ -206,7 +206,7 @@ export interface ConnectionConfig {
    * applies expansion transparently when sentinels are seen in the
    * incoming stream, so it is safe to enable on the receiver first.
    *
-   * Effective only on protocolVersion 2/3 (the reliable transport).
+   * Effective only on reliable protocolVersion 3.
    */
   useValueDedup?: boolean;
   /**
@@ -214,7 +214,7 @@ export interface ConnectionConfig {
    * field-name JSON objects. Drops ~70-100 bytes per delta in repeated field
    * names. Requires `useMsgpack: true`. MUST MATCH on both ends.
    *
-   * Effective only on protocolVersion 2/3.
+   * Effective only on reliable protocolVersion 3.
    */
   useCompactDeltas?: boolean;
   /** Compress Signal K path strings with a shared dictionary to reduce packet size. Default false. */
@@ -227,7 +227,7 @@ export interface ConnectionConfig {
    * and the v1 RTT publisher's `networking.modem.rtt` /
    * `networking.modem.<instanceId>.rtt` paths. Other paths under
    * `networking.modem.*` (signalStrength, txBytes, ...) come from external
-   * providers and are left intact. Also suppresses the v2/v3 client-side
+   * providers and are left intact. Also suppresses the reliable v3 client-side
    * telemetry packet that mirrors the client's own link metrics to the
    * receiver. Default false (current behaviour: own data is forwarded along
    * with all other subscribed deltas).
@@ -261,7 +261,7 @@ export interface ConnectionConfig {
   /** Alert threshold overrides for the monitoring subsystem. */
   alertThresholds?: AlertThresholds;
   /**
-   * When true (server mode, v2/v3 only), the server sends a FULL_STATUS_REQUEST
+   * When true (server mode, reliable protocolVersion 3 only), the server sends a FULL_STATUS_REQUEST
    * control packet to the client on first contact from each new session. The
    * client responds by replaying its complete current values snapshot, so the
    * server rebuilds state immediately after a restart instead of waiting for

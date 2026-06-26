@@ -43,8 +43,10 @@ function register(router: Router, ctx: RouteContext): void {
     }
 
     const out = { ...options };
-    if (Object.prototype.hasOwnProperty.call(out, "secretKey")) {
-      out.secretKey = "[redacted]";
+    for (const key of ["secretKey", "managementApiToken"]) {
+      if (Object.prototype.hasOwnProperty.call(out, key)) {
+        out[key] = "[redacted]";
+      }
     }
     return out;
   }

@@ -4,6 +4,10 @@ All notable changes to signalk-edge-link are documented here.
 
 ## [Unreleased]
 
+- Nothing yet.
+
+## [3.0.1] - 2026-06-26
+
 ### Security
 
 - **DATA anti-replay window (v3).** The server now keeps a per-peer sliding

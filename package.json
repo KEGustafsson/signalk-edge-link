@@ -1,6 +1,6 @@
 {
   "name": "signalk-edge-link",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "SignalK Edge Link. Secure UDP link for data exchange.",
   "main": "lib/index.js",
   "files": [
@@ -15,7 +15,7 @@
     "signalk-plugin-configurator"
   ],
   "signalk": {
-    "appIcon": "./icons/icon-72x72.png",
+    "appIcon": "./public/icons/icon-72x72.png",
     "displayName": "Edge Link Configuration"
   },
   "signalk-plugin-enabled-by-default": false,

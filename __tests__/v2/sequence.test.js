@@ -185,8 +185,9 @@ describe("SequenceTracker", () => {
       t.processSequence(0);
       t.processSequence(2); // Gap at 1
 
-      // Wait for NAK timeout
+      // Wait for the NAK timeout and the next-tick coalescing flush.
       await new Promise((resolve) => setTimeout(resolve, 70));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(onLoss).toHaveBeenCalledWith([1]);
       t.reset();

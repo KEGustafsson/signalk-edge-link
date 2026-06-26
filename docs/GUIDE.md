@@ -551,7 +551,7 @@ These sit outside `connections[]`, at the root of the plugin config:
 | `udpMetaPort`         | integer | —              | Optional separate UDP port for v1 metadata packets. Ignored by v3 (which multiplex metadata on the main port).         |
 | `secretKey`           | string  | — (required)   | AES-256 encryption key. Accepts 32-char ASCII, 64-char hex, or 44-char base64. Must match exactly on both ends.        |
 | `stretchAsciiKey`     | boolean | `false`        | When `true`, runs a 32-char ASCII key through PBKDF2-SHA256 (600,000 iterations) before use. **Both ends must match.** |
-| `protocolVersion`     | integer | `2`            | `1`, `2`, or `3`. Must match on both ends.                                                                             |
+| `protocolVersion`     | integer | `3`            | `1` (basic v1) or `3` (reliable v3). Legacy stored `2` is accepted and coerced to `3`; peers must match.               |
 | `useMsgpack`          | boolean | `false`        | Serialize deltas as MessagePack instead of JSON. Saves ~15–25%. **Both ends must match.**                              |
 | `usePathDictionary`   | boolean | `false`        | Replace Signal K path strings with 2-byte numeric IDs. Saves ~10–20%. **Both ends must match.**                        |
 | `enableNotifications` | boolean | `false`        | Forward Signal K notification deltas over the link.                                                                    |
@@ -656,7 +656,7 @@ Nested under `alertThresholds`. Each metric has `warning` and `critical` levels.
 
 ### 7.11 Internal constants (source-level tuning)
 
-Defined in `src/constants.ts`. Not configurable via UI; require a source rebuild.
+Defined in `src/foundation/constants.ts`. Not configurable via UI; require a source rebuild.
 
 | Constant                     | Value    | Description                                        |
 | ---------------------------- | -------- | -------------------------------------------------- |
@@ -1294,7 +1294,7 @@ Build a Grafana dashboard from the Prometheus metrics exposed at `/prometheus` (
 
 **Base path:** `/plugins/signalk-edge-link`  
 **Rate limit:** 120 requests/minute/IP → HTTP 429  
-**API version tracked (current: 3.0.0)** — for endpoint changes between releases, see `docs/pr-records/`
+**API version tracked (current: 3.0.1)** — for endpoint changes between releases, see `docs/pr-records/`
 
 ### 14.1 Core data endpoints
 
@@ -2283,47 +2283,48 @@ npm run cli -- help
 
 ### Source file map
 
-| File                                            | Purpose                                                                              |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `src/index.ts`                                  | Plugin entry point; instance registry, Express routes, start/stop lifecycle          |
-| `src/types.ts`                                  | All TypeScript interfaces: Delta, ConnectionConfig, Metrics, InstanceState           |
-| `src/connection-config.ts`                      | Configuration validation and normalization                                           |
-| `src/constants.ts`                              | All tuning constants (MTU, buffer sizes, timeouts, retry counts)                     |
-| `src/instance.ts`                               | Single connection lifecycle: subscribes, batches, manages socket, drives monitoring  |
-| `src/pipeline.ts`                               | v1 protocol: compress → encrypt → send (client); receive → decrypt → inject (server) |
-| `src/transport/pipeline/reliable-client.ts`     | v3 client: packet building, retransmit queue, ACK/NAK handling, congestion hook      |
-| `src/transport/pipeline/reliable-server.ts`     | v3 server: packet parsing, per-client sessions, ACK/NAK generation                   |
-| `src/pipeline-factory.ts`                       | Selects pipeline based on `serverType` and `protocolVersion`                         |
-| `src/pipeline-utils.ts`                         | Shared Brotli, encryption, UDP send utilities                                        |
-| `src/packet.ts`                                 | v3 header encode/decode; magic/version/type/flags/seq/CRC validation                 |
-| `src/transport/reliability/retransmit-queue.ts` | Bounded queue for retransmit candidates; timeout-based eviction                      |
-| `src/transport/reliability/sequence.ts`         | Sequence number tracking, gap detection, NAK scheduling (server side)                |
-| `src/transport/congestion.ts`                   | AIMD congestion control; adjusts delta timer every 5 s based on RTT/loss             |
-| `src/transport/bonding.ts`                      | Primary/backup link health monitoring; automatic failover/failback                   |
-| `src/codec/crypto.ts`                           | AES-256-GCM encrypt/decrypt; PBKDF2 key derivation; HMAC (v3)                        |
-| `src/delta-sanitizer.ts`                        | Strip own telemetry; validate paths; normalize outbound deltas                       |
-| `src/pathDictionary.ts`                         | Bidirectional Signal K path ↔ 2-byte numeric ID encoding                             |
-| `src/metadata.ts`                               | Collect/diff Signal K path metadata; package for transmission                        |
-| `src/values-snapshot.ts`                        | Capture full current Signal K state for FULL_STATUS_REQUEST replay                   |
-| `src/source-replication.ts`                     | Server-side registry tracking source identities across clients                       |
-| `src/source-dispatch.ts`                        | Normalize delta source references for correct Signal K routing                       |
-| `src/metrics.ts`                                | Per-instance metrics accumulation                                                    |
-| `src/metrics-publisher.ts`                      | Publish link metrics to Signal K (`networking.edgeLink.*`)                           |
-| `src/monitoring.ts`                             | Packet loss heatmap, path latency tracking, retransmit charts, alert thresholds      |
-| `src/routes.ts`                                 | Route dispatcher; management auth; rate limiting                                     |
-| `src/routes/metrics.ts`                         | `/metrics`, `/network-metrics`, `/prometheus`                                        |
-| `src/routes/config.ts`                          | `/plugin-config`, `/connections/:id/config/*`                                        |
-| `src/routes/connections.ts`                     | `/connections`, `/instances`                                                         |
-| `src/routes/control.ts`                         | `/bonding/failover`, `/delta-timer`                                                  |
-| `src/routes/monitoring.ts`                      | `/monitoring/alerts`, packet capture                                                 |
-| `src/prometheus.ts`                             | Prometheus metrics exporter                                                          |
-| `src/config-io.ts`                              | Load/save runtime JSON config files                                                  |
-| `src/config-watcher.ts`                         | File system watcher; debounce and reload on modification                             |
-| `src/CircularBuffer.ts`                         | Fixed-size circular buffer for metrics history                                       |
-| `src/bin/edge-link-cli.ts`                      | CLI tool: instance/bonding management, config migration                              |
-| `src/scripts/migrate-config.ts`                 | Migrate legacy flat config to `connections[]` format                                 |
-| `src/shared/connection-schema.ts`               | Single source of truth for plugin config schema                                      |
-| `src/webapp/`                                   | React management UI source (compiled to `public/`)                                   |
+| File / directory                                    | Purpose                                                                              |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `src/index.ts`                                      | Plugin entry point; instance registry, schema wiring, route registration             |
+| `src/app/connection.ts`                             | Single connection runtime factory and lifecycle coordination                         |
+| `src/app/connection/`                               | Start/stop, client/server startup, socket recovery, and lifecycle helper modules     |
+| `src/foundation/types/`                             | TypeScript interfaces: Delta, ConnectionConfig, metrics, InstanceState               |
+| `src/foundation/constants.ts`                       | Tuning constants (MTU, buffer sizes, timeouts, retry counts)                         |
+| `src/foundation/config-io.ts`                       | Load/save runtime JSON config files                                                  |
+| `src/app/config/watcher.ts`                         | File system watcher; debounce and reload on modification                             |
+| `src/foundation/circular-buffer.ts`                 | Fixed-size circular buffer for metrics history                                       |
+| `src/connection-config.ts`                          | Configuration validation, sanitization, and legacy protocol coercion                 |
+| `src/transport/pipeline/factory.ts`                 | Selects pipeline based on `serverType` and effective `protocolVersion`               |
+| `src/transport/pipeline/v1.ts`                      | v1 protocol: compress → encrypt → send (client); receive → decrypt → inject (server) |
+| `src/transport/pipeline/reliable-client.ts`         | v3 client: packet building, retransmit queue, ACK/NAK handling, congestion hook      |
+| `src/transport/pipeline/reliable-server.ts`         | v3 server: packet parsing, per-client sessions, ACK/NAK generation                   |
+| `src/codec/compression.ts`                          | Shared Brotli helpers                                                                |
+| `src/codec/packet/` and `src/codec/packet-codec.ts` | v3 packet header encode/decode, auth, CRC, payload parsing                           |
+| `src/transport/reliability/retransmit-queue.ts`     | Bounded queue for retransmit candidates; timeout-based eviction                      |
+| `src/transport/reliability/sequence.ts`             | Sequence number tracking, gap detection, NAK scheduling (server side)                |
+| `src/transport/congestion.ts`                       | AIMD congestion control; adjusts delta timer every 5 s based on RTT/loss             |
+| `src/transport/bonding.ts`                          | Primary/backup link health monitoring; automatic failover/failback                   |
+| `src/codec/crypto.ts`                               | AES-256-GCM encrypt/decrypt; PBKDF2 key derivation; HMAC (v3)                        |
+| `src/codec/delta-sanitizer.ts`                      | Strip own telemetry; validate paths; normalize outbound deltas                       |
+| `src/codec/path-dictionary.ts`                      | Bidirectional Signal K path ↔ 2-byte numeric ID encoding                             |
+| `src/codec/metadata-codec.ts`                       | Collect/diff Signal K path metadata; package for transmission                        |
+| `src/codec/values-snapshot.ts`                      | Capture full current Signal K state for FULL_STATUS_REQUEST replay                   |
+| `src/domain/source-registry.ts`                     | Server-side registry tracking source identities across clients                       |
+| `src/codec/source-dispatch.ts`                      | Normalize delta source references for correct Signal K routing                       |
+| `src/domain/metrics/registry.ts`                    | Per-instance metrics accumulation                                                    |
+| `src/transport/metrics/publisher.ts`                | Publish link metrics to Signal K (`networking.edgeLink.*`)                           |
+| `src/domain/metrics/prometheus.ts`                  | Prometheus metrics exporter                                                          |
+| `src/domain/monitoring/`                            | Packet loss heatmap, path latency tracking, packet capture, alert thresholds         |
+| `src/routes.ts`                                     | Route dispatcher; management auth; rate limiting                                     |
+| `src/routes/metrics.ts`                             | `/metrics`, `/network-metrics`, `/prometheus`                                        |
+| `src/routes/config.ts`                              | `/plugin-config`, `/connections/:id/config/*`                                        |
+| `src/routes/connections.ts`                         | `/connections`, `/instances`                                                         |
+| `src/routes/control.ts`                             | `/bonding/failover`, `/delta-timer`                                                  |
+| `src/routes/monitoring.ts`                          | `/monitoring/alerts`, packet capture                                                 |
+| `src/bin/edge-link-cli.ts`                          | CLI tool: instance/bonding management, config migration                              |
+| `src/scripts/migrate-config.ts`                     | Migrate legacy flat config to `connections[]` format                                 |
+| `src/shared/connection-schema.ts`                   | Single source of truth for plugin config schema                                      |
+| `src/webapp/`                                       | React management UI source (compiled to `public/`)                                   |
 
 ### Key functions
 
