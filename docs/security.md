@@ -49,11 +49,26 @@ The AES-256-GCM auth tag covers the encrypted payload but **not** the cleartext 
 
 **v3 authenticates DATA/METADATA headers by default** (`authenticatedHeaders`, default `true`). It appends a **16-byte truncated HMAC-SHA256 tag** to every DATA/METADATA packet — the same construction already used for control packets — binding the header to the encrypted payload. A receiver with header authentication enabled rejects any DATA/METADATA packet that lacks the `AUTHENTICATED_HEADER` flag (downgrade protection) or carries an invalid tag. Because the **DATA** sequence number is then authenticated, the server's sequence-based de-duplication becomes a meaningful anti-replay defence for DATA.
 
-> **Scope note:** this is integrity/tamper protection, not a full anti-replay layer. METADATA uses a separate, unacknowledged envelope sequence and is de-duplicated on the inner envelope `seq`/`idx`, not the authenticated header sequence — so a captured authenticated METADATA packet can still be replayed within the dedup window.
+> **Scope note:** header authentication is integrity/tamper protection. DATA replay is additionally limited by the anti-replay window below; METADATA uses a separate, unacknowledged envelope sequence de-duplicated on the inner envelope `seq`/`idx`, so a captured authenticated METADATA packet can still be replayed within the dedup window.
 
 Cost: 16 extra bytes per DATA/METADATA packet plus one HMAC per packet. **Both peers must have the same `authenticatedHeaders` setting** — a mismatch fails authentication and drops every DATA packet. A receiver with the setting _off_ that receives authenticated packets logs an explicit `authenticatedHeaders mismatch` error (rather than a misleading key-mismatch hint). Since 3.0.0 the default is `true`, so two default-configured v3 peers authenticate headers automatically. To interoperate with a peer that cannot enable it, set `authenticatedHeaders: false` on **both** ends — that restores the legacy CRC-only header (byte-for-byte the pre-3.0.0 wire format).
 
 > Relay topologies (boat client → proxy server → proxy client → cloud server) can enable `authenticatedHeaders` independently on each hop, and each hop may use its own `secretKey`.
+
+### DATA anti-replay window
+
+Encrypted-and-authenticated DATA packets are still replayable by capture-and-resend: the AES-256-GCM tag stays valid on a verbatim copy. The per-session sequence tracker blocks duplicates only while the session is live, so a captured datagram replayed **after** the session's state is gone — idle expiry (5 min), eviction at capacity, or a forced resync — would be re-injected as a stale value (e.g. an old position or depth).
+
+The server keeps a **per-peer anti-replay window** (a strict IPsec/DTLS-style sliding window: a high-water mark plus a record of recently-accepted sequences) that **survives session idle expiry and eviction**. A DATA sequence that was already accepted, or that falls more than `REPLAY_WINDOW_SIZE` (1024) positions behind the high-water mark, is rejected and counted as `replayedPackets`.
+
+To tell a legitimate peer **restart** (which picks a fresh random sequence baseline) from a replay, the window is reset only when the client advertises a strictly higher **connection epoch** in its (HMAC-authenticated) HELLO. A replayed old HELLO carries an epoch ≤ the recorded one and is ignored, so it cannot be used to clear the window.
+
+This closes the deterministic idle-expiry and eviction replay vectors with no per-packet wire change (the epoch is an optional HELLO field). Two residuals remain, both narrow and documented:
+
+- **Cross-epoch replay** — a packet captured before a restart whose random 32-bit sequence happens to land inside the post-restart window (~1-in-2-million per replayed packet, and only in the seconds after a restart). Closing it fully requires binding the epoch into per-packet authentication, which would couple the codec to session state and break the DATA-before-HELLO path; it is deferred to a future handshake redesign.
+- **Post-server-restart race** — the in-memory window is not persisted across a _server_ restart, so an attacker who wins the race against the legitimate client's reconnect in the seconds after a server reboot could replay once. The client re-establishes a higher epoch on reconnect, so the window self-heals.
+
+For pre-H3 peers that do not advertise an epoch, the strict window is not enforced (backward compatibility); those peers retain the previous behavior.
 
 ---
 
@@ -64,6 +79,7 @@ Cost: 16 extra bytes per DATA/METADATA packet plus one HMAC per packet. **Both p
 | Data confidentiality           | ✓ Strong        | AES-256-GCM                                                           |
 | Data integrity                 | ✓ Strong        | GCM auth tag (16 bytes)                                               |
 | DATA/METADATA header integrity | Default on (v3) | HMAC-SHA256 by default; CRC16-only with `authenticatedHeaders: false` |
+| DATA replay protection         | Strong (v3)     | Per-peer sliding window survives idle/eviction; epoch-gated reset     |
 | Control packet authentication  | v3 only         | HMAC-SHA256; v1 uses no control layer                                 |
 | Forward secrecy                | ✗ None          | Same pre-shared key for lifetime of connection                        |
 | Client authentication          | ✗ None          | Any holder of the key can connect                                     |

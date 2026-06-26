@@ -126,6 +126,7 @@ function stopServer(ctx: ServerContext): void {
     session.sequenceTracker.reset();
   }
   ctx.clientSessions.clear();
+  ctx.replayGuards.clear();
 }
 
 /**

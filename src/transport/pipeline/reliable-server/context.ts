@@ -15,12 +15,14 @@ import * as crypto from "node:crypto";
 import { normalizeKey } from "../../../codec/crypto";
 import { PacketBuilder, PacketParser } from "../../../codec/packet-codec";
 import { SequenceTracker } from "../../reliability/sequence";
+import { ReplayWindow } from "../../reliability/replay-window";
 import { MetricsPublisher } from "../../metrics/publisher";
 import type { ValueDedupState } from "../../../codec/value-dedup";
 import type { SignalKApp, MetricsApi, InstanceState } from "../../../foundation/types";
 
 import {
   MAX_CLIENT_SESSIONS,
+  MAX_REPLAY_GUARDS,
   UDP_RATE_LIMIT_WINDOW,
   UDP_RATE_LIMIT_MAX_PACKETS
 } from "../../../foundation/constants";
@@ -67,6 +69,19 @@ export interface ClientSession {
   /** Per-(context, path) cache for same-as-last value dedup expansion.
    *  Created lazily on first sentinel/absolute-value receipt. */
   valueDedupState: ValueDedupState | null;
+}
+
+/**
+ * Per-peer anti-replay guard (H3). Lives in a map that is **not** cleared on
+ * session idle/eviction, so a captured DATA datagram cannot be replayed once
+ * the live {@link ClientSession} is gone. `epoch` is the highest connection
+ * epoch advertised by the peer's authenticated HELLO; the window is reset only
+ * when the epoch increases (a legitimate peer restart).
+ */
+export interface ReplayGuard {
+  epoch: number;
+  window: ReplayWindow;
+  lastSeen: number;
 }
 
 /**
@@ -121,6 +136,8 @@ export interface ServerContext {
   // Shared state
   clientSessions: Map<string, ClientSession>;
   preAuthByIp: Map<string, { count: number; windowStart: number }>;
+  /** Per-peer anti-replay guards, keyed by `address:port`. Outlives sessions. */
+  replayGuards: Map<string, ReplayGuard>;
   mut: ServerMutableState;
 }
 
@@ -136,6 +153,60 @@ function seedServerReliabilityMetrics(metrics: MetricsApi["metrics"]): void {
   metrics.naksSent = metrics.naksSent || 0;
   metrics.duplicatePackets = metrics.duplicatePackets || 0;
   metrics.dataPacketsReceived = metrics.dataPacketsReceived || 0;
+  metrics.replayedPackets = metrics.replayedPackets || 0;
+}
+
+/**
+ * Get (or lazily create) the persistent anti-replay guard for a peer, refreshing
+ * its LRU position. When the map is over {@link MAX_REPLAY_GUARDS}, the
+ * least-recently-seen guard is evicted.
+ */
+export function getReplayGuard(ctx: ServerContext, peerKey: string): ReplayGuard {
+  const { replayGuards } = ctx;
+  let guard = replayGuards.get(peerKey);
+  const now = Date.now();
+  if (guard) {
+    guard.lastSeen = now;
+    return guard;
+  }
+  if (replayGuards.size >= MAX_REPLAY_GUARDS) {
+    let oldestKey: string | null = null;
+    let oldest = Infinity;
+    for (const [k, g] of replayGuards) {
+      if (g.lastSeen < oldest) {
+        oldest = g.lastSeen;
+        oldestKey = k;
+      }
+    }
+    if (oldestKey !== null) {
+      replayGuards.delete(oldestKey);
+    }
+  }
+  guard = { epoch: 0, window: new ReplayWindow(), lastSeen: now };
+  replayGuards.set(peerKey, guard);
+  return guard;
+}
+
+/**
+ * Apply a HELLO-advertised connection epoch to a peer's replay guard. A strictly
+ * higher epoch from a peer that already had one is a legitimate restart: reset
+ * the window so the new (random) sequence baseline is accepted. A stale/equal
+ * epoch (a replayed HELLO) is ignored. Epochs <= 0 / non-finite mean a pre-H3
+ * peer that does not participate — left at epoch 0 (window not strictly
+ * enforced) for backward compatibility.
+ */
+export function applyHelloEpoch(ctx: ServerContext, peerKey: string, epoch: unknown): void {
+  if (typeof epoch !== "number" || !Number.isFinite(epoch) || epoch <= 0) {
+    return;
+  }
+  const guard = getReplayGuard(ctx, peerKey);
+  if (epoch > guard.epoch) {
+    if (guard.epoch > 0) {
+      // Higher epoch from a peer that already handshaked = restart: re-baseline.
+      guard.window.reset();
+    }
+    guard.epoch = epoch;
+  }
 }
 
 /**
@@ -217,6 +288,7 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
 
     clientSessions: new Map<string, ClientSession>(),
     preAuthByIp: new Map<string, { count: number; windowStart: number }>(),
+    replayGuards: new Map<string, ReplayGuard>(),
     mut: {
       ackTimer: null,
       metricsInterval: null,

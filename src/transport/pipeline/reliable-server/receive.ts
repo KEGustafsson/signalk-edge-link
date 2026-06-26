@@ -15,7 +15,7 @@ import { PacketType, ParsedPacket } from "../../../codec/packet-codec";
 import { getOrCreateSession, sendUDP, sendMetaRequest, sendFullStatusRequest } from "./sessions";
 import { handleMetadataPacket } from "./metadata";
 import { handleDataPacket } from "./data-handler";
-import { preAuthRateLimited, verifyHbProbe } from "./context";
+import { preAuthRateLimited, verifyHbProbe, applyHelloEpoch } from "./context";
 import type { ServerContext, ClientSession } from "./context";
 
 import {
@@ -127,6 +127,10 @@ function parseHelloInfo(
     app.debug(`v2 hello from client: ${JSON.stringify(info)}`);
     if (session && info && typeof info === "object") {
       applyHelloIdentity(session, info);
+      // Advance the per-peer anti-replay epoch (resets the window on a strictly
+      // higher epoch = legitimate restart; ignores replayed/stale HELLOs). The
+      // guard key matches the DATA path: session address/port come from rinfo.
+      applyHelloEpoch(ctx, `${session.address}:${session.port}`, info.epoch);
     }
   } catch (parseErr: unknown) {
     const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);

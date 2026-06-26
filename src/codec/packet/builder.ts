@@ -213,6 +213,9 @@ export class PacketBuilder {
       clientId?: string;
       instanceId?: string;
       capabilities?: string[];
+      /** Monotonic per-connection epoch for server-side anti-replay window
+       *  resets. Optional for backward compatibility with pre-H3 peers. */
+      epoch?: number;
     } = {},
     options: { secretKey?: string; protocolVersion?: number } = {}
   ): Buffer {
@@ -232,6 +235,9 @@ export class PacketBuilder {
     };
     if (info.instanceId) {
       payload.instanceId = info.instanceId;
+    }
+    if (typeof info.epoch === "number" && Number.isFinite(info.epoch)) {
+      payload.epoch = info.epoch;
     }
     return this._buildPacket(PacketType.HELLO, Buffer.from(JSON.stringify(payload)), {}, options);
   }

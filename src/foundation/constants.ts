@@ -77,6 +77,16 @@ export const UDP_RATE_LIMIT_MAX_PACKETS = 200; // Max DATA packets per client pe
 // split across MTU-safe datagrams instead of one oversized, fragmenting packet.
 export const MAX_NAK_SEQUENCES_PER_PACKET = 256;
 
+// Anti-replay (H3). Strict sliding-window size: a DATA sequence more than this
+// many positions behind the high-water mark is rejected as a replay/too-old.
+// 1024 tolerates very large reordering while bounding per-peer memory.
+export const REPLAY_WINDOW_SIZE = 1024;
+// Max per-peer anti-replay guards retained (survives session idle/eviction).
+// Kept comfortably above MAX_CLIENT_SESSIONS so guards outlive sessions; the
+// oldest guard is LRU-evicted past this cap (evicting one is itself far harder
+// than the idle-expiry replay vector this closes).
+export const MAX_REPLAY_GUARDS = 256;
+
 // Decompression safety
 export const MAX_DECOMPRESSED_SIZE = 10 * 1024 * 1024; // 10 MB - reject decompression bombs
 // After decompression, cap the JSON/MessagePack parse size to prevent multi-second stalls
