@@ -77,9 +77,20 @@ function isSentinel(value: unknown): boolean {
  * and plain objects with the same key insertion order. That's good
  * enough for our purposes — Signal K values are produced by the same
  * sender so insertion order will match across consecutive emissions.
+ *
+ * Non-finite numbers (`NaN`, `Infinity`, `-Infinity`) must be encoded
+ * distinctly: `JSON.stringify` serializes all of them — and `null` — to
+ * the literal `"null"`, which would make them compare equal. The MessagePack
+ * transport preserves non-finite numbers on the wire, so a path that
+ * switches between e.g. `NaN` and `null` would otherwise be deduped to the
+ * wrong cached value and silently delivered as the stale one.
  */
 function stableRepr(value: unknown): string {
   if (value === undefined) return "undefined";
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    if (Number.isNaN(value)) return "\0nan";
+    return value > 0 ? "\0+inf" : "\0-inf";
+  }
   try {
     return JSON.stringify(value);
   } catch {

@@ -103,11 +103,13 @@ module.exports = (env, argv) => {
         : [])
     ],
 
-    // hidden-source-map: emit .map files (useful for error-reporting tools that
-    // resolve maps out-of-band) but omit the sourceMappingURL comment so the
-    // maps are not advertised to / fetched by browsers. The .map files are also
-    // excluded from the published package via .npmignore.
-    devtool: isProduction ? "hidden-source-map" : "eval-source-map",
+    // Production: emit no source maps at all. The published package ships the
+    // production bundle via the package.json "files" allowlist, which overrides
+    // .npmignore for whitelisted trees — so any emitted .map files would be
+    // published (bloating the tarball ~4x) regardless of .npmignore. Omitting
+    // them is the only robust way to keep maps out of the registry.
+    // Development keeps fast in-memory maps for local debugging.
+    devtool: isProduction ? false : "eval-source-map",
 
     resolve: {
       extensions: [".ts", ".tsx", ".js", ".jsx", ".json"]

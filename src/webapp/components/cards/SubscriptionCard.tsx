@@ -123,6 +123,13 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
         ) {
           throw new Error("Max paths per packet must be between 10 and 5000");
         }
+        if (metaPathsRegex) {
+          try {
+            new RegExp(metaPathsRegex);
+          } catch {
+            throw new Error(`Invalid path regex: ${metaPathsRegex}`);
+          }
+        }
       }
 
       const res = await request(configPath(connId, "subscription.json"), {
@@ -227,7 +234,7 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
             max={86400}
             step={1}
             placeholder="300"
-            value={metaIntervalSec}
+            value={Number.isFinite(metaIntervalSec) ? metaIntervalSec : ""}
             onChange={(e) => setMetaIntervalSec(Number(e.target.value))}
           />
           <small className="help-text">Between 30 and 86400. Default 300 (5 minutes).</small>
@@ -252,7 +259,7 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
             max={5000}
             step={1}
             placeholder="500"
-            value={metaMaxPerPacket}
+            value={Number.isFinite(metaMaxPerPacket) ? metaMaxPerPacket : ""}
             onChange={(e) => setMetaMaxPerPacket(Number(e.target.value))}
           />
           <small className="help-text">Between 10 and 5000. Default 500.</small>

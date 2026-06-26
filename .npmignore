@@ -32,9 +32,10 @@ dist/
 build/
 coverage/
 
-# Source maps: do not publish webapp .map files to the npm registry even though
-# package.json "files" includes public/. Combined with webpack's
-# hidden-source-map devtool, this keeps maps out of the shipped package.
+# Source maps: the production webpack build emits no .map files (devtool:false),
+# so none are published. This pattern is kept as defense-in-depth for stray maps
+# from local/dev builds — note that package.json "files" overrides .npmignore for
+# whitelisted trees, so not generating maps (above) is the real guarantee.
 public/**/*.map
 
 # Testing

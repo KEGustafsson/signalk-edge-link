@@ -68,7 +68,13 @@ export class Lifecycle {
       if (typeof log === "function") {
         log(msg);
       }
-      if (process.env.NODE_ENV !== "production") {
+      // Throw only under the test runner (jest sets NODE_ENV=test) so the test
+      // suite surfaces FSM misuse loudly. In every real deployment — including
+      // development, where NODE_ENV is commonly unset — log and return false
+      // instead. Signal K servers frequently run without NODE_ENV=production, so
+      // throwing there would let an unexpected transition (e.g. a late recovery
+      // event) escape an event/async callback and crash the host process.
+      if (process.env.NODE_ENV === "test") {
         throw new Error(msg);
       }
       return false;

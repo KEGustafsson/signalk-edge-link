@@ -71,6 +71,12 @@ export const MAX_CLIENT_SESSIONS = 100; // Max concurrent client sessions per se
 export const UDP_RATE_LIMIT_WINDOW = 1000; // Per-client UDP rate limit window (ms)
 export const UDP_RATE_LIMIT_MAX_PACKETS = 200; // Max DATA packets per client per window
 
+// Max missing sequences carried in a single NAK datagram. Each sequence is 4
+// bytes; capping at 256 keeps the NAK payload (1024 B) plus header/auth-tag
+// comfortably under MAX_SAFE_UDP_PAYLOAD so a large coalesced loss batch is
+// split across MTU-safe datagrams instead of one oversized, fragmenting packet.
+export const MAX_NAK_SEQUENCES_PER_PACKET = 256;
+
 // Decompression safety
 export const MAX_DECOMPRESSED_SIZE = 10 * 1024 * 1024; // 10 MB - reject decompression bombs
 // After decompression, cap the JSON/MessagePack parse size to prevent multi-second stalls

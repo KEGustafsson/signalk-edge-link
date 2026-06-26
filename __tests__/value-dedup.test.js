@@ -94,6 +94,38 @@ describe("dedupDelta — sender side", () => {
     expect(isDupSentinel(second.updates[0].values[0].value)).toBe(true);
   });
 
+  test("non-finite numbers are distinguished from null and from each other", () => {
+    // Regression: JSON.stringify collapses NaN/Infinity/-Infinity AND null all
+    // to "null". MessagePack preserves non-finite numbers on the wire, so these
+    // must NOT be treated as equal or a value switch would be deduped to the
+    // wrong cached value and silently delivered as the stale one.
+    const cases = [
+      [null, NaN],
+      [NaN, null],
+      [NaN, Infinity],
+      [Infinity, -Infinity],
+      [-Infinity, NaN],
+      [null, Infinity]
+    ];
+    for (const [first, second] of cases) {
+      const state = createValueDedupState();
+      dedupDelta(makeDelta([{ path: "environment.depth", value: first }]), state);
+      const out = dedupDelta(makeDelta([{ path: "environment.depth", value: second }]), state);
+      // The value changed, so it must be sent absolute (NOT a sentinel).
+      expect(isDupSentinel(out.updates[0].values[0].value)).toBe(false);
+      expect(Object.is(out.updates[0].values[0].value, second)).toBe(true);
+    }
+  });
+
+  test("a repeated non-finite number still dedups to the sentinel", () => {
+    for (const v of [NaN, Infinity, -Infinity]) {
+      const state = createValueDedupState();
+      dedupDelta(makeDelta([{ path: "environment.depth", value: v }]), state);
+      const dup = dedupDelta(makeDelta([{ path: "environment.depth", value: v }]), state);
+      expect(isDupSentinel(dup.updates[0].values[0].value)).toBe(true);
+    }
+  });
+
   test("returns identical reference when no values change vs cache (no allocation)", () => {
     const state = createValueDedupState();
     const d = makeDelta([{ path: "p", value: 1 }]);

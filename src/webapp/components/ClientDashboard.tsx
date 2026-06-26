@@ -92,13 +92,19 @@ export function ClientDashboard({
 
     const epoch = ++v3EpochRef.current;
     const loadV3 = async () => {
+      let authFailed = false;
+      const guard = (p: Promise<Response>) =>
+        p.catch((err: unknown) => {
+          if ((err as ApiError)?.isUnauthorized) authFailed = true;
+          return null;
+        });
       try {
         const [alertsRes, plRes, rtxRes, congRes, bondRes] = await Promise.all([
-          request(monitoringPath(connId, "alerts")).catch(() => null),
-          request(monitoringPath(connId, "packet-loss")).catch(() => null),
-          request(monitoringPath(connId, "retransmissions")).catch(() => null),
-          request(congestionPath(connId)).catch(() => null),
-          request(bondingPath(connId)).catch(() => null)
+          guard(request(monitoringPath(connId, "alerts"))),
+          guard(request(monitoringPath(connId, "packet-loss"))),
+          guard(request(monitoringPath(connId, "retransmissions"))),
+          guard(request(congestionPath(connId))),
+          guard(request(bondingPath(connId)))
         ]);
 
         if (epoch !== v3EpochRef.current) return;
@@ -111,13 +117,19 @@ export function ClientDashboard({
 
         setCongestion(congRes?.ok ? await congRes.json() : null);
         setBonding(bondRes?.ok ? await bondRes.json() : null);
+
+        // Surface an auth failure once instead of silently rendering empty v3
+        // cards — a misconfigured token otherwise looks like "no v3 data".
+        if (authFailed) {
+          onNotify(authMessage("loading advanced (v3) monitoring"), "error");
+        }
       } catch {
-        // ignore
+        // ignore non-auth transient errors (cards simply stay empty)
       }
     };
 
     loadV3();
-  }, [connId, metrics?.protocolVersion, request]);
+  }, [connId, metrics?.protocolVersion, request, authMessage, onNotify]);
 
   const handleFailover = async () => {
     try {

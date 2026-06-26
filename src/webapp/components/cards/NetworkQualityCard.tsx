@@ -12,7 +12,9 @@ export function NetworkQualityCard({ metrics }: Props) {
   if (!nq) return null;
 
   const isClient = metrics?.mode === "client";
-  const qualityPct = nq.linkQuality ?? 0;
+  // Clamp to [0,100]: an out-of-range linkQuality would push gaugeAngle past 180°,
+  // flipping largeArc and rendering a malformed SVG arc.
+  const qualityPct = Math.max(0, Math.min(100, Math.round(nq.linkQuality ?? 0)));
 
   let qualityLabel = "N/A";
   let qualityColor = "#9E9E9E";

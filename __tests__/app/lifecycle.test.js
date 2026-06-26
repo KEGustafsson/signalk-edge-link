@@ -4,7 +4,8 @@
  * Tests for app/lifecycle – Connection lifecycle FSM
  *
  * Covers all valid state transitions, canSend(), forceStop(), and invalid
- * transition handling (logged in prod, thrown in dev).
+ * transition handling (thrown only under the test runner; logged and ignored
+ * in every real deployment, including development).
  */
 
 const { Lifecycle } = require("../../lib/app/lifecycle");
@@ -175,7 +176,7 @@ describe("Lifecycle FSM", () => {
     }
   });
 
-  test("invalid transition throws in non-production mode", () => {
+  test("invalid transition throws under the test runner (NODE_ENV=test)", () => {
     const origEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "test";
     try {
@@ -183,6 +184,30 @@ describe("Lifecycle FSM", () => {
       expect(() => lc.transition("Ready")).toThrow("Invalid transition");
     } finally {
       process.env.NODE_ENV = origEnv;
+    }
+  });
+
+  test("invalid transition does NOT throw in development / unset NODE_ENV (field safety)", () => {
+    const origEnv = process.env.NODE_ENV;
+    for (const env of ["development", undefined]) {
+      if (env === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = env;
+      }
+      try {
+        const lc = new Lifecycle();
+        const log = jest.fn();
+        let ok;
+        expect(() => {
+          ok = lc.transition("Ready", log); // Created → Ready is invalid
+        }).not.toThrow();
+        expect(ok).toBe(false);
+        expect(lc.state).toBe("Created");
+        expect(log).toHaveBeenCalledWith(expect.stringContaining("Invalid transition"));
+      } finally {
+        process.env.NODE_ENV = origEnv;
+      }
     }
   });
 

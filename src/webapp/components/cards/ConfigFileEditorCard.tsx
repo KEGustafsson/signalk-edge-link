@@ -36,6 +36,29 @@ export function ConfigFileEditorCard({
         throw new Error("Plugin configuration must be a JSON object");
       }
 
+      // Structural guard: a savable config is either a `connections[]` array
+      // (new model) or a legacy single connection with a top-level `serverType`.
+      // This catches the common foot-gun of saving the loaded schema document
+      // (which has neither) before it round-trips to the server validator.
+      const hasConnections =
+        Array.isArray(parsed.connections) && (parsed.connections as unknown[]).length > 0;
+      const hasLegacyConnection =
+        typeof parsed.serverType === "string" || typeof parsed.serverType === "boolean";
+      if (!hasConnections && !hasLegacyConnection) {
+        throw new Error(
+          "Config must contain a non-empty `connections` array, or legacy top-level " +
+            "connection fields (e.g. `serverType`). The schema document is not a savable config."
+        );
+      }
+      if (Array.isArray(parsed.connections)) {
+        const bad = (parsed.connections as unknown[]).findIndex(
+          (c) => !c || typeof c !== "object" || Array.isArray(c)
+        );
+        if (bad !== -1) {
+          throw new Error(`connections[${bad}] must be a JSON object`);
+        }
+      }
+
       const res = await request(`${API_BASE}/plugin-config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
