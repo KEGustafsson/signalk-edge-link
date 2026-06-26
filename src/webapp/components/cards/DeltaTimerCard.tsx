@@ -20,7 +20,7 @@ export function DeltaTimerCard({ connId, config, onNotify, onSaved }: Props) {
   }, [config]);
 
   const handleSave = async () => {
-    if (value < DELTA_TIMER_MIN || value > DELTA_TIMER_MAX) {
+    if (!Number.isFinite(value) || value < DELTA_TIMER_MIN || value > DELTA_TIMER_MAX) {
       onNotify(
         `Delta timer must be between ${DELTA_TIMER_MIN} and ${DELTA_TIMER_MAX} milliseconds`,
         "error"
@@ -63,7 +63,7 @@ export function DeltaTimerCard({ connId, config, onNotify, onSaved }: Props) {
           min={DELTA_TIMER_MIN}
           max={DELTA_TIMER_MAX}
           step={100}
-          value={value}
+          value={Number.isFinite(value) ? value : ""}
           onChange={(e) => setValue(Number(e.target.value))}
         />
         <small className="help-text">

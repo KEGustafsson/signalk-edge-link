@@ -30,6 +30,8 @@ function makeState(overrides = {}) {
     options: {
       secretKey: "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536",
       protocolVersion: 2,
+      // Legacy (unauthenticated) packets; header auth defaults ON in v3, opt out.
+      authenticatedHeaders: false,
       reliability: {
         ackInterval: 100,
         ackResendInterval: 1000,

@@ -11,7 +11,7 @@
 import { SequenceTracker } from "../../reliability/sequence";
 import type { ServerContext, ClientSession } from "./context";
 
-import { MAX_CLIENT_SESSIONS } from "../../../foundation/constants";
+import { MAX_CLIENT_SESSIONS, MAX_NAK_SEQUENCES_PER_PACKET } from "../../../foundation/constants";
 
 /**
  * Get or create a session object for the given rinfo.
@@ -66,10 +66,16 @@ export function getOrCreateSession(
   }
 
   // Enforce per-source-IP session limit to prevent a single attacker from
-  // filling the global session table by spoofing many source ports.
-  const ipSessionCount = [...clientSessions.values()].filter(
-    (s) => s.address === rinfo.address
-  ).length;
+  // filling the global session table by spoofing many source ports. Count by
+  // iterating in place (no array allocation) and short-circuit as soon as the
+  // limit is reached — under a spoofed-port flood this runs on every new-key
+  // packet, so avoiding the per-packet spread/filter allocation matters.
+  let ipSessionCount = 0;
+  for (const s of clientSessions.values()) {
+    if (s.address === rinfo.address && ++ipSessionCount >= MAX_SESSIONS_PER_IP) {
+      break;
+    }
+  }
   if (ipSessionCount >= MAX_SESSIONS_PER_IP) {
     app.debug(
       `[v2-server] Rejecting new session from ${rinfo.address}: per-IP limit (${MAX_SESSIONS_PER_IP}) reached`
@@ -200,16 +206,27 @@ export async function sendNAK(
     return;
   }
 
-  try {
-    const nakPacket = packetBuilder.buildNAKPacket(missingSeqs);
-    await sendUDP(ctx, nakPacket, destination);
+  // Split large (coalesced) loss batches into MTU-safe NAK datagrams so a big
+  // burst loss does not build one oversized, fragmenting packet. Each chunk is
+  // sent independently: a failure on one chunk must not suppress the rest, since
+  // the coalesced batch is cleared after this single callback (no retry path).
+  for (let i = 0; i < missingSeqs.length; i += MAX_NAK_SEQUENCES_PER_PACKET) {
+    const chunk = missingSeqs.slice(i, i + MAX_NAK_SEQUENCES_PER_PACKET);
+    try {
+      const nakPacket = packetBuilder.buildNAKPacket(chunk);
+      await sendUDP(ctx, nakPacket, destination);
 
-    metrics.naksSent = (metrics.naksSent ?? 0) + 1;
-    app.debug(
-      `Sent NAK to ${destination.address}:${destination.port}: missing=${missingSeqs.join(", ")}`
-    );
-  } catch (err: unknown) {
-    app.error(`Failed to send NAK: ${err instanceof Error ? err.message : String(err)}`);
+      metrics.naksSent = (metrics.naksSent ?? 0) + 1;
+      app.debug(
+        `Sent NAK to ${destination.address}:${destination.port}: missing=${chunk.join(", ")}`
+      );
+    } catch (err: unknown) {
+      app.error(
+        `Failed to send NAK chunk to ${destination.address}:${destination.port}: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
   }
 }
 

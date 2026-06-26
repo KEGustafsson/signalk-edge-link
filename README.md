@@ -192,7 +192,7 @@ Schema and migration helpers:
 - Uses AES-256-GCM authenticated encryption.
 - Keys must match exactly and can be entered as 32-character ASCII, 64-character hex, or 44-character base64 (standard or URL-safe).
 - Restrict UDP ingress to trusted source addresses whenever possible.
-- Optional `authenticatedHeaders` (v3, both ends must match) adds an HMAC tag binding each DATA/METADATA packet header to its encrypted payload, preventing on-path header tampering. See `docs/security.md`.
+- `authenticatedHeaders` (v3, **default on**, both ends must match) adds an HMAC tag binding each DATA/METADATA packet header to its encrypted payload, preventing on-path header tampering. Set to `false` on both peers only to interoperate with a peer that cannot enable it. See `docs/security.md`.
 
 Example key generation:
 

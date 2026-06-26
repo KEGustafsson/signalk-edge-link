@@ -12,7 +12,12 @@ export function NetworkQualityCard({ metrics }: Props) {
   if (!nq) return null;
 
   const isClient = metrics?.mode === "client";
-  const qualityPct = nq.linkQuality ?? 0;
+  // Normalize then clamp to [0,100]: `?? 0` only covers null/undefined, so guard
+  // NaN/Infinity (which would propagate through round/clamp) with Number.isFinite.
+  // An out-of-range value would otherwise push gaugeAngle past 180°, flipping
+  // largeArc and rendering a malformed SVG arc.
+  const rawQuality = Number.isFinite(nq.linkQuality) ? (nq.linkQuality as number) : 0;
+  const qualityPct = Math.max(0, Math.min(100, Math.round(rawQuality)));
 
   let qualityLabel = "N/A";
   let qualityColor = "#9E9E9E";

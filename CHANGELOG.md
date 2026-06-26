@@ -2,7 +2,7 @@
 
 All notable changes to signalk-edge-link are documented here.
 
-## [3.0.0] - 2026-06-19
+## [3.0.0] - 2026-06-26
 
 ### Breaking changes
 
@@ -15,6 +15,14 @@ All notable changes to signalk-edge-link are documented here.
   configs are silently coerced to `3` on first start. No manual migration is
   required, but downgrading a peer back to 2.x will require setting
   `protocolVersion: 2` explicitly.
+
+- **`authenticatedHeaders` now defaults to `true` (v3).** DATA/METADATA packet
+  headers are authenticated with an HMAC tag by default, preventing on-path
+  header tampering (e.g. sequence-number forgery). Two default-configured v3
+  peers interoperate automatically. **Both ends must use the same setting** — to
+  pair with a peer that cannot enable it, set `authenticatedHeaders: false` on
+  both ends (restores the legacy CRC-only header). Adds 16 bytes/packet. See
+  `docs/security.md`.
 
 ### Architecture
 
@@ -56,12 +64,11 @@ All notable changes to signalk-edge-link are documented here.
   from a request body (an incomplete write can no longer silently disable auth);
   auth telemetry is no longer exposed on `/status` and `/metrics` in open-access
   mode; config-file route errors no longer disclose absolute filesystem paths.
-- **Opt-in authenticated packet headers (`authenticatedHeaders`, v3):** binds
-  each DATA/METADATA header (type/flags/sequence/length) to the encrypted
-  payload with a 16-byte HMAC tag, closing the unauthenticated-header tampering
-  gap. Backward compatible — default `false` leaves the wire format unchanged;
-  both peers must enable it. Includes downgrade rejection and end-to-end + proxy
-  relay tests.
+- **Authenticated packet headers (`authenticatedHeaders`, v3):** binds each
+  DATA/METADATA header (type/flags/sequence/length) to the encrypted payload
+  with a 16-byte HMAC tag, closing the unauthenticated-header tampering gap.
+  Enabled by default (see Breaking changes above); both peers must use the same
+  setting. Includes downgrade rejection and end-to-end + proxy relay tests.
 - **Keys:** URL-safe base64 (`base64url`) secret keys are now accepted.
 
 ### Reliability

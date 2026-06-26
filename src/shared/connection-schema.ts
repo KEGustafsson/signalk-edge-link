@@ -71,8 +71,8 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     type: "boolean",
     title: "Authenticate Packet Headers (v3)",
     description:
-      "Bind each DATA/METADATA packet header (type, flags, sequence, length) to the encrypted payload with an HMAC tag, preventing an on-path attacker from tampering with header fields such as the sequence number. Adds 16 bytes per packet. BOTH ENDS MUST USE THE SAME SETTING — otherwise authentication fails and every DATA packet is dropped.",
-    default: false
+      "Bind each DATA/METADATA packet header (type, flags, sequence, length) to the encrypted payload with an HMAC tag, preventing an on-path attacker from tampering with header fields such as the sequence number. Adds 16 bytes per packet. Enabled by default (v3). BOTH ENDS MUST USE THE SAME SETTING — otherwise authentication fails and every DATA and METADATA packet is dropped; only disable it if both peers are configured with it off.",
+    default: true
   },
   useMsgpack: {
     type: "boolean",

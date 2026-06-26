@@ -34,6 +34,11 @@ export class SequenceTracker {
   behindResyncThreshold: number;
   nakTimers: Map<number, ReturnType<typeof setTimeout>>;
   onLossDetected: (sequences: number[]) => void;
+  // Sequences whose NAK timer has fired and are still missing, awaiting the
+  // next coalesced flush. Insertion order is ascending (timers are scheduled
+  // in gap order), so the emitted batch stays ordered.
+  private _pendingNAKs: Set<number>;
+  private _nakFlushTimer: ReturnType<typeof setTimeout> | null;
 
   constructor(config: SequenceTrackerConfig = {}) {
     this.expectedSeq = null;
@@ -45,6 +50,8 @@ export class SequenceTracker {
     this.behindResyncThreshold = config.behindResyncThreshold ?? this.maxGapTracking * 2;
     this.nakTimers = new Map();
     this.onLossDetected = config.onLossDetected || (() => {});
+    this._pendingNAKs = new Set();
+    this._nakFlushTimer = null;
   }
 
   /**
@@ -263,6 +270,11 @@ export class SequenceTracker {
       clearTimeout(timer);
     }
     this.nakTimers.clear();
+    if (this._nakFlushTimer !== null) {
+      clearTimeout(this._nakFlushTimer);
+      this._nakFlushTimer = null;
+    }
+    this._pendingNAKs.clear();
   }
 
   /**
@@ -292,13 +304,56 @@ export class SequenceTracker {
     }
 
     const timer = setTimeout(() => {
-      if (!this.receivedSeqs.has(sequence)) {
-        this.onLossDetected([sequence]);
-      }
       this.nakTimers.delete(sequence);
+      // Coalesce: instead of emitting one NAK datagram per missing sequence
+      // (a NAK storm on a lossy link — a single burst loss could otherwise
+      // produce hundreds of datagrams), queue the sequence and flush all
+      // sequences whose timers expired in the same tick as one batched NAK.
+      if (!this.receivedSeqs.has(sequence)) {
+        this._pendingNAKs.add(sequence);
+        this._scheduleNAKFlush();
+      }
     }, this.nakTimeout);
 
     this.nakTimers.set(sequence, timer);
+  }
+
+  /**
+   * Schedule a single coalescing flush of all pending NAK sequences. The flush
+   * runs on the next tick so all per-sequence timers that fire together (they
+   * share the same nakTimeout and are scheduled in one gap-walk) are emitted as
+   * one NAK list rather than one datagram each.
+   * @private
+   */
+  private _scheduleNAKFlush(): void {
+    if (this._nakFlushTimer !== null) {
+      return;
+    }
+    this._nakFlushTimer = setTimeout(() => {
+      this._nakFlushTimer = null;
+      this._flushNAKs();
+    }, 0);
+  }
+
+  /**
+   * Emit all still-missing pending NAK sequences as a single batched callback.
+   * @private
+   */
+  private _flushNAKs(): void {
+    if (this._pendingNAKs.size === 0) {
+      return;
+    }
+    const batch: number[] = [];
+    for (const seq of this._pendingNAKs) {
+      // A sequence may have arrived between its timer firing and this flush.
+      if (!this.receivedSeqs.has(seq)) {
+        batch.push(seq);
+      }
+    }
+    this._pendingNAKs.clear();
+    if (batch.length > 0) {
+      this.onLossDetected(batch);
+    }
   }
 
   /**

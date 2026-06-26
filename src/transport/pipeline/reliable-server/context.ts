@@ -148,7 +148,10 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
 
   const protocolVersion = 3;
   const stretchAsciiKey = !!state.options?.stretchAsciiKey;
-  const authenticatedHeaders = !!state.options?.authenticatedHeaders;
+  // Default ON (v3): authenticate DATA/METADATA headers unless explicitly
+  // disabled. Both ends must agree (see connection schema). Opt out with
+  // `authenticatedHeaders: false` only when both peers are configured off.
+  const authenticatedHeaders = state.options?.authenticatedHeaders !== false;
   const packetParser = new PacketParser({
     secretKey: state.options?.secretKey ?? undefined,
     stretchAsciiKey,

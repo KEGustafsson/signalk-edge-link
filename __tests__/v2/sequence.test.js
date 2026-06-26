@@ -239,6 +239,30 @@ describe("SequenceTracker", () => {
       t.reset();
     });
 
+    test("coalesces a multi-sequence gap into a single batched NAK callback", () => {
+      jest.useFakeTimers();
+      const calls = [];
+      const t = new SequenceTracker({
+        nakTimeout: 30,
+        onLossDetected: (seqs) => calls.push(seqs.slice())
+      });
+      try {
+        t.processSequence(0);
+        t.processSequence(6); // Missing 1,2,3,4,5
+
+        // Advance past the nakTimeout and run the follow-up setTimeout(…, 0) flush.
+        jest.advanceTimersByTime(30);
+        jest.runOnlyPendingTimers();
+
+        // One batched call rather than five separate ones.
+        expect(calls.length).toBe(1);
+        expect(calls[0].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+      } finally {
+        t.reset();
+        jest.useRealTimers();
+      }
+    });
+
     test("NAK cancelled via contiguous advancement", async () => {
       const onLoss = jest.fn();
       const t = new SequenceTracker({

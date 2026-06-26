@@ -689,7 +689,9 @@ describe("E2E Pipeline Tests", () => {
 
       clientMetrics = createMetrics();
       clientState = {
-        options: { useMsgpack: false, usePathDictionary: false },
+        // Legacy (unauthenticated) header path: this block round-trips raw
+        // packets without a configured secretKey, so opt out of the v3 default.
+        options: { useMsgpack: false, usePathDictionary: false, authenticatedHeaders: false },
         socketUdp: {
           send: (msg, port, host, cb) => {
             sentPackets.push(Buffer.from(msg));
@@ -706,7 +708,7 @@ describe("E2E Pipeline Tests", () => {
 
       serverMetrics = createMetrics();
       serverState = {
-        options: { useMsgpack: false, usePathDictionary: false },
+        options: { useMsgpack: false, usePathDictionary: false, authenticatedHeaders: false },
         socketUdp: {
           send: (msg, port, host, cb) => {
             if (cb) {
