@@ -2,17 +2,22 @@
 
 ## Overview
 
-Protocol v3 is the default wire format as of signalk-edge-link 3.0.0. v3 is
-**identical to v2 in the data path and wire format** — the only difference is
-that control packets (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST,
-FULL_STATUS_REQUEST) carry a 16-byte HMAC-SHA256 authentication tag keyed by the
-shared `secretKey`. This closes the v2 control-plane forgery surface (forged
-FULL_STATUS_REQUEST replay amplification, forged NAK retransmit storms, forged
-HELLO sessions).
+Protocol v3 is the default wire format as of signalk-edge-link 3.0.0. The
+encrypted data payload is **identical to v2**; v3 adds two HMAC-SHA256
+authentication layers keyed by the shared `secretKey`:
 
-**Key principle:** the upgrade is configuration-only. There is no new key
-material and no data-format change — both peers just need to agree on
-`protocolVersion: 3`.
+1. **Control packets** (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST,
+   FULL_STATUS_REQUEST) carry a 16-byte authentication tag, closing the v2
+   control-plane forgery surface (forged FULL_STATUS_REQUEST replay
+   amplification, forged NAK retransmit storms, forged HELLO sessions).
+2. **DATA/METADATA headers** are authenticated by default
+   (`authenticatedHeaders: true`): each packet carries a 16-byte HMAC tag binding
+   its header (type/flags/sequence/length) to the encrypted payload, preventing
+   on-path header tampering. This adds 16 bytes/packet.
+
+**Key principle:** the upgrade is configuration-only — no new key material. Both
+peers just need to agree on `protocolVersion: 3` and on the `authenticatedHeaders`
+setting (default on; if one peer cannot enable it, set it to `false` on both).
 
 > **Authoritative references.** Field names (`protocolVersion`, `secretKey`,
 > `authenticatedHeaders`) and the `"basic"`/`"advanced"` string aliases are
@@ -24,13 +29,18 @@ material and no data-format change — both peers just need to agree on
 
 ## What changes between v2 and v3
 
-| Aspect                                | v2                    | v3            |
-| ------------------------------------- | --------------------- | ------------- |
-| Data payload (GCM)                    | encrypted + integrity | unchanged     |
-| Wire format / header                  | 15-byte binary header | unchanged     |
-| Control packet authentication         | CRC only (forgeable)  | HMAC-SHA256   |
-| Retransmission / congestion / bonding | ✓                     | ✓ (unchanged) |
-| Safe on untrusted networks            | **No**                | **Yes**       |
+| Aspect                                | v2                    | v3                                  |
+| ------------------------------------- | --------------------- | ----------------------------------- |
+| Data payload (GCM)                    | encrypted + integrity | unchanged                           |
+| Wire format / header                  | 15-byte binary header | 15-byte header + 16-byte HMAC tag\* |
+| DATA/METADATA header authentication   | CRC16 only            | HMAC-SHA256 (default on)            |
+| Control packet authentication         | CRC only (forgeable)  | HMAC-SHA256                         |
+| Retransmission / congestion / bonding | ✓                     | ✓ (unchanged)                       |
+| Safe on untrusted networks            | **No**                | **Yes**                             |
+
+\* When `authenticatedHeaders` is enabled (the default), DATA/METADATA packets
+carry a trailing 16-byte HMAC tag; both peers must use the same setting. Setting
+it to `false` on both ends restores the legacy CRC-only header.
 
 Everything else — AES-256-GCM encryption, Brotli compression, MessagePack,
 path-dictionary encoding, the configuration UI, and all REST endpoints — stays

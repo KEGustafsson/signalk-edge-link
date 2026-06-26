@@ -206,11 +206,13 @@ export async function sendNAK(
     return;
   }
 
-  try {
-    // Split large (coalesced) loss batches into MTU-safe NAK datagrams so a big
-    // burst loss does not build one oversized, fragmenting packet.
-    for (let i = 0; i < missingSeqs.length; i += MAX_NAK_SEQUENCES_PER_PACKET) {
-      const chunk = missingSeqs.slice(i, i + MAX_NAK_SEQUENCES_PER_PACKET);
+  // Split large (coalesced) loss batches into MTU-safe NAK datagrams so a big
+  // burst loss does not build one oversized, fragmenting packet. Each chunk is
+  // sent independently: a failure on one chunk must not suppress the rest, since
+  // the coalesced batch is cleared after this single callback (no retry path).
+  for (let i = 0; i < missingSeqs.length; i += MAX_NAK_SEQUENCES_PER_PACKET) {
+    const chunk = missingSeqs.slice(i, i + MAX_NAK_SEQUENCES_PER_PACKET);
+    try {
       const nakPacket = packetBuilder.buildNAKPacket(chunk);
       await sendUDP(ctx, nakPacket, destination);
 
@@ -218,9 +220,13 @@ export async function sendNAK(
       app.debug(
         `Sent NAK to ${destination.address}:${destination.port}: missing=${chunk.join(", ")}`
       );
+    } catch (err: unknown) {
+      app.error(
+        `Failed to send NAK chunk to ${destination.address}:${destination.port}: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
     }
-  } catch (err: unknown) {
-    app.error(`Failed to send NAK: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

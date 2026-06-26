@@ -234,7 +234,6 @@ describe("authenticated headers end-to-end (server pipeline)", () => {
     const compressed = await brotliCompress(Buffer.from(JSON.stringify(delta)));
     const encrypted = encryptBinary(compressed, SECRET_KEY);
 
-    // Legacy packet → rejected (default requires authentication).
     const legacy = new PacketBuilder({ secretKey: SECRET_KEY }).buildDataPacket(encrypted, {
       compressed: true,
       encrypted: true
@@ -242,7 +241,6 @@ describe("authenticated headers end-to-end (server pipeline)", () => {
     await server.receivePacket(legacy, SECRET_KEY, client);
     expect(app.handleMessage).not.toHaveBeenCalled();
 
-    // Authenticated packet → accepted.
     const authed = authBuilder().buildDataPacket(encrypted, { compressed: true, encrypted: true });
     await server.receivePacket(authed, SECRET_KEY, { address: "10.0.0.99", port: 5555 });
     server.stopACKTimer();

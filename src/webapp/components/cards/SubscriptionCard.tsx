@@ -124,6 +124,11 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
           throw new Error("Max paths per packet must be between 10 and 5000");
         }
         if (metaPathsRegex) {
+          // Mirror the server's cheap length cap (the backend remains the
+          // authoritative validator, including its ReDoS-shape heuristic).
+          if (metaPathsRegex.length > 256) {
+            throw new Error("Path regex must be 256 characters or fewer");
+          }
           try {
             new RegExp(metaPathsRegex);
           } catch {

@@ -200,7 +200,7 @@ describe("Lifecycle FSM", () => {
         const log = jest.fn();
         let ok;
         expect(() => {
-          ok = lc.transition("Ready", log); // Created → Ready is invalid
+          ok = lc.transition("Ready", log);
         }).not.toThrow();
         expect(ok).toBe(false);
         expect(lc.state).toBe("Created");

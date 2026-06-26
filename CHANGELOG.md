@@ -64,12 +64,11 @@ All notable changes to signalk-edge-link are documented here.
   from a request body (an incomplete write can no longer silently disable auth);
   auth telemetry is no longer exposed on `/status` and `/metrics` in open-access
   mode; config-file route errors no longer disclose absolute filesystem paths.
-- **Opt-in authenticated packet headers (`authenticatedHeaders`, v3):** binds
-  each DATA/METADATA header (type/flags/sequence/length) to the encrypted
-  payload with a 16-byte HMAC tag, closing the unauthenticated-header tampering
-  gap. Backward compatible — default `false` leaves the wire format unchanged;
-  both peers must enable it. Includes downgrade rejection and end-to-end + proxy
-  relay tests.
+- **Authenticated packet headers (`authenticatedHeaders`, v3):** binds each
+  DATA/METADATA header (type/flags/sequence/length) to the encrypted payload
+  with a 16-byte HMAC tag, closing the unauthenticated-header tampering gap.
+  Enabled by default (see Breaking changes above); both peers must use the same
+  setting. Includes downgrade rejection and end-to-end + proxy relay tests.
 - **Keys:** URL-safe base64 (`base64url`) secret keys are now accepted.
 
 ### Reliability
