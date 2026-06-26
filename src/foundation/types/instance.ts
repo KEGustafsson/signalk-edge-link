@@ -56,6 +56,10 @@ export interface InstanceState {
   maxDeltasPerBatch: number;
   /** Path to the delta-timer override config file; null if not set. */
   deltaTimerFile: string | null;
+  /** Monotonic per-(re)start connection epoch (H3 anti-replay), resolved from a
+   *  persisted counter at client start so it survives an RTC-less reboot.
+   *  Undefined until resolved; consumers fall back to `Date.now()`. */
+  connectionEpoch?: number;
   /** Path to the Signal K subscription filter file; null if not set. */
   subscriptionFile: string | null;
   /** Path to the NMEA sentence filter file; null if not set. */

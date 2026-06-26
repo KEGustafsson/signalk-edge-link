@@ -178,9 +178,13 @@ function buildClientContext(
     dedupState: createDedupState(),
     protocolVersion,
     stretchAsciiKey,
-    // Monotonic across process restarts (wall clock); fixed for this connection
-    // so a HELLO burst does not look like repeated restarts to the server.
-    connectionEpoch: Date.now(),
+    // Persisted monotonic epoch resolved at client start (survives an RTC-less
+    // reboot). Falls back to Date.now() for callers that build the context
+    // without going through the start path (e.g. unit tests).
+    connectionEpoch:
+      typeof state.connectionEpoch === "number" && Number.isFinite(state.connectionEpoch)
+        ? state.connectionEpoch
+        : Date.now(),
     clientTelemetrySource: "signalk-edge-link-client-telemetry",
     packetBuilder,
     packetParser,
