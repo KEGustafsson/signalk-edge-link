@@ -102,6 +102,8 @@ export interface Metrics {
   naksSent?: number;
   duplicatePackets?: number;
   dataPacketsReceived?: number;
+  /** DATA packets rejected by the anti-replay window (H3). */
+  replayedPackets?: number;
   rateLimitedPackets?: number;
   droppedDeltaBatches?: number;
   droppedDeltaCount?: number;

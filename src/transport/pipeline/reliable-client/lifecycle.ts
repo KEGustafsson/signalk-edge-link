@@ -103,12 +103,13 @@ export async function sendHello(
   udpAddress: string,
   udpPort: number
 ): Promise<void> {
-  const { app, state, packetBuilder, protocolVersion } = ctx;
+  const { app, state, packetBuilder, protocolVersion, connectionEpoch } = ctx;
   try {
     const helloPacket = packetBuilder.buildHelloPacket({
       protocolVersion,
       clientId: state.instanceId || "",
-      instanceId: state.instanceId || ""
+      instanceId: state.instanceId || "",
+      epoch: connectionEpoch
     });
     await udpSendAsync(ctx, helloPacket, udpAddress, udpPort);
     state.lastPacketTime = Date.now();

@@ -76,6 +76,10 @@ export interface ClientContext {
   dedupState: ValueDedupState;
   protocolVersion: number;
   stretchAsciiKey: boolean;
+  /** Monotonic per-connection epoch (set once at pipeline construction). Sent
+   *  in the HELLO so the server can tell a legitimate restart (higher epoch,
+   *  resets its anti-replay window) from a replayed old HELLO (epoch <= last). */
+  connectionEpoch: number;
   clientTelemetrySource: string;
   packetBuilder: PacketBuilder;
   packetParser: PacketParser;

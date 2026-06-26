@@ -938,22 +938,28 @@ describe("E2E Pipeline Tests", () => {
       expect(server.tracker.expectedSeq).toBe(10);
     });
 
-    test("NAK callback fires on gap detection after timeout", (done) => {
+    test("NAK callback fires on gap detection after timeout", () => {
+      // Fake timers keep this deterministic under CI scheduling jitter: advance
+      // the nakTimeout, then run the follow-up coalescing flush (setTimeout(…, 0)).
+      jest.useFakeTimers();
       const naks = [];
       const tracker = new SequenceTracker({
         nakTimeout: 30,
         onLossDetected: (missing) => naks.push(...missing)
       });
+      try {
+        tracker.processSequence(0);
+        tracker.processSequence(1);
+        tracker.processSequence(3); // gap at 2
 
-      tracker.processSequence(0);
-      tracker.processSequence(1);
-      tracker.processSequence(3); // gap at 2
+        jest.advanceTimersByTime(30);
+        jest.runOnlyPendingTimers();
 
-      setTimeout(() => {
         expect(naks).toContain(2);
+      } finally {
         tracker.reset();
-        done();
-      }, 80);
+        jest.useRealTimers();
+      }
     });
   });
 

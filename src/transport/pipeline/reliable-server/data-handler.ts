@@ -33,7 +33,7 @@ import {
   UDP_RATE_LIMIT_MAX_PACKETS
 } from "../../../foundation/constants";
 
-import { preAuthRateLimited } from "./context";
+import { preAuthRateLimited, getReplayGuard } from "./context";
 
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
@@ -211,6 +211,38 @@ function processDelta(
 }
 
 /**
+ * Persistent anti-replay gate (H3). Unlike the per-session SequenceTracker, the
+ * per-peer replay window survives session idle expiry and eviction, so a
+ * captured DATA datagram cannot be replayed after the live session is gone.
+ * Enforced only once the peer has completed the epoch handshake
+ * (guard.epoch > 0); pre-H3 peers keep legacy behavior. A rejected sequence is
+ * handled like a duplicate (ACK to suppress retransmit; never re-injected).
+ *
+ * @returns true when the packet was a replay and must be dropped.
+ */
+async function rejectReplayedDataPacket(
+  ctx: ServerContext,
+  session: ClientSession | null,
+  parsed: ParsedPacket,
+  rinfo?: { address: string; port: number }
+): Promise<boolean> {
+  if (!rinfo) {
+    return false;
+  }
+  const guard = getReplayGuard(ctx, `${rinfo.address}:${rinfo.port}`);
+  const fresh = guard.window.accept(parsed.sequence >>> 0);
+  if (fresh || guard.epoch === 0) {
+    return false;
+  }
+  ctx.app.debug(`v2 replay/too-old DATA rejected: seq=${parsed.sequence >>> 0}`);
+  ctx.metrics.replayedPackets = (ctx.metrics.replayedPackets ?? 0) + 1;
+  if (session && session.sequenceTracker.expectedSeq !== null) {
+    await ackDuplicate(ctx, session, rinfo);
+  }
+  return true;
+}
+
+/**
  * Sequence-track an authenticated DATA packet. Returns false (stop) for a
  * duplicate (after reflecting an immediate ACK); otherwise records the accepted
  * packet's bookkeeping (counters, full-status trigger, loss window) and returns
@@ -224,6 +256,11 @@ async function trackDataSequence(
   rinfo?: { address: string; port: number }
 ): Promise<boolean> {
   const { app, state, metrics } = ctx;
+
+  if (await rejectReplayedDataPacket(ctx, session, parsed, rinfo)) {
+    return false;
+  }
+
   const seqResult = session
     ? session.sequenceTracker.processSequence(parsed.sequence)
     : { duplicate: false, resynced: false };

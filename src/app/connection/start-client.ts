@@ -13,6 +13,7 @@
  */
 
 import dgram from "dgram";
+import { dirname, join } from "node:path";
 import Monitor from "ping-monitor";
 import {
   PacketLossTracker,
@@ -23,8 +24,16 @@ import {
 import { PacketCapture, PacketInspector } from "../../domain/monitoring/packet-capture";
 import { DEFAULT_DELTA_TIMER } from "../../foundation/constants";
 import { loadConfigFileSafe } from "../../foundation/config-io";
+import { resolveMonotonicEpoch } from "../../transport/reliability/connection-epoch";
 import { createWatcherWithRecovery, initializePersistentStorage } from "../config/watcher";
 import type { ConnectionContext } from "./context";
+
+/** Persisted-epoch file path for a connection, beside its other runtime files. */
+function epochFilePath(ctx: ConnectionContext): string | null {
+  return ctx.state.deltaTimerFile
+    ? join(dirname(ctx.state.deltaTimerFile), "replay_epoch.json")
+    : null;
+}
 
 /** Load and apply the persisted delta-timer interval, falling back to default. */
 async function loadDeltaTimer(ctx: ConnectionContext): Promise<void> {
@@ -228,6 +237,9 @@ export async function startClient(ctx: ConnectionContext): Promise<void> {
   if (lifecycle.isShuttingDown()) return;
 
   await loadDeltaTimer(ctx);
+  // Resolve the monotonic anti-replay epoch before the pipeline (and its first
+  // HELLO) is built in setupReliableClient below.
+  state.connectionEpoch = await resolveMonotonicEpoch(epochFilePath(ctx), app);
 
   services.keepaliveManager.start();
   state.socketUdp = socketManager.create();
