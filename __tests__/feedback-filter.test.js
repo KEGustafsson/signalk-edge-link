@@ -94,7 +94,10 @@ describe("Outbound delta forwarding", () => {
     await plugin.start({
       ...clientOptions,
       testPort: probePort,
-      pingIntervalTime: 0.001
+      // 0.1 minutes is the documented minimum (validateConnectionConfig now
+      // enforces the shared-schema 0.1-60 range). The exact value is irrelevant
+      // to these tests — readyToSend is set during startup, not by the ping.
+      pingIntervalTime: 0.1
     });
     const deadline = Date.now() + 2000;
     while (typeof mockApp._deltaCallback !== "function" && Date.now() < deadline) {

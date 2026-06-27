@@ -8,7 +8,7 @@ import {
 } from "../connection-config";
 import { validateRuntimeConfigBody } from "./config-validation";
 import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
-import type { ConnectionConfig } from "../types";
+import type { ConnectionConfig } from "../foundation/types";
 
 /**
  * Registers multi-instance connection routes:
@@ -22,6 +22,7 @@ import type { ConnectionConfig } from "../types";
  */
 function register(router: Router, ctx: RouteContext): void {
   const {
+    app,
     rateLimitMiddleware,
     requireJson,
     instanceRegistry,
@@ -42,8 +43,10 @@ function register(router: Router, ctx: RouteContext): void {
     }
 
     const out = { ...options };
-    if (Object.prototype.hasOwnProperty.call(out, "secretKey")) {
-      out.secretKey = "[redacted]";
+    for (const key of ["secretKey", "managementApiToken"]) {
+      if (Object.prototype.hasOwnProperty.call(out, key)) {
+        out[key] = "[redacted]";
+      }
     }
     return out;
   }
@@ -473,7 +476,10 @@ function register(router: Router, ctx: RouteContext): void {
         const config = await loadConfigFile(filePath);
         res.contentType("application/json").send(JSON.stringify(config || {}));
       } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        const detail = err instanceof Error ? err.message : String(err);
+        if (app?.error)
+          app.error(`[connection-config.read] ${req.params.id}/${req.params.filename}: ${detail}`);
+        res.status(500).json({ error: "Failed to read configuration file" });
       }
     }
   );
@@ -502,9 +508,16 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(400).json({ error: validationError });
         }
         const success = await saveConfigFile(filePath, req.body);
-        res.status(success ? 200 : 500).send(success ? "OK" : "Failed to save configuration");
+        return success
+          ? res.status(200).json({ success: true })
+          : res.status(500).json({ error: "Failed to save configuration file" });
       } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        const detail = err instanceof Error ? err.message : String(err);
+        if (app?.error)
+          app.error(
+            `[connection-config.update] ${req.params.id}/${req.params.filename}: ${detail}`
+          );
+        res.status(500).json({ error: "Failed to save configuration file" });
       }
     }
   );

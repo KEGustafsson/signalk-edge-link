@@ -1,5 +1,7 @@
 "use strict";
 
+const SECRET_KEY = "12345678901234567890123456789012";
+
 const zlib = require("node:zlib");
 const { createPipelineV2Server } = require("../../lib/pipeline-v2-server");
 const { PacketBuilder, PacketParser, PacketType } = require("../../lib/packet");
@@ -43,7 +45,7 @@ function makeMetricsApi() {
   };
 }
 
-function buildDataPacket(sequence, payloadObj, key, protocolVersion = 2) {
+function buildDataPacket(sequence, payloadObj, key, protocolVersion = 3) {
   const builder = new PacketBuilder({ initialSequence: sequence, protocolVersion });
   const json = Buffer.from(JSON.stringify([payloadObj]));
   const compressed = zlib.brotliCompressSync(json);
@@ -54,7 +56,7 @@ function buildDataPacket(sequence, payloadObj, key, protocolVersion = 2) {
   });
 }
 
-function buildMetadataPacket(envelope, key, protocolVersion = 2) {
+function buildMetadataPacket(envelope, key, protocolVersion = 3) {
   const builder = new PacketBuilder({ protocolVersion });
   const json = Buffer.from(JSON.stringify(envelope));
   const compressed = zlib.brotliCompressSync(json);
@@ -75,7 +77,7 @@ describe("pipeline-v2-server", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
@@ -107,7 +109,7 @@ describe("pipeline-v2-server", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
@@ -150,7 +152,7 @@ describe("pipeline-v2-server", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
@@ -191,15 +193,15 @@ describe("pipeline-v2-server", () => {
     };
     const send = jest.fn((_pkt, _port, _addr, cb) => cb && cb(null));
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
     };
     const metricsApi = makeMetricsApi();
     const pipeline = createPipelineV2Server(app, state, metricsApi);
-    const builder = new PacketBuilder({ protocolVersion: 2 });
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const hello = builder.buildHelloPacket({
       clientId: "edge-a",
       capabilities: ["compression", "encryption", "reliability"]
@@ -234,7 +236,7 @@ describe("pipeline-v2-server", () => {
       signalk: { retrieve: jest.fn(() => root) }
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
@@ -272,7 +274,7 @@ describe("pipeline-v2-server", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test",
       sourceRegistry: createSourceRegistry(app)
@@ -329,7 +331,7 @@ describe("pipeline-v2-server", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test"
     };
@@ -361,7 +363,10 @@ describe("pipeline-v2-server", () => {
     };
     const send = jest.fn((_pkt, _port, _addr, cb) => cb && cb(null));
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      // v3 control packets (the NAK the server schedules) are HMAC-authenticated,
+      // so the server needs the secret key to build them. This test feeds legacy
+      // (unauthenticated) DATA packets, so opt out of the v3 header-auth default.
+      options: { secretKey, authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send },
       instanceId: "test"
     };
@@ -390,8 +395,9 @@ describe("pipeline-v2-server", () => {
     await pipeline.receivePacket(seq12, secretKey, { address: "127.0.0.1", port: 12002 });
 
     await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const parser = new PacketParser();
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const nakPackets = send.mock.calls
       .map((c) => c[0])
       .filter((pkt) => {
@@ -417,6 +423,7 @@ describe("pipeline-v2-server", () => {
       options: {
         protocolVersion: 3,
         secretKey,
+        authenticatedHeaders: false,
         reliability: { nakTimeout: 10 }
       },
       socketUdp: { send },
@@ -448,6 +455,7 @@ describe("pipeline-v2-server", () => {
     await pipeline.receivePacket(seq12, secretKey, { address: "127.0.0.1", port: 12002 });
 
     await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const parser = new PacketParser({ secretKey });
     const nakPacket = send.mock.calls
@@ -474,6 +482,7 @@ describe("pipeline-v2-server", () => {
       options: {
         protocolVersion: 3,
         secretKey,
+        authenticatedHeaders: false,
         reliability: { nakTimeout: 10 }
       },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
@@ -490,7 +499,9 @@ describe("pipeline-v2-server", () => {
     await pipeline.receivePacket(forgedHeartbeat, secretKey, { address: "127.0.0.1", port: 12003 });
 
     expect(app.error).toHaveBeenCalledWith(
-      "v2 authentication failed: packet tampered or wrong key"
+      expect.stringMatching(
+        /v2 decryption\/authentication failed.*Control packet authentication failed/
+      )
     );
   });
 });

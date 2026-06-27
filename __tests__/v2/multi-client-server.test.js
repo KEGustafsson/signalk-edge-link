@@ -30,6 +30,8 @@ function makeState(overrides = {}) {
     options: {
       secretKey: "6162636465666768696a6b6c6d6e6f707172737475767778797a313233343536",
       protocolVersion: 2,
+      // Legacy (unauthenticated) packets; header auth defaults ON in v3, opt out.
+      authenticatedHeaders: false,
       reliability: {
         ackInterval: 100,
         ackResendInterval: 1000,
@@ -130,9 +132,24 @@ describe("pipeline-v2-server multi-client sessions", () => {
     expect(m.totalSessions).toBe(1);
   });
 
-  test("bonding heartbeat probe is echoed back without creating a session", async () => {
-    const probe = Buffer.alloc(12);
-    probe.write("HBPROBE", 0, "ascii");
+  function makeHbProbe(secretHex, { withTag = true } = {}) {
+    const crypto = require("crypto");
+    const header = Buffer.alloc(12);
+    header.write("HBPROBE", 0, "ascii");
+    header.writeUInt32BE(7, 7); // arbitrary seq
+    if (!withTag) {
+      return header;
+    }
+    const tag = crypto
+      .createHmac("sha256", Buffer.from(secretHex, "hex"))
+      .update(header)
+      .digest()
+      .subarray(0, 8);
+    return Buffer.concat([header, tag]);
+  }
+
+  test("authenticated bonding heartbeat probe is echoed back without creating a session", async () => {
+    const probe = makeHbProbe(SECRET);
 
     let echoed = false;
     state.socketUdp = {
@@ -148,6 +165,26 @@ describe("pipeline-v2-server multi-client sessions", () => {
 
     expect(echoed).toBe(true);
     // No session created for probe
+    expect(server.getMetrics().totalSessions).toBe(0);
+  });
+
+  test("unauthenticated/forged bonding heartbeat probe is dropped (not reflected)", async () => {
+    // A probe with no HMAC tag, while a secret is configured, must not be
+    // echoed — otherwise the server is an unauthenticated UDP reflector and a
+    // spoofed probe could mislead a peer's link health.
+    const probe = makeHbProbe(SECRET, { withTag: false });
+
+    let echoed = false;
+    state.socketUdp = {
+      send: jest.fn((data, port, address, cb) => {
+        echoed = true;
+        cb(null);
+      })
+    };
+
+    await server.receivePacket(probe, SECRET, clientA);
+
+    expect(echoed).toBe(false);
     expect(server.getMetrics().totalSessions).toBe(0);
   });
 

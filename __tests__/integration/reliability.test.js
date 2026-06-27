@@ -1,5 +1,7 @@
 "use strict";
 
+const SECRET_KEY = "12345678901234567890123456789012";
+
 const { NetworkSimulator, createSimulatedSockets } = require("../network-simulator");
 const { PacketBuilder, PacketParser, PacketType } = require("../../lib/packet");
 const { RetransmitQueue } = require("../../lib/retransmit-queue");
@@ -149,8 +151,8 @@ describe("Client ACK/NAK Handling", () => {
   let retransmitQueue;
 
   beforeEach(() => {
-    builder = new PacketBuilder();
-    parser = new PacketParser();
+    builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    parser = new PacketParser({ secretKey: SECRET_KEY });
     retransmitQueue = new RetransmitQueue({ maxRetransmits: 3 });
   });
 
@@ -163,7 +165,7 @@ describe("Client ACK/NAK Handling", () => {
     expect(retransmitQueue.getSize()).toBe(5);
 
     // Simulate receiving ACK for seq 2
-    const ackBuilder = new PacketBuilder();
+    const ackBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
     const ackPacket = ackBuilder.buildACKPacket(2);
     const parsed = parser.parseHeader(ackPacket);
     const ackedSeq = parser.parseACKPayload(parsed.payload);
@@ -186,7 +188,7 @@ describe("Client ACK/NAK Handling", () => {
     }
 
     // Simulate receiving NAK for [1, 3]
-    const nakBuilder = new PacketBuilder();
+    const nakBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
     const nakPacket = nakBuilder.buildNAKPacket([1, 3]);
     const parsed = parser.parseHeader(nakPacket);
     const missingSeqs = parser.parseNAKPayload(parsed.payload);
@@ -240,8 +242,8 @@ describe("Server ACK Generation", () => {
 
   beforeEach(() => {
     sequenceTracker = new SequenceTracker({ nakTimeout: 100 });
-    packetBuilder = new PacketBuilder();
-    parser = new PacketParser();
+    packetBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
+    parser = new PacketParser({ secretKey: SECRET_KEY });
   });
 
   afterEach(() => {
@@ -351,8 +353,8 @@ describe("Server NAK Generation", () => {
   });
 
   test("NAK packet encodes missing sequences correctly", () => {
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     const missingSeqs = [5, 8, 12, 15];
     const nakPacket = builder.buildNAKPacket(missingSeqs);
@@ -375,9 +377,9 @@ describe("End-to-End Reliability Flow", () => {
   let serverTracker;
 
   beforeEach(() => {
-    clientBuilder = new PacketBuilder();
-    serverBuilder = new PacketBuilder();
-    parser = new PacketParser();
+    clientBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
+    serverBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
+    parser = new PacketParser({ secretKey: SECRET_KEY });
     clientQueue = new RetransmitQueue({ maxRetransmits: 3 });
     serverTracker = new SequenceTracker({ nakTimeout: 50 });
   });
@@ -457,7 +459,7 @@ describe("End-to-End Reliability Flow", () => {
       expect(tracker.expectedSeq).toBe(5);
 
       // Server ACKs up to 4
-      const ackPacket = new PacketBuilder().buildACKPacket(4);
+      const ackPacket = new PacketBuilder({ secretKey: SECRET_KEY }).buildACKPacket(4);
       const ackParsed = parser.parseHeader(ackPacket);
       clientQueue.acknowledge(parser.parseACKPayload(ackParsed.payload));
       expect(clientQueue.getSize()).toBe(0);
@@ -539,8 +541,8 @@ describe("End-to-End Reliability Flow", () => {
 describe("Reliability Under Simulated Network Loss", () => {
   test("retransmit queue handles 5% loss scenario", () => {
     const sim = new NetworkSimulator({ packetLoss: 0.05 });
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const queue = new RetransmitQueue({ maxRetransmits: 3 });
     const tracker = new SequenceTracker({ nakTimeout: 0 });
 
@@ -582,8 +584,8 @@ describe("Reliability Under Simulated Network Loss", () => {
 
   test("retransmit queue handles 20% loss with multiple rounds", () => {
     const sim = new NetworkSimulator({ packetLoss: 0.2 });
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const queue = new RetransmitQueue({ maxRetransmits: 5 });
 
     const received = new Set();
@@ -633,8 +635,8 @@ describe("Reliability Under Simulated Network Loss", () => {
     const s2c = new NetworkSimulator({ packetLoss: 0 });
     const { clientSocket, serverSocket } = createSimulatedSockets(c2s, s2c);
 
-    const builder = new PacketBuilder();
-    const parser = new PacketParser();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
 
     // Client listens for ACK
     clientSocket.on("message", (msg) => {
@@ -659,7 +661,7 @@ describe("Reliability Under Simulated Network Loss", () => {
 describe("Reliability Metrics", () => {
   test("tracks retransmission attempts in statistics", () => {
     const queue = new RetransmitQueue({ maxRetransmits: 5 });
-    const builder = new PacketBuilder();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 
     for (let i = 0; i < 10; i++) {
       queue.add(i, builder.buildDataPacket(Buffer.from(`data ${i}`)));
@@ -677,7 +679,7 @@ describe("Reliability Metrics", () => {
 
   test("queue depth decreases with ACK", () => {
     const queue = new RetransmitQueue();
-    const builder = new PacketBuilder();
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 
     for (let i = 0; i < 100; i++) {
       queue.add(i, builder.buildDataPacket(Buffer.from(`data ${i}`)));

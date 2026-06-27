@@ -32,6 +32,12 @@ dist/
 build/
 coverage/
 
+# Source maps: the production webpack build emits no .map files (devtool:false),
+# so none are published. This pattern is kept as defense-in-depth for stray maps
+# from local/dev builds — note that package.json "files" overrides .npmignore for
+# whitelisted trees, so not generating maps (above) is the real guarantee.
+public/**/*.map
+
 # Testing
 test/
 tests/

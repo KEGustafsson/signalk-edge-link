@@ -1,6 +1,6 @@
 {
   "name": "signalk-edge-link",
-  "version": "2.9.1",
+  "version": "3.0.0",
   "description": "SignalK Edge Link. Secure UDP link for data exchange.",
   "main": "lib/index.js",
   "files": [
@@ -27,35 +27,43 @@
     "build:ts": "npm run clean:lib && tsc",
     "check:ts": "tsc --noEmit",
     "check:release-docs": "node scripts/check-release-truth.js",
+    "verify": "npm run check:ts && npm run lint && npm test",
+    "check:ts:webapp": "tsc -p tsconfig.webapp.json --noEmit",
+    "verify:ci-local": "npm run check:ts && npm run lint && npm run test:coverage && npm run check:ts:webapp && npm run build && npm run conformance:generate && git diff --exit-code -- __conformance__/vectors/golden.json && npm run check:release-docs",
+    "conformance:generate": "npm run build:ts && node __conformance__/generate-vectors.js",
     "dev": "webpack --mode development --watch",
     "test": "jest --runInBand",
     "test:v2": "jest __tests__/v2/",
     "test:integration": "jest __tests__/integration/",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx --max-warnings 0",
+    "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "format": "prettier --write \"**/*.{js,ts,json,md}\"",
     "migrate:config": "node lib/scripts/migrate-config.js",
     "cli": "node lib/bin/edge-link-cli.js",
+    "prepack": "npm run build",
     "prepare": "husky"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.0.0",
-    "@rjsf/core": "^5.18.4",
-    "@rjsf/utils": "^5.18.4",
-    "@rjsf/validator-ajv8": "^5.18.4",
     "ping-monitor": "^0.8.2"
   },
   "devDependencies": {
-    "@babel/core": "^7.22.0",
+    "@babel/core": "^7.29.7",
     "@babel/preset-env": "^7.22.0",
     "@babel/preset-react": "^7.22.0",
-    "@testing-library/jest-dom": "^5.17.0",
-    "@testing-library/react": "^12.1.5",
+    "@rjsf/core": "^5.18.4",
+    "@rjsf/utils": "^5.18.4",
+    "@rjsf/validator-ajv8": "^5.18.4",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^16.0.0",
     "@types/node": "^25.3.5",
-    "@types/react": "^16.14.0",
-    "@types/react-dom": "^16.9.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
     "babel-loader": "^9.1.2",
     "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^6.8.1",
@@ -68,9 +76,9 @@
     "lint-staged": "^15.4.3",
     "mini-css-extract-plugin": "^2.7.6",
     "prettier": "^3.6.2",
-    "react": "^16.13.1",
-    "react-dom": "^16.13.1",
-    "react-test-renderer": "^16.14.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-test-renderer": "^19.0.0",
     "style-loader": "^3.3.3",
     "ts-jest": "^29.4.6",
     "ts-loader": "^9.5.4",
@@ -78,8 +86,12 @@
     "webpack": "^5.102.1",
     "webpack-cli": "^5.1.4"
   },
+  "overrides": {
+    "js-yaml": "4.2.0",
+    "ws": "8.21.0"
+  },
   "engines": {
-    "node": ">=24"
+    "node": ">=20.9.0"
   },
   "author": "Karl-Erik Gustafsson",
   "repository": "https://github.com/KEGustafsson/signalk-edge-link",
@@ -92,15 +104,55 @@
     "testEnvironment": "node",
     "coverageDirectory": "coverage",
     "collectCoverageFrom": [
-      "lib/**/*.js",
-      "!lib/webapp/**",
-      "!lib/components/**",
-      "!lib/utils/**"
+      "src/**/*.ts",
+      "src/**/*.tsx",
+      "!src/**/*.d.ts"
     ],
+    "setupFilesAfterEnv": [
+      "<rootDir>/jest.setup.ts"
+    ],
+    "moduleNameMapper": {
+      "^(?:\\.\\./)+lib/bonding$": "<rootDir>/src/transport/bonding",
+      "^(?:\\.\\./)+lib/compact-delta$": "<rootDir>/src/codec/compact-delta",
+      "^(?:\\.\\./)+lib/congestion$": "<rootDir>/src/transport/congestion",
+      "^(?:\\.\\./)+lib/crypto$": "<rootDir>/src/codec/crypto",
+      "^(?:\\.\\./)+lib/delta-sanitizer$": "<rootDir>/src/codec/delta-sanitizer",
+      "^(?:\\.\\./)+lib/metadata$": "<rootDir>/src/codec/metadata-codec",
+      "^(?:\\.\\./)+lib/metrics-publisher$": "<rootDir>/src/transport/metrics/publisher",
+      "^(?:\\.\\./)+lib/metrics$": "<rootDir>/src/domain/metrics/registry",
+      "^(?:\\.\\./)+lib/monitoring$": "<rootDir>/src/domain/monitoring/index",
+      "^(?:\\.\\./)+lib/packet-capture$": "<rootDir>/src/domain/monitoring/packet-capture",
+      "^(?:\\.\\./)+lib/packet$": "<rootDir>/src/codec/packet-codec",
+      "^(?:\\.\\./)+lib/pathDictionary$": "<rootDir>/src/codec/path-dictionary",
+      "^(?:\\.\\./)+lib/pipeline-factory$": "<rootDir>/src/transport/pipeline/factory",
+      "^(?:\\.\\./)+lib/pipeline-utils$": "<rootDir>/src/codec/compression",
+      "^(?:\\.\\./)+lib/transport/udp-socket-manager$": "<rootDir>/src/transport/udp-socket-manager",
+      "^(?:\\.\\./)+lib/pipeline-v2-client$": "<rootDir>/src/transport/pipeline/reliable-client",
+      "^(?:\\.\\./)+lib/pipeline-v2-server$": "<rootDir>/src/transport/pipeline/reliable-server",
+      "^(?:\\.\\./)+lib/pipeline$": "<rootDir>/src/transport/pipeline/v1",
+      "^(?:\\.\\./)+lib/prometheus$": "<rootDir>/src/domain/metrics/prometheus",
+      "^(?:\\.\\./)+lib/retransmit-queue$": "<rootDir>/src/transport/reliability/retransmit-queue",
+      "^(?:\\.\\./)+lib/sequence$": "<rootDir>/src/transport/reliability/sequence",
+      "^(?:\\.\\./)+lib/source-dispatch$": "<rootDir>/src/codec/source-dispatch",
+      "^(?:\\.\\./)+lib/source-replication$": "<rootDir>/src/domain/source-registry",
+      "^(?:\\.\\./)+lib/source-snapshot$": "<rootDir>/src/codec/source-snapshot",
+      "^(?:\\.\\./)+lib/types$": "<rootDir>/src/foundation/types/index",
+      "^(?:\\.\\./)+lib/value-dedup$": "<rootDir>/src/codec/value-dedup",
+      "^(?:\\.\\./)+lib/values-snapshot$": "<rootDir>/src/codec/values-snapshot",
+      "^(?:\\.\\./)+lib/CircularBuffer$": "<rootDir>/src/foundation/circular-buffer",
+      "^(?:\\.\\./)+lib/config-io$": "<rootDir>/src/foundation/config-io",
+      "^(?:\\.\\./)+lib/config-reload$": "<rootDir>/src/foundation/config-reload",
+      "^(?:\\.\\./)+lib/config-watcher$": "<rootDir>/src/app/config/watcher",
+      "^(?:\\.\\./)+lib/constants$": "<rootDir>/src/foundation/constants",
+      "^(?:\\.\\./)+lib/(.*)$": "<rootDir>/src/$1"
+    },
     "testMatch": [
       "**/__tests__/**/*.js",
+      "**/__conformance__/**/*.test.js",
       "**/*.test.js",
-      "**/*.spec.js"
+      "**/*.spec.js",
+      "**/*.test.ts",
+      "**/*.test.tsx"
     ],
     "transform": {
       "^.+\\.js$": [
@@ -118,14 +170,14 @@
           ]
         }
       ],
-      ".+\\.tsx$": [
+      "^.+\\.(ts|tsx)$": [
         "ts-jest",
         {
-          "tsconfig": "tsconfig.webapp.json",
+          "tsconfig": "tsconfig.jest.json",
+          "isolatedModules": true,
           "diagnostics": false
         }
-      ],
-      "^.+\\.ts$": "ts-jest"
+      ]
     },
     "moduleFileExtensions": [
       "ts",
@@ -138,7 +190,9 @@
       "/node_modules/",
       "/public/",
       "/__tests__/benchmarks/",
-      "/__tests__/network-simulator\\.js$"
+      "/__tests__/helpers/",
+      "/__tests__/network-simulator\\.js$",
+      "/__conformance__/(?:generate-vectors|build-vectors)\\.js$"
     ],
     "coverageThreshold": {
       "global": {
@@ -146,6 +200,18 @@
         "functions": 65,
         "lines": 65,
         "statements": 65
+      },
+      "./src/transport/pipeline/v1-helpers.ts": {
+        "branches": 60,
+        "functions": 40,
+        "lines": 65,
+        "statements": 65
+      },
+      "./src/webapp/components/cards/": {
+        "branches": 65,
+        "functions": 60,
+        "lines": 70,
+        "statements": 70
       }
     }
   },
@@ -153,12 +219,13 @@
     "edge-link-cli": "lib/bin/edge-link-cli.js"
   },
   "lint-staged": {
-    "*.js": [
+    "*.{js,jsx}": [
       "prettier --write",
       "eslint --fix"
     ],
-    "*.ts": [
-      "prettier --write"
+    "*.{ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
     ],
     "*.{json,md}": [
       "prettier --write"

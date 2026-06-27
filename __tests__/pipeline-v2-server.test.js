@@ -35,7 +35,10 @@ function makeState(overrides = {}) {
     options: {
       secretKey: SECRET_KEY,
       udpPort: 12345,
-      protocolVersion: 2,
+      protocolVersion: 3,
+      // This suite feeds legacy (unauthenticated) packets; header auth defaults
+      // ON in v3, so opt out explicitly here.
+      authenticatedHeaders: false,
       useMsgpack: false,
       usePathDictionary: false,
       reliability: {}
@@ -176,11 +179,26 @@ describe("receivePacket – plugin stopped", () => {
 // ── receivePacket – heartbeat probe ───────────────────────────────────────────
 
 describe("receivePacket – heartbeat probe (HBPROBE)", () => {
-  test("echoes heartbeat probe back to sender via UDP", async () => {
+  function makeHbProbe(withTag = true) {
+    const crypto = require("crypto");
+    const header = Buffer.alloc(12);
+    Buffer.from("HBPROBE", "ascii").copy(header, 0);
+    header.writeUInt32BE(3, 7);
+    if (!withTag) {
+      return header;
+    }
+    // SECRET_KEY is a 32-char ASCII key → used as raw bytes (no stretch).
+    const tag = crypto
+      .createHmac("sha256", Buffer.from(SECRET_KEY))
+      .update(header)
+      .digest()
+      .subarray(0, 8);
+    return Buffer.concat([header, tag]);
+  }
+
+  test("echoes authenticated heartbeat probe back to sender via UDP", async () => {
     const { pipeline, state } = makeServer();
-    // Minimal HBPROBE packet: 7 ASCII bytes + padding to >= 12 bytes
-    const probe = Buffer.alloc(16);
-    Buffer.from("HBPROBE", "ascii").copy(probe, 0);
+    const probe = makeHbProbe(true);
     const rinfo = { address: "10.0.0.1", port: 9999 };
 
     await pipeline.receivePacket(probe, SECRET_KEY, rinfo);
@@ -191,6 +209,16 @@ describe("receivePacket – heartbeat probe (HBPROBE)", () => {
       rinfo.address,
       expect.any(Function)
     );
+  });
+
+  test("drops a forged (untagged) heartbeat probe when a secret is configured", async () => {
+    const { pipeline, state } = makeServer();
+    const probe = makeHbProbe(false);
+    const rinfo = { address: "10.0.0.1", port: 9999 };
+
+    await pipeline.receivePacket(probe, SECRET_KEY, rinfo);
+
+    expect(state.socketUdp.send).not.toHaveBeenCalled();
   });
 
   test("does not echo when no rinfo", async () => {
@@ -217,40 +245,19 @@ describe("receivePacket – non-v2 packet", () => {
   });
 });
 
-// ── receivePacket – version mismatch ──────────────────────────────────────────
+// ── receivePacket – version rejection ─────────────────────────────────────────
 
 describe("receivePacket – protocol version pin", () => {
-  test("v3 server rejects v2 DATA packet (prevents downgrade to unauthenticated control)", async () => {
+  test("v3 server rejects a legacy v2 (0x02) DATA packet on the wire", async () => {
     const app = makeApp();
     const state = makeState();
     state.options.protocolVersion = 3;
     const metricsApi = createMetrics();
     const pipeline = createPipeline(3, "server", app, state, metricsApi);
 
-    // Build a v2 DATA packet that would otherwise parse cleanly
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
-    const payload = JSON.stringify([{ context: "vessels.self", updates: [{ values: [] }] }]);
-    const compressed = await brotliCompressAsync(Buffer.from(payload));
-    const { encryptBinary } = require("../lib/crypto");
-    const encrypted = encryptBinary(compressed, SECRET_KEY);
-    const packet = builder.buildDataPacket(encrypted, {
-      compressed: true,
-      encrypted: true,
-      messagepack: false,
-      pathDictionary: false
-    });
-
-    await pipeline.receivePacket(packet, SECRET_KEY, { address: "127.0.0.1", port: 6100 });
-
-    // The packet must be counted as malformed and not delivered
-    expect(metricsApi.metrics.malformedPackets).toBeGreaterThanOrEqual(1);
-    expect(metricsApi.metrics.dataPacketsReceived || 0).toBe(0);
-    expect(app.handleMessage).not.toHaveBeenCalled();
-  });
-
-  test("v2 server rejects v3 DATA packet (configuration mismatch guard)", async () => {
-    const { pipeline, app, metricsApi } = makeServer();
-
+    // Build a v3 DATA packet, then stamp the legacy v2 version byte into the
+    // header. Protocol v2 was removed, so the parser must reject 0x02 (the
+    // version check runs before CRC validation, so no CRC fix-up is needed).
     const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const payload = JSON.stringify([{ context: "vessels.self", updates: [{ values: [] }] }]);
     const compressed = await brotliCompressAsync(Buffer.from(payload));
@@ -262,10 +269,13 @@ describe("receivePacket – protocol version pin", () => {
       messagepack: false,
       pathDictionary: false
     });
+    packet[2] = 0x02; // legacy v2 version byte — no longer supported
 
-    await pipeline.receivePacket(packet, SECRET_KEY, { address: "127.0.0.1", port: 6200 });
+    await pipeline.receivePacket(packet, SECRET_KEY, { address: "127.0.0.1", port: 6100 });
 
+    // The packet must be counted as malformed and not delivered
     expect(metricsApi.metrics.malformedPackets).toBeGreaterThanOrEqual(1);
+    expect(metricsApi.metrics.dataPacketsReceived || 0).toBe(0);
     expect(app.handleMessage).not.toHaveBeenCalled();
   });
 });
@@ -276,8 +286,8 @@ describe("receivePacket – wrong decryption key", () => {
   test("logs an auth error when the wrong key is used", async () => {
     const { pipeline, app } = makeServer();
 
-    // Build a valid v2 packet with the correct key
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    // Build a valid v3 packet with the correct key
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     // We need a minimal brotli-compressed + encrypted payload
     const payload = JSON.stringify([{ context: "vessels.self", updates: [] }]);
     const compressed = await brotliCompressAsync(Buffer.from(payload));
@@ -307,7 +317,7 @@ describe("receivePacket – valid DATA packet", () => {
   test("calls app.handleMessage for each delta", async () => {
     const { pipeline, app } = makeServer();
 
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const delta = {
       context: "vessels.self",
       updates: [{ values: [{ path: "navigation.speedOverGround", value: 1.5 }] }]
@@ -332,7 +342,7 @@ describe("receivePacket – valid DATA packet", () => {
   test("creates a session on first packet from a new client", async () => {
     const { pipeline } = makeServer();
 
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const payload = JSON.stringify([{ context: "vessels.self", updates: [{ values: [] }] }]);
     const compressed = await brotliCompressAsync(Buffer.from(payload));
     const { encryptBinary } = require("../lib/crypto");
@@ -354,7 +364,7 @@ describe("receivePacket – valid DATA packet", () => {
   test("increments dataPacketsReceived counter", async () => {
     const { pipeline, metricsApi } = makeServer();
 
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const payload = JSON.stringify([{ context: "vessels.self", updates: [{ values: [] }] }]);
     const compressed = await brotliCompressAsync(Buffer.from(payload));
     const { encryptBinary } = require("../lib/crypto");
@@ -378,7 +388,7 @@ describe("receivePacket – duplicate detection", () => {
   test("increments duplicatePackets counter on receiving the same seq twice", async () => {
     const { pipeline, metricsApi } = makeServer();
 
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const payload = JSON.stringify([{ context: "vessels.self", updates: [{ values: [] }] }]);
     const compressed = await brotliCompressAsync(Buffer.from(payload));
     const { encryptBinary } = require("../lib/crypto");

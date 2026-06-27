@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/signalk-edge-link)](https://www.npmjs.com/package/signalk-edge-link)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D16-brightgreen)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
 Signal K Edge Link is a Signal K plugin that transfers vessel deltas between Signal K servers over encrypted UDP.
 
@@ -17,7 +17,7 @@ It is designed for links where latency, packet loss, and bandwidth usage matter 
 - **Two operating modes**:
   - **Client**: subscribes to local deltas and sends packets
   - **Server**: receives packets, decrypts, and forwards to local Signal K
-- **Protocol v2/v3 features** for difficult links:
+- **Advanced mode** features for difficult links:
   - ACK/NAK-based reliability
   - congestion control
   - optional primary/backup bonding
@@ -50,7 +50,7 @@ Server Signal K
 - Two Signal K instances (source and destination)
 - UDP reachability from client to server on your chosen port
 - Shared encryption key on both ends (32-character ASCII, 64-character hex, or 44-character base64)
-- Node.js 16+ (if installing from source: dev dependencies including TypeScript are installed automatically via `npm install`)
+- Node.js 20.9.0+ (if installing from source: dev dependencies including TypeScript are installed automatically via `npm install`)
 
 ## Installation
 
@@ -82,7 +82,7 @@ In Signal K Admin UI:
    - `Connection Name` (for example `shore-server`)
    - `UDP Port` (default `4446`)
    - `Encryption Key` (same shared secret used by client)
-   - `Protocol Version` (`3` recommended for new deployments; use `2` only for compatibility with an existing v2 peer)
+   - `Protocol` — select **Advanced** (v3, recommended) for new deployments; select **Basic** (v1) only for stable local links
 4. Save
 
 ### 2) Configure the source (Client mode)
@@ -96,7 +96,7 @@ On the sending Signal K instance:
    - `Server Address` (destination host/IP)
    - `UDP Port` (must match server)
    - `Encryption Key` (must match server)
-   - `Protocol Version` (`3` recommended for new deployments; use `2` only for compatibility with an existing v2 peer)
+   - `Protocol` — select **Advanced** (v3, recommended) for new deployments; select **Basic** (v1) only for stable local links
 4. Save
 
 ### 3) Verify traffic
@@ -111,21 +111,24 @@ Check that:
 - server `Deltas Received` increases
 - encryption/decryption errors remain stable at zero
 
-## Protocol version guidance
+## Protocol guidance
 
-| Version | Use when                                                  | Notes                                                                         |
-| ------- | --------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| v1      | stable local links, simplest setup                        | lower overhead, no ACK/NAK reliability, no metadata transport                 |
-| v2      | packet loss, variable latency, WAN links                  | adds retransmission, congestion control, bonding, metadata, richer monitoring |
-| v3      | same use cases as v2 when both peers can upgrade together | keeps v2 features and authenticates ACK/NAK/HEARTBEAT/HELLO control packets   |
+| Mode         | Numeric | Use when                                 | Notes                                                                    |
+| ------------ | ------- | ---------------------------------------- | ------------------------------------------------------------------------ |
+| **Basic**    | v1      | stable local links, simplest setup       | lower overhead, no ACK/NAK reliability, no metadata transport            |
+| **Advanced** | v3      | packet loss, variable latency, WAN links | retransmission, congestion control, bonding, metadata, HMAC control auth |
 
-For unstable links, start with **v3** when both peers support it; fall back to **v2** only when you need compatibility with an already deployed v2 peer.
+Use **Advanced** for any new deployment on a WAN or unreliable link. Use **Basic** only for stable local links where simplicity and minimum overhead matter.
 
 ## Runtime UI and API
 
 - Runtime UI: `/plugins/signalk-edge-link/`
 - API base path: `/plugins/signalk-edge-link`
 - Default API rate limit: **120 requests/minute/IP**
+
+For a walkthrough of the configuration panel (progressive-disclosure connection
+cards) and the runtime dashboard panels for server and client, see
+[`docs/web-ui.md`](docs/web-ui.md).
 
 Most used endpoints:
 
@@ -172,7 +175,7 @@ Configuration is an array of independent connections:
 - Each connection runs independently.
 - Legacy single-object config is auto-normalized to one connection.
 - Client runtime JSON files (`delta_timer.json`, `subscription.json`, `sentence_filter.json`) are stored per connection and can be edited via API.
-- `requestFullStatusOnRestart` (server mode, v2/v3, default `false`): when enabled, the server sends a `FULL_STATUS_REQUEST` to each client on first contact after a (re)start; the client immediately replays its complete values snapshot so the server rebuilds state without waiting for incremental deltas. Client-side rate-limited to 10 s to prevent replay floods across rapid restarts.
+- `requestFullStatusOnRestart` (server mode, v3, default `false`): when enabled, the server sends a `FULL_STATUS_REQUEST` to each client on first contact after a (re)start; the client immediately replays its complete values snapshot so the server rebuilds state without waiting for incremental deltas. Client-side rate-limited to 10 s to prevent replay floods across rapid restarts.
 
 For complete setting definitions and ranges, use `docs/configuration-reference.md`.
 
@@ -187,8 +190,9 @@ Schema and migration helpers:
 ## Security notes
 
 - Uses AES-256-GCM authenticated encryption.
-- Keys must match exactly and can be entered as 32-character ASCII, 64-character hex, or 44-character base64.
+- Keys must match exactly and can be entered as 32-character ASCII, 64-character hex, or 44-character base64 (standard or URL-safe).
 - Restrict UDP ingress to trusted source addresses whenever possible.
+- `authenticatedHeaders` (v3, **default on**, both ends must match) adds an HMAC tag binding each DATA/METADATA packet header to its encrypted payload, preventing on-path header tampering. Set to `false` on both peers only to interoperate with a peer that cannot enable it. See `docs/security.md`.
 
 Example key generation:
 
@@ -202,11 +206,11 @@ Common checks:
 
 - Verify `udpAddress`, `udpPort`, and `secretKey` match both ends.
 - Confirm server UDP port is reachable and not already in use.
-- If link quality is poor, switch to `protocolVersion: 3` when both peers can upgrade together, or `2` if you must stay compatible with an existing v2 peer.
+- If link quality is poor, switch to **Advanced** (`protocolVersion: 3`) when both peers can upgrade together.
 
-**`testAddress is only supported on v1 clients` after upgrading to v2/v3**
+**`testAddress is only supported on v1 clients` after upgrading to Advanced mode**
 
-The fields `testAddress`, `testPort`, and `pingIntervalTime` belong to the v1 ping monitor and are not used by v2/v3 clients (which derive RTT from HEARTBEAT exchanges instead). If these fields are present in a connection with `protocolVersion: 2` or `3` the validator will reject the config.
+The fields `testAddress`, `testPort`, and `pingIntervalTime` belong to the Basic (v1) ping monitor and are not used by Advanced (v3) clients (which derive RTT from HEARTBEAT exchanges instead). If these fields are present in a connection with `protocolVersion: 3` the validator will reject the config.
 
 Remove them from the affected connection:
 
@@ -268,7 +272,7 @@ CLI commands support `--token=<token>` or the `SIGNALK_EDGE_LINK_MANAGEMENT_TOKE
 Management pages automatically attach auth headers when a token is available. Token sources are checked in this order:
 
 1. `window.__EDGE_LINK_AUTH__.token` — injected global (preferred for server-side injection)
-2. URL query parameter `?edgeLinkToken=<token>`
+2. URL query parameter `?edgeLinkToken=<token>` — **disabled by default**; opt in with `includeTokenInQuery: true`. Avoid it: tokens in URLs leak via browser history, server access logs, and `Referer` headers.
 3. `localStorage.setItem("signalkEdgeLinkManagementToken", "<token>")`
 
 The UI sends both `X-Edge-Link-Token` and `Authorization: Bearer <token>` by default. Override with:
@@ -288,16 +292,16 @@ window.__EDGE_LINK_AUTH__ = {
 - `docs/architecture-overview.md` (system architecture and lifecycle)
 - `docs/configuration-reference.md` (settings and defaults)
 - `docs/api-reference.md`
-- `docs/protocol-v2.md` (reliable protocol operational overview)
-- `docs/protocol-v3-spec.md` (authenticated control-plane details)
+- `docs/protocol-v3.md` (Basic/Advanced protocol operational overview)
+- `docs/protocol-v3-spec.md` (RFC-style wire specification with authenticated control plane)
 - `docs/bonding.md` (bonding concepts and API usage)
 - `docs/congestion-control.md` (congestion-control behavior and tuning)
 - `docs/metrics.md` (metrics and monitoring reference)
 - `docs/management-tools.md` (instance/bonding API + CLI operations)
 - `docs/security.md` (security guidance and deployment hardening)
 - `docs/performance-tuning.md` (deployment tuning recommendations by hardware profile)
-- `samples/` (example JSON configurations for minimal/dev/v2-bonding setups)
-- `grafana/dashboards/edge-link.json` (starter Grafana dashboard)
+- `docs/troubleshooting.md` (issue-oriented diagnostics)
+- `samples/` (example JSON configurations for minimal/dev/bonding setups)
 - `src/scripts/migrate-config.ts` (legacy config migration utility)
 - `src/bin/edge-link-cli.ts` (CLI wrapper for migration and instance/bonding management)
 

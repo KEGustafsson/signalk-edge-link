@@ -2,6 +2,116 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [3.0.0] - 2026-06-26
+
+### Security
+
+- **DATA anti-replay window (v3).** The server now keeps a per-peer sliding
+  replay window (high-water mark + recently-seen sequences) that **survives
+  session idle expiry and eviction**, closing the replay vector where a captured
+  DATA datagram could be re-injected after the live session state was gone. The
+  window is reset only on a strictly higher **connection epoch** advertised in
+  the client's HMAC-authenticated HELLO, distinguishing a legitimate restart
+  from a replayed HELLO. No per-packet wire change (the epoch is an optional
+  HELLO field); pre-H3 peers are unaffected. Rejections are counted as
+  `replayedPackets`. Cross-epoch replay (~1e-6) and the post-server-restart race
+  remain documented residuals — see `docs/security.md`.
+
+### Breaking changes
+
+- **Protocol version 3 is now the default wire format.** v2 peers (running
+  signalk-edge-link < 3.0.0) can no longer exchange data with v3 peers unless
+  both sides are upgraded. Mixed v1/v3 networks are not supported on the same
+  connection — upgrade both ends together.
+
+- **Automatic config coercion:** existing `protocolVersion: 2` connection
+  configs are silently coerced to `3` on first start. No manual migration is
+  required, but downgrading a peer back to 2.x will require setting
+  `protocolVersion: 2` explicitly.
+
+- **`authenticatedHeaders` now defaults to `true` (v3).** DATA/METADATA packet
+  headers are authenticated with an HMAC tag by default, preventing on-path
+  header tampering (e.g. sequence-number forgery). Two default-configured v3
+  peers interoperate automatically. **Both ends must use the same setting** — to
+  pair with a peer that cannot enable it, set `authenticatedHeaders: false` on
+  both ends (restores the legacy CRC-only header). Adds 16 bytes/packet. See
+  `docs/security.md`.
+
+### Architecture
+
+- **React 19 webapp rewrite.** The plugin configuration UI is now a modular
+  React component tree (~3 000 lines added, 2 342-line vanilla-TS string
+  engine removed). Features: multi-connection tab navigation, live metrics
+  polling, subscription / delta-timer / sentence-filter editors, metadata
+  streaming controls, bandwidth sparklines, path analytics, congestion-control
+  and bonding dashboards.
+
+- **Simplified connection configurator (progressive disclosure).** Each
+  connection card now shows only the essential fields (name, mode, address,
+  port, encryption key, protocol) by default; compression, reliability,
+  bonding, congestion-control and per-path tuning are tucked behind a per-card
+  "Advanced settings" toggle. The advanced section auto-expands for connections
+  that already use those options, and collapsing it never discards configured
+  values. Added an intro guidance line explaining the server/client choice and
+  the must-match key/protocol requirement.
+
+- **Layered source tree cutover.** All temporary re-export shims at
+  `src/CircularBuffer.ts`, `src/config-io.ts`, `src/constants.ts`,
+  `src/config-watcher.ts`, and `src/shared/crypto-constants.ts` have been
+  deleted. Callers now import directly from the canonical foundation and
+  application layers.
+
+- **Security hardening (phase 6).** Explicit string aliases for protocol
+  values, `DecryptError` typed exception, and key-mismatch diagnostics.
+
+### Maintenance
+
+- Fixed stale `publish-packages.yml` comment that incorrectly described the
+  trigger as "on every push to main or dev" (actual trigger: `workflow_dispatch`).
+
+### Security hardening
+
+- **Management API:** logs an explicit open-access warning at startup when no
+  `managementApiToken` is configured; `POST /plugin-config` now preserves the
+  configured token / `requireManagementApiToken` when those fields are omitted
+  from a request body (an incomplete write can no longer silently disable auth);
+  auth telemetry is no longer exposed on `/status` and `/metrics` in open-access
+  mode; config-file route errors no longer disclose absolute filesystem paths.
+- **Authenticated packet headers (`authenticatedHeaders`, v3):** binds each
+  DATA/METADATA header (type/flags/sequence/length) to the encrypted payload
+  with a 16-byte HMAC tag, closing the unauthenticated-header tampering gap.
+  Enabled by default (see Breaking changes above); both peers must use the same
+  setting. Includes downgrade rejection and end-to-end + proxy relay tests.
+- **DATA anti-replay window (v3):** the server keeps a per-peer sliding replay
+  window (high-water mark + recently-seen sequences) that **survives session
+  idle expiry and eviction**, closing the replay vector where a captured DATA
+  datagram could be re-injected after the live session state was gone. The
+  window resets only on a strictly higher **connection epoch** advertised in the
+  client's HMAC-authenticated HELLO, distinguishing a legitimate restart from a
+  replayed HELLO. No per-packet wire change (the epoch is an optional HELLO
+  field); pre-H3 peers are unaffected. Rejections are counted as
+  `replayedPackets`. Cross-epoch replay (~1e-6) and the post-server-restart race
+  remain documented residuals — see `docs/security.md`.
+- **Keys:** URL-safe base64 (`base64url`) secret keys are now accepted.
+
+### Reliability
+
+- Reliable server now has a full `stop()` teardown that resets every per-session
+  sequence tracker (fixes a NAK-timer/memory leak across restarts).
+- Bonding: a minimum dwell on the primary before _soft_ (degradation-driven)
+  failover prevents flapping; hard link-down still fails over immediately.
+- Client UDP socket recovery retries with exponential backoff instead of giving
+  up permanently after a single failure.
+- Source-snapshot chunking is O(n) instead of O(n²) on the reconnect path.
+- CLI warns when a management token would be sent in cleartext over `http://`.
+
+### Tooling
+
+- CI now enforces the configured Jest coverage threshold; the networked
+  `npm audit` check moved out of the blocking unit-test gate into its own job.
+- React error boundary around the app and federated config panel; production
+  source maps are no longer published; Dependabot now covers GitHub Actions.
+
 ## [2.9.0] - 2026-05-29
 
 ### Added — Outbound bandwidth optimizations (v2/v3)

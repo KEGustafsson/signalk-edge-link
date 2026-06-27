@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Tests for lib/instance.js – instance factory isolation and lifecycle
+ * Tests for app/connection – connection factory isolation and lifecycle.
  */
 
 // Mock external packages not available in the test environment
@@ -26,7 +26,7 @@ jest.mock("ping-monitor", () =>
   })
 );
 
-const { createInstance, slugify } = require("../lib/instance");
+const { createConnection, slugify } = require("../lib/app/connection");
 const path = require("path");
 const EventEmitter = require("events");
 const dgram = require("dgram");
@@ -57,7 +57,7 @@ describe("slugify", () => {
   });
 });
 
-// ── createInstance ────────────────────────────────────────────────────────
+// ── createConnection ──────────────────────────────────────────────────────
 
 function makeMockApp() {
   const app = {
@@ -156,7 +156,7 @@ function mockDgramSockets(sequence) {
   return created;
 }
 
-describe("createInstance", () => {
+describe("createConnection", () => {
   beforeEach(() => {
     monitorInstances.length = 0;
   });
@@ -168,7 +168,7 @@ describe("createInstance", () => {
 
   test("returns expected API surface", () => {
     const app = makeMockApp();
-    const inst = createInstance(app, makeClientOptions(), "test", "signalk-edge-link", jest.fn());
+    const inst = createConnection(app, makeClientOptions(), "test", "signalk-edge-link", jest.fn());
     expect(typeof inst.start).toBe("function");
     expect(typeof inst.stop).toBe("function");
     expect(typeof inst.getId).toBe("function");
@@ -179,12 +179,12 @@ describe("createInstance", () => {
   });
 
   test("getId returns the instanceId passed in", () => {
-    const inst = createInstance(makeMockApp(), makeClientOptions(), "my-id", "plugin", jest.fn());
+    const inst = createConnection(makeMockApp(), makeClientOptions(), "my-id", "plugin", jest.fn());
     expect(inst.getId()).toBe("my-id");
   });
 
   test("getName returns the name from options", () => {
-    const inst = createInstance(
+    const inst = createConnection(
       makeMockApp(),
       makeClientOptions({ name: "Shore Server" }),
       "shore-server",
@@ -195,45 +195,45 @@ describe("createInstance", () => {
   });
 
   test("getStatus returns { text, healthy } shape", () => {
-    const inst = createInstance(makeMockApp(), makeClientOptions(), "x", "plugin", jest.fn());
+    const inst = createConnection(makeMockApp(), makeClientOptions(), "x", "plugin", jest.fn());
     const status = inst.getStatus();
     expect(status).toHaveProperty("text");
     expect(status).toHaveProperty("healthy");
   });
 
   test("getState returns state object with instanceId", () => {
-    const inst = createInstance(makeMockApp(), makeClientOptions(), "abc", "plugin", jest.fn());
+    const inst = createConnection(makeMockApp(), makeClientOptions(), "abc", "plugin", jest.fn());
     expect(inst.getState().instanceId).toBe("abc");
   });
 
   test("getMetricsApi returns metrics api with metrics object", () => {
-    const inst = createInstance(makeMockApp(), makeClientOptions(), "x", "plugin", jest.fn());
+    const inst = createConnection(makeMockApp(), makeClientOptions(), "x", "plugin", jest.fn());
     const api = inst.getMetricsApi();
     expect(api).toHaveProperty("metrics");
     expect(api.metrics).toHaveProperty("deltasSent");
   });
 
   test("two instances have independent state objects", () => {
-    const inst1 = createInstance(makeMockApp(), makeClientOptions(), "a", "plugin", jest.fn());
-    const inst2 = createInstance(makeMockApp(), makeClientOptions(), "b", "plugin", jest.fn());
+    const inst1 = createConnection(makeMockApp(), makeClientOptions(), "a", "plugin", jest.fn());
+    const inst2 = createConnection(makeMockApp(), makeClientOptions(), "b", "plugin", jest.fn());
     expect(inst1.getState()).not.toBe(inst2.getState());
   });
 
   test("two instances have independent metricsApi objects", () => {
-    const inst1 = createInstance(makeMockApp(), makeClientOptions(), "a", "plugin", jest.fn());
-    const inst2 = createInstance(makeMockApp(), makeClientOptions(), "b", "plugin", jest.fn());
+    const inst1 = createConnection(makeMockApp(), makeClientOptions(), "a", "plugin", jest.fn());
+    const inst2 = createConnection(makeMockApp(), makeClientOptions(), "b", "plugin", jest.fn());
     expect(inst1.getMetricsApi()).not.toBe(inst2.getMetricsApi());
   });
 
   test("two instances have independent metrics counters", () => {
-    const inst1 = createInstance(makeMockApp(), makeClientOptions(), "a", "plugin", jest.fn());
-    const inst2 = createInstance(makeMockApp(), makeClientOptions(), "b", "plugin", jest.fn());
+    const inst1 = createConnection(makeMockApp(), makeClientOptions(), "a", "plugin", jest.fn());
+    const inst2 = createConnection(makeMockApp(), makeClientOptions(), "b", "plugin", jest.fn());
     inst1.getMetricsApi().metrics.deltasSent = 42;
     expect(inst2.getMetricsApi().metrics.deltasSent).toBe(0);
   });
 
   test("stop marks state.stopped and state.isHealthy false", () => {
-    const inst = createInstance(makeMockApp(), makeClientOptions(), "x", "plugin", jest.fn());
+    const inst = createConnection(makeMockApp(), makeClientOptions(), "x", "plugin", jest.fn());
     const state = inst.getState();
     // Simulate minimal started state so stop() doesn't throw
     state.stopped = false;
@@ -244,14 +244,14 @@ describe("createInstance", () => {
 
   test("onStatusChange callback is called when status changes", () => {
     const cb = jest.fn();
-    const inst = createInstance(makeMockApp(), makeClientOptions(), "x", "plugin", cb);
+    const inst = createConnection(makeMockApp(), makeClientOptions(), "x", "plugin", cb);
     // Trigger a status update by calling stop (which sets "Stopped")
     inst.stop();
     expect(cb).toHaveBeenCalledWith("x", "Stopped");
   });
 
   test("state has correct initial defaults", () => {
-    const inst = createInstance(
+    const inst = createConnection(
       makeMockApp(),
       makeClientOptions(),
       "defaults-test",
@@ -278,7 +278,7 @@ describe("createInstance", () => {
     // The gate makes processDelta drop anything delivered while
     // state.subscribing is true; replayValuesSnapshot("initial subscribe")
     // is responsible for shipping the initial tree state explicitly.
-    const inst = createInstance(
+    const inst = createConnection(
       makeMockApp(),
       makeClientOptions(),
       "subscribe-gate",
@@ -320,7 +320,7 @@ describe("createInstance", () => {
   test("processDelta suppresses immediate duplicate outbound deltas", () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     const app = makeMockApp();
-    const inst = createInstance(app, makeClientOptions(), "outbound-dedupe", "plugin", jest.fn());
+    const inst = createConnection(app, makeClientOptions(), "outbound-dedupe", "plugin", jest.fn());
     const state = inst.getState();
     state.readyToSend = true;
 
@@ -362,7 +362,7 @@ describe("createInstance", () => {
       unsubs.push(() => {});
     });
 
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions(),
       "subscription-generation",
@@ -414,7 +414,7 @@ describe("createInstance", () => {
 
     const app = makeMockApp();
     app.getDataDirPath = jest.fn(() => tempDir);
-    const inst = createInstance(app, makeClientOptions(), "default", "plugin", jest.fn());
+    const inst = createConnection(app, makeClientOptions(), "default", "plugin", jest.fn());
 
     await inst.start();
     try {
@@ -437,14 +437,14 @@ describe("createInstance", () => {
     // clients" sequencing collapses into one concurrent startGroup —
     // producing variable per-restart races (e.g. proxy-client subscribing
     // before the local server-mode instance has received any data).
-    const serverInst = createInstance(
+    const serverInst = createConnection(
       makeMockApp(),
       makeClientOptions({ serverType: "server" }),
       "server-mode-id",
       "plugin",
       jest.fn()
     );
-    const clientInst = createInstance(
+    const clientInst = createConnection(
       makeMockApp(),
       makeClientOptions({ serverType: "client" }),
       "client-mode-id",
@@ -457,7 +457,7 @@ describe("createInstance", () => {
 
   test("validates secretKey and rejects invalid key without starting", async () => {
     const app = makeMockApp();
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({ secretKey: "tooshort" }),
       "x",
@@ -472,7 +472,7 @@ describe("createInstance", () => {
 
   test("validates udpPort and rejects invalid port without starting", async () => {
     const app = makeMockApp();
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({ udpPort: 80 }), // below minimum 1024
       "x",
@@ -486,7 +486,7 @@ describe("createInstance", () => {
 
   test("readyToSend is true immediately after start() for client mode (v1)", async () => {
     const app = makeMockApp();
-    const inst = createInstance(app, makeClientOptions(), "x", "plugin", jest.fn());
+    const inst = createConnection(app, makeClientOptions(), "x", "plugin", jest.fn());
     await inst.start();
     try {
       expect(inst.getState().readyToSend).toBe(true);
@@ -498,7 +498,7 @@ describe("createInstance", () => {
 
   test("v1 ping-monitor events do not affect readyToSend or isHealthy", async () => {
     const app = makeMockApp();
-    const inst = createInstance(app, makeClientOptions(), "x", "plugin", jest.fn());
+    const inst = createConnection(app, makeClientOptions(), "x", "plugin", jest.fn());
 
     await inst.start();
 
@@ -524,7 +524,7 @@ describe("createInstance", () => {
 
   test("v2/v3 instances do not create a ping-monitor", async () => {
     const app = makeMockApp();
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({ protocolVersion: 2 }),
       "x",
@@ -563,7 +563,7 @@ describe("createInstance", () => {
       }))
     };
 
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({ protocolVersion: 2 }),
       "single-startup-replay",
@@ -587,7 +587,7 @@ describe("createInstance", () => {
 
   test("flushDeltaBatch caps each send at state.maxDeltasPerBatch (not full buffer)", async () => {
     const app = makeMockApp();
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({ protocolVersion: 2 }),
       "mtu-cap-test",
@@ -642,7 +642,7 @@ describe("createInstance", () => {
 
   test("recursive setImmediate drain empties full buffer in MTU-safe chunks", async () => {
     const app = makeMockApp();
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({ protocolVersion: 2 }),
       "drain-loop-test",
@@ -693,7 +693,7 @@ describe("createInstance", () => {
 
   test("buffer overflow drops DELTA_BUFFER_DROP_RATIO oldest deltas and records metrics", async () => {
     const app = makeMockApp();
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({ protocolVersion: 2 }),
       "overflow-test",
@@ -736,7 +736,7 @@ describe("createInstance", () => {
   test("retries one failed batch then drops it with explicit metrics", async () => {
     jest.useFakeTimers();
     const app = makeMockApp();
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({ protocolVersion: 2 }),
       "retry-test",
@@ -777,7 +777,10 @@ describe("createInstance", () => {
       expect(state.deltas.length).toBe(0);
       expect(metrics.droppedDeltaBatches).toBe(1);
       expect(metrics.droppedDeltaCount).toBe(1);
-      expect(metrics.errorCounts.sendFailure).toBeGreaterThan(0);
+      // Dropped sends are recorded under the udpSend category so the
+      // udpSendErrors Prometheus counter reflects them.
+      expect(metrics.errorCounts.udpSend).toBeGreaterThan(0);
+      expect(metrics.udpSendErrors).toBeGreaterThan(0);
       expect(app.error).toHaveBeenCalledWith(expect.stringContaining("Dropped delta batch"));
     } finally {
       inst.stop();
@@ -788,7 +791,7 @@ describe("createInstance", () => {
   test("pending batch retry blocks new deltas from bypassing backoff", async () => {
     jest.useFakeTimers();
     const app = makeMockApp();
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({ protocolVersion: 2 }),
       "retry-backoff-test",
@@ -849,7 +852,7 @@ describe("createInstance", () => {
     jest.useFakeTimers();
     const createdSockets = mockDgramSockets();
     const app = makeMockApp();
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({ protocolVersion: 2 }),
       "socket-recovery-stop",
@@ -884,7 +887,7 @@ describe("createInstance", () => {
     const recoveredSocket = makeMockUdpSocket();
     mockDgramSockets([initialSocket, recoveredSocket, recoveredSocket]);
     const app = makeMockApp();
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({ protocolVersion: 2 }),
       "socket-recovery-listeners",
@@ -921,7 +924,7 @@ describe("createInstance", () => {
         }
       }))
     };
-    const inst = createInstance(
+    const inst = createConnection(
       app,
       makeClientOptions({
         protocolVersion: 3,
@@ -970,7 +973,7 @@ describe("createInstance", () => {
 
   test("stop cancels timers, workers, and heartbeat handle cleanup fields", () => {
     jest.useFakeTimers();
-    const inst = createInstance(
+    const inst = createConnection(
       makeMockApp(),
       makeClientOptions({ protocolVersion: 2 }),
       "cleanup-fields",

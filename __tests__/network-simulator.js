@@ -24,6 +24,20 @@ const ThrottlePattern = {
   BURST: "burst" // Alternate between full and limited bandwidth
 };
 
+/**
+ * Small, fast, seedable PRNG (mulberry32) for deterministic simulation runs.
+ * Returns a function producing floats in [0, 1) like Math.random.
+ */
+function mulberry32(a) {
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 class NetworkSimulator {
   /**
    * @param {Object} [config]
@@ -53,6 +67,12 @@ class NetworkSimulator {
     this.jitter = config.jitter || 0;
     this.reorderRate = config.reorderRate || 0;
     this.reorderDelay = config.reorderDelay || 50;
+
+    // Optional deterministic RNG. When `config.seed` is provided, every random
+    // draw (loss, burst, jitter, reorder) is reproducible so reliability tests
+    // don't flake on an unlucky burst alignment. Omitting `seed` preserves the
+    // original Math.random behavior for all existing callers (zero change).
+    this._rng = typeof config.seed === "number" ? mulberry32(config.seed >>> 0) : Math.random;
 
     // Bandwidth throttling
     this.bandwidthLimit = config.bandwidthLimit || 0; // bytes/sec, 0 = unlimited
@@ -143,7 +163,7 @@ class NetworkSimulator {
         this.stats.droppedPackets++;
         this.stats.burstLossPackets++;
         return false;
-      } else if (Math.random() < this._burstLoss.burstRate) {
+      } else if (this._rng() < this._burstLoss.burstRate) {
         // Enter burst state
         this._inBurst = true;
         this._burstRemaining = this._burstLoss.burstLength - 1;
@@ -154,7 +174,7 @@ class NetworkSimulator {
     }
 
     // Packet loss
-    if (Math.random() < this.packetLoss) {
+    if (this._rng() < this.packetLoss) {
       this.stats.droppedPackets++;
       return false;
     }
@@ -179,7 +199,7 @@ class NetworkSimulator {
     // Calculate delay
     let delay = this.latency;
     if (this.jitter > 0) {
-      delay += (Math.random() * 2 - 1) * this.jitter;
+      delay += (this._rng() * 2 - 1) * this.jitter;
     }
 
     // Latency spike
@@ -194,7 +214,7 @@ class NetworkSimulator {
     delay = Math.max(0, delay);
 
     // Reordering: add extra delay
-    if (Math.random() < this.reorderRate) {
+    if (this._rng() < this.reorderRate) {
       delay += this.reorderDelay;
       this.stats.reorderedPackets++;
     }

@@ -231,6 +231,7 @@ type RequestJsonFn = (
 ) => Promise<any>;
 
 function createRequestJson(): RequestJsonFn {
+  let plaintextTokenWarned = false;
   return function requestJson(
     baseUrl: string,
     endpoint: string,
@@ -250,6 +251,15 @@ function createRequestJson(): RequestJsonFn {
       if (token) {
         headers["x-edge-link-token"] = token;
         headers.authorization = `Bearer ${token}`;
+        // Warn (once) when sending the token in cleartext to a non-local host.
+        const isLocal = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+        if (url.protocol === "http:" && !isLocal && !plaintextTokenWarned) {
+          plaintextTokenWarned = true;
+          process.stderr.write(
+            `Warning: sending management token in cleartext over http:// to ${url.hostname}. ` +
+              "Use https:// or an SSH tunnel for remote hosts.\n"
+          );
+        }
       }
 
       const req = transport.request(

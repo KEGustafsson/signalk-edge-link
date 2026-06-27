@@ -9,5 +9,10 @@ coverage/
 # Config files
 package-lock.json
 
+# Generated conformance vectors — written verbatim by
+# __conformance__/generate-vectors.js. Prettier must not reformat them or the
+# CI "vectors reproducible from source" diff gate breaks.
+__conformance__/vectors/
+
 # Logs
 *.log

@@ -17,7 +17,7 @@ function makeValidClient(overrides = {}) {
     protocolVersion: 2,
     ...overrides
   };
-  // v1 clients require testAddress/testPort; v2/v3 clients reject them.
+  // v1 clients require testAddress/testPort; reliable v3 clients reject them.
   // Default to v2, but inject the v1 fields automatically if the test
   // explicitly downgrades to protocolVersion 1.
   if ((merged.protocolVersion ?? 1) < 2) {
@@ -208,6 +208,60 @@ describe("validateConnectionConfig", () => {
     test("rejects blank connectionId", () => {
       const error = validateConnectionConfig(makeValidClient({ connectionId: "   " }));
       expect(error).toMatch(/connectionId/);
+    });
+  });
+
+  describe("timing bounds (shared-schema parity)", () => {
+    test("helloMessageSender within range passes; out-of-range and non-finite fail", () => {
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 60 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 10 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 3600 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 9 }))).toMatch(
+        /helloMessageSender/
+      );
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 3601 }))).toMatch(
+        /helloMessageSender/
+      );
+      // Non-integer / non-finite are rejected.
+      expect(validateConnectionConfig(makeValidClient({ helloMessageSender: 60.5 }))).toMatch(
+        /helloMessageSender/
+      );
+      expect(
+        validateConnectionConfig(makeValidClient({ helloMessageSender: Number.POSITIVE_INFINITY }))
+      ).toMatch(/helloMessageSender/);
+    });
+
+    test("heartbeatInterval within range passes; out-of-range fails", () => {
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: 25000 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: 5000 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: 120000 }))).toBeNull();
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: 4999 }))).toMatch(
+        /heartbeatInterval/
+      );
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: 120001 }))).toMatch(
+        /heartbeatInterval/
+      );
+      expect(validateConnectionConfig(makeValidClient({ heartbeatInterval: NaN }))).toMatch(
+        /heartbeatInterval/
+      );
+    });
+
+    test("pingIntervalTime (v1 only) within range passes; out-of-range fails", () => {
+      expect(
+        validateConnectionConfig(makeValidClient({ protocolVersion: 1, pingIntervalTime: 1 }))
+      ).toBeNull();
+      expect(
+        validateConnectionConfig(makeValidClient({ protocolVersion: 1, pingIntervalTime: 0.1 }))
+      ).toBeNull();
+      expect(
+        validateConnectionConfig(makeValidClient({ protocolVersion: 1, pingIntervalTime: 60 }))
+      ).toBeNull();
+      expect(
+        validateConnectionConfig(makeValidClient({ protocolVersion: 1, pingIntervalTime: 0.05 }))
+      ).toMatch(/pingIntervalTime/);
+      expect(
+        validateConnectionConfig(makeValidClient({ protocolVersion: 1, pingIntervalTime: 61 }))
+      ).toMatch(/pingIntervalTime/);
     });
   });
 
@@ -405,7 +459,7 @@ describe("validateConnectionConfig", () => {
       expect(error).toMatch(/testAddress is required/);
     });
 
-    test("missing testAddress is allowed for v2/v3 clients", () => {
+    test("missing testAddress is allowed for reliable v3 clients", () => {
       const v2Config = makeValidClient({ protocolVersion: 2, testAddress: undefined });
       delete v2Config.testAddress;
       delete v2Config.testPort;
@@ -424,7 +478,7 @@ describe("validateConnectionConfig", () => {
       expect(error).toMatch(/testPort/);
     });
 
-    test("v2/v3 client rejects testAddress/testPort/pingIntervalTime", () => {
+    test("reliable v3 client rejects testAddress/testPort/pingIntervalTime", () => {
       const cfg = makeValidClient({ protocolVersion: 2, testAddress: "10.0.0.1" });
       expect(validateConnectionConfig(cfg)).toMatch(/testAddress is only supported on v1/);
       const cfg2 = makeValidClient({ protocolVersion: 3, testPort: 80 });
@@ -438,6 +492,28 @@ describe("validateConnectionConfig", () => {
 describe("sanitizeConnectionConfig", () => {
   test("null input returns empty object", () => {
     expect(sanitizeConnectionConfig(null)).toEqual({});
+  });
+
+  test("coerces stored protocolVersion 2 to 3 (v2 removed; config back-compat)", () => {
+    const result = sanitizeConnectionConfig({
+      serverType: "client",
+      udpAddress: "192.168.1.1",
+      udpPort: 4567,
+      secretKey: "aB3$dEf7gH9!jKlMnO1pQrStUvWxYz0#",
+      protocolVersion: 2
+    });
+    expect(result.protocolVersion).toBe(3);
+  });
+
+  test("leaves protocolVersion 1 and 3 unchanged", () => {
+    const base = {
+      serverType: "client",
+      udpAddress: "192.168.1.1",
+      udpPort: 4567,
+      secretKey: "aB3$dEf7gH9!jKlMnO1pQrStUvWxYz0#"
+    };
+    expect(sanitizeConnectionConfig({ ...base, protocolVersion: 1 }).protocolVersion).toBe(1);
+    expect(sanitizeConnectionConfig({ ...base, protocolVersion: 3 }).protocolVersion).toBe(3);
   });
 
   test("server mode removes client-only fields", () => {
@@ -580,5 +656,78 @@ describe("normalizeServerType", () => {
 
   test("'server' passes through", () => {
     expect(normalizeServerType("server")).toBe("server");
+  });
+});
+
+// Phase 6 — protocolVersion string aliases
+describe("protocolVersion string aliases", () => {
+  const base = {
+    serverType: "client",
+    udpPort: 4567,
+    udpAddress: "192.168.1.1",
+    secretKey: "aB3$dEf7gH9!jKlMnO1pQrStUvWxYz0#"
+  };
+
+  describe("validateConnectionConfig", () => {
+    // "basic" resolves to v1 which requires testAddress/testPort on client mode
+    const v1Extras = { testAddress: "192.168.1.1", testPort: 80 };
+
+    test('"basic" is accepted', () => {
+      expect(
+        validateConnectionConfig({ ...base, ...v1Extras, protocolVersion: "basic" })
+      ).toBeNull();
+    });
+
+    test('"advanced" is accepted', () => {
+      expect(validateConnectionConfig({ ...base, protocolVersion: "advanced" })).toBeNull();
+    });
+
+    test("unknown string is rejected", () => {
+      const err = validateConnectionConfig({ ...base, protocolVersion: "v3" });
+      expect(err).toMatch(/protocolVersion must be/);
+    });
+
+    test('"basic" blocks useValueDedup (v1 feature)', () => {
+      const err = validateConnectionConfig({
+        ...base,
+        ...v1Extras,
+        protocolVersion: "basic",
+        useValueDedup: true
+      });
+      expect(err).toMatch(/useValueDedup is only supported on reliable protocolVersion 3/);
+    });
+
+    test('"advanced" allows useValueDedup', () => {
+      expect(
+        validateConnectionConfig({ ...base, protocolVersion: "advanced", useValueDedup: true })
+      ).toBeNull();
+    });
+  });
+
+  describe("sanitizeConnectionConfig", () => {
+    test('"basic" is coerced to 1', () => {
+      const out = sanitizeConnectionConfig({ ...base, protocolVersion: "basic" });
+      expect(out.protocolVersion).toBe(1);
+    });
+
+    test('"advanced" is coerced to 3', () => {
+      const out = sanitizeConnectionConfig({ ...base, protocolVersion: "advanced" });
+      expect(out.protocolVersion).toBe(3);
+    });
+
+    test("numeric 2 is still coerced to 3", () => {
+      const out = sanitizeConnectionConfig({ ...base, protocolVersion: 2 });
+      expect(out.protocolVersion).toBe(3);
+    });
+
+    test("numeric 1 is preserved", () => {
+      const out = sanitizeConnectionConfig({ ...base, protocolVersion: 1 });
+      expect(out.protocolVersion).toBe(1);
+    });
+
+    test("numeric 3 is preserved", () => {
+      const out = sanitizeConnectionConfig({ ...base, protocolVersion: 3 });
+      expect(out.protocolVersion).toBe(3);
+    });
   });
 });

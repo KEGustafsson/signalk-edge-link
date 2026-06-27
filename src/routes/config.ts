@@ -1,8 +1,8 @@
 "use strict";
 
-import { getAllPaths, PATH_CATEGORIES } from "../pathDictionary";
+import { getAllPaths, PATH_CATEGORIES } from "../codec/path-dictionary";
 import { RouteRequest, RouteResponse, Router, RouteContext, RouteHandler } from "./types";
-import type { ConnectionConfig } from "../types";
+import type { ConnectionConfig } from "../foundation/types";
 import {
   validateConnectionConfig,
   sanitizeConnectionConfig,
@@ -231,7 +231,7 @@ function register(router: Router, ctx: RouteContext): void {
     rateLimitMiddleware,
     managementAuthMiddleware("config.update"),
     requireJson,
-    (req: RouteRequest, res: RouteResponse) => {
+    async (req: RouteRequest, res: RouteResponse) => {
       try {
         if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
           return res
@@ -285,19 +285,27 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(400).json({ success: false, error: uniquePortError });
         }
 
-        // Resolve managementApiToken: restore from persisted config when redacted
+        // Resolve managementApiToken. The whole plugin config is replaced on
+        // save, so we must never silently drop the token:
+        //   - field omitted entirely      → preserve persisted token
+        //   - REDACTED_SECRET sentinel     → preserve persisted token
+        //   - explicit non-empty string    → use it
+        //   - explicit empty string        → clear (operator opt-out)
+        const persistedToken =
+          typeof persistedConfig.managementApiToken === "string"
+            ? persistedConfig.managementApiToken
+            : undefined;
         let resolvedManagementToken: string | undefined;
         const incomingToken = req.body.managementApiToken;
         if (typeof incomingToken === "string") {
           if (incomingToken === REDACTED_SECRET) {
-            const persisted =
-              typeof persistedConfig.managementApiToken === "string"
-                ? persistedConfig.managementApiToken
-                : undefined;
-            resolvedManagementToken = persisted;
+            resolvedManagementToken = persistedToken;
           } else {
             resolvedManagementToken = incomingToken || undefined;
           }
+        } else {
+          // Field absent from the request body → carry the existing token forward.
+          resolvedManagementToken = persistedToken;
         }
 
         const finalConfig: Record<string, unknown> = {
@@ -308,12 +316,18 @@ function register(router: Router, ctx: RouteContext): void {
           finalConfig.managementApiToken = resolvedManagementToken;
         }
 
+        // Preserve the persisted fail-closed flag unless the caller explicitly
+        // sets it, so an incomplete write cannot relax the auth posture.
         if (typeof req.body.requireManagementApiToken === "boolean") {
           finalConfig.requireManagementApiToken = req.body.requireManagementApiToken;
+        } else if (typeof persistedConfig.requireManagementApiToken === "boolean") {
+          finalConfig.requireManagementApiToken = persistedConfig.requireManagementApiToken;
         }
 
         if (typeof pluginRef._restartPlugin === "function") {
-          pluginRef._restartPlugin(finalConfig);
+          // Await the restart so a failure becomes a 500 (caught below) instead
+          // of a false "success" reported before the restart actually ran.
+          await pluginRef._restartPlugin(finalConfig);
           return res.json({
             success: true,
             message: "Configuration saved. Plugin restarting...",
@@ -321,17 +335,22 @@ function register(router: Router, ctx: RouteContext): void {
           });
         }
 
-        app.savePluginOptions?.(finalConfig, (error) => {
-          if (error) {
-            app.error(`Error saving plugin config: ${error.message}`);
-            return res.status(500).json({ success: false, error: error.message });
-          }
-
+        if (typeof app.savePluginOptions === "function") {
+          await new Promise<void>((resolve, reject) => {
+            app.savePluginOptions!(finalConfig, (error) => (error ? reject(error) : resolve()));
+          });
           return res.json({
             success: true,
             message: "Configuration saved. Restart plugin to apply changes.",
             restarting: false
           });
+        }
+
+        // Neither a restart handler nor a save handler is available — fail
+        // deterministically instead of leaving the request hanging.
+        return res.status(503).json({
+          success: false,
+          error: "No restart or save handler available to persist configuration"
         });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -386,7 +405,11 @@ function register(router: Router, ctx: RouteContext): void {
         const config = await loadConfigFile(filePath);
         res.send(JSON.stringify(config || {}));
       } catch (error: unknown) {
-        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+        // Log the detail (may include absolute paths) but return a generic
+        // message so filesystem layout is not disclosed to API callers.
+        const detail = error instanceof Error ? error.message : String(error);
+        if (app?.error) app.error(`[config-file.read] ${req.params.filename}: ${detail}`);
+        res.status(500).json({ error: "Failed to read configuration file" });
       }
     }
   );
@@ -416,12 +439,14 @@ function register(router: Router, ctx: RouteContext): void {
 
         const success = await saveConfigFile(filePath, req.body);
         if (success) {
-          return res.status(200).send("OK");
+          return res.status(200).json({ success: true });
         }
 
-        return res.status(500).send("Failed to save configuration");
+        return res.status(500).json({ error: "Failed to save configuration file" });
       } catch (error: unknown) {
-        res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+        const detail = error instanceof Error ? error.message : String(error);
+        if (app?.error) app.error(`[config-file.update] ${req.params.filename}: ${detail}`);
+        res.status(500).json({ error: "Failed to save configuration file" });
       }
     }
   );

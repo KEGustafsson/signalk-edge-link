@@ -39,7 +39,10 @@ function makeState(overrides = {}) {
     options: {
       secretKey: SECRET_KEY,
       udpPort: 12345,
-      protocolVersion: 2,
+      protocolVersion: 3,
+      // This suite exercises sequencing/coverage with legacy (unauthenticated)
+      // packets; header auth defaults ON in v3, so opt out explicitly here.
+      authenticatedHeaders: false,
       useMsgpack: false,
       usePathDictionary: false,
       reliability: {}
@@ -86,7 +89,7 @@ describe("Session eviction at capacity (MAX_CLIENT_SESSIONS = 100)", () => {
 
     // Create 100 sessions from distinct addresses
     for (let i = 0; i < 100; i++) {
-      const b = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+      const b = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
       const pkt = await makeEncryptedPacket(
         [{ context: "vessels.self", updates: [{ values: [{ path: "a", value: i }] }] }],
         b
@@ -100,7 +103,7 @@ describe("Session eviction at capacity (MAX_CLIENT_SESSIONS = 100)", () => {
     expect(pipeline.getMetrics().totalSessions).toBe(100);
 
     // 101st session from a brand-new address
-    const b101 = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const b101 = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const pkt101 = await makeEncryptedPacket(
       [{ context: "vessels.self", updates: [{ values: [{ path: "a", value: 999 }] }] }],
       b101
@@ -128,7 +131,7 @@ describe("Per-IP session limit (MAX_SESSIONS_PER_IP = 5)", () => {
 
     // Create 5 sessions from the same IP on different ports
     for (let port = 5000; port < 5005; port++) {
-      const b = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+      const b = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
       const pkt = await makeEncryptedPacket(
         [{ context: "vessels.self", updates: [{ values: [{ path: "a", value: port }] }] }],
         b
@@ -138,7 +141,7 @@ describe("Per-IP session limit (MAX_SESSIONS_PER_IP = 5)", () => {
     expect(pipeline.getMetrics().totalSessions).toBe(5);
 
     // 6th session from same IP
-    const b6 = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const b6 = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const pkt6 = await makeEncryptedPacket(
       [{ context: "vessels.self", updates: [{ values: [{ path: "a", value: 6 }] }] }],
       b6
@@ -159,7 +162,7 @@ describe("Session idle expiration (SESSION_IDLE_TTL_MS = 300000)", () => {
   test("idle sessions are evicted when ACK timer fires after TTL", async () => {
     jest.useFakeTimers();
     const { pipeline, app } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     // Create a session
     const pkt = await makeEncryptedPacket(
@@ -197,7 +200,7 @@ describe("Session idle expiration (SESSION_IDLE_TTL_MS = 300000)", () => {
 describe("Duplicate DATA immediate ACK", () => {
   test("duplicate DATA sends immediate ACK and does not forward duplicate delta", async () => {
     const { pipeline, state, app, metricsApi } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const parser = new PacketParser({ secretKey: SECRET_KEY });
     const rinfo = { address: "10.0.0.2", port: 4100 };
     const packet = await makeEncryptedPacket(
@@ -232,7 +235,7 @@ describe("UDP rate limiting (UDP_RATE_LIMIT_MAX_PACKETS = 200)", () => {
       // test runtime, controls this branch.
       for (let i = 0; i < 201; i++) {
         const b = new PacketBuilder({
-          protocolVersion: 2,
+          protocolVersion: 3,
           secretKey: SECRET_KEY,
           initialSequence: i
         });
@@ -257,7 +260,7 @@ describe("UDP rate limiting (UDP_RATE_LIMIT_MAX_PACKETS = 200)", () => {
 describe("Payload size limit (MAX_PARSE_PAYLOAD_SIZE = 512KB)", () => {
   test("rejects decompressed payload exceeding MAX_PARSE_PAYLOAD_SIZE", async () => {
     const { pipeline, app } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     // The server rejects before JSON parsing, so a compact repeated payload is
     // enough to exercise the decompressed-size guard without slowing the suite.
@@ -286,7 +289,7 @@ describe("Payload size limit (MAX_PARSE_PAYLOAD_SIZE = 512KB)", () => {
 describe("MessagePack fallback on decode failure", () => {
   test("falls back to JSON parse when msgpack flag is set but data is JSON-encoded", async () => {
     const { pipeline, app } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     // Build a packet with the messagepack flag set, but payload is actually JSON
     const delta = { context: "vessels.self", updates: [{ values: [{ path: "a", value: 42 }] }] };
@@ -316,7 +319,7 @@ describe("MessagePack fallback on decode failure", () => {
 describe("Null and invalid delta handling", () => {
   test("skips null deltas in the array", async () => {
     const { pipeline, app } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     // Payload with null entries mixed in
     const payload = [
@@ -336,7 +339,7 @@ describe("Null and invalid delta handling", () => {
 
   test("skips deltas with empty updates arrays", async () => {
     const { pipeline, app } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     const payload = [{ context: "vessels.self", updates: [] }];
     const pkt = await makeEncryptedPacket(payload, builder);
@@ -348,7 +351,7 @@ describe("Null and invalid delta handling", () => {
 
   test("skips deltas whose updates have no valid value paths", async () => {
     const { pipeline, app } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     const payload = [
       {
@@ -367,7 +370,7 @@ describe("Null and invalid delta handling", () => {
 
   test("drops invalid value entries and forwards the remaining valid values", async () => {
     const { pipeline, app } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     const payload = [
       {
@@ -394,7 +397,7 @@ describe("Null and invalid delta handling", () => {
 
   test("handles non-object payload gracefully", async () => {
     const { pipeline, app } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     // Payload is a primitive string (not an object/array)
     const json = JSON.stringify("just a string");
@@ -417,7 +420,7 @@ describe("Null and invalid delta handling", () => {
 describe("HEARTBEAT and HELLO packet handling", () => {
   test("HEARTBEAT packet is handled without error", async () => {
     const { pipeline, app } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     const hbPacket = builder.buildHeartbeatPacket();
     await pipeline.receivePacket(hbPacket, SECRET_KEY, { address: "10.0.0.11", port: 8500 });
@@ -428,7 +431,7 @@ describe("HEARTBEAT and HELLO packet handling", () => {
 
   test("HELLO packet with valid JSON is handled without error", async () => {
     const { pipeline, app } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     const helloPacket = builder.buildHelloPacket({
       clientId: "test-client",
@@ -448,7 +451,7 @@ describe("HEARTBEAT and HELLO packet handling", () => {
     // server's Network Quality dashboard stuck at 0/0/0. This test locks in
     // the gate's behavior on both sides: dropped without HELLO, admitted with.
     const { pipeline, metricsApi } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const rinfo = { address: "10.0.0.30", port: 9100 };
 
     const telemetryDelta = [
@@ -482,7 +485,7 @@ describe("HEARTBEAT and HELLO packet handling", () => {
 
     // After HELLO: telemetry values must reach remoteNetworkQuality.
     const builder2 = new PacketBuilder({
-      protocolVersion: 2,
+      protocolVersion: 3,
       secretKey: SECRET_KEY,
       initialSequence: 100
     });
@@ -500,7 +503,7 @@ describe("HEARTBEAT and HELLO packet handling", () => {
     // Manually construct a HELLO packet with invalid JSON payload.
     // We build a valid header around garbage payload bytes.
     // Construct a HELLO packet with corrupted (non-JSON) payload
-    const corruptBuilder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const corruptBuilder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     // Use _buildPacket directly with garbage text that's not valid JSON
     // but passes CRC. The buildHelloPacket wraps JSON.stringify so we need
     // to use the lower-level API.
@@ -540,7 +543,7 @@ describe("Error categorization in receivePacket", () => {
   test("authentication/tamper errors are categorized as encryption errors", async () => {
     const { pipeline, app } = makeServer();
 
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const delta = { context: "vessels.self", updates: [{ values: [] }] };
     const json = JSON.stringify([delta]);
     const compressed = await brotliCompressAsync(Buffer.from(json));
@@ -563,7 +566,7 @@ describe("Error categorization in receivePacket", () => {
     const { pipeline, app } = makeServer();
 
     // Build an ACK packet (not DATA) - server logs "unhandled packet type" for ACK
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
     const ackPacket = builder.buildACKPacket(0);
     await pipeline.receivePacket(ackPacket, SECRET_KEY, { address: "10.0.0.16", port: 9000 });
 
@@ -580,7 +583,7 @@ describe("Periodic ACK sending", () => {
   test("periodic ACK is sent for sessions with received data", async () => {
     jest.useFakeTimers();
     const { pipeline, state } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     // Send a packet to create a session with hasReceivedData=true
     const pkt = await makeEncryptedPacket(
@@ -629,7 +632,7 @@ describe("Periodic ACK sending", () => {
   test("duplicate ACK within ackResendInterval is suppressed", async () => {
     jest.useFakeTimers();
     const { pipeline, state } = makeServer();
-    const builder = new PacketBuilder({ protocolVersion: 2, secretKey: SECRET_KEY });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
 
     // Send one data packet
     const pkt = await makeEncryptedPacket(

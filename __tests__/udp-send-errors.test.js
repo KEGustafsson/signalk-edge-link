@@ -2,7 +2,7 @@
 
 /**
  * Regression coverage for the UDP send error / retry path in
- * src/pipeline-utils.ts. The shared udpSendAsync helper is used by both
+ * src/transport/udp-socket-manager.ts. The shared udpSendAsync helper is used by both
  * v1 and v2 client pipelines; until now every test mocked
  * socket.send to always succeed, so the recordError / metrics increment
  * paths were dead-code as far as the suite was concerned.
@@ -17,7 +17,7 @@
  */
 
 const dgram = require("dgram");
-const { udpSendAsync } = require("../lib/pipeline-utils");
+const { udpSendAsync } = require("../lib/transport/udp-socket-manager");
 
 function makeFakeSocket({ errorCode = null, neverCallback = false } = {}) {
   return {

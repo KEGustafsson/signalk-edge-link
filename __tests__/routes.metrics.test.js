@@ -87,6 +87,7 @@ function makeCtx(overrides = {}) {
       byReason: {},
       byAction: {}
     }),
+    isManagementAuthEnabled: () => true,
     ...overrides,
     // Expose a default metrics object for bundle construction
     _defaultMetrics: defaultMetrics
@@ -147,6 +148,25 @@ describe("GET /metrics", () => {
     handler({}, res);
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual(expect.objectContaining(payload));
+    expect(res.body).toHaveProperty("managementAuth");
+  });
+
+  test("omits managementAuth telemetry in open-access mode", () => {
+    const payload = { deltasSent: 1 };
+    const router = makeRouterCollector();
+    metricsRoutes.register(
+      router,
+      makeCtx({
+        getFirstBundle: () => ({ state: {} }),
+        buildFullMetricsResponse: () => payload,
+        isManagementAuthEnabled: () => false
+      })
+    );
+    const handler = findHandler(router, "get", "/metrics");
+    const res = makeResponse();
+    handler({}, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toHaveProperty("managementAuth");
   });
 });
 

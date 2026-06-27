@@ -500,11 +500,12 @@ describe("instances management route", () => {
     expect(json).toHaveBeenCalledWith({ error: "Unsupported bonding setting 'unsupported'" });
   });
 
-  test("redacts secretKey in /instances/:id response config", () => {
+  test("redacts secretKey and managementApiToken in /instances/:id response config", () => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();
     bundle.state.instanceStatus = "running";
     bundle.state.options.secretKey = "12345678901234567890123456789012";
+    bundle.state.options.managementApiToken = "secret-token";
 
     const instanceRegistry = {
       get: jest.fn((id) => (id === "test" ? bundle : null)),
@@ -537,7 +538,10 @@ describe("instances management route", () => {
 
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        config: expect.objectContaining({ secretKey: "[redacted]" })
+        config: expect.objectContaining({
+          secretKey: "[redacted]",
+          managementApiToken: "[redacted]"
+        })
       })
     );
   });
@@ -1453,14 +1457,6 @@ describe("status and error summary routes", () => {
       expect.objectContaining({
         healthyInstances: 0,
         totalInstances: 1,
-        managementAuth: expect.objectContaining({
-          total: 1,
-          allowed: 1,
-          byReason: expect.objectContaining({ open_access: 1 }),
-          byAction: expect.objectContaining({
-            "status.read": expect.objectContaining({ allowed: 1 })
-          })
-        }),
         instances: [
           expect.objectContaining({
             id: "alpha",
@@ -1471,6 +1467,7 @@ describe("status and error summary routes", () => {
         ]
       })
     );
+    expect(res.json.mock.calls[0][0]).not.toHaveProperty("managementAuth");
   });
 
   test("includes error summaries in /metrics response", () => {
@@ -1510,14 +1507,6 @@ describe("status and error summary routes", () => {
 
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        managementAuth: expect.objectContaining({
-          total: 1,
-          allowed: 1,
-          byReason: expect.objectContaining({ open_access: 1 }),
-          byAction: expect.objectContaining({
-            "metrics.read": expect.objectContaining({ allowed: 1 })
-          })
-        }),
         stats: expect.objectContaining({
           errorCounts: { general: 2, udpSend: 1 },
           dataPacketsReceived: 8,
@@ -1538,6 +1527,7 @@ describe("status and error summary routes", () => {
         recentErrors: [{ category: "udpSend", message: "socket down", timestamp: 42 }]
       })
     );
+    expect(res.json.mock.calls[0][0]).not.toHaveProperty("managementAuth");
   });
 
   test("managementAuth telemetry omits token, secret, IP, and user-agent values", () => {

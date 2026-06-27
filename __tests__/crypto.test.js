@@ -5,9 +5,12 @@ const {
   validateSecretKey,
   normalizeKey,
   deriveKeyFromPassphrase,
+  createControlPacketAuthTag,
+  verifyControlPacketAuthTag,
   IV_LENGTH,
   AUTH_TAG_LENGTH
 } = require("../lib/crypto");
+const { DecryptError } = require("../lib/foundation/result");
 
 describe("Crypto Module", () => {
   const validSecretKey = "12345678901234567890123456789012"; // 32 characters
@@ -214,6 +217,19 @@ describe("Crypto Module", () => {
       );
     });
 
+    test("should reject syntactically valid but trivially weak encoded keys", () => {
+      // 64 hex zeros and base64-encoded all-zero bytes decode to 32 zero bytes.
+      const allZeroHex = "0".repeat(64);
+      const allZeroBase64 = Buffer.alloc(32).toString("base64").replace(/=+$/, ""); // 43 chars
+      expect(() => validateSecretKey(allZeroHex)).toThrow("insufficient binary entropy");
+      expect(() => validateSecretKey(allZeroBase64)).toThrow("insufficient binary entropy");
+    });
+
+    test("should still accept a strong hex key", () => {
+      const strongHex = require("crypto").randomBytes(32).toString("hex");
+      expect(validateSecretKey(strongHex)).toBe(true);
+    });
+
     test("should accept key with 8 unique characters uniformly distributed", () => {
       // Palindrome + repeat (not a simple period-1..8 pattern): 8 unique chars,
       // each appearing 4 times → Shannon entropy = log2(8) = 3.0 bits/char
@@ -280,6 +296,18 @@ describe("Crypto Module", () => {
       expect(normalizeKey(b64, { stretchAsciiKey: true }).equals(raw)).toBe(true);
     });
 
+    test("43-char URL-safe base64 key (base64url) is accepted and matches its bytes", () => {
+      // Use bytes that produce '-' and '_' in the URL-safe alphabet.
+      const raw = Buffer.from(
+        "fbff0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+        "hex"
+      );
+      const b64url = raw.toString("base64url"); // 43 chars, no padding, uses -/_
+      expect(b64url.length).toBe(43);
+      expect(/[-_]/.test(b64url)).toBe(true);
+      expect(normalizeKey(b64url).equals(raw)).toBe(true);
+    });
+
     test("identical ASCII keys with stretchAsciiKey produce the same derived key", () => {
       const a = normalizeKey(validSecretKey, { stretchAsciiKey: true });
       const b = normalizeKey(validSecretKey, { stretchAsciiKey: true });
@@ -309,11 +337,78 @@ describe("Crypto Module", () => {
       expect(() => decryptBinary(packet, validSecretKey, { stretchAsciiKey: false })).toThrow();
     });
 
+    test("stretchAsciiKey mismatch throws DecryptError with keyMismatchHint", () => {
+      const data = Buffer.from("hello mismatch typed");
+      const packet = encryptBinary(data, validSecretKey, { stretchAsciiKey: true });
+      let caught;
+      try {
+        decryptBinary(packet, validSecretKey, { stretchAsciiKey: false });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(DecryptError);
+      expect(caught.keyMismatchHint).toBe(true);
+      expect(caught.code).toBe("DECRYPT_FAILED");
+    });
+
+    test("wrong-key decrypt throws DecryptError with keyMismatchHint", () => {
+      const data = Buffer.from("secret data");
+      const packet = encryptBinary(data, validSecretKey);
+      const wrongKey = "zY9#xW8!vU7@tS6$rQ5%pO4^nM3&lK2*";
+      let caught;
+      try {
+        decryptBinary(packet, wrongKey);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(DecryptError);
+      expect(caught.keyMismatchHint).toBe(true);
+    });
+
     test("default (no options) round-trip still works with raw ASCII bytes", () => {
       const data = Buffer.from("hello legacy");
       const packet = encryptBinary(data, validSecretKey);
       const decrypted = decryptBinary(packet, validSecretKey);
       expect(decrypted.equals(data)).toBe(true);
+    });
+  });
+
+  describe("verifyControlPacketAuthTag DecryptError", () => {
+    const header = Buffer.alloc(13, 0xab);
+    const payload = Buffer.from("control payload");
+
+    test("wrong auth tag throws DecryptError with keyMismatchHint", () => {
+      const tag = createControlPacketAuthTag(header, payload, validSecretKey);
+      // Flip the first byte to invalidate it
+      const badTag = Buffer.from(tag);
+      badTag[0] ^= 0xff;
+      let caught;
+      try {
+        verifyControlPacketAuthTag(header, payload, badTag, validSecretKey);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(DecryptError);
+      expect(caught.keyMismatchHint).toBe(true);
+      expect(caught.code).toBe("DECRYPT_FAILED");
+    });
+
+    test("wrong key throws DecryptError with keyMismatchHint", () => {
+      const tag = createControlPacketAuthTag(header, payload, validSecretKey);
+      const wrongKey = "zY9#xW8!vU7@tS6$rQ5%pO4^nM3&lK2*";
+      let caught;
+      try {
+        verifyControlPacketAuthTag(header, payload, tag, wrongKey);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(DecryptError);
+      expect(caught.keyMismatchHint).toBe(true);
+    });
+
+    test("correct auth tag returns true", () => {
+      const tag = createControlPacketAuthTag(header, payload, validSecretKey);
+      expect(verifyControlPacketAuthTag(header, payload, tag, validSecretKey)).toBe(true);
     });
   });
 });

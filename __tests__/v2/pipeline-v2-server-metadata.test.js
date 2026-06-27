@@ -1,5 +1,7 @@
 "use strict";
 
+const SECRET_KEY = "12345678901234567890123456789012";
+
 const zlib = require("node:zlib");
 const { createPipelineV2Server } = require("../../lib/pipeline-v2-server");
 const { PacketBuilder } = require("../../lib/packet");
@@ -33,7 +35,7 @@ function makeMetricsApi() {
 }
 
 function buildMetaPacket(envelope, key) {
-  const builder = new PacketBuilder();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
   const json = Buffer.from(JSON.stringify(envelope));
   const compressed = zlib.brotliCompressSync(json);
   const encrypted = encryptBinary(compressed, key);
@@ -53,7 +55,7 @@ describe("pipeline-v2-server METADATA handling", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: { send: jest.fn((_pkt, _port, _addr, cb) => cb && cb(null)) },
       instanceId: "test"
     };
@@ -235,7 +237,7 @@ describe("pipeline-v2-server META_REQUEST emission", () => {
       handleMessage: jest.fn()
     };
     const state = {
-      options: { reliability: { nakTimeout: 10 } },
+      options: { authenticatedHeaders: false, reliability: { nakTimeout: 10 } },
       socketUdp: {
         send: jest.fn((pkt, port, addr, cb) => {
           sent.push({ pkt, port, addr });
@@ -252,8 +254,8 @@ describe("pipeline-v2-server META_REQUEST emission", () => {
   }
 
   function buildHelloPacket() {
-    const builder = new PacketBuilder({ protocolVersion: 2 });
-    return builder.buildHelloPacket({ protocolVersion: 2, clientId: "c1" });
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
+    return builder.buildHelloPacket({ protocolVersion: 3, clientId: "c1" });
   }
 
   test("emits exactly one META_REQUEST per session when a HELLO arrives", async () => {
@@ -265,7 +267,7 @@ describe("pipeline-v2-server META_REQUEST emission", () => {
     // One of the sends is the META_REQUEST back to the client (there may be
     // others such as ACKs for later DATA packets — for HELLO only, only the
     // META_REQUEST is expected).
-    const parser = new PacketParser();
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const metaRequests = sent
       .map((s) => parser.parseHeader(s.pkt))
       .filter((p) => p.type === PacketType.META_REQUEST);
@@ -281,7 +283,7 @@ describe("pipeline-v2-server META_REQUEST emission", () => {
     for (let i = 0; i < 5; i++) {
       await pipeline.receivePacket(buildHelloPacket(), secretKey, rinfo);
     }
-    const parser = new PacketParser();
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const metaRequests = sent
       .map((s) => parser.parseHeader(s.pkt))
       .filter((p) => p.type === PacketType.META_REQUEST);

@@ -99,6 +99,18 @@ describe("Prometheus Metrics Exporter", () => {
       expect(text).toContain("# TYPE signalk_edge_link_uptime_seconds gauge");
     });
 
+    test("renders non-finite gauge values using Prometheus tokens, not JS strings", () => {
+      // "Infinity"/"-Infinity" are invalid exposition and would fail the whole
+      // scrape; the spec requires +Inf/-Inf. (NaN is already valid and several
+      // gauges pre-guard with `|| 0`, so Infinity is the meaningful case.)
+      metrics.bandwidth.rateOut = Infinity;
+      metrics.bandwidth.rateIn = -Infinity;
+      const text = formatPrometheusMetrics(metrics, state);
+      expect(text).not.toMatch(/\bInfinity\b/);
+      expect(text).toMatch(/signalk_edge_link_bandwidth_rate_out_bytes\S* \+Inf/);
+      expect(text).toMatch(/signalk_edge_link_bandwidth_rate_in_bytes\S* -Inf/);
+    });
+
     test("includes delta counters", () => {
       const text = formatPrometheusMetrics(metrics, state);
       expect(text).toContain("signalk_edge_link_deltas_sent_total");
@@ -110,9 +122,11 @@ describe("Prometheus Metrics Exporter", () => {
       expect(text).toContain("signalk_edge_link_dropped_delta_batches_total");
       expect(text).toContain("signalk_edge_link_dropped_deltas_total");
       expect(text).toContain("signalk_edge_link_suppressed_outbound_duplicates_total");
-      expect(text).toContain("signalk_edge_link_suppressed_outbound_duplicates_by_path_total");
-      expect(text).toContain('path="navigation.speedOverGround"');
-      expect(text).toContain('source="SatHead.GN"');
+      // The per-(context,path,source) breakdown is intentionally NOT exported to
+      // Prometheus (high-cardinality, identifying labels). It stays in JSON only.
+      expect(text).not.toContain("signalk_edge_link_suppressed_outbound_duplicates_by_path_total");
+      expect(text).not.toContain('path="navigation.speedOverGround"');
+      expect(text).not.toContain('source="SatHead.GN"');
     });
 
     test("includes error counters", () => {

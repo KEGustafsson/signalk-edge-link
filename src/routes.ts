@@ -2,12 +2,12 @@
 
 import crypto from "node:crypto";
 
-import { PATH_CATEGORIES } from "./pathDictionary";
-import { RATE_LIMIT_WINDOW, RATE_LIMIT_MAX_REQUESTS } from "./constants";
+import { PATH_CATEGORIES } from "./codec/path-dictionary";
+import { RATE_LIMIT_WINDOW, RATE_LIMIT_MAX_REQUESTS } from "./foundation/constants";
 import {
   loadConfigFile as loadConfigFileShared,
   saveConfigFile as saveConfigFileShared
-} from "./config-io";
+} from "./foundation/config-io";
 import type {
   SignalKApp,
   InstanceRegistry,
@@ -17,7 +17,7 @@ import type {
   PluginRef,
   EffectiveNetworkQuality,
   PathStatEntry
-} from "./types";
+} from "./foundation/types";
 import type { RouteRequest, RouteResponse, NextFn, RouteHandler, Router } from "./routes/types";
 
 type ManagementAuthDecision = "allowed" | "denied";
@@ -26,7 +26,8 @@ type ManagementAuthReason =
   | "valid_token"
   | "missing_token"
   | "invalid_token"
-  | "token_required_unconfigured";
+  | "token_required_unconfigured"
+  | "config_read_error";
 
 interface ManagementAuthActionCounters {
   total: number;
@@ -137,9 +138,53 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     return typeof value === "string" && isApplicationJsonMediaType(value);
   }
 
+  /**
+   * Resolve the effective plugin options for auth decisions. Prefer the live
+   * `_currentOptions`, but fall back to the PERSISTED configuration when the
+   * plugin is stopped (`stop()` clears `_currentOptions`). Without this fallback
+   * the management API would silently degrade to OPEN ACCESS after a stop if the
+   * routes stay mounted and no env token is set — and `/plugin-config` can still
+   * read and mutate persisted configuration even while stopped.
+   * @private
+   */
+  function resolveAuthOptions(): {
+    options: Record<string, unknown> | null;
+    readError: boolean;
+  } {
+    if (pluginRef && pluginRef._currentOptions) {
+      return { options: pluginRef._currentOptions as Record<string, unknown>, readError: false };
+    }
+    try {
+      const opts = typeof app.readPluginOptions === "function" ? app.readPluginOptions() : null;
+      const configuration = opts && opts.configuration;
+      return {
+        options:
+          configuration && typeof configuration === "object"
+            ? (configuration as Record<string, unknown>)
+            : null,
+        readError: false
+      };
+    } catch (err) {
+      // A failed persisted-config read leaves the auth state UNDETERMINED.
+      // Returning null here would let auth decisions silently degrade to open
+      // access, so the read failure is surfaced and callers fail closed.
+      if (app && typeof app.error === "function") {
+        app.error(
+          "[management-api] failed to read persisted plugin options for auth decision: " +
+            (err instanceof Error ? err.message : String(err))
+        );
+      }
+      return { options: null, readError: true };
+    }
+  }
+
+  function getAuthOptions(): Record<string, unknown> | null {
+    return resolveAuthOptions().options;
+  }
+
   function getManagementToken(): string | null {
-    const fromOptions =
-      pluginRef && pluginRef._currentOptions && pluginRef._currentOptions.managementApiToken;
+    const authOptions = getAuthOptions();
+    const fromOptions = authOptions && authOptions.managementApiToken;
     if (typeof fromOptions === "string" && fromOptions.trim()) {
       return fromOptions.trim();
     }
@@ -152,11 +197,15 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     return null;
   }
 
+  function warnIfOpenAccess(): void {
+    // Retained as a no-op for compatibility with older route consumers.
+  }
+
   function isTokenRequired(): boolean {
     // Explicit opt-in to enforce token-based auth even when no token is set yet
     // (allows admins to lock the API before the token is provisioned).
-    const fromOptions =
-      pluginRef && pluginRef._currentOptions && pluginRef._currentOptions.requireManagementApiToken;
+    const authOptions = getAuthOptions();
+    const fromOptions = authOptions && authOptions.requireManagementApiToken;
     if (fromOptions === true) {
       return true;
     }
@@ -230,12 +279,21 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
   }
 
   function authorizeManagement(req: RouteRequest, res: RouteResponse, action?: string): boolean {
+    // Fail closed when the auth configuration cannot be read: an undetermined
+    // config must never silently degrade to open access.
+    if (resolveAuthOptions().readError) {
+      recordManagementAuthDecision("denied", "config_read_error", action);
+      res
+        .status(503)
+        .json({ error: "Management API temporarily unavailable: unable to read configuration" });
+      return false;
+    }
+
     const expectedToken = getManagementToken();
     if (!expectedToken) {
       // No token configured → allow open access unless the admin explicitly
       // requires one.  This preserves backwards-compatible behaviour for
-      // existing deployments.  A startup warning is logged to encourage
-      // operators to configure a token (see registerWithRouter below).
+      // existing deployments.
       if (!isTokenRequired()) {
         recordManagementAuthDecision("allowed", "open_access", action);
         return true;
@@ -720,6 +778,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       getEffectiveNetworkQuality,
       buildFullMetricsResponse,
       getManagementAuthSnapshot,
+      isManagementAuthEnabled: () => getManagementToken() !== null,
       authorizeManagement,
       managementAuthMiddleware
     };
@@ -758,7 +817,9 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         healthyInstances,
         totalInstances: statusInstances.length,
         instances: statusInstances,
-        managementAuth: getManagementAuthSnapshot()
+        // Only surface auth telemetry when a token is configured; in open-access
+        // mode it would expose attempt history to unauthenticated callers.
+        ...(getManagementToken() ? { managementAuth: getManagementAuthSnapshot() } : {})
       });
     });
 
@@ -775,7 +836,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     loadConfigFile,
     saveConfigFile,
     startRateLimitCleanup,
-    stopRateLimitCleanup
+    stopRateLimitCleanup,
+    warnIfOpenAccess
   };
 }
 

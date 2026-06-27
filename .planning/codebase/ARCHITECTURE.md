@@ -27,14 +27,14 @@ scope: full repo
 - Purpose: Adapt the repository to the Signal K plugin lifecycle.
 - Contains: plugin metadata, route registration, connection config normalization, duplicate-port checks, validation, and instance registry.
 - Location: `src/index.ts`.
-- Depends on: `src/instance.ts`, `src/routes.ts`, `src/connection-config.ts`, and `src/shared/connection-schema.ts`.
+- Depends on: `src/app/connection.ts`, `src/routes.ts`, `src/connection-config.ts`, and `src/shared/connection-schema.ts`.
 - Used by: Signal K plugin loader.
 
 **Instance Runtime:**
 
 - Purpose: Own one configured connection and its lifecycle.
 - Contains: mutable `InstanceState`, UDP sockets, Signal K subscriptions, timers, config watchers, metadata/source snapshot loops, monitoring objects, and pipeline selection.
-- Location: `src/instance.ts`.
+- Location: `src/app/connection.ts`.
 - Depends on: config I/O, crypto validation, metrics, monitoring, packet capture, metadata, source replication, and pipeline modules.
 - Used by: plugin registry and REST route registry.
 
@@ -42,14 +42,14 @@ scope: full repo
 
 - Purpose: Convert Signal K deltas and metadata into encrypted UDP packets and back.
 - Contains: v1 pipeline, v2/v3 client pipeline, v2/v3 server pipeline, retransmit handling, ACK/NAK, bonding, congestion control, and protocol telemetry.
-- Locations: `src/pipeline.ts`, `src/pipeline-v2-client.ts`, `src/pipeline-v2-server.ts`, `src/packet.ts`, `src/retransmit-queue.ts`, `src/sequence.ts`, `src/bonding.ts`, and `src/congestion.ts`.
+- Locations: `src/transport/pipeline/v1.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, `src/codec/packet-codec.ts`, `src/retransmit-queue.ts`, `src/sequence.ts`, `src/bonding.ts`, and `src/congestion.ts`.
 - Depends on: crypto, Brotli helpers, MessagePack, path dictionary, metrics, and dgram sockets.
-- Used by: `src/instance.ts`.
+- Used by: `src/app/connection.ts`.
 
 **Protocol and Encoding Utilities:**
 
 - Purpose: Provide reusable primitives for packet structure, encryption, compression, path compaction, metadata, source tracking, and delta sanitation.
-- Locations: `src/crypto.ts`, `src/packet.ts`, `src/pathDictionary.ts`, `src/metadata.ts`, `src/source-replication.ts`, `src/source-snapshot.ts`, `src/source-dispatch.ts`, `src/delta-sanitizer.ts`, and `src/pipeline-utils.ts`.
+- Locations: `src/crypto.ts`, `src/codec/packet-codec.ts`, `src/pathDictionary.ts`, `src/metadata.ts`, `src/source-replication.ts`, `src/source-snapshot.ts`, `src/source-dispatch.ts`, `src/delta-sanitizer.ts`, and `src/pipeline-utils.ts`.
 - Used by: pipelines, instance runtime, tests, and docs.
 
 **REST Management Layer:**
@@ -86,15 +86,15 @@ scope: full repo
 **Client Delta Send:**
 
 1. A client instance subscribes to local Signal K deltas from `subscription.json`.
-2. `src/instance.ts` sanitizes deltas and applies optional own-data filtering.
+2. `src/app/connection.ts` sanitizes deltas and applies optional own-data filtering.
 3. Batches are driven by `delta_timer.json`, smart batching, and optional congestion control.
-4. v1 sends through `src/pipeline.ts`; v2/v3 sends through `src/pipeline-v2-client.ts`.
+4. v1 sends through `src/pipeline.ts`; v2/v3 sends through `src/transport/pipeline/reliable-client.ts`.
 5. Payloads can be path-dictionary encoded, MessagePack encoded, Brotli-compressed, AES-GCM encrypted, packetized, queued for retransmit, and sent by UDP.
 
 **Server Packet Receive:**
 
 1. UDP socket receives a packet in server mode.
-2. v1 decrypts/decompresses in `src/pipeline.ts`; v2/v3 parses headers in `src/packet.ts` and processes in `src/pipeline-v2-server.ts`.
+2. v1 decrypts/decompresses in `src/transport/pipeline/v1.ts`; v2/v3 parses headers in `src/codec/packet-codec.ts` and processes in `src/transport/pipeline/reliable-server.ts`.
 3. Sequence tracking detects duplicates and gaps; server emits ACK/NAK control packets.
 4. Payloads are decrypted, decompressed, decoded, sanitized, and source-normalized.
 5. Valid deltas are forwarded to Signal K with `app.handleMessage`.
@@ -119,19 +119,19 @@ scope: full repo
 **ConnectionConfig:**
 
 - Purpose: Defines one server/client connection.
-- Location: `src/types.ts` and validation in `src/connection-config.ts`.
+- Location: `src/foundation/types/` and validation in `src/connection-config.ts`.
 - Pattern: validated plain object, also rendered by shared JSON schema.
 
 **EdgeLink Instance:**
 
 - Purpose: Isolated runtime unit for one connection.
-- Location: `src/instance.ts`.
+- Location: `src/app/connection.ts`.
 - Pattern: factory returning `{ start, stop, getId, getName, getStatus, getState, getMetricsApi }`.
 
 **PacketBuilder / PacketParser:**
 
 - Purpose: v2/v3 binary packet creation and parsing.
-- Location: `src/packet.ts`.
+- Location: `src/codec/packet-codec.ts`.
 - Pattern: class-based protocol primitive with sequence state.
 
 **SequenceTracker and RetransmitQueue:**
@@ -200,7 +200,7 @@ scope: full repo
 **Validation:**
 
 - Config validation is centralized in `src/connection-config.ts` and `src/routes/config-validation.ts`.
-- Packet validation is enforced in `src/packet.ts` and pipeline receive paths.
+- Packet validation is enforced in `src/codec/packet-codec.ts` and pipeline receive paths.
 
 **Authentication:**
 

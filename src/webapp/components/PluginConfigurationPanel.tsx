@@ -2,11 +2,17 @@ import React from "react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
-import { RJSFSchema, UiSchema, getDefaultFormState } from "@rjsf/utils";
+import { RJSFSchema, UiSchema, ValidatorType, getDefaultFormState } from "@rjsf/utils";
 import { apiFetch, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
 import { buildWebappConnectionSchema } from "../../shared/connection-schema";
-
-const API_BASE = "/plugins/signalk-edge-link";
+import { ErrorBoundary } from "./ErrorBoundary";
+// API_BASE is a plain string constant bundled into the federated remote (it is
+// not a shared singleton), so importing it from utils is safe.
+import { API_BASE } from "../utils";
+// Type-only import (erased at build time, so it adds no runtime coupling to the
+// federated remote) — derive the UI connection type from the canonical backend
+// config shape so the form is typed against the real fields.
+import type { ConnectionConfig } from "../../foundation/types/config";
 
 // ── Stable ID helper ──────────────────────────────────────────────────────────
 // Each connection object carries a frontend-only `_id` for use as React key.
@@ -19,26 +25,17 @@ function makeId(): string {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface ConnectionData {
+// Derived from the canonical ConnectionConfig so the known fields (including
+// bonding, congestionControl, reliability, alertThresholds, pathFilter, the
+// reliable-only toggles, etc.) are typed against the backend truth. `_id` is a
+// frontend-only React key; `serverType` is widened to string because the form
+// holds in-progress values, and the index signature keeps RJSF-driven extras
+// permissive.
+type ConnectionData = Partial<Omit<ConnectionConfig, "serverType">> & {
   _id: string;
-  connectionId?: string;
-  name?: string;
   serverType?: string;
-  udpPort?: number;
-  secretKey?: string;
-  stretchAsciiKey?: boolean;
-  useMsgpack?: boolean;
-  usePathDictionary?: boolean;
-  enableNotifications?: boolean;
-  skipOwnData?: boolean;
-  protocolVersion?: number;
-  udpAddress?: string;
-  helloMessageSender?: number;
-  testAddress?: string;
-  testPort?: number;
-  pingIntervalTime?: number;
   [key: string]: unknown;
-}
+};
 
 type ConnectionFormData = Partial<ConnectionData> & Record<string, unknown>;
 
@@ -171,6 +168,7 @@ const uiSchemaClient: UiSchema = {
     "udpPort",
     "secretKey",
     "stretchAsciiKey",
+    "authenticatedHeaders",
     "protocolVersion",
     "useMsgpack",
     "useValueDedup",
@@ -194,7 +192,7 @@ const uiSchemaClient: UiSchema = {
   ],
   secretKey: {
     "ui:widget": "password",
-    "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64"
+    "ui:help": "Use 32-character ASCII, 64-character hex, or base64 (standard or URL-safe)"
   },
   stretchAsciiKey: { "ui:help": "Only applies to 32-char ASCII keys. Must match on both peers." },
   serverType: { "ui:widget": "select" },
@@ -219,6 +217,7 @@ const uiSchemaServer: UiSchema = {
     "udpPort",
     "secretKey",
     "stretchAsciiKey",
+    "authenticatedHeaders",
     "useMsgpack",
     "useValueDedup",
     "useCompactDeltas",
@@ -233,7 +232,7 @@ const uiSchemaServer: UiSchema = {
   ],
   secretKey: {
     "ui:widget": "password",
-    "ui:help": "Use 32-character ASCII, 64-character hex, or 44-character base64"
+    "ui:help": "Use 32-character ASCII, 64-character hex, or base64 (standard or URL-safe)"
   },
   stretchAsciiKey: { "ui:help": "Only applies to 32-char ASCII keys. Must match on both peers." },
   serverType: { "ui:widget": "select" }
@@ -247,8 +246,68 @@ const SHARED_FIELDS = [
   "stretchAsciiKey",
   "useMsgpack",
   "usePathDictionary",
-  "protocolVersion"
+  "protocolVersion",
+  "authenticatedHeaders"
 ];
+
+// Boolean toggles that, when on, mean the connection is using advanced options.
+const ADVANCED_BOOL_KEYS = [
+  "stretchAsciiKey",
+  "authenticatedHeaders",
+  "useMsgpack",
+  "useValueDedup",
+  "useCompactDeltas",
+  "usePathDictionary",
+  "skipOwnData",
+  "enableNotifications"
+];
+
+// Object groups that, when present and non-empty, mean advanced options are set.
+const ADVANCED_OBJECT_KEYS = [
+  "pathFilter",
+  "pathPrecision",
+  "pathThrottle",
+  "reliability",
+  "congestionControl",
+  "bonding",
+  "alertThresholds"
+];
+
+// Numeric fields whose default value is considered "not advanced"; any other
+// value means the user tuned it and the Advanced section should open on load.
+const ADVANCED_NUMERIC_DEFAULTS: Record<string, number> = {
+  brotliQuality: 6,
+  helloMessageSender: 60,
+  heartbeatInterval: 25000,
+  testAddress: NaN, // handled as string below
+  testPort: 80,
+  pingIntervalTime: 1
+};
+
+/**
+ * Decide whether a loaded connection already uses advanced options, so the
+ * Advanced section starts expanded instead of hiding settings the user has
+ * deliberately configured. Default-valued scalars (filled in on load by
+ * withSchemaDefaults) do not count as advanced.
+ */
+function connectionUsesAdvanced(conn: ConnectionData): boolean {
+  const c = conn as Record<string, unknown>;
+  for (const key of ADVANCED_BOOL_KEYS) {
+    if (c[key] === true) return true;
+  }
+  for (const key of ADVANCED_OBJECT_KEYS) {
+    const value = c[key];
+    if (value && typeof value === "object" && Object.keys(value as object).length > 0) {
+      return true;
+    }
+  }
+  for (const [key, dflt] of Object.entries(ADVANCED_NUMERIC_DEFAULTS)) {
+    if (key === "testAddress") continue;
+    if (c[key] !== undefined && c[key] !== dflt) return true;
+  }
+  if (typeof c.testAddress === "string" && c.testAddress !== "127.0.0.1") return true;
+  return false;
+}
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 // Using `skel-` prefix (Signal K Edge Link) to avoid collisions with other
@@ -406,6 +465,29 @@ const css = `
 .skel-optional-group .form-control {
   max-width: 340px;
 }
+.skel-advanced-toggle {
+  margin-top: 8px;
+  background: none;
+  border: none;
+  color: #0d6efd;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.skel-advanced-toggle:hover { text-decoration: underline; }
+.skel-advanced-hint {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: #5c6773;
+  max-width: 560px;
+}
+.skel-intro {
+  font-size: 0.86rem;
+  color: #5c6773;
+  margin: 0 0 14px;
+  line-height: 1.4;
+}
 `;
 
 // ── ConnectionCard ────────────────────────────────────────────────────────────
@@ -430,7 +512,14 @@ function ConnectionCard({
   onRemove
 }: ConnectionCardProps) {
   const isClient = conn.serverType !== "server";
-  const schema = buildWebappConnectionSchema(isClient, conn.protocolVersion) as RJSFSchema;
+  // Start expanded only when the connection already carries advanced options;
+  // otherwise keep the form to the essentials so it is easy to approach.
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(() => connectionUsesAdvanced(conn));
+  const schema = buildWebappConnectionSchema(
+    isClient,
+    conn.protocolVersion,
+    showAdvanced
+  ) as RJSFSchema;
   const uiSchema = isClient ? uiSchemaClient : uiSchemaServer;
   const modeLabel = isClient ? "Client" : "Server";
   const displayName = (conn.name || `Connection ${index + 1}`).trim();
@@ -464,20 +553,48 @@ function ConnectionCard({
     // internal re-renders), and we do not want that to trip the dirty flag.
     // Order-insensitive compare so a reshuffled-but-equivalent formData does
     // not look like a real edit.
-    const proposed: ConnectionData = {
-      ...(next as Omit<ConnectionData, "_id">),
-      _id: conn._id,
-      connectionId: next.connectionId || conn.connectionId || conn._id
-    };
-    // v1-only ping monitor fields must be absent on v2/v3 clients (the
-    // backend validator rejects them). Drop them when the user toggles the
-    // protocol version up so a v1 → v2 upgrade doesn't leave stale fields
-    // attached to the form data.
+    //
+    // Merge only the keys the ACTIVE schema manages. In the basic (advanced
+    // collapsed) view the form does not render advanced fields, so taking
+    // `next` wholesale would discard the connection's hidden advanced settings.
+    // Starting from `conn` and overlaying only managed keys preserves them.
+    const managedKeys = Object.keys(
+      (schema as { properties?: Record<string, unknown> }).properties || {}
+    );
+    const proposed: ConnectionData = { ...conn };
+    const proposedRecord = proposed as Record<string, unknown>;
+    const nextRecord = next as Record<string, unknown>;
+    for (const key of managedKeys) {
+      if (key === "_id") {
+        continue;
+      }
+      if (nextRecord[key] === undefined) {
+        delete proposedRecord[key];
+      } else {
+        proposedRecord[key] = nextRecord[key];
+      }
+    }
+    proposed._id = conn._id;
+    proposed.connectionId =
+      (typeof next.connectionId === "string" && next.connectionId.trim()) ||
+      conn.connectionId ||
+      conn._id;
+    // Keep version-gated fields consistent with the selected protocol so the
+    // field-preserving merge above can never leave a stale flag that the
+    // backend validator rejects (which would make the connection unsaveable):
+    //   • v1-only ping-monitor fields must be absent on v2/v3 clients, and
+    //   • the v3-only codec flags (useValueDedup / useCompactDeltas) must be
+    //     absent on v1 — otherwise a v3 → v1 downgrade carries them forward.
     const isClientNow = proposed.serverType !== "server";
-    if (isClientNow && (proposed.protocolVersion ?? 1) >= 2) {
+    const protocolNow = Number(proposed.protocolVersion ?? 1);
+    if (isClientNow && protocolNow >= 2) {
       delete proposed.testAddress;
       delete proposed.testPort;
       delete proposed.pingIntervalTime;
+    }
+    if (protocolNow < 2) {
+      delete proposed.useValueDedup;
+      delete proposed.useCompactDeltas;
     }
     const { _id: _aId, ...a } = proposed;
     const { _id: _bId, ...b } = conn;
@@ -512,11 +629,16 @@ function ConnectionCard({
       </div>
       {expanded && (
         <div className="skel-card-body">
+          {/* RJSF infers the Form's data generic from `formData`/`onChange`,
+              which narrows it to ConnectionFormData. Under tsconfig strict mode
+              that makes the default-generic (`any`) uiSchema/validator props
+              incompatible. Cast these two props so the strict build passes
+              without restructuring RJSF's generic plumbing. */}
           <Form
             schema={schema}
-            uiSchema={uiSchema}
+            uiSchema={uiSchema as UiSchema<ConnectionFormData>}
             formData={formData}
-            validator={validator}
+            validator={validator as typeof validator & ValidatorType<ConnectionFormData>}
             onChange={handleFormChange}
             onSubmit={() => {}}
             liveValidate={false}
@@ -524,6 +646,20 @@ function ConnectionCard({
             {/* Hide the default submit button – saving is done from the outer toolbar */}
             <div />
           </Form>
+          <button
+            type="button"
+            className="skel-advanced-toggle"
+            aria-expanded={showAdvanced}
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            {showAdvanced ? "▲ Hide advanced settings" : "▼ Show advanced settings"}
+          </button>
+          {!showAdvanced && (
+            <div className="skel-advanced-hint">
+              Compression, reliability, bonding, congestion control and per-path tuning are hidden.
+              Defaults work for most setups — open advanced settings only if you need them.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -532,7 +668,7 @@ function ConnectionCard({
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-function PluginConfigurationPanel(_props: Record<string, unknown>) {
+function PluginConfigurationPanelInner(_props: Record<string, unknown>) {
   const [connections, setConnections] = useState<ConnectionData[]>([]);
   const [managementApiToken, setManagementApiToken] = useState<string>("");
   const [requireManagementApiToken, setRequireManagementApiToken] = useState<boolean>(false);
@@ -719,6 +855,13 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
     <div className="skel-config">
       <style>{css}</style>
 
+      <p className="skel-intro">
+        Add one connection per link — pick <strong>Server mode</strong> to receive data or{" "}
+        <strong>Client mode</strong> to send it. Fill in the essentials (address, port, encryption
+        key, protocol); both ends must use the same key and protocol. Extra tuning lives under{" "}
+        <em>Advanced settings</em> on each connection and is safe to leave at the defaults.
+      </p>
+
       {isDirty && saveStatus?.type !== "saving" && (
         <div className="skel-dirty-banner">
           <span>&#9888;</span>
@@ -825,6 +968,16 @@ function PluginConfigurationPanel(_props: Record<string, unknown>) {
         </span>
       </div>
     </div>
+  );
+}
+
+// Wrap the federated default export so a render-time crash inside the panel
+// shows a recoverable fallback rather than breaking the SignalK admin host UI.
+function PluginConfigurationPanel(props: Record<string, unknown>) {
+  return (
+    <ErrorBoundary>
+      <PluginConfigurationPanelInner {...props} />
+    </ErrorBoundary>
   );
 }
 

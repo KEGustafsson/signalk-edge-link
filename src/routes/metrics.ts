@@ -1,4 +1,7 @@
-import { formatManagementAuthPrometheusMetrics, formatPrometheusMetrics } from "../prometheus";
+import {
+  formatManagementAuthPrometheusMetrics,
+  formatPrometheusMetrics
+} from "../domain/metrics/prometheus";
 import { RouteRequest, RouteResponse, Router, RouteContext } from "./types";
 
 /**
@@ -16,6 +19,7 @@ function register(router: Router, ctx: RouteContext): void {
     getActiveMetricsPublisher,
     buildFullMetricsResponse,
     getManagementAuthSnapshot,
+    isManagementAuthEnabled,
     managementAuthMiddleware
   } = ctx;
 
@@ -31,7 +35,8 @@ function register(router: Router, ctx: RouteContext): void {
         }
         res.json({
           ...buildFullMetricsResponse(bundle),
-          managementAuth: getManagementAuthSnapshot()
+          // Omit auth telemetry in open-access mode (see /status).
+          ...(isManagementAuthEnabled() ? { managementAuth: getManagementAuthSnapshot() } : {})
         });
       } catch (err: unknown) {
         res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -99,9 +104,15 @@ function register(router: Router, ctx: RouteContext): void {
 
         const sharedMeta = new Set<string>();
         const parts: string[] = [];
-        parts.push(
-          formatManagementAuthPrometheusMetrics(getManagementAuthSnapshot(), { sharedMeta })
-        );
+        // Only expose management-auth telemetry when a management token is
+        // configured, matching the JSON /metrics behaviour. In open-access mode
+        // this audit history (management actions/reasons) would otherwise be
+        // readable by any unauthenticated Prometheus scraper.
+        if (isManagementAuthEnabled()) {
+          parts.push(
+            formatManagementAuthPrometheusMetrics(getManagementAuthSnapshot(), { sharedMeta })
+          );
+        }
 
         for (const bundle of allBundles) {
           const { state } = bundle;

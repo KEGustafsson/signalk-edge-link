@@ -6,7 +6,8 @@ const {
   BONDING_LOSS_THRESHOLD,
   BONDING_FAILBACK_DELAY,
   BONDING_FAILBACK_RTT_HYSTERESIS,
-  BONDING_FAILBACK_LOSS_HYSTERESIS
+  BONDING_FAILBACK_LOSS_HYSTERESIS,
+  BONDING_FAILOVER_MIN_DWELL
 } = require("../../lib/constants");
 
 // Mock dgram with proper event emitter behavior
@@ -136,6 +137,8 @@ describe("Bonding Failover Scenarios", () => {
     test("fails over when RTT exceeds threshold", async () => {
       bm = new BondingManager(createDefaultConfig(), app);
       await bm.initialize();
+      // Primary has been active past the soft-failover dwell window.
+      bm.lastFailbackTime -= BONDING_FAILOVER_MIN_DWELL + 1;
 
       bm.links.primary.health.rtt = 550; // Above 500ms threshold
       expect(bm._shouldFailover()).toBe(true);
@@ -145,6 +148,8 @@ describe("Bonding Failover Scenarios", () => {
       bm = new BondingManager(createDefaultConfig(), app);
       await bm.initialize();
       bm.stopHealthMonitoring();
+      // Primary has been active past the soft-failover dwell window.
+      bm.lastFailbackTime -= BONDING_FAILOVER_MIN_DWELL + 1;
 
       // Trigger failover
       bm.links.primary.health.rtt = 600;
@@ -166,6 +171,8 @@ describe("Bonding Failover Scenarios", () => {
     test("fails over when loss exceeds threshold", async () => {
       bm = new BondingManager(createDefaultConfig(), app);
       await bm.initialize();
+      // Primary has been active past the soft-failover dwell window.
+      bm.lastFailbackTime -= BONDING_FAILOVER_MIN_DWELL + 1;
 
       bm.links.primary.health.loss = 0.15; // 15% > 10% threshold
       expect(bm._shouldFailover()).toBe(true);
@@ -182,6 +189,8 @@ describe("Bonding Failover Scenarios", () => {
     test("failover on loss with good RTT", async () => {
       bm = new BondingManager(createDefaultConfig(), app);
       await bm.initialize();
+      // Primary has been active past the soft-failover dwell window.
+      bm.lastFailbackTime -= BONDING_FAILOVER_MIN_DWELL + 1;
 
       bm.links.primary.health.rtt = 50; // Excellent RTT
       bm.links.primary.health.loss = 0.2; // But terrible loss
@@ -302,10 +311,46 @@ describe("Bonding Failover Scenarios", () => {
       expect(bm.activeLink).toBe("backup");
     });
 
+    test("min-dwell prevents soft re-failover immediately after failback", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      // Drive a failover then failback so primary just became active.
+      bm.failover();
+      bm.failback();
+      expect(bm.activeLink).toBe("primary");
+
+      // Primary immediately degrades (soft, RTT over threshold, not DOWN).
+      // Within the min-dwell window it must NOT flap back to backup.
+      bm.links.primary.health.rtt = 600;
+      expect(bm._shouldFailover()).toBe(false);
+
+      // After the dwell elapses, soft failover is allowed again.
+      jest.advanceTimersByTime(5001);
+      expect(bm._shouldFailover()).toBe(true);
+    });
+
+    test("hard primary DOWN still fails over immediately even within min-dwell", async () => {
+      bm = new BondingManager(createDefaultConfig(), app);
+      await bm.initialize();
+      bm.stopHealthMonitoring();
+
+      bm.failover();
+      bm.failback();
+      expect(bm.activeLink).toBe("primary");
+
+      // Hard failure right after failback bypasses the dwell guard.
+      bm.links.primary.health.status = LinkStatus.DOWN;
+      expect(bm._shouldFailover()).toBe(true);
+    });
+
     test("hysteresis prevents failback when metrics are borderline", async () => {
       bm = new BondingManager(createDefaultConfig(), app);
       await bm.initialize();
       bm.stopHealthMonitoring();
+      // Primary has been active past the soft-failover dwell window.
+      bm.lastFailbackTime -= BONDING_FAILOVER_MIN_DWELL + 1;
 
       // Failover
       bm.links.primary.health.rtt = 600;
@@ -380,6 +425,8 @@ describe("Bonding Failover Scenarios", () => {
     test("respects custom RTT threshold", async () => {
       bm = new BondingManager(createDefaultConfig({ rttThreshold: 1000 }), app);
       await bm.initialize();
+      // Primary has been active past the soft-failover dwell window.
+      bm.lastFailbackTime -= BONDING_FAILOVER_MIN_DWELL + 1;
 
       bm.links.primary.health.rtt = 600;
       expect(bm._shouldFailover()).toBe(false); // Below custom threshold
@@ -391,6 +438,8 @@ describe("Bonding Failover Scenarios", () => {
     test("respects custom loss threshold", async () => {
       bm = new BondingManager(createDefaultConfig({ lossThreshold: 0.05 }), app);
       await bm.initialize();
+      // Primary has been active past the soft-failover dwell window.
+      bm.lastFailbackTime -= BONDING_FAILOVER_MIN_DWELL + 1;
 
       bm.links.primary.health.loss = 0.06;
       expect(bm._shouldFailover()).toBe(true);

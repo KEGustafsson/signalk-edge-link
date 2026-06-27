@@ -384,6 +384,28 @@ describe("throttleDelta — per-path rate limit + deadband", () => {
     expect(after.updates[0].values[0].value).toBe(12.9);
   });
 
+  test("throttle state is keyed per source — two sources on the same path do not suppress each other", () => {
+    const state = createPathThrottleState();
+    const rules = { "navigation.position": { minIntervalMs: 500 } };
+    const makeSourced = (src, value) => ({
+      context: "vessels.self",
+      updates: [
+        {
+          $source: src,
+          timestamp: "2026-05-28T00:00:00Z",
+          values: [{ path: "navigation.position", value }]
+        }
+      ]
+    });
+
+    // Source A at t=0 is sent and primes A's slot.
+    expect(throttleDelta(makeSourced("gpsA", 1), rules, state, 0)).not.toBeNull();
+    // Source B at t=100 must NOT be dropped by A's window — it has its own slot.
+    expect(throttleDelta(makeSourced("gpsB", 2), rules, state, 100)).not.toBeNull();
+    // Source A again at t=100 IS within A's own window → dropped.
+    expect(throttleDelta(makeSourced("gpsA", 3), rules, state, 100)).toBeNull();
+  });
+
   test("both filters apply — value passes only if BOTH allow", () => {
     const state = createPathThrottleState();
     const rules = { p: { minIntervalMs: 500, deadband: 1 } };

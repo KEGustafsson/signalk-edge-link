@@ -1,14 +1,15 @@
 "use strict";
 
-import { validateSecretKey } from "./crypto";
+import { validateSecretKey } from "./codec/crypto";
 import type {
   ConnectionConfig,
   BondingConfig,
   CongestionControlConfig,
   ReliabilityConfig,
   AlertThresholds
-} from "./types";
+} from "./foundation/types";
 
+/** All recognised top-level keys for a ConnectionConfig object; unknown keys are stripped on sanitize. */
 export const VALID_CONNECTION_KEYS: string[] = [
   "connectionId",
   "name",
@@ -16,6 +17,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "udpPort",
   "secretKey",
   "stretchAsciiKey",
+  "authenticatedHeaders",
   "useMsgpack",
   "useValueDedup",
   "useCompactDeltas",
@@ -67,6 +69,7 @@ function numberRangeError(
   return null;
 }
 
+/** Coerce legacy boolean `serverType` values to `"server"` / `"client"` strings. */
 export function normalizeServerType(serverType: unknown): string | undefined {
   if (serverType === true) {
     return "server";
@@ -77,6 +80,7 @@ export function normalizeServerType(serverType: unknown): string | undefined {
   return serverType as string | undefined;
 }
 
+/** Returns the first structural violation as a human-readable string, or null when the config is valid; called at save time and before activation so the error surface is consistent. */
 export function validateConnectionConfig(connection: unknown, prefix = ""): string | null {
   if (!connection || typeof connection !== "object" || Array.isArray(connection)) {
     return `${prefix || "connection"} must be an object`;
@@ -114,13 +118,17 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     return `${p}${error instanceof Error ? error.message : String(error)}`;
   }
 
+  // Cast to unknown to accept string aliases at the validation boundary.
+  const _rawPv: unknown = conn.protocolVersion;
   if (
-    conn.protocolVersion !== undefined &&
-    conn.protocolVersion !== 1 &&
-    conn.protocolVersion !== 2 &&
-    conn.protocolVersion !== 3
+    _rawPv !== undefined &&
+    _rawPv !== 1 &&
+    _rawPv !== 2 &&
+    _rawPv !== 3 &&
+    _rawPv !== "basic" &&
+    _rawPv !== "advanced"
   ) {
-    return `${p}protocolVersion must be 1, 2, or 3`;
+    return `${p}protocolVersion must be 1 or 3 (legacy 2 is accepted and coerced to 3; aliases: "basic" / "advanced")`;
   }
   if (conn.useMsgpack !== undefined && typeof conn.useMsgpack !== "boolean") {
     return `${p}useMsgpack must be a boolean`;
@@ -131,13 +139,15 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   if (conn.useCompactDeltas !== undefined && typeof conn.useCompactDeltas !== "boolean") {
     return `${p}useCompactDeltas must be a boolean`;
   }
-  const _pv = conn.protocolVersion ?? 1;
+  // Resolve string aliases before version-gated feature checks.
+  const _pv =
+    _rawPv === "basic" ? 1 : _rawPv === "advanced" ? 3 : typeof _rawPv === "number" ? _rawPv : 1;
   if (conn.useValueDedup === true && _pv < 2) {
-    return `${p}useValueDedup is only supported on protocolVersion 2 or 3`;
+    return `${p}useValueDedup is only supported on reliable protocolVersion 3`;
   }
   if (conn.useCompactDeltas === true) {
     if (_pv < 2) {
-      return `${p}useCompactDeltas is only supported on protocolVersion 2 or 3`;
+      return `${p}useCompactDeltas is only supported on reliable protocolVersion 3`;
     }
     if (conn.useMsgpack !== true) {
       return `${p}useCompactDeltas requires useMsgpack to be enabled`;
@@ -231,6 +241,9 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   if (conn.stretchAsciiKey !== undefined && typeof conn.stretchAsciiKey !== "boolean") {
     return `${p}stretchAsciiKey must be a boolean`;
   }
+  if (conn.authenticatedHeaders !== undefined && typeof conn.authenticatedHeaders !== "boolean") {
+    return `${p}authenticatedHeaders must be a boolean`;
+  }
   if (conn.enableNotifications !== undefined && typeof conn.enableNotifications !== "boolean") {
     return `${p}enableNotifications must be a boolean`;
   }
@@ -253,21 +266,53 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     }
   }
 
+  // Timing bounds mirrored from the shared UI schema (connection-schema.ts) so
+  // API config writes cannot create ping/HELLO/heartbeat timers outside the
+  // documented/UI ranges. Runtime code uses these values directly for timers.
+  if (conn.helloMessageSender !== undefined) {
+    if (
+      !Number.isInteger(conn.helloMessageSender) ||
+      (conn.helloMessageSender as number) < 10 ||
+      (conn.helloMessageSender as number) > 3600
+    ) {
+      return `${p}helloMessageSender must be an integer between 10 and 3600 (seconds)`;
+    }
+  }
+  const heartbeatIntervalError = numberRangeError(
+    conn,
+    "heartbeatInterval",
+    5000,
+    120000,
+    `${p}heartbeatInterval`
+  );
+  if (heartbeatIntervalError) {
+    return heartbeatIntervalError;
+  }
+
   if (serverType === "client") {
     if (!conn.udpAddress || typeof conn.udpAddress !== "string") {
       return `${p}udpAddress is required in client mode`;
     }
     // testAddress / testPort / pingIntervalTime feed the v1 ping monitor.
-    // v2/v3 pipelines derive RTT from HEARTBEAT exchanges and never construct
+    // reliable v3 pipelines derive RTT from HEARTBEAT exchanges and never construct
     // a ping monitor, so the fields are required for v1 clients and must be
-    // absent for v2/v3 clients to keep configs unambiguous.
-    const isLegacyV1Client = (conn.protocolVersion ?? 1) < 2;
+    // absent for reliable v3 clients to keep configs unambiguous.
+    const isLegacyV1Client = _pv < 2;
     if (isLegacyV1Client) {
       if (!conn.testAddress || typeof conn.testAddress !== "string") {
         return `${p}testAddress is required in v1 client mode`;
       }
       if (!isValidPort(conn.testPort, 1)) {
         return `${p}testPort must be between 1 and 65535 in v1 client mode`;
+      }
+      if (conn.pingIntervalTime !== undefined) {
+        if (
+          !isFiniteNumber(conn.pingIntervalTime) ||
+          (conn.pingIntervalTime as number) < 0.1 ||
+          (conn.pingIntervalTime as number) > 60
+        ) {
+          return `${p}pingIntervalTime must be a number between 0.1 and 60 (minutes)`;
+        }
       }
     } else {
       if (conn.testAddress !== undefined) {
@@ -503,6 +548,7 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   return null;
 }
 
+/** Normalises a persisted config entry — strips unknown keys, fills in defaults, and rewrites legacy field names — so the rest of the runtime can assume a canonical ConnectionConfig shape without defensive checks. */
 export function sanitizeConnectionConfig(connection: unknown): Partial<ConnectionConfig> {
   if (!connection || typeof connection !== "object") {
     return {};
@@ -515,6 +561,22 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
     if (conn[key] !== undefined) {
       out[key] = conn[key];
     }
+  }
+
+  // Coerce string aliases ("basic"→1, "advanced"→3) before the numeric
+  // back-compat coercion below, so a stored "advanced" never passes through
+  // as the number 2 and gets silently upgraded again.
+  if (out.protocolVersion === "basic") {
+    out.protocolVersion = 1;
+  } else if (out.protocolVersion === "advanced") {
+    out.protocolVersion = 3;
+  }
+
+  // Config back-compat (doc 08 Q3): protocol v2 was removed from the wire. A
+  // stored protocolVersion of 2 is accepted and coerced to v3 so existing
+  // config files keep loading and speak the HMAC-authenticated v3 protocol.
+  if (out.protocolVersion === 2) {
+    out.protocolVersion = 3;
   }
 
   if (typeof out.connectionId === "string") {
@@ -536,7 +598,7 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
     delete out.alertThresholds;
     delete out.skipOwnData;
   } else if (serverType === "client") {
-    // v1 ping-monitor fields are not used by v2/v3 clients; strip them so
+    // v1 ping-monitor fields are not used by reliable v3 clients; strip them so
     // upgrades from v1 don't carry unused config forward.
     const protocolVersion = typeof out.protocolVersion === "number" ? out.protocolVersion : 1;
     if (protocolVersion >= 2) {
@@ -549,6 +611,7 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
   return out as Partial<ConnectionConfig>;
 }
 
+/** Slugify a connection name to a lowercase, hyphen-separated identifier. */
 export function slugifyConnectionName(name: unknown): string {
   if (!name || typeof name !== "string") {
     return "connection";
@@ -563,6 +626,7 @@ export function slugifyConnectionName(name: unknown): string {
   );
 }
 
+/** Derive stable, collision-free instance IDs (slugified names) for an array of connection configs. */
 export function deriveConnectionIds(connections: Array<Partial<ConnectionConfig>>): string[] {
   const used = new Set<string>();
   return connections.map((config) => {
@@ -583,6 +647,7 @@ export function deriveConnectionIds(connections: Array<Partial<ConnectionConfig>
   });
 }
 
+/** Return the index of the connection whose derived instance ID matches `instanceId`, or -1. */
 export function findConnectionIndexByInstanceId(
   connections: Array<Partial<ConnectionConfig>>,
   instanceId: string
@@ -591,6 +656,7 @@ export function findConnectionIndexByInstanceId(
   return ids.findIndex((id) => id === instanceId);
 }
 
+/** Check that no two server-mode connections share the same UDP port; returns an error string or null. */
 export function validateUniqueServerPorts(
   connections: Array<Partial<ConnectionConfig>>
 ): string | null {

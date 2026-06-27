@@ -20,8 +20,8 @@ jest.mock("../src/webapp/utils/apiFetch", () => ({
 const mockRjsfForms = [];
 jest.mock("@rjsf/core", () => {
   const ReactMock = require("react");
-  function MockForm({ children, formData, schema, onChange }) {
-    mockRjsfForms.push({ formData, schema, onChange });
+  function MockForm({ children, formData, schema, uiSchema, onChange }) {
+    mockRjsfForms.push({ formData, schema, uiSchema, onChange });
     return ReactMock.createElement(
       "div",
       {
@@ -241,6 +241,33 @@ describe("PluginConfigurationPanel", () => {
     render(React.createElement(PluginConfigurationPanel));
     await waitFor(() => screen.getByText("shore-server"));
     expect(screen.getByTestId("rjsf-form")).toBeInTheDocument();
+  });
+
+  test("RJSF order covers every rendered schema property", async () => {
+    apiFetch.mockResolvedValueOnce(
+      makeOk({
+        success: true,
+        configuration: {
+          connections: [
+            {
+              name: "advanced-server",
+              serverType: "server",
+              udpPort: 4446,
+              secretKey: "a".repeat(32),
+              protocolVersion: 3
+            }
+          ]
+        }
+      })
+    );
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("advanced-server"));
+
+    const form = latestRjsfForm();
+    const orderedFields = new Set(form.uiSchema["ui:order"]);
+    for (const propertyName of Object.keys(form.schema.properties)) {
+      expect(orderedFields.has(propertyName)).toBe(true);
+    }
   });
 
   test("clicking card header collapses then re-expands it", async () => {
@@ -569,5 +596,139 @@ describe("PluginConfigurationPanel", () => {
 
     fireEvent.click(screen.getByRole("checkbox"));
     expect(screen.getByText("You have unsaved changes.")).toBeInTheDocument();
+  });
+
+  // ── Progressive disclosure (advanced settings) ─────────────────────────────
+
+  test("hides advanced fields by default, showing only essentials", async () => {
+    apiFetch.mockResolvedValueOnce(makeOk(ONE_SERVER));
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+
+    const props = Object.keys(latestRjsfForm().schema.properties);
+    expect(props).toEqual(expect.arrayContaining(["name", "serverType", "udpPort", "secretKey"]));
+    expect(props).not.toContain("useMsgpack");
+    expect(props).not.toContain("brotliQuality");
+    expect(props).not.toContain("reliability");
+    expect(screen.getByText(/Show advanced settings/)).toBeInTheDocument();
+  });
+
+  test("Show advanced settings reveals the full field set", async () => {
+    apiFetch.mockResolvedValueOnce(makeOk(ONE_SERVER));
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+
+    fireEvent.click(screen.getByText(/Show advanced settings/));
+
+    const props = Object.keys(latestRjsfForm().schema.properties);
+    expect(props).toContain("useMsgpack");
+    expect(props).toContain("brotliQuality");
+    expect(screen.getByText(/Hide advanced settings/)).toBeInTheDocument();
+  });
+
+  test("starts expanded when the connection already uses advanced options", async () => {
+    apiFetch.mockResolvedValueOnce(
+      makeOk({
+        success: true,
+        configuration: {
+          connections: [
+            {
+              name: "tuned",
+              serverType: "server",
+              udpPort: 4446,
+              secretKey: "a".repeat(32),
+              protocolVersion: 3,
+              useMsgpack: true
+            }
+          ]
+        }
+      })
+    );
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("tuned"));
+
+    expect(screen.getByText(/Hide advanced settings/)).toBeInTheDocument();
+    expect(Object.keys(latestRjsfForm().schema.properties)).toContain("useMsgpack");
+  });
+
+  test("editing a basic field preserves hidden advanced settings on save", async () => {
+    apiFetch
+      .mockResolvedValueOnce(makeOk(ONE_SERVER))
+      .mockResolvedValueOnce(makeOk({ success: true, message: "Saved." }));
+
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+
+    fireEvent.click(screen.getByText(/Show advanced settings/));
+    await act(async () => {
+      latestRjsfForm().onChange({
+        formData: { ...currentRjsfFormData(), useMsgpack: true }
+      });
+    });
+
+    // The crux of the test: the basic form omits useMsgpack (it is no longer in
+    // the schema), so an edit here must not clobber the value just set above.
+    fireEvent.click(screen.getByText(/Hide advanced settings/));
+    await act(async () => {
+      const basic = { ...currentRjsfFormData() };
+      delete basic.useMsgpack;
+      basic.udpPort = 5000;
+      latestRjsfForm().onChange({ formData: basic });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Save Changes"));
+    });
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    const saved = JSON.parse(apiFetch.mock.calls[1][1].body).connections[0];
+    expect(saved.udpPort).toBe(5000);
+    expect(saved.useMsgpack).toBe(true);
+  });
+
+  test("downgrading a client to protocol v1 drops v3-only codec flags on save", async () => {
+    apiFetch
+      .mockResolvedValueOnce(
+        makeOk({
+          success: true,
+          configuration: {
+            connections: [
+              {
+                name: "edge",
+                serverType: "client",
+                udpPort: 4446,
+                secretKey: "a".repeat(32),
+                udpAddress: "1.2.3.4",
+                protocolVersion: 3,
+                useMsgpack: true,
+                useValueDedup: true,
+                useCompactDeltas: true
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(makeOk({ success: true, message: "Saved." }));
+
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("edge"));
+
+    // The connection already uses advanced options, so the advanced view is
+    // open and the v3-only codec toggles are part of the rendered schema.
+    await act(async () => {
+      latestRjsfForm().onChange({
+        formData: { ...currentRjsfFormData(), protocolVersion: 1 }
+      });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Save Changes"));
+    });
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    const saved = JSON.parse(apiFetch.mock.calls[1][1].body).connections[0];
+    expect(saved.protocolVersion).toBe(1);
+    expect(saved).not.toHaveProperty("useValueDedup");
+    expect(saved).not.toHaveProperty("useCompactDeltas");
   });
 });

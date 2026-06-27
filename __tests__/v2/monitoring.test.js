@@ -359,7 +359,11 @@ describe("RetransmissionTracker", () => {
       tracker._lastSnapshot.timestamp -= 2000; // 2 seconds ago
       tracker.snapshot(100, 10);
 
-      expect(tracker.history[0].retransmitsPerSec).toBe(5); // 10/2
+      // retransmitsPerSec divides by the real wall-clock elapsed since the
+      // (back-dated) last snapshot, so the few ms of test overhead make the
+      // result ~4.99 rather than exactly 5. Assert with tolerance to keep the
+      // timing-derived value deterministic across runners.
+      expect(tracker.history[0].retransmitsPerSec).toBeCloseTo(5, 1); // 10/2
     });
   });
 

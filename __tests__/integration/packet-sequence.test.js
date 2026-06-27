@@ -1,5 +1,7 @@
 "use strict";
 
+const SECRET_KEY = "12345678901234567890123456789012";
+
 const { PacketBuilder, PacketParser, PacketType } = require("../../lib/packet");
 const { SequenceTracker } = require("../../lib/sequence");
 
@@ -9,8 +11,8 @@ describe("Packet + Sequence Integration", () => {
   let tracker;
 
   beforeEach(() => {
-    builder = new PacketBuilder();
-    parser = new PacketParser();
+    builder = new PacketBuilder({ secretKey: SECRET_KEY });
+    parser = new PacketParser({ secretKey: SECRET_KEY });
     tracker = new SequenceTracker();
   });
 
@@ -151,7 +153,7 @@ describe("Packet + Sequence Integration", () => {
     }
 
     // Build ACK for the last received sequence
-    const ackBuilder = new PacketBuilder();
+    const ackBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
     const ackPacket = ackBuilder.buildACKPacket(tracker.expectedSeq - 1);
     const parsedAck = parser.parseHeader(ackPacket);
 
@@ -170,7 +172,7 @@ describe("Packet + Sequence Integration", () => {
     );
 
     // Build NAK for missing sequences
-    const nakBuilder = new PacketBuilder();
+    const nakBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
     const nakPacket = nakBuilder.buildNAKPacket(result.missing);
     const parsedNak = parser.parseHeader(nakPacket);
 

@@ -19,7 +19,7 @@ import type {
   PluginRef,
   EffectiveNetworkQuality,
   PathStatEntry
-} from "../types";
+} from "../foundation/types";
 
 /** Subset of express.Request properties used by route handlers. */
 export interface RouteRequest {
@@ -123,6 +123,8 @@ export interface RouteContext {
   ): EffectiveNetworkQuality;
   buildFullMetricsResponse(bundle: InstanceBundle): Record<string, unknown>;
   getManagementAuthSnapshot(): ManagementAuthSnapshot;
+  /** True when a management token is configured (auth is actively enforced). */
+  isManagementAuthEnabled(): boolean;
   authorizeManagement(req: RouteRequest, res: RouteResponse, action?: string): boolean;
   managementAuthMiddleware(action: string): RouteHandler;
 }
