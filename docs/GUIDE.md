@@ -1294,7 +1294,7 @@ Build a Grafana dashboard from the Prometheus metrics exposed at `/prometheus` (
 
 **Base path:** `/plugins/signalk-edge-link`  
 **Rate limit:** 120 requests/minute/IP → HTTP 429  
-**API version tracked (current: 3.0.1)** — for endpoint changes between releases, see `docs/pr-records/`
+**API version tracked (current: 3.0.0)** — for endpoint changes between releases, see `docs/pr-records/`
 
 ### 14.1 Core data endpoints
 
