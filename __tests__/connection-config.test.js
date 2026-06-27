@@ -17,7 +17,7 @@ function makeValidClient(overrides = {}) {
     protocolVersion: 2,
     ...overrides
   };
-  // v1 clients require testAddress/testPort; v2/v3 clients reject them.
+  // v1 clients require testAddress/testPort; reliable v3 clients reject them.
   // Default to v2, but inject the v1 fields automatically if the test
   // explicitly downgrades to protocolVersion 1.
   if ((merged.protocolVersion ?? 1) < 2) {
@@ -459,7 +459,7 @@ describe("validateConnectionConfig", () => {
       expect(error).toMatch(/testAddress is required/);
     });
 
-    test("missing testAddress is allowed for v2/v3 clients", () => {
+    test("missing testAddress is allowed for reliable v3 clients", () => {
       const v2Config = makeValidClient({ protocolVersion: 2, testAddress: undefined });
       delete v2Config.testAddress;
       delete v2Config.testPort;
@@ -478,7 +478,7 @@ describe("validateConnectionConfig", () => {
       expect(error).toMatch(/testPort/);
     });
 
-    test("v2/v3 client rejects testAddress/testPort/pingIntervalTime", () => {
+    test("reliable v3 client rejects testAddress/testPort/pingIntervalTime", () => {
       const cfg = makeValidClient({ protocolVersion: 2, testAddress: "10.0.0.1" });
       expect(validateConnectionConfig(cfg)).toMatch(/testAddress is only supported on v1/);
       const cfg2 = makeValidClient({ protocolVersion: 3, testPort: 80 });
@@ -694,7 +694,7 @@ describe("protocolVersion string aliases", () => {
         protocolVersion: "basic",
         useValueDedup: true
       });
-      expect(err).toMatch(/useValueDedup is only supported on protocolVersion 2 or 3/);
+      expect(err).toMatch(/useValueDedup is only supported on reliable protocolVersion 3/);
     });
 
     test('"advanced" allows useValueDedup', () => {

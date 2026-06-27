@@ -128,7 +128,7 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     _rawPv !== "basic" &&
     _rawPv !== "advanced"
   ) {
-    return `${p}protocolVersion must be 1, 2, or 3 (or "basic" / "advanced")`;
+    return `${p}protocolVersion must be 1 or 3 (legacy 2 is accepted and coerced to 3; aliases: "basic" / "advanced")`;
   }
   if (conn.useMsgpack !== undefined && typeof conn.useMsgpack !== "boolean") {
     return `${p}useMsgpack must be a boolean`;
@@ -143,11 +143,11 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   const _pv =
     _rawPv === "basic" ? 1 : _rawPv === "advanced" ? 3 : typeof _rawPv === "number" ? _rawPv : 1;
   if (conn.useValueDedup === true && _pv < 2) {
-    return `${p}useValueDedup is only supported on protocolVersion 2 or 3`;
+    return `${p}useValueDedup is only supported on reliable protocolVersion 3`;
   }
   if (conn.useCompactDeltas === true) {
     if (_pv < 2) {
-      return `${p}useCompactDeltas is only supported on protocolVersion 2 or 3`;
+      return `${p}useCompactDeltas is only supported on reliable protocolVersion 3`;
     }
     if (conn.useMsgpack !== true) {
       return `${p}useCompactDeltas requires useMsgpack to be enabled`;
@@ -294,9 +294,9 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
       return `${p}udpAddress is required in client mode`;
     }
     // testAddress / testPort / pingIntervalTime feed the v1 ping monitor.
-    // v2/v3 pipelines derive RTT from HEARTBEAT exchanges and never construct
+    // reliable v3 pipelines derive RTT from HEARTBEAT exchanges and never construct
     // a ping monitor, so the fields are required for v1 clients and must be
-    // absent for v2/v3 clients to keep configs unambiguous.
+    // absent for reliable v3 clients to keep configs unambiguous.
     const isLegacyV1Client = _pv < 2;
     if (isLegacyV1Client) {
       if (!conn.testAddress || typeof conn.testAddress !== "string") {
@@ -598,7 +598,7 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
     delete out.alertThresholds;
     delete out.skipOwnData;
   } else if (serverType === "client") {
-    // v1 ping-monitor fields are not used by v2/v3 clients; strip them so
+    // v1 ping-monitor fields are not used by reliable v3 clients; strip them so
     // upgrades from v1 don't carry unused config forward.
     const protocolVersion = typeof out.protocolVersion === "number" ? out.protocolVersion : 1;
     if (protocolVersion >= 2) {

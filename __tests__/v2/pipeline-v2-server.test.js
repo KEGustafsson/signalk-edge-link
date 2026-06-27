@@ -395,6 +395,7 @@ describe("pipeline-v2-server", () => {
     await pipeline.receivePacket(seq12, secretKey, { address: "127.0.0.1", port: 12002 });
 
     await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const parser = new PacketParser({ secretKey: SECRET_KEY });
     const nakPackets = send.mock.calls
@@ -454,6 +455,7 @@ describe("pipeline-v2-server", () => {
     await pipeline.receivePacket(seq12, secretKey, { address: "127.0.0.1", port: 12002 });
 
     await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const parser = new PacketParser({ secretKey });
     const nakPacket = send.mock.calls

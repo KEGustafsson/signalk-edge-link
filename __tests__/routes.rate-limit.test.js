@@ -500,11 +500,12 @@ describe("instances management route", () => {
     expect(json).toHaveBeenCalledWith({ error: "Unsupported bonding setting 'unsupported'" });
   });
 
-  test("redacts secretKey in /instances/:id response config", () => {
+  test("redacts secretKey and managementApiToken in /instances/:id response config", () => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();
     bundle.state.instanceStatus = "running";
     bundle.state.options.secretKey = "12345678901234567890123456789012";
+    bundle.state.options.managementApiToken = "secret-token";
 
     const instanceRegistry = {
       get: jest.fn((id) => (id === "test" ? bundle : null)),
@@ -537,7 +538,10 @@ describe("instances management route", () => {
 
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        config: expect.objectContaining({ secretKey: "[redacted]" })
+        config: expect.objectContaining({
+          secretKey: "[redacted]",
+          managementApiToken: "[redacted]"
+        })
       })
     );
   });

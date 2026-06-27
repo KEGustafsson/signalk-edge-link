@@ -149,9 +149,13 @@ function teardownTimers(ctx: ConnectionContext): void {
 /** Tear down the transport pipelines (client + server) and heartbeat. */
 function teardownPipelines(ctx: ConnectionContext): void {
   const { state } = ctx;
-  state.pipeline?.stopBonding?.();
-  state.pipeline?.stopMetricsPublishing?.();
-  state.pipeline?.stopCongestionControl?.();
+  if (state.pipeline?.stop) {
+    state.pipeline.stop();
+  } else {
+    state.pipeline?.stopBonding?.();
+    state.pipeline?.stopMetricsPublishing?.();
+    state.pipeline?.stopCongestionControl?.();
+  }
   state.pipeline = null;
   if (state.heartbeatHandle) {
     state.heartbeatHandle.stop();
