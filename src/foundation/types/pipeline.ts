@@ -142,6 +142,7 @@ export interface ClientPipelineApi {
   sendHello(address: string, port: number): Promise<void>;
   initBonding(config: Record<string, unknown>): Promise<BondingManagerApi>;
   stopBonding(): void;
+  stop?(): void;
   getBondingManager(): BondingManagerApi | null;
   getCongestionControl(): CongestionControlApi;
   getMetricsPublisher(): MetricsPublisherApi;

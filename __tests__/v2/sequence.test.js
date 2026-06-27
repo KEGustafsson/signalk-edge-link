@@ -175,21 +175,27 @@ describe("SequenceTracker", () => {
   });
 
   describe("NAK scheduling", () => {
-    test("schedules NAK after timeout", async () => {
+    test("schedules NAK after timeout", () => {
+      jest.useFakeTimers();
       const onLoss = jest.fn();
       const t = new SequenceTracker({
         nakTimeout: 50,
         onLossDetected: onLoss
       });
 
-      t.processSequence(0);
-      t.processSequence(2); // Gap at 1
+      try {
+        t.processSequence(0);
+        t.processSequence(2); // Gap at 1
 
-      // Wait for NAK timeout
-      await new Promise((resolve) => setTimeout(resolve, 70));
+        // Advance through the NAK timeout and the next-tick coalescing flush.
+        jest.advanceTimersByTime(50);
+        jest.runOnlyPendingTimers();
 
-      expect(onLoss).toHaveBeenCalledWith([1]);
-      t.reset();
+        expect(onLoss).toHaveBeenCalledWith([1]);
+      } finally {
+        t.reset();
+        jest.useRealTimers();
+      }
     });
 
     test("cancels NAK if packet arrives before timeout", async () => {
@@ -222,21 +228,27 @@ describe("SequenceTracker", () => {
       expect(tracker.nakTimers.size).toBe(2);
     });
 
-    test("NAK fires for each missing sequence independently", async () => {
+    test("NAK fires for each missing sequence independently", () => {
+      jest.useFakeTimers();
       const losses = [];
       const t = new SequenceTracker({
         nakTimeout: 30,
         onLossDetected: (seqs) => losses.push(...seqs)
       });
 
-      t.processSequence(0);
-      t.processSequence(3); // Missing 1, 2
+      try {
+        t.processSequence(0);
+        t.processSequence(3); // Missing 1, 2
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
+        jest.advanceTimersByTime(30);
+        jest.runOnlyPendingTimers();
 
-      expect(losses).toContain(1);
-      expect(losses).toContain(2);
-      t.reset();
+        expect(losses).toContain(1);
+        expect(losses).toContain(2);
+      } finally {
+        t.reset();
+        jest.useRealTimers();
+      }
     });
 
     test("coalesces a multi-sequence gap into a single batched NAK callback", () => {

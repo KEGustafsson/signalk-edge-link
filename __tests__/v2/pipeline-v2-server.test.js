@@ -356,6 +356,7 @@ describe("pipeline-v2-server", () => {
   });
 
   test("schedules and sends NAK for detected missing sequences", async () => {
+    jest.useFakeTimers();
     const app = {
       debug: jest.fn(),
       error: jest.fn(),
@@ -371,47 +372,54 @@ describe("pipeline-v2-server", () => {
       instanceId: "test"
     };
     const metricsApi = makeMetricsApi();
-
     const pipeline = createPipelineV2Server(app, state, metricsApi);
 
-    const seq10 = buildDataPacket(
-      10,
-      {
-        context: "vessels.self",
-        updates: [{ values: [{ path: "navigation.headingTrue", value: 1.2 }] }]
-      },
-      secretKey
-    );
-    const seq12 = buildDataPacket(
-      12,
-      {
-        context: "vessels.self",
-        updates: [{ values: [{ path: "navigation.headingMagnetic", value: 1.3 }] }]
-      },
-      secretKey
-    );
+    try {
+      const seq10 = buildDataPacket(
+        10,
+        {
+          context: "vessels.self",
+          updates: [{ values: [{ path: "navigation.headingTrue", value: 1.2 }] }]
+        },
+        secretKey
+      );
+      const seq12 = buildDataPacket(
+        12,
+        {
+          context: "vessels.self",
+          updates: [{ values: [{ path: "navigation.headingMagnetic", value: 1.3 }] }]
+        },
+        secretKey
+      );
 
-    await pipeline.receivePacket(seq10, secretKey, { address: "127.0.0.1", port: 12002 });
-    await pipeline.receivePacket(seq12, secretKey, { address: "127.0.0.1", port: 12002 });
+      await pipeline.receivePacket(seq10, secretKey, { address: "127.0.0.1", port: 12002 });
+      await pipeline.receivePacket(seq12, secretKey, { address: "127.0.0.1", port: 12002 });
 
-    await new Promise((resolve) => setTimeout(resolve, 30));
+      jest.advanceTimersByTime(10);
+      jest.runOnlyPendingTimers();
+      await Promise.resolve();
 
-    const parser = new PacketParser({ secretKey: SECRET_KEY });
-    const nakPackets = send.mock.calls
-      .map((c) => c[0])
-      .filter((pkt) => {
-        try {
-          return parser.parseHeader(pkt).type === PacketType.NAK;
-        } catch (_e) {
-          return false;
-        }
-      });
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
+      const nakPackets = send.mock.calls
+        .map((c) => c[0])
+        .filter((pkt) => {
+          try {
+            return parser.parseHeader(pkt).type === PacketType.NAK;
+          } catch (_e) {
+            return false;
+          }
+        });
 
-    expect(nakPackets.length).toBeGreaterThan(0);
-    expect(metricsApi.metrics.naksSent).toBeGreaterThan(0);
+      expect(nakPackets.length).toBeGreaterThan(0);
+      expect(metricsApi.metrics.naksSent).toBeGreaterThan(0);
+    } finally {
+      pipeline.stop();
+      jest.useRealTimers();
+    }
   });
 
   test("signs v3 NAK packets so clients can authenticate them", async () => {
+    jest.useFakeTimers();
     const app = {
       debug: jest.fn(),
       error: jest.fn(),
@@ -431,43 +439,50 @@ describe("pipeline-v2-server", () => {
     const metricsApi = makeMetricsApi();
     const pipeline = createPipelineV2Server(app, state, metricsApi);
 
-    const seq10 = buildDataPacket(
-      10,
-      {
-        context: "vessels.self",
-        updates: [{ values: [{ path: "navigation.headingTrue", value: 1.2 }] }]
-      },
-      secretKey,
-      3
-    );
-    const seq12 = buildDataPacket(
-      12,
-      {
-        context: "vessels.self",
-        updates: [{ values: [{ path: "navigation.headingMagnetic", value: 1.3 }] }]
-      },
-      secretKey,
-      3
-    );
+    try {
+      const seq10 = buildDataPacket(
+        10,
+        {
+          context: "vessels.self",
+          updates: [{ values: [{ path: "navigation.headingTrue", value: 1.2 }] }]
+        },
+        secretKey,
+        3
+      );
+      const seq12 = buildDataPacket(
+        12,
+        {
+          context: "vessels.self",
+          updates: [{ values: [{ path: "navigation.headingMagnetic", value: 1.3 }] }]
+        },
+        secretKey,
+        3
+      );
 
-    await pipeline.receivePacket(seq10, secretKey, { address: "127.0.0.1", port: 12002 });
-    await pipeline.receivePacket(seq12, secretKey, { address: "127.0.0.1", port: 12002 });
+      await pipeline.receivePacket(seq10, secretKey, { address: "127.0.0.1", port: 12002 });
+      await pipeline.receivePacket(seq12, secretKey, { address: "127.0.0.1", port: 12002 });
 
-    await new Promise((resolve) => setTimeout(resolve, 30));
+      jest.advanceTimersByTime(10);
+      jest.runOnlyPendingTimers();
+      await Promise.resolve();
 
-    const parser = new PacketParser({ secretKey });
-    const nakPacket = send.mock.calls
-      .map((c) => c[0])
-      .find((pkt) => {
-        try {
-          return parser.parseHeader(pkt).type === PacketType.NAK;
-        } catch (_e) {
-          return false;
-        }
-      });
+      const parser = new PacketParser({ secretKey });
+      const nakPacket = send.mock.calls
+        .map((c) => c[0])
+        .find((pkt) => {
+          try {
+            return parser.parseHeader(pkt).type === PacketType.NAK;
+          } catch (_e) {
+            return false;
+          }
+        });
 
-    expect(nakPacket).toBeDefined();
-    expect(parser.parseNAKPayload(parser.parseHeader(nakPacket).payload)).toEqual([11]);
+      expect(nakPacket).toBeDefined();
+      expect(parser.parseNAKPayload(parser.parseHeader(nakPacket).payload)).toEqual([11]);
+    } finally {
+      pipeline.stop();
+      jest.useRealTimers();
+    }
   });
 
   test("rejects forged v3 heartbeat packets", async () => {

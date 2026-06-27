@@ -15,7 +15,7 @@
     "signalk-plugin-configurator"
   ],
   "signalk": {
-    "appIcon": "./icons/icon-72x72.png",
+    "appIcon": "./public/icons/icon-72x72.png",
     "displayName": "Edge Link Configuration"
   },
   "signalk-plugin-enabled-by-default": false,

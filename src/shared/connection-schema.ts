@@ -186,7 +186,7 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
 // ── Client-only transport / reachability fields ───────────────────────────────
 
 /**
- * v1-only ping monitor fields. v2/v3 derive RTT from HEARTBEAT/ACK exchanges
+ * v1-only ping monitor fields. reliable v3 derives RTT from HEARTBEAT/ACK exchanges
  * inside the reliable pipeline, so the external ping monitor (and these
  * fields) is not used for protocolVersion >= 2.
  */
@@ -234,20 +234,20 @@ export const clientTransportProperties: Record<string, SchemaFragment> = {
     type: "number",
     title: "NAT Keepalive Heartbeat Interval (ms)",
     description:
-      "v2/v3 only. How often to send UDP heartbeat packets for NAT traversal. Typical NAT timeouts range from 30s to 120s.",
+      "Reliable protocol v3 only. How often to send UDP heartbeat packets for NAT traversal. Typical NAT timeouts range from 30s to 120s.",
     default: 25000,
     minimum: 5000,
     maximum: 120000
   }
 };
 
-// ── v2/v3 reliability (client pipeline — retransmit queue) ────────────────────
+// ── reliable v3 reliability (client pipeline — retransmit queue) ────────────────────
 
 export const clientReliabilityProperty: SchemaFragment = {
   type: "object",
-  title: "Reliability Settings (v2/v3 only)",
+  title: "Reliability Settings (reliable protocol v3 only)",
   description:
-    "Requires Protocol v2 or v3. Controls retransmit queue behavior and packet retry limits.",
+    "Requires reliable protocol v3. Controls retransmit queue behavior and packet retry limits.",
   properties: {
     retransmitQueueSize: {
       type: "number",
@@ -344,11 +344,11 @@ export const clientReliabilityProperty: SchemaFragment = {
   }
 };
 
-// ── v2/v3 reliability (server pipeline — ACK/NAK timing) ──────────────────────
+// ── reliable v3 reliability (server pipeline — ACK/NAK timing) ──────────────────────
 
 export const requestFullStatusOnRestartProperty: SchemaFragment = {
   type: "boolean",
-  title: "Request Full Status on Server Start (v2/v3 only)",
+  title: "Request Full Status on Server Start (reliable protocol v3 only)",
   description:
     "When enabled, the server sends a request to each client on first contact asking it to replay its complete current values snapshot. This rebuilds the server's state immediately after a restart instead of waiting for incremental deltas to arrive.",
   default: false
@@ -356,8 +356,8 @@ export const requestFullStatusOnRestartProperty: SchemaFragment = {
 
 export const serverReliabilityProperty: SchemaFragment = {
   type: "object",
-  title: "Reliability Settings (v2/v3 only)",
-  description: "Requires Protocol v2 or v3. Controls ACK/NAK timing for reliable delivery.",
+  title: "Reliability Settings (reliable protocol v3 only)",
+  description: "Requires reliable protocol v3. Controls ACK/NAK timing for reliable delivery.",
   properties: {
     ackInterval: {
       type: "number",
@@ -386,13 +386,13 @@ export const serverReliabilityProperty: SchemaFragment = {
   }
 };
 
-// ── v2/v3 congestion control (client) ─────────────────────────────────────────
+// ── reliable v3 congestion control (client) ─────────────────────────────────────────
 
 export const congestionControlProperty: SchemaFragment = {
   type: "object",
-  title: "Dynamic Congestion Control (v2/v3 only)",
+  title: "Dynamic Congestion Control (reliable protocol v3 only)",
   description:
-    "Requires Protocol v2 or v3. AIMD algorithm to dynamically adjust send rate based on network conditions.",
+    "Requires reliable protocol v3. AIMD algorithm to dynamically adjust send rate based on network conditions.",
   properties: {
     enabled: {
       type: "boolean",
@@ -435,13 +435,13 @@ export const congestionControlProperty: SchemaFragment = {
   }
 };
 
-// ── v2/v3 connection bonding (client) ─────────────────────────────────────────
+// ── reliable v3 connection bonding (client) ─────────────────────────────────────────
 
 export const bondingProperty: SchemaFragment = {
   type: "object",
-  title: "Connection Bonding (v2/v3 only)",
+  title: "Connection Bonding (reliable protocol v3 only)",
   description:
-    "Requires Protocol v2 or v3. Dual-link bonding with automatic failover between primary and backup connections.",
+    "Requires reliable protocol v3. Dual-link bonding with automatic failover between primary and backup connections.",
   properties: {
     enabled: {
       type: "boolean",
@@ -561,15 +561,15 @@ export const skipOwnDataProperty: SchemaFragment = {
   type: "boolean",
   title: "Skip Plugin's Own Data",
   description:
-    "Do not forward data this plugin publishes locally over the link. Strips entries under 'networking.edgeLink.*' and the v1 RTT path 'networking.modem.rtt' / 'networking.modem.<id>.rtt'; other 'networking.modem.*' paths from external providers are left intact. Also suppresses the v2/v3 client telemetry packet that mirrors local link metrics to the receiver.",
+    "Do not forward data this plugin publishes locally over the link. Strips entries under 'networking.edgeLink.*' and the v1 RTT path 'networking.modem.rtt' / 'networking.modem.<id>.rtt'; other 'networking.modem.*' paths from external providers are left intact. Also suppresses the reliable v3 client telemetry packet that mirrors local link metrics to the receiver.",
   default: false
 };
 
-// ── v2/v3 monitoring alert thresholds (client) ────────────────────────────────
+// ── reliable v3 monitoring alert thresholds (client) ────────────────────────────────
 
 export const alertThresholdsProperty: SchemaFragment = {
   type: "object",
-  title: "Monitoring Alert Thresholds (v2/v3 only)",
+  title: "Monitoring Alert Thresholds (reliable protocol v3 only)",
   description: "Customize warning/critical thresholds for network monitoring alerts.",
   properties: {
     rtt: {
@@ -653,7 +653,7 @@ export function buildConnectionItemSchema(): SchemaFragment {
             // testAddress/testPort/pingIntervalTime are validated as v1-only by
             // validateConnectionConfig — they are exposed in the schema so
             // legacy v1 clients can still set them, but they are not required
-            // because v2/v3 clients omit them entirely.
+            // because reliable v3 clients omit them entirely.
             required: ["udpAddress"]
           }
         ]
@@ -729,7 +729,7 @@ export function buildWebappConnectionSchema(
       props.bonding = bondingProperty;
       props.alertThresholds = alertThresholdsProperty;
     } else {
-      // v1 client only: external ping monitor for RTT. v2/v3 measures RTT
+      // v1 client only: external ping monitor for RTT. reliable v3 measures RTT
       // via HEARTBEAT, so these fields are removed entirely from the schema.
       Object.assign(props, v1ClientPingProperties);
       required.push("testAddress", "testPort");
