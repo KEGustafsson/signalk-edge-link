@@ -17,8 +17,6 @@ All notable changes to signalk-edge-link are documented here.
   `replayedPackets`. Cross-epoch replay (~1e-6) and the post-server-restart race
   remain documented residuals — see `docs/security.md`.
 
-## [3.0.0] - 2026-06-26
-
 ### Breaking changes
 
 - **Protocol version 3 is now the default wire format.** v2 peers (running
