@@ -2,11 +2,7 @@
 
 All notable changes to signalk-edge-link are documented here.
 
-## [Unreleased]
-
-- Nothing yet.
-
-## [3.0.1] - 2026-06-26
+## [3.0.0] - 2026-06-26
 
 ### Security
 
@@ -88,6 +84,16 @@ All notable changes to signalk-edge-link are documented here.
   with a 16-byte HMAC tag, closing the unauthenticated-header tampering gap.
   Enabled by default (see Breaking changes above); both peers must use the same
   setting. Includes downgrade rejection and end-to-end + proxy relay tests.
+- **DATA anti-replay window (v3):** the server keeps a per-peer sliding replay
+  window (high-water mark + recently-seen sequences) that **survives session
+  idle expiry and eviction**, closing the replay vector where a captured DATA
+  datagram could be re-injected after the live session state was gone. The
+  window resets only on a strictly higher **connection epoch** advertised in the
+  client's HMAC-authenticated HELLO, distinguishing a legitimate restart from a
+  replayed HELLO. No per-packet wire change (the epoch is an optional HELLO
+  field); pre-H3 peers are unaffected. Rejections are counted as
+  `replayedPackets`. Cross-epoch replay (~1e-6) and the post-server-restart race
+  remain documented residuals — see `docs/security.md`.
 - **Keys:** URL-safe base64 (`base64url`) secret keys are now accepted.
 
 ### Reliability
