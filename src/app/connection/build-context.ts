@@ -217,12 +217,17 @@ function attachCoreHelpers(ctx: ConnectionContext): void {
   };
 
   ctx.scheduleReportOutputMessages = (): void => {
+    // Coalesce same-tick calls into one report, but keep the message count so
+    // the server Dashboard's write rate reflects the real number of deltas.
+    ctx.reportPendingCount++;
     if (ctx.reportPending) return;
     ctx.reportPending = true;
     setImmediate(() => {
       ctx.reportPending = false;
+      const count = ctx.reportPendingCount;
+      ctx.reportPendingCount = 0;
       try {
-        app.reportOutputMessages();
+        app.reportOutputMessages(count);
       } catch {
         /* best-effort */
       }
@@ -251,7 +256,10 @@ function attachCoreHelpers(ctx: ConnectionContext): void {
   ctx.getV1Pipeline = (): V1PipelineLike => {
     if (!ctx.v1Pipeline) {
       const createPipelineV1 = require("../../transport/pipeline/v1");
-      ctx.v1Pipeline = createPipelineV1(app, state, metricsApi) as V1PipelineLike;
+      // Pass appProxy (not app) so the pipeline's setPluginStatus calls land on
+      // this instance's status helper — the same wiring the v2/v3 pipelines
+      // get — instead of overwriting the aggregated plugin-level status.
+      ctx.v1Pipeline = createPipelineV1(ctx.appProxy, state, metricsApi) as V1PipelineLike;
     }
     return ctx.v1Pipeline;
   };
@@ -386,6 +394,7 @@ export function buildConnectionContext(args: BuildContextArgs): ConnectionContex
     dedupeCleanupTimer: null,
     lastDupLogAt: 0,
     reportPending: false,
+    reportPendingCount: 0,
     v1Pipeline: null,
     socketRecoveryBackoffMs: SOCKET_RECOVERY_BASE_MS,
     fullStatusCascadeHandler: null

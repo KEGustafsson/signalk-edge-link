@@ -32,7 +32,7 @@ function makeAppCapturer() {
 }
 
 describe("handleMessageBySource", () => {
-  test('always dispatches with providerId="" — per-source dispatch is a no-op against signalk-server\'s plugin wrapper', () => {
+  test('always dispatches once with providerId="signalk-edge-link" — per-source dispatch is a no-op against signalk-server\'s plugin wrapper, but the providerId still names the data-log discriminator', () => {
     const app = makeAppCapturer();
     handleMessageBySource(app, {
       context: "vessels.self",
@@ -42,7 +42,7 @@ describe("handleMessageBySource", () => {
       ]
     });
     expect(app.calls).toHaveLength(1);
-    expect(app.calls[0].providerId).toBe("");
+    expect(app.calls[0].providerId).toBe("signalk-edge-link");
   });
 
   test("preserves explicit $source from the wire", () => {

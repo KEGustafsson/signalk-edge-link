@@ -21,6 +21,8 @@ export interface ManagerContext {
   app: SignalKApp;
   pluginId: string;
   setStatus: (msg: string) => void;
+  /** Reports a plugin-level error state (`setPluginError`). */
+  setError: (msg: string) => void;
   instances: Map<string, ConnectionApi>;
   updateAggregatedStatus: () => void;
 }
@@ -56,7 +58,7 @@ function parseConnectionList(
     return [{ ...options, name: String(options.name || "default") } as ConnectionConfig];
   }
   ctx.app.error("No connections configured. Add at least one connection.");
-  ctx.setStatus("No connections configured");
+  ctx.setError("No connections configured");
   return null;
 }
 
@@ -74,7 +76,7 @@ function prepareConnectionList(
       `Duplicate server ports detected: ${[...new Set(dupes)].join(", ")}. ` +
         "Each server instance must use a unique UDP port."
     );
-    ctx.setStatus("Configuration error: duplicate server ports");
+    ctx.setError("Configuration error: duplicate server ports");
     return null;
   }
 
@@ -84,7 +86,7 @@ function prepareConnectionList(
     const err = validateConnectionConfig(sanitized[i], `connections[${i}].`);
     if (err) {
       ctx.app.error(`Connection ${i + 1} validation failed: ${err}`);
-      ctx.setStatus(`Configuration error in connection ${i + 1}: ${err}`);
+      ctx.setError(`Configuration error in connection ${i + 1}: ${err}`);
       return null;
     }
   }
@@ -198,7 +200,7 @@ export async function start(ctx: ManagerContext, options: Record<string, unknown
     // teardown (stop()) is idempotent and safe to call even after a partial
     // start, so this releases resources that would otherwise leak.
     teardownAll(ctx);
-    ctx.setStatus(
+    ctx.setError(
       `Startup failed: ${startError instanceof Error ? startError.message : String(startError)}`
     );
     return;

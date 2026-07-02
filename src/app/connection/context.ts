@@ -126,6 +126,8 @@ export interface ConnectionContext {
   dedupeCleanupTimer: ReturnType<typeof setInterval> | null;
   lastDupLogAt: number;
   reportPending: boolean;
+  /** Deltas enqueued since the last coalesced `reportOutputMessages` call. */
+  reportPendingCount: number;
   v1Pipeline: V1PipelineLike | null;
   socketRecoveryBackoffMs: number;
   fullStatusCascadeHandler: (() => void) | null;

@@ -24,6 +24,15 @@
 
 import type { Delta, DeltaMeta, DeltaUpdate, DeltaValue, SignalKApp } from "../foundation/types";
 
+/**
+ * providerId handed to `app.handleMessage`. signalk-server's plugin wrapper
+ * substitutes the calling plugin's id when actually dispatching, but it also
+ * uses the providerId argument as the discriminator written into the server's
+ * data log (`getLogger(app, providerId)`) when "Log plugin output" is enabled
+ * — so it must be a stable, non-empty identifier rather than "".
+ */
+export const EDGE_LINK_PROVIDER_ID = "signalk-edge-link";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -217,6 +226,9 @@ export function normalizeDeltaSourceRefs(delta: Delta): Delta {
  * `prepareUpdateForDispatch`, which drops the structured `source` object so
  * `FullSignalK.addValue` doesn't recompute the leaf's `$source` from the
  * rewritten label.
+ *
+ * The providerId still matters for the server's data log (see
+ * {@link EDGE_LINK_PROVIDER_ID}), so pass the plugin id rather than "".
  */
 export function handleMessageBySource(app: Pick<SignalKApp, "handleMessage">, delta: Delta): void {
   if (!delta || !Array.isArray(delta.updates) || delta.updates.length === 0) {
@@ -224,5 +236,5 @@ export function handleMessageBySource(app: Pick<SignalKApp, "handleMessage">, de
   }
 
   const prepared = delta.updates.map(prepareUpdateForDispatch);
-  app.handleMessage("", { ...delta, updates: prepared });
+  app.handleMessage(EDGE_LINK_PROVIDER_ID, { ...delta, updates: prepared });
 }

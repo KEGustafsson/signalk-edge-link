@@ -139,14 +139,16 @@ describe("Integration: Input → Backend → Frontend Pipe", () => {
       await pipeline.unpackDecrypt(packet, state.options.secretKey);
 
       // Verify delta delivered to SignalK. handleMessageBySource always uses
-      // providerId="" because signalk-server's plugin wrapper substitutes the
-      // calling plugin's id regardless of what we pass — dispatching per source
-      // label would be a no-op there. Attribution is preserved via $source-as-
-      // string (the structured source object is intentionally dropped so
+      // providerId="signalk-edge-link": signalk-server's plugin wrapper
+      // substitutes the calling plugin's id for dispatch regardless of what we
+      // pass (so per-source dispatch would be a no-op), but the argument is
+      // still used as the data-log discriminator when plugin logging is
+      // enabled. Attribution is preserved via $source-as-string (the
+      // structured source object is intentionally dropped so
       // FullSignalK.addValue doesn't recompute the leaf's $source from the
       // providerId-rewritten label).
       expect(mockApp.handleMessage).toHaveBeenCalledTimes(1);
-      expect(mockApp.handleMessage.mock.calls[0][0]).toBe("");
+      expect(mockApp.handleMessage.mock.calls[0][0]).toBe("signalk-edge-link");
       const delivered = mockApp.handleMessage.mock.calls[0][1];
 
       expect(delivered.context).toBe("vessels.urn:mrn:imo:mmsi:230035780");

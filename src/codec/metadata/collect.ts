@@ -335,21 +335,27 @@ export function parseMetaConfig(
  */
 export function resolveSelfContext(app: SignalKApp): string | null {
   try {
-    const self = app.getSelfPath?.("");
-    if (self && typeof self === "object") {
-      const id = (self as Record<string, unknown>).mmsi ?? (self as Record<string, unknown>).uuid;
-      if (typeof id === "string" && id.length > 0) {
-        const prefix = (self as Record<string, unknown>).mmsi
-          ? "urn:mrn:imo:mmsi:"
-          : "urn:mrn:signalk:uuid:";
-        return `vessels.${prefix}${id}`;
-      }
+    // signalk-server implements getSelfPath as `_.get(app.signalk.self, path)`,
+    // where lodash resolves "" to a lookup of the empty-string KEY (undefined),
+    // so the identity leaves must be queried directly by name.
+    const mmsi = app.getSelfPath?.("mmsi");
+    if (typeof mmsi === "string" && mmsi.length > 0) {
+      return `vessels.urn:mrn:imo:mmsi:${mmsi}`;
+    }
+    const uuid = app.getSelfPath?.("uuid");
+    if (typeof uuid === "string" && uuid.length > 0) {
+      // The spec defines the vessel `uuid` field as a full URN
+      // ("urn:mrn:signalk:uuid:…"); tolerate a bare UUID as well.
+      return uuid.startsWith("urn:") ? `vessels.${uuid}` : `vessels.urn:mrn:signalk:uuid:${uuid}`;
     }
     if (app.signalk && typeof app.signalk.retrieve === "function") {
       const tree = app.signalk.retrieve() as Record<string, unknown>;
       const alias = tree?.self;
       if (typeof alias === "string" && alias.length > 0) {
-        return `vessels.${alias}`;
+        // signalk-server's FullSignalK stores `root.self = "vessels." + selfId`,
+        // so the alias normally arrives already prefixed; only prepend when a
+        // bare URN is provided (older trees / partial mocks).
+        return alias.startsWith("vessels.") ? alias : `vessels.${alias}`;
       }
     }
   } catch {

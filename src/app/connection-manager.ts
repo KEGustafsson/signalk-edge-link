@@ -25,6 +25,9 @@ export interface ConnectionManagerOptions {
   pluginId: string;
   /** Callback to update the plugin status bar message. */
   setStatus: (msg: string) => void;
+  /** Callback to report a plugin-level error state (`setPluginError`).
+   *  Optional for back-compat; falls back to `setStatus`. */
+  setError?: (msg: string) => void;
 }
 
 /** Manages the full set of running connections for the plugin lifetime. */
@@ -50,7 +53,8 @@ export interface ConnectionManager {
 export function createConnectionManager({
   app,
   pluginId,
-  setStatus
+  setStatus,
+  setError = setStatus
 }: ConnectionManagerOptions): ConnectionManager {
   const instances = new Map<string, ConnectionApi>();
 
@@ -91,7 +95,14 @@ export function createConnectionManager({
         .filter((inst) => !inst.getStatus().healthy)
         .map((inst) => `${inst.getName()}: ${inst.getStatus().text}`)
         .join("; ");
-      setStatus(`${healthy}/${all.length} active — ${details}`);
+      const summary = `${healthy}/${all.length} active — ${details}`;
+      // With every connection down, surface the plugin-level error state so
+      // the server UI shows the plugin as errored rather than merely "active".
+      if (healthy === 0) {
+        setError(summary);
+      } else {
+        setStatus(summary);
+      }
     }
   }
 
@@ -99,6 +110,7 @@ export function createConnectionManager({
     app,
     pluginId,
     setStatus,
+    setError,
     instances,
     updateAggregatedStatus
   };

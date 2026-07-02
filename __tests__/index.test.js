@@ -1603,7 +1603,43 @@ describe("SignalK Data Connector Plugin", () => {
 
       expect(mockApp.error).toHaveBeenCalledWith(expect.stringContaining("Duplicate server ports"));
       // Status should reflect the config error, not a started state
+      // (mockApp has no setPluginError, so the error routing falls back to
+      // setPluginStatus).
       expect(mockApp.setPluginStatus).toHaveBeenCalledWith(expect.stringContaining("error"));
+    });
+
+    test("should report config errors via setPluginError when the server provides it", async () => {
+      const appWithError = {
+        ...mockApp,
+        setPluginError: jest.fn(),
+        setPluginStatus: jest.fn()
+      };
+      const errorPlugin = createPlugin(appWithError);
+
+      await errorPlugin.start({
+        connections: [
+          {
+            name: "Server A",
+            serverType: "server",
+            udpPort: 4475,
+            secretKey: "12345678901234567890123456789012"
+          },
+          {
+            name: "Server B",
+            serverType: "server",
+            udpPort: 4475,
+            secretKey: "12345678901234567890123456789012"
+          }
+        ]
+      });
+
+      expect(appWithError.setPluginError).toHaveBeenCalledWith(
+        expect.stringContaining("duplicate server ports")
+      );
+      expect(appWithError.setPluginStatus).not.toHaveBeenCalledWith(
+        expect.stringContaining("duplicate server ports")
+      );
+      errorPlugin.stop();
     });
 
     test("should generate unique instance IDs when two connections share the same name", async () => {
