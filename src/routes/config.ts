@@ -325,8 +325,11 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         if (typeof pluginRef._restartPlugin === "function") {
-          // Await the restart so a failure becomes a 500 (caught below) instead
-          // of a false "success" reported before the restart actually ran.
+          // Await so a promise-returning restart handler (tests, future server
+          // versions) surfaces failures as a 500. Note signalk-server's own
+          // restart callback returns undefined and reports save errors only to
+          // its console, so on a real server the "restarting" response is
+          // best-effort — a failed persist there cannot be detected here.
           await pluginRef._restartPlugin(finalConfig);
           return res.json({
             success: true,

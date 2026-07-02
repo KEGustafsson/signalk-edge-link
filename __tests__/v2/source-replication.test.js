@@ -223,4 +223,21 @@ describe("source snapshot merge", () => {
       local: { label: "local", type: "test" }
     });
   });
+
+  test("warns once when retrieve() stops returning a live tree reference", () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      // A fresh copy per call means the merge mutation is silently lost —
+      // exactly the future-server breakage the diagnostic exists to surface.
+      signalk: { retrieve: jest.fn(() => ({ sources: {} })) }
+    };
+
+    mergeSourceSnapshot(app, { remote: { label: "remote" } });
+    expect(app.error).toHaveBeenCalledWith(expect.stringContaining("live tree"));
+
+    // One-shot: a second merge does not repeat the diagnostic.
+    mergeSourceSnapshot(app, { remote2: { label: "remote2" } });
+    expect(app.error).toHaveBeenCalledTimes(1);
+  });
 });

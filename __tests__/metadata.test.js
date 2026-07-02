@@ -518,15 +518,50 @@ describe("isLikelyUnsafePathFilter", () => {
 
 describe("resolveSelfContext", () => {
   test("returns concrete URN when app.getSelfPath exposes mmsi", () => {
+    // Mirrors signalk-server: getSelfPath("mmsi") returns the identity leaf.
     const app = {
       debug: jest.fn(),
       error: jest.fn(),
-      getSelfPath: (p) => (p === "" ? { mmsi: "12345" } : null)
+      getSelfPath: (p) => (p === "mmsi" ? "12345" : undefined)
     };
     expect(resolveSelfContext(app)).toBe("vessels.urn:mrn:imo:mmsi:12345");
   });
 
-  test("falls back to app.signalk.retrieve().self", () => {
+  test("returns concrete URN when app.getSelfPath exposes a uuid URN", () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      getSelfPath: (p) =>
+        p === "uuid" ? "urn:mrn:signalk:uuid:2ce34a19-53bf-4b4c-8f45-bd7a8c1f2a01" : undefined
+    };
+    expect(resolveSelfContext(app)).toBe(
+      "vessels.urn:mrn:signalk:uuid:2ce34a19-53bf-4b4c-8f45-bd7a8c1f2a01"
+    );
+  });
+
+  test("returns concrete URN when app.getSelfPath exposes a bare uuid", () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      getSelfPath: (p) => (p === "uuid" ? "2ce34a19-53bf-4b4c-8f45-bd7a8c1f2a01" : undefined)
+    };
+    expect(resolveSelfContext(app)).toBe(
+      "vessels.urn:mrn:signalk:uuid:2ce34a19-53bf-4b4c-8f45-bd7a8c1f2a01"
+    );
+  });
+
+  test("falls back to app.signalk.retrieve().self with vessels. prefix", () => {
+    // signalk-server's FullSignalK stores root.self = "vessels." + selfId.
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      getSelfPath: () => undefined,
+      signalk: { retrieve: () => ({ self: "vessels.urn:mrn:imo:mmsi:99999" }) }
+    };
+    expect(resolveSelfContext(app)).toBe("vessels.urn:mrn:imo:mmsi:99999");
+  });
+
+  test("falls back to a bare app.signalk.retrieve().self alias", () => {
     const app = {
       debug: jest.fn(),
       error: jest.fn(),

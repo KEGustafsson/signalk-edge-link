@@ -154,7 +154,43 @@ export function collectSourceSnapshot(app: Pick<SignalKApp, "debug">): SourceTre
   return clonePlain(root.sources) as SourceTree;
 }
 
-export function mergeSourceSnapshot(app: Pick<SignalKApp, "debug">, sources: unknown): number {
+/** One-shot flag so the non-live-tree diagnostic is logged once per process. */
+let warnedNonLiveTree = false;
+/** The check re-calls retrieve() for an identity comparison; cap how many
+ *  merges pay that cost — a tree that is live on the first few calls is
+ *  effectively certain to stay live for the process lifetime. */
+let livenessChecksRemaining = 5;
+
+/**
+ * This merge works by mutating the object `app.signalk.retrieve()` returns —
+ * FullSignalK.retrieve() hands back its live root, and there is no public
+ * plugin API for injecting `/sources` entries (handleMessage rewrites
+ * `source.label` to the plugin id). If a future signalk-server returned a
+ * copy instead, every merge would be silently lost, so verify liveness once
+ * and surface the breakage instead of dropping replicated sources quietly.
+ */
+function warnIfTreeNotLive(
+  app: Pick<SignalKApp, "debug"> & Partial<Pick<SignalKApp, "error">>,
+  root: Record<string, unknown>
+): void {
+  if (warnedNonLiveTree || livenessChecksRemaining <= 0) {
+    return;
+  }
+  livenessChecksRemaining--;
+  if (getSignalKRoot(app) === root) {
+    return;
+  }
+  warnedNonLiveTree = true;
+  (app.error ?? app.debug)(
+    "[source-snapshot] app.signalk.retrieve() no longer returns a live tree reference; " +
+      "replicated /sources entries cannot be merged on this signalk-server version"
+  );
+}
+
+export function mergeSourceSnapshot(
+  app: Pick<SignalKApp, "debug"> & Partial<Pick<SignalKApp, "error">>,
+  sources: unknown
+): number {
   if (!isRecord(sources)) {
     return 0;
   }
@@ -163,6 +199,7 @@ export function mergeSourceSnapshot(app: Pick<SignalKApp, "debug">, sources: unk
   if (!root) {
     return 0;
   }
+  warnIfTreeNotLive(app, root);
   if (!isRecord(root.sources)) {
     root.sources = {};
   }

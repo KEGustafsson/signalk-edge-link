@@ -15,6 +15,7 @@ import * as msgpack from "@msgpack/msgpack";
 import { decryptBinary } from "../../../codec/crypto";
 import { DecryptError } from "../../../foundation/result";
 import { decodeMetaEntry } from "../../../codec/path-dictionary";
+import { EDGE_LINK_PROVIDER_ID } from "../../../codec/source-dispatch";
 import { mergeSourceSnapshot } from "../../../codec/source-snapshot";
 import { ParsedPacket } from "../../../codec/packet-codec";
 import { getOrCreateSession } from "./sessions";
@@ -300,7 +301,10 @@ function dispatchMetaEntries(ctx: ServerContext, parsed: ParsedPacket, env: Meta
         } as Delta["updates"][number]
       ]
     };
-    app.handleMessage("", deltaMessage);
+    // Pass the plugin id as providerId: the dispatch wrapper substitutes it
+    // anyway, but the argument becomes the data-log discriminator when the
+    // server's "Log plugin output" option is enabled (see source-dispatch.ts).
+    app.handleMessage(EDGE_LINK_PROVIDER_ID, deltaMessage);
   }
 
   app.debug(

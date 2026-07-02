@@ -196,4 +196,155 @@ describe("domain/subscription-manager", () => {
       expect(subscribe).toHaveBeenCalledTimes(1); // retry bailed out
     });
   });
+
+  describe("async subscription error callback", () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    test("pauses transmission AND arms the retry loop", () => {
+      let errorHandler;
+      const subscribe = jest.fn((_sub, _unsub, onErr) => {
+        errorHandler = onErr;
+      });
+      const { deps, state, processConfig } = makeManager({ subscribe });
+
+      processConfig({ context: "*", subscribe: [{ path: "*" }] });
+      state.readyToSend = true;
+
+      // signalk-server invokes the error callback asynchronously, long after
+      // subscribe() returned — previously this paused the instance forever.
+      errorHandler(new Error("bus error"));
+
+      expect(state.readyToSend).toBe(false);
+      expect(deps.setStatus).toHaveBeenCalledWith(
+        "Subscription error - data transmission paused",
+        false
+      );
+      expect(state.subscriptionRetryTimer).not.toBeNull();
+
+      // The armed retry resubscribes and restores readiness.
+      jest.advanceTimersByTime(5000);
+      expect(subscribe).toHaveBeenCalledTimes(2);
+      expect(state.readyToSend).toBe(true);
+      expect(deps.setStatus).toHaveBeenCalledWith("Subscription restored", true);
+    });
+
+    test("does not postpone an already-scheduled retry", () => {
+      let errorHandler;
+      const subscribe = jest.fn((_sub, _unsub, onErr) => {
+        errorHandler = onErr;
+      });
+      const { state, processConfig } = makeManager({ subscribe });
+
+      processConfig({ context: "*", subscribe: [{ path: "*" }] });
+      errorHandler(new Error("first"));
+      const firstTimer = state.subscriptionRetryTimer;
+      expect(firstTimer).not.toBeNull();
+
+      errorHandler(new Error("second"));
+      expect(state.subscriptionRetryTimer).toBe(firstTimer);
+    });
+
+    test("repeated async errors escalate the retry backoff", () => {
+      let errorHandler;
+      const subscribe = jest.fn((_sub, _unsub, onErr) => {
+        errorHandler = onErr;
+      });
+      const { processConfig } = makeManager({ subscribe });
+
+      processConfig({ context: "*", subscribe: [{ path: "*" }] });
+
+      // First error → attempt 1 → 5s backoff. The retry resubscribes
+      // (installing a fresh, generation-current error handler).
+      errorHandler(new Error("err 1"));
+      jest.advanceTimersByTime(5000);
+      expect(subscribe).toHaveBeenCalledTimes(2);
+
+      // Second error inside the escalation window → attempt 2 → 10s backoff,
+      // even though the resubscribe in between succeeded.
+      errorHandler(new Error("err 2"));
+      jest.advanceTimersByTime(5000);
+      expect(subscribe).toHaveBeenCalledTimes(2); // escalated delay not yet up
+      jest.advanceTimersByTime(5000);
+      expect(subscribe).toHaveBeenCalledTimes(3);
+    });
+
+    test("a quiet period resets the error-retry escalation", () => {
+      let errorHandler;
+      const subscribe = jest.fn((_sub, _unsub, onErr) => {
+        errorHandler = onErr;
+      });
+      const { processConfig } = makeManager({ subscribe });
+
+      processConfig({ context: "*", subscribe: [{ path: "*" }] });
+
+      errorHandler(new Error("err 1"));
+      jest.advanceTimersByTime(5000);
+      expect(subscribe).toHaveBeenCalledTimes(2);
+
+      // More than 10 minutes of quiet — the next error is unrelated and
+      // retries at the base 5s delay again instead of escalating.
+      jest.advanceTimersByTime(10 * 60 * 1000 + 1);
+      errorHandler(new Error("err 2"));
+      jest.advanceTimersByTime(5000);
+      expect(subscribe).toHaveBeenCalledTimes(3);
+    });
+
+    test("a stale generation's late error is ignored after resubscribe", () => {
+      const errorHandlers = [];
+      const subscribe = jest.fn((_sub, _unsub, onErr) => {
+        errorHandlers.push(onErr);
+      });
+      const { deps, state, processConfig } = makeManager({ subscribe });
+
+      processConfig({ context: "*", subscribe: [{ path: "*" }] });
+      processConfig({ context: "*", subscribe: [{ path: "navigation.*" }] });
+      state.readyToSend = true;
+
+      // Late error from the FIRST (torn-down) subscription must not pause
+      // or schedule a retry for its replacement.
+      errorHandlers[0](new Error("late error from old subscription"));
+
+      expect(state.readyToSend).toBe(true);
+      expect(state.subscriptionRetryTimer).toBeNull();
+      expect(deps.setStatus).not.toHaveBeenCalledWith(
+        "Subscription error - data transmission paused",
+        false
+      );
+    });
+
+    test("an operator resubscribe cancels a pending error-driven retry", () => {
+      let errorHandler;
+      const subscribe = jest.fn((_sub, _unsub, onErr) => {
+        errorHandler = onErr;
+      });
+      const { state, processConfig } = makeManager({ subscribe });
+
+      processConfig({ context: "*", subscribe: [{ path: "*" }] });
+      errorHandler(new Error("async error"));
+      expect(state.subscriptionRetryTimer).not.toBeNull();
+
+      // Operator saves a new subscription config: the queued retry must be
+      // cancelled so it cannot fire later and churn the fresh subscription.
+      processConfig({ context: "*", subscribe: [{ path: "navigation.*" }] });
+      expect(state.subscriptionRetryTimer).toBeNull();
+
+      jest.advanceTimersByTime(10 * 60 * 1000);
+      expect(subscribe).toHaveBeenCalledTimes(2); // only the two operator subscribes
+    });
+
+    test("an error after stop() is ignored", () => {
+      let errorHandler;
+      const subscribe = jest.fn((_sub, _unsub, onErr) => {
+        errorHandler = onErr;
+      });
+      const { state, processConfig } = makeManager({ subscribe });
+
+      processConfig({ context: "*", subscribe: [{ path: "*" }] });
+      state.stopped = true;
+
+      errorHandler(new Error("post-stop error"));
+      expect(state.subscriptionRetryTimer).toBeNull();
+    });
+  });
 });

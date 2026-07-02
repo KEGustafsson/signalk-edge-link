@@ -1603,7 +1603,84 @@ describe("SignalK Data Connector Plugin", () => {
 
       expect(mockApp.error).toHaveBeenCalledWith(expect.stringContaining("Duplicate server ports"));
       // Status should reflect the config error, not a started state
+      // (mockApp has no setPluginError, so the error routing falls back to
+      // setPluginStatus).
       expect(mockApp.setPluginStatus).toHaveBeenCalledWith(expect.stringContaining("error"));
+    });
+
+    test("should report config errors via setPluginError when the server provides it", async () => {
+      const appWithError = {
+        ...mockApp,
+        setPluginError: jest.fn(),
+        setPluginStatus: jest.fn()
+      };
+      const errorPlugin = createPlugin(appWithError);
+
+      await errorPlugin.start({
+        connections: [
+          {
+            name: "Server A",
+            serverType: "server",
+            udpPort: 4475,
+            secretKey: "12345678901234567890123456789012"
+          },
+          {
+            name: "Server B",
+            serverType: "server",
+            udpPort: 4475,
+            secretKey: "12345678901234567890123456789012"
+          }
+        ]
+      });
+
+      expect(appWithError.setPluginError).toHaveBeenCalledWith(
+        expect.stringContaining("duplicate server ports")
+      );
+      expect(appWithError.setPluginStatus).not.toHaveBeenCalledWith(
+        expect.stringContaining("duplicate server ports")
+      );
+      errorPlugin.stop();
+    });
+
+    test("reports 'Start failed' instead of rejecting when manager.start rejects", async () => {
+      // signalk-server invokes plugin.start() without awaiting it, so the
+      // returned promise must resolve even when startup blows up — the catch
+      // block reports via app.error + setPluginError instead of rethrowing.
+      jest.resetModules();
+      jest.doMock("../src/app/connection-manager", () => ({
+        createConnectionManager: () => ({
+          start: () => Promise.reject(new Error("boom")),
+          stop: jest.fn(),
+          registry: { get: () => null, getFirst: () => null, getAll: () => [] }
+        })
+      }));
+      try {
+        const createPluginMocked = require("../lib/index");
+        const appWithError = {
+          ...mockApp,
+          error: jest.fn(),
+          setPluginError: jest.fn(),
+          setPluginStatus: jest.fn()
+        };
+        const rejectingPlugin = createPluginMocked(appWithError);
+
+        await expect(
+          rejectingPlugin.start({
+            serverType: "server",
+            udpPort: 4499,
+            secretKey: "12345678901234567890123456789012"
+          })
+        ).resolves.toBeUndefined();
+
+        expect(appWithError.error).toHaveBeenCalledWith(
+          expect.stringContaining("Plugin start failed: boom")
+        );
+        expect(appWithError.setPluginError).toHaveBeenCalledWith("Start failed: boom");
+        rejectingPlugin.stop();
+      } finally {
+        jest.dontMock("../src/app/connection-manager");
+        jest.resetModules();
+      }
     });
 
     test("should generate unique instance IDs when two connections share the same name", async () => {

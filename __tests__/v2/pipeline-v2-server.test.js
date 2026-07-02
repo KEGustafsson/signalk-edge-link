@@ -307,14 +307,16 @@ describe("pipeline-v2-server", () => {
 
     await pipeline.receivePacket(packet, secretKey, { address: "127.0.0.1", port: 12007 });
 
-    // Single dispatch with providerId="" — signalk-server's plugin wrapper
-    // would override anything else we pass anyway, so per-source dispatch
-    // would be a no-op. Attribution rides on each update's $source string,
-    // which signalk-server's FullSignalK uses verbatim because we drop the
-    // structured source object that would otherwise trigger getSourceId
-    // recomputation (and its `.XX` fallback).
+    // Single dispatch with providerId="signalk-edge-link" — signalk-server's
+    // plugin wrapper substitutes the plugin id for dispatch anyway (so
+    // per-source dispatch would be a no-op), but the providerId argument is
+    // still used as the data-log discriminator when plugin logging is
+    // enabled, so it must be a stable non-empty id. Attribution rides on each
+    // update's $source string, which signalk-server's FullSignalK uses
+    // verbatim because we drop the structured source object that would
+    // otherwise trigger getSourceId recomputation (and its `.XX` fallback).
     expect(app.handleMessage).toHaveBeenCalledTimes(1);
-    expect(app.handleMessage.mock.calls[0][0]).toBe("");
+    expect(app.handleMessage.mock.calls[0][0]).toBe("signalk-edge-link");
 
     const delivered = app.handleMessage.mock.calls[0][1];
     expect(delivered.updates).toHaveLength(2);

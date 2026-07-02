@@ -171,10 +171,15 @@ export interface InstanceRegistry {
 export interface SignalKApp {
   setPluginStatus?: (msg: string) => void;
   setProviderStatus?: (msg: string) => void;
+  /** Marks the plugin as errored in the server UI (red state). */
+  setPluginError?: (msg: string) => void;
+  /** Deprecated signalk-server alias for `setPluginError`. */
+  setProviderError?: (msg: string) => void;
   debug: (msg: string) => void;
   error: (msg: string) => void;
   handleMessage: (pluginId: string, delta: unknown) => void;
-  reportOutputMessages: () => void;
+  /** Reports messages sent to other hosts for the server Dashboard write rate. */
+  reportOutputMessages: (count?: number) => void;
   getSelfPath: (path: string) => unknown;
   getDataDirPath: () => string;
   readPluginOptions?: () => Record<string, unknown>;
