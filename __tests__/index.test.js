@@ -1642,6 +1642,47 @@ describe("SignalK Data Connector Plugin", () => {
       errorPlugin.stop();
     });
 
+    test("reports 'Start failed' instead of rejecting when manager.start rejects", async () => {
+      // signalk-server invokes plugin.start() without awaiting it, so the
+      // returned promise must resolve even when startup blows up — the catch
+      // block reports via app.error + setPluginError instead of rethrowing.
+      jest.resetModules();
+      jest.doMock("../src/app/connection-manager", () => ({
+        createConnectionManager: () => ({
+          start: () => Promise.reject(new Error("boom")),
+          stop: jest.fn(),
+          registry: { get: () => null, getFirst: () => null, getAll: () => [] }
+        })
+      }));
+      try {
+        const createPluginMocked = require("../lib/index");
+        const appWithError = {
+          ...mockApp,
+          error: jest.fn(),
+          setPluginError: jest.fn(),
+          setPluginStatus: jest.fn()
+        };
+        const rejectingPlugin = createPluginMocked(appWithError);
+
+        await expect(
+          rejectingPlugin.start({
+            serverType: "server",
+            udpPort: 4499,
+            secretKey: "12345678901234567890123456789012"
+          })
+        ).resolves.toBeUndefined();
+
+        expect(appWithError.error).toHaveBeenCalledWith(
+          expect.stringContaining("Plugin start failed: boom")
+        );
+        expect(appWithError.setPluginError).toHaveBeenCalledWith("Start failed: boom");
+        rejectingPlugin.stop();
+      } finally {
+        jest.dontMock("../src/app/connection-manager");
+        jest.resetModules();
+      }
+    });
+
     test("should generate unique instance IDs when two connections share the same name", async () => {
       // Both connections have the same name – the collision path in generateInstanceId
       // must append -1 to the second one.  We verify the plugin starts successfully

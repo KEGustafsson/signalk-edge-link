@@ -539,6 +539,17 @@ describe("resolveSelfContext", () => {
     );
   });
 
+  test("returns concrete URN when app.getSelfPath exposes a bare uuid", () => {
+    const app = {
+      debug: jest.fn(),
+      error: jest.fn(),
+      getSelfPath: (p) => (p === "uuid" ? "2ce34a19-53bf-4b4c-8f45-bd7a8c1f2a01" : undefined)
+    };
+    expect(resolveSelfContext(app)).toBe(
+      "vessels.urn:mrn:signalk:uuid:2ce34a19-53bf-4b4c-8f45-bd7a8c1f2a01"
+    );
+  });
+
   test("falls back to app.signalk.retrieve().self with vessels. prefix", () => {
     // signalk-server's FullSignalK stores root.self = "vessels." + selfId.
     const app = {

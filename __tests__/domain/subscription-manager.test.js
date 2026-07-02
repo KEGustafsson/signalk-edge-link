@@ -313,6 +313,26 @@ describe("domain/subscription-manager", () => {
       );
     });
 
+    test("an operator resubscribe cancels a pending error-driven retry", () => {
+      let errorHandler;
+      const subscribe = jest.fn((_sub, _unsub, onErr) => {
+        errorHandler = onErr;
+      });
+      const { state, processConfig } = makeManager({ subscribe });
+
+      processConfig({ context: "*", subscribe: [{ path: "*" }] });
+      errorHandler(new Error("async error"));
+      expect(state.subscriptionRetryTimer).not.toBeNull();
+
+      // Operator saves a new subscription config: the queued retry must be
+      // cancelled so it cannot fire later and churn the fresh subscription.
+      processConfig({ context: "*", subscribe: [{ path: "navigation.*" }] });
+      expect(state.subscriptionRetryTimer).toBeNull();
+
+      jest.advanceTimersByTime(10 * 60 * 1000);
+      expect(subscribe).toHaveBeenCalledTimes(2); // only the two operator subscribes
+    });
+
     test("an error after stop() is ignored", () => {
       let errorHandler;
       const subscribe = jest.fn((_sub, _unsub, onErr) => {

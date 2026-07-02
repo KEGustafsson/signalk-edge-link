@@ -200,6 +200,14 @@ function createSubscriptionErrorHandler(
   };
 }
 
+/** Cancel a pending subscription retry (safe no-op when none is scheduled). */
+function cancelPendingSubscriptionRetry(state: InstanceState): void {
+  if (state.subscriptionRetryTimer) {
+    clearTimeout(state.subscriptionRetryTimer);
+    state.subscriptionRetryTimer = null;
+  }
+}
+
 /** Compute the backoff delay for a retry attempt, logging the transition to
  *  slow-retry mode the first time it is reached. */
 function computeRetryDelay(ctx: SubscriptionContext, attempt: number): number {
@@ -312,9 +320,7 @@ function scheduleSubscriptionRetry(ctx: SubscriptionContext, attempt: number): v
 
   // Clear any pending retry timer before scheduling a new one to prevent
   // duplicate timers leaking when called multiple times before the first fires.
-  if (state.subscriptionRetryTimer) {
-    clearTimeout(state.subscriptionRetryTimer);
-  }
+  cancelPendingSubscriptionRetry(state);
   state.subscriptionRetryTimer = setTimeout(() => runSubscriptionRetry(ctx, attempt), delay);
 }
 
@@ -399,6 +405,11 @@ function processSubscriptionConfig(ctx: SubscriptionContext, config: unknown): v
   // throttle period.
   const previousUnsubscribes = state.unsubscribes.splice(0);
   previousUnsubscribes.forEach((f: () => void) => f());
+
+  // A pending retry belongs to the subscription torn down above; cancel it so
+  // it cannot fire after the fresh subscribe and churn a redundant
+  // teardown/resubscribe cycle. A subscribe() failure below reschedules one.
+  cancelPendingSubscriptionRetry(state);
 
   try {
     const subscriptionGeneration = ++ctx.activeSubscriptionGeneration;

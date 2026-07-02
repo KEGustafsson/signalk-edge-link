@@ -156,6 +156,10 @@ export function collectSourceSnapshot(app: Pick<SignalKApp, "debug">): SourceTre
 
 /** One-shot flag so the non-live-tree diagnostic is logged once per process. */
 let warnedNonLiveTree = false;
+/** The check re-calls retrieve() for an identity comparison; cap how many
+ *  merges pay that cost — a tree that is live on the first few calls is
+ *  effectively certain to stay live for the process lifetime. */
+let livenessChecksRemaining = 5;
 
 /**
  * This merge works by mutating the object `app.signalk.retrieve()` returns —
@@ -169,7 +173,11 @@ function warnIfTreeNotLive(
   app: Pick<SignalKApp, "debug"> & Partial<Pick<SignalKApp, "error">>,
   root: Record<string, unknown>
 ): void {
-  if (warnedNonLiveTree || getSignalKRoot(app) === root) {
+  if (warnedNonLiveTree || livenessChecksRemaining <= 0) {
+    return;
+  }
+  livenessChecksRemaining--;
+  if (getSignalKRoot(app) === root) {
     return;
   }
   warnedNonLiveTree = true;

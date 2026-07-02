@@ -43,6 +43,10 @@ module.exports = function createPlugin(app: SignalKApp) {
     options: Record<string, unknown> = {},
     restartPlugin?: (config: unknown) => Promise<void>
   ) {
+    // Lazy import, hoisted above the try so a module-load failure surfaces
+    // distinctly instead of being folded into the generic start error.
+    const { sanitizeConnectionConfig } = require("./connection-config");
+
     // signalk-server invokes plugin.start() without awaiting the returned
     // promise, so a rejection here would surface as an unhandled promise
     // rejection in the server process. Report failures through the plugin
@@ -53,7 +57,6 @@ module.exports = function createPlugin(app: SignalKApp) {
 
       // Keep _currentOptions in sync with sanitized connections so route
       // handlers always see the cleaned-up config.
-      const { sanitizeConnectionConfig } = require("./connection-config");
       if (Array.isArray(options.connections) && options.connections.length > 0) {
         const sanitized = options.connections.map((c: Record<string, unknown>) =>
           sanitizeConnectionConfig(c)
