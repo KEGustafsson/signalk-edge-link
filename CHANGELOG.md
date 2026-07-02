@@ -2,6 +2,39 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [3.1.0] - 2026-07-02
+
+### Fixed
+
+- **Self-context resolution.** `resolveSelfContext` no longer produces a
+  double-prefixed `vessels.vessels.urn:...` context on a real server, which
+  had caused live `vessels.self` meta to be shipped under a context that
+  never matched snapshot cache keys.
+- **Async subscription errors no longer pause an instance forever.** The
+  `errorCallback` passed to `app.subscriptionmanager.subscribe()` can fire
+  asynchronously after `subscribe()` returns; both subscribe call sites now
+  share a generation-guarded handler that arms the existing retry loop, with
+  escalating backoff (5s → ... → 5min) for persistently erroring
+  subscriptions and no interference from torn-down generations.
+- **`plugin.start()` rejections are now caught and reported** via
+  `app.error` + `setPluginError` instead of surfacing as an unhandled
+  promise rejection in the server process.
+- Hard failure states (config validation, duplicate ports, no connections,
+  startup failure, all-connections-down aggregation) now route through
+  `setPluginError`/`setProviderError` so the admin UI reflects plugin
+  errors, falling back to `setPluginStatus` on older servers.
+- `handleMessage` receiver dispatch now passes `"signalk-edge-link"` as the
+  `providerId` instead of `""`, fixing unattributed `skserver-raw` data-log
+  lines.
+- `reportOutputMessages` now receives the real coalesced delta count so the
+  server Dashboard write rate is accurate.
+- The v1 pipeline is now constructed with the per-instance `appProxy`,
+  matching v2/v3, so its status writes update instance status instead of
+  overwriting the plugin-level status line.
+- `mergeSourceSnapshot` now detects (once) when `app.signalk.retrieve()`
+  stops returning a live tree reference and logs an explicit error instead
+  of silently losing `/sources` merges.
+
 ## [3.0.0] - 2026-06-26
 
 ### Security
