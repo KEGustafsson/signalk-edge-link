@@ -31,6 +31,9 @@ const SUBSCRIPTION_RETRY_MAX_DELAY = 300000;
 const SUBSCRIPTION_RETRY_MAX_ATTEMPTS = 10;
 // After the fast-retry window, keep trying at this interval indefinitely.
 const SUBSCRIPTION_RETRY_SLOW_DELAY = 5 * 60 * 1000; // 5 minutes
+// Async subscription errors separated by at least this much quiet time are
+// treated as unrelated: the error-driven retry escalation starts over.
+const SUBSCRIPTION_ERROR_ESCALATION_RESET_MS = 10 * 60 * 1000; // 10 minutes
 
 /** Injected dependencies for `createSubscriptionManager`. */
 export interface SubscriptionManagerDeps {
@@ -62,6 +65,12 @@ export interface SubscriptionManager {
 interface SubscriptionContext {
   deps: SubscriptionManagerDeps;
   activeSubscriptionGeneration: number;
+  /** Error-callback-driven retry attempts within the current escalation
+   *  window; escalates the backoff when async errors keep recurring. */
+  errorRetryAttempt: number;
+  /** Timestamp (ms) of the last error-driven retry scheduling; used for the
+   *  quiet-period escalation reset. */
+  lastErrorRetryAt: number;
 }
 
 /** Collapse a wildcard (`path: "*"`) subscription to a single row, logging
@@ -148,6 +157,49 @@ function createSubscriptionDeltaHandler(
   };
 }
 
+/**
+ * Build the errorCallback passed to `app.subscriptionmanager.subscribe()`.
+ *
+ * signalk-server can invoke this callback asynchronously, long after
+ * subscribe() itself returned successfully — the synchronous-throw retry
+ * path never covers that case, so without arming the retry loop here a
+ * single async error would leave the instance paused ("data transmission
+ * paused") until the next config change. Callbacks from a torn-down
+ * subscription generation are ignored so a late error from an old
+ * subscription cannot pause its replacement.
+ */
+function createSubscriptionErrorHandler(
+  ctx: SubscriptionContext,
+  subscriptionGeneration: number,
+  label: string
+): (err: unknown) => void {
+  return (subscriptionError: unknown) => {
+    const { state, app, instanceId, recordError, setStatus } = ctx.deps;
+    if (subscriptionGeneration !== ctx.activeSubscriptionGeneration || state.stopped) {
+      app.debug(`[${instanceId}] Ignoring stale subscription error${label}: ${subscriptionError}`);
+      return;
+    }
+    app.error(`[${instanceId}] Subscription error${label}: ${subscriptionError}`);
+    state.readyToSend = false;
+    setStatus("Subscription error - data transmission paused", false);
+    recordError("subscription", `Subscription error: ${subscriptionError}`);
+    // Arm the retry loop unless one is already pending (never postpone a
+    // scheduled retry). Errors recurring within the escalation window keep
+    // increasing the backoff so a persistently erroring subscription cannot
+    // churn resubscribes every few seconds; a quiet period (or an operator
+    // config change) starts the escalation over.
+    if (!state.subscriptionRetryTimer) {
+      const now = Date.now();
+      if (now - ctx.lastErrorRetryAt > SUBSCRIPTION_ERROR_ESCALATION_RESET_MS) {
+        ctx.errorRetryAttempt = 0;
+      }
+      ctx.lastErrorRetryAt = now;
+      ctx.errorRetryAttempt++;
+      scheduleSubscriptionRetry(ctx, ctx.errorRetryAttempt);
+    }
+  };
+}
+
 /** Compute the backoff delay for a retry attempt, logging the transition to
  *  slow-retry mode the first time it is reached. */
 function computeRetryDelay(ctx: SubscriptionContext, attempt: number): number {
@@ -207,12 +259,7 @@ function runSubscriptionRetry(ctx: SubscriptionContext, attempt: number): void {
       app.subscriptionmanager.subscribe(
         state.localSubscription,
         state.unsubscribes,
-        (retrySubError: unknown) => {
-          app.error(`[${instanceId}] Subscription error (attempt ${attempt}): ${retrySubError}`);
-          state.readyToSend = false;
-          setStatus("Subscription error - data transmission paused", false);
-          recordError("subscription", `Subscription error: ${retrySubError}`);
-        },
+        createSubscriptionErrorHandler(ctx, subscriptionGeneration, ` (attempt ${attempt})`),
         createSubscriptionDeltaHandler(ctx, subscriptionGeneration)
       );
     } finally {
@@ -231,6 +278,10 @@ function runSubscriptionRetry(ctx: SubscriptionContext, attempt: number): void {
         scheduleMetadataSnapshot(2000);
       }
     }
+    // Deliberately NOT resetting ctx.errorRetryAttempt here: a recurring async
+    // error would otherwise alternate error → retry → success → error at the
+    // base delay forever. The escalation window in the error handler decides
+    // when the counter starts over.
     state.readyToSend = true;
     setStatus("Subscription restored", true);
     // Replay current tree state so any value that arrived in the tree
@@ -314,8 +365,6 @@ function processSubscriptionConfig(ctx: SubscriptionContext, config: unknown): v
     state,
     app,
     instanceId,
-    recordError,
-    setStatus,
     metaCache,
     parseMetaConfig,
     restartMetadataTimer,
@@ -358,17 +407,15 @@ function processSubscriptionConfig(ctx: SubscriptionContext, config: unknown): v
       app.subscriptionmanager.subscribe(
         state.localSubscription,
         state.unsubscribes,
-        (subscriptionError: unknown) => {
-          app.error(`[${instanceId}] Subscription error: ${subscriptionError}`);
-          state.readyToSend = false;
-          setStatus("Subscription error - data transmission paused", false);
-          recordError("subscription", `Subscription error: ${subscriptionError}`);
-        },
+        createSubscriptionErrorHandler(ctx, subscriptionGeneration, ""),
         createSubscriptionDeltaHandler(ctx, subscriptionGeneration)
       );
     } finally {
       state.subscribing = false;
     }
+    // An operator-driven (re)subscribe starts the error-retry escalation over.
+    ctx.errorRetryAttempt = 0;
+    ctx.lastErrorRetryAt = 0;
     // Commit the new metadata config AFTER a successful subscribe: swap
     // state.metaConfig, (re)start the periodic timer, and reset the diff
     // cache so the next snapshot represents the live state in full. We
@@ -404,7 +451,9 @@ export function createSubscriptionManager(deps: SubscriptionManagerDeps): Subscr
   const { state, instanceId, app } = deps;
   const ctx: SubscriptionContext = {
     deps,
-    activeSubscriptionGeneration: 0
+    activeSubscriptionGeneration: 0,
+    errorRetryAttempt: 0,
+    lastErrorRetryAt: 0
   };
 
   // Subscription change handler (also wires up the main delta subscription)
