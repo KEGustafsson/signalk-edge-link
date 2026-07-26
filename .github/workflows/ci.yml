@@ -128,7 +128,14 @@ jobs:
         run: npm audit --omit=dev
 
       # Full tree: dev tooling advisories, reported but never merge-blocking.
+      #
+      # `npm audit` exits non-zero whenever ANY advisory exists, so without
+      # continue-on-error a step whose entire purpose is to *report* dev-tree
+      # advisories turns this check red permanently — which is exactly the noise
+      # the runtime/dev split was meant to remove. The step still shows as failed
+      # in the job's step list when advisories exist, so they stay visible.
       - name: Audit full dependency tree (informational)
+        continue-on-error: true
         run: npm audit
 
   # Blocking dependency audit, runs ONLY on the weekly schedule. Unlike the
