@@ -55,7 +55,15 @@ export const PacketFlags = Object.freeze({
   // (type/flags/sequence/length) to the AEAD ciphertext. Opt-in; both peers
   // must enable `authenticatedHeaders`. When clear, the packet uses the legacy
   // CRC-only header (still AEAD-protected payload).
-  AUTHENTICATED_HEADER: 0x10 // bit 4
+  AUTHENTICATED_HEADER: 0x10, // bit 4
+  // bit 5: the trailing HMAC tag additionally covers the peer's connection
+  // epoch, so a captured packet is only valid inside the epoch it was sent in.
+  // Without this, a replay from a source address the receiver has never seen
+  // lands on a fresh anti-replay guard (epoch 0) that cannot enforce anything.
+  // Opt-in; both peers must enable `epochBoundAuth`, because a peer that does
+  // not know this bit computes the tag without the epoch and every packet
+  // fails authentication.
+  EPOCH_BOUND_AUTH: 0x20 // bit 5
 });
 
 /** Maximum sequence number before wraparound (2^32 - 1) */
@@ -72,6 +80,7 @@ export interface ParsedPacket {
     messagepack: boolean;
     pathDictionary: boolean;
     authenticatedHeader: boolean;
+    epochBoundAuth: boolean;
   };
   sequence: number;
   payloadLength: number;

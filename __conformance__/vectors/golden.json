@@ -273,6 +273,19 @@
   "metadataPacketsAuthHeader": {
     "encrypted": "U0sDBhIAAAAAAAAAINIEABEiM0RVZneImaq7zN3u/5kjzBPFieWNtdsaKntYHnU="
   },
+  "dataPacketsEpochBound": {
+    "encrypted": "U0sDATIAAAAAAAAAIGkCABEiM0RVZneImaq7zN3u/3GSwUIZ/g9KKJdqUJFnm0g=",
+    "all": "U0sDAT8AAAAAAAAAIDcxABEiM0RVZneImaq7zN3u/3rw+XzBsgWDPIkdpiygVVY="
+  },
+  "metadataPacketsEpochBound": {
+    "encrypted": "U0sDBjIAAAAAAAAAIHX4ABEiM0RVZneImaq7zN3u/+LkhAjNyvjB1kF8YJ/4kZk="
+  },
+  "controlPacketsEpochBound": {
+    "ack": "U0sDAiAAAAAAAAAAFDuDCgsMDYbCmJrMeLw8i4Y1jN4dedc=",
+    "nak": "U0sDAyAAAAAAAAAAHNXOAAAAAQAAAAIAAAAD3r0AHT0e8+6Z3sGaZz3HvA==",
+    "heartbeat": "U0sDBCAAAAAAAAAAEAi4CoSBALXWv0hKTPAPVmf7MA==",
+    "metaRequest": "U0sDByAAAAAAAAAAELl316fKCRTKrjJPDOmwg2H1uw=="
+  },
   "sourceSnapshotEnvelope": {
     "v": 1,
     "kind": "sources",

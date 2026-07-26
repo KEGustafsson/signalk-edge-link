@@ -10,6 +10,7 @@
 
 import { SequenceTracker } from "../../reliability/sequence";
 import type { ServerContext, ClientSession } from "./context";
+import { bindBuilderEpochForPeer } from "./context";
 
 import { MAX_CLIENT_SESSIONS, MAX_NAK_SEQUENCES_PER_PACKET } from "../../../foundation/constants";
 
@@ -222,6 +223,7 @@ export async function sendNAK(
   for (let i = 0; i < missingSeqs.length; i += MAX_NAK_SEQUENCES_PER_PACKET) {
     const chunk = missingSeqs.slice(i, i + MAX_NAK_SEQUENCES_PER_PACKET);
     try {
+      bindBuilderEpochForPeer(ctx, `${destination.address}:${destination.port}`);
       const nakPacket = packetBuilder.buildNAKPacket(chunk);
       await sendUDP(ctx, nakPacket, destination);
 
@@ -262,6 +264,7 @@ export async function sendPeriodicACKs(ctx: ServerContext): Promise<void> {
     }
 
     try {
+      bindBuilderEpochForPeer(ctx, session.key);
       const ackPacket = packetBuilder.buildACKPacket(ackSeq);
       await sendUDP(ctx, ackPacket, { address: session.address, port: session.port });
 
@@ -285,6 +288,7 @@ export async function sendFullStatusRequest(
   session: ClientSession,
   secretKey: string
 ): Promise<void> {
+  bindBuilderEpochForPeer(ctx, session.key);
   const packet = ctx.packetBuilder.buildFullStatusRequestPacket({ secretKey });
   await sendUDP(ctx, packet, { address: session.address, port: session.port });
   ctx.app.debug(`[v2-server] FULL_STATUS_REQUEST sent to ${session.key}`);
@@ -299,6 +303,7 @@ export async function sendMetaRequest(
   secretKey: string
 ): Promise<void> {
   // Errors propagate to the caller's .catch() so they are recorded once.
+  bindBuilderEpochForPeer(ctx, session.key);
   const packet = ctx.packetBuilder.buildMetaRequestPacket({ secretKey });
   await sendUDP(ctx, packet, { address: session.address, port: session.port });
   ctx.app.debug(`[v2-server] META_REQUEST sent to ${session.key}`);

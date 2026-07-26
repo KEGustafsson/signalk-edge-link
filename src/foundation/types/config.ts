@@ -148,6 +148,16 @@ export interface ConnectionConfig {
    * DATA/METADATA packet.
    */
   authenticatedHeaders?: boolean;
+  /**
+   * Bind each DATA/METADATA/control auth tag to the connection epoch, so a
+   * captured packet only authenticates inside the epoch it was sent in. Closes
+   * the residual replay path where a spoofed source address lands on a fresh
+   * anti-replay guard that has no epoch to enforce. Default false. **Both peers
+   * must use the same setting and both must be on 4.x** — a peer that does not
+   * know the flag computes the tag without the epoch, so every packet fails
+   * authentication.
+   */
+  epochBoundAuth?: boolean;
   /** Wire protocol version (1 or 3). Legacy stored 2 is coerced to 3. Default 1. */
   protocolVersion?: number;
   /** Serialize deltas with MessagePack instead of JSON (smaller, faster). Default false. */

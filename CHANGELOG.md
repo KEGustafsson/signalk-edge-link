@@ -43,6 +43,32 @@ coordinated upgrade of both peers.
   re-announcing — will now have those packets dropped instead of accepted.
   No first-party client does this.
 
+### Added
+
+- **Epoch-bound packet authentication (`epochBoundAuth`, opt-in, default off).**
+  Binds each packet's HMAC tag to the connection epoch established in the HELLO
+  handshake, so a captured packet only authenticates inside the epoch it was
+  sent in.
+
+  This closes the last replay residual. Anti-replay enforcement arms only once
+  a peer completes a handshake, so a packet replayed from a source address the
+  receiver has never seen lands on a freshly-created guard with epoch 0 — there
+  is nothing to enforce against. Keying guards per address closes source-port
+  rotation but cannot close source-IP spoofing; epoch binding does, because the
+  receiver has no valid epoch to verify such a packet against. It also expires
+  captures across a peer restart, since the epoch advances.
+
+  Uses flag bit 5 (`EPOCH_BOUND_AUTH`) and adds no bytes on the wire. The flag
+  sits inside the HMAC-covered header, so it cannot be stripped to force a
+  downgrade. HELLO is exempt — it is the packet that establishes the epoch.
+
+  **Both ends must enable it and both must run 4.0.0 or later**; an older peer
+  computes the tag without the epoch, so every packet would fail
+  authentication. Left off by default so mixed fleets keep working during a
+  rolling upgrade — enable it once every vessel is on 4.x. Requires
+  `authenticatedHeaders` and protocol v3, both enforced by config validation.
+  See `docs/protocol-v3-spec.md` §5.1.
+
 ### Security
 
 - **Anti-replay could be bypassed by rotating the source port.** The per-peer
@@ -97,6 +123,13 @@ coordinated upgrade of both peers.
 - Server-mode socket errors were terminal; a transient interface flap killed
   the listener for the process lifetime. Server mode now recovers with backoff,
   keeping `EADDRINUSE`/`EACCES` fatal.
+- **A restarted peer's new sequence stream could be silently dropped.** An
+  epoch increase re-baselined the anti-replay window but not the session's
+  sequence tracker, so when the peer's fresh random initial sequence landed
+  below the previous stream (and within the resync threshold) every packet was
+  classified as a late arrival — correctly not re-dispatched, and therefore
+  lost. Peer-restart detection now resets the session's sequence and loss state
+  too.
 
 ### Lifecycle
 

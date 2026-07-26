@@ -21,7 +21,8 @@ function buildFlagByte(
     messagepack?: boolean;
     pathDictionary?: boolean;
   },
-  authenticateHeader: boolean
+  authenticateHeader: boolean,
+  epochBoundAuth: boolean
 ): number {
   let flagByte = 0;
   if (flags.compressed) {
@@ -39,6 +40,9 @@ function buildFlagByte(
   if (authenticateHeader) {
     flagByte |= PacketFlags.AUTHENTICATED_HEADER;
   }
+  if (epochBoundAuth) {
+    flagByte |= PacketFlags.EPOCH_BOUND_AUTH;
+  }
   return flagByte;
 }
 
@@ -54,6 +58,8 @@ export class PacketBuilder {
   _secretKey: string | null;
   _stretchAsciiKey: boolean;
   _authenticatedHeaders: boolean;
+  _epochBoundAuth: boolean;
+  _connectionEpoch: number;
 
   /**
    * @param {Object} [config]
@@ -68,6 +74,8 @@ export class PacketBuilder {
       secretKey?: string;
       stretchAsciiKey?: boolean;
       authenticatedHeaders?: boolean;
+      epochBoundAuth?: boolean;
+      connectionEpoch?: number;
     } = {}
   ) {
     this._sequence = config.initialSequence ?? 0;
@@ -80,6 +88,24 @@ export class PacketBuilder {
     this._secretKey = config.secretKey || null;
     this._stretchAsciiKey = !!config.stretchAsciiKey;
     this._authenticatedHeaders = !!config.authenticatedHeaders;
+    this._epochBoundAuth = !!config.epochBoundAuth;
+    this._connectionEpoch = config.connectionEpoch ?? 0;
+  }
+
+  /**
+   * Epoch to bind into the auth tag, or 0 when epoch binding is off/unavailable.
+   * Binding requires a positive epoch: with none there is nothing to bind, and
+   * emitting the flag anyway would produce a tag no receiver could verify.
+   */
+  _bindableEpoch(): number {
+    if (!this._epochBoundAuth) return 0;
+    const epoch = this._connectionEpoch;
+    return Number.isFinite(epoch) && epoch > 0 ? epoch : 0;
+  }
+
+  /** Update the connection epoch used for epoch-bound authentication. */
+  setConnectionEpoch(epoch: number): void {
+    this._connectionEpoch = Number.isFinite(epoch) && epoch > 0 ? epoch : 0;
   }
 
   /**
@@ -309,8 +335,13 @@ export class PacketBuilder {
     // Type
     header[3] = type;
 
-    // Flags
-    header[4] = buildFlagByte(flags, authenticateHeader);
+    // Flags.
+    //
+    // HELLO is exempt: it is the packet that ESTABLISHES the epoch, so the
+    // receiver has nothing to verify against yet. Binding it would make the
+    // handshake unverifiable and the connection could never start.
+    const boundEpoch = type === PacketType.HELLO ? 0 : this._bindableEpoch();
+    header[4] = buildFlagByte(flags, authenticateHeader, boundEpoch > 0);
 
     // Sequence number (uint32 big-endian) — DATA uses this._sequence, METADATA
     // uses this._metaSequence, control packets inherit this._sequence.
@@ -319,7 +350,7 @@ export class PacketBuilder {
     const isControl = type !== PacketType.DATA && type !== PacketType.METADATA;
     const finalPayload =
       isControl || authenticateHeader
-        ? this._appendAuthTag(header, payloadBuffer, isControl, options)
+        ? this._appendAuthTag(header, payloadBuffer, isControl, options, boundEpoch)
         : payloadBuffer;
 
     // Payload length (uint32 big-endian)
@@ -347,7 +378,8 @@ export class PacketBuilder {
     header: Buffer,
     payloadBuffer: Buffer,
     isControl: boolean,
-    options: { secretKey?: string | null }
+    options: { secretKey?: string | null },
+    boundEpoch = 0
   ): Buffer {
     const secretKey = options.secretKey || this._secretKey;
     if (!secretKey) {
@@ -364,7 +396,8 @@ export class PacketBuilder {
     // would change the bytes the HMAC covers and break the wire format.
     header.writeUInt32BE(payloadBuffer.length + CONTROL_AUTH_TAG_LENGTH, 9);
     const authTag = createControlPacketAuthTag(header.subarray(0, 13), payloadBuffer, secretKey, {
-      stretchAsciiKey: this._stretchAsciiKey
+      stretchAsciiKey: this._stretchAsciiKey,
+      epoch: boundEpoch > 0 ? boundEpoch : undefined
     });
     return Buffer.concat([payloadBuffer, authTag]);
   }

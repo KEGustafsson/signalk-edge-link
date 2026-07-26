@@ -103,7 +103,9 @@ export async function handleControlPacket(
       return;
     }
 
-    const parsed = packetParser.parseHeader(msg);
+    // The server binds control-packet auth tags to THIS client's epoch (it
+    // learned it from our HELLO), so verification uses our own epoch.
+    const parsed = packetParser.parseHeader(msg, { epoch: ctx.connectionEpoch });
 
     // Any authenticated control packet proves the server has a session bound to
     // this source port, which is what HELLO establishes.

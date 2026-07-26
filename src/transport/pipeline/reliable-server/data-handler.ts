@@ -33,7 +33,12 @@ import {
   UDP_RATE_LIMIT_MAX_PACKETS
 } from "../../../foundation/constants";
 
-import { preAuthRateLimited, getReplayGuard, handshakedPeerAddress } from "./context";
+import {
+  preAuthRateLimited,
+  getReplayGuard,
+  handshakedPeerAddress,
+  bindBuilderEpochForPeer
+} from "./context";
 
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
@@ -87,6 +92,7 @@ async function ackDuplicate(
   const currentExpected = session.sequenceTracker.expectedSeq! >>> 0;
   const ackSeq = (currentExpected - 1) >>> 0;
   try {
+    bindBuilderEpochForPeer(ctx, `${rinfo.address}:${rinfo.port}`);
     const ackPacket = packetBuilder.buildACKPacket(ackSeq);
     await sendUDP(ctx, ackPacket, { address: rinfo.address, port: rinfo.port });
     session.lastAckSeq = ackSeq;

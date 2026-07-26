@@ -15,7 +15,7 @@ import { PacketType, ParsedPacket } from "../../../codec/packet-codec";
 import { getOrCreateSession, sendUDP, sendMetaRequest, sendFullStatusRequest } from "./sessions";
 import { handleMetadataPacket } from "./metadata";
 import { handleDataPacket } from "./data-handler";
-import { preAuthRateLimited, verifyHbProbe, applyHelloEpoch } from "./context";
+import { preAuthRateLimited, verifyHbProbe, applyHelloEpoch, getReplayGuard } from "./context";
 import type { ServerContext, ClientSession } from "./context";
 
 import {
@@ -130,7 +130,28 @@ function parseHelloInfo(
       // Advance the per-peer anti-replay epoch (resets the window on a strictly
       // higher epoch = legitimate restart; ignores replayed/stale HELLOs). The
       // guard key matches the DATA path: session address/port come from rinfo.
-      applyHelloEpoch(ctx, `${session.address}:${session.port}`, info.epoch, session.address);
+      const restarted = applyHelloEpoch(
+        ctx,
+        `${session.address}:${session.port}`,
+        info.epoch,
+        session.address
+      );
+      if (restarted) {
+        // A strictly higher epoch means the peer restarted with a brand-new,
+        // randomized sequence space. The replay window is re-baselined above;
+        // the session's sequence tracker must be too, or the new stream looks
+        // like a flood of late arrivals whenever the fresh initial sequence
+        // lands below the previous one (and those are correctly not
+        // re-dispatched, so the data would be silently dropped).
+        session.sequenceTracker.reset();
+        session.lossBaseSeq = null;
+        session.lossHighestSeq = null;
+        session.lossReceivedCount = 0;
+        session.lastLossExpected = 0;
+        session.lastLossReceived = 0;
+        session.lastAckSeq = null;
+        app.debug(`v2 peer restart detected for ${session.key}; sequence state reset`);
+      }
     }
   } catch (parseErr: unknown) {
     const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
@@ -261,6 +282,19 @@ function reportReceiveError(ctx: ServerContext, error: unknown): void {
 }
 
 /**
+ * The epoch an incoming packet's auth tag must be bound to.
+ *
+ * `getReplayGuard` returns epoch 0 for a source we have never completed a
+ * handshake with — precisely the replayed/spoofed case — and under epoch-bound
+ * auth the parser rejects that rather than falling back to the
+ * epoch-independent tag.
+ */
+function peerAuthEpoch(ctx: ServerContext, rinfo?: { address: string; port: number }): number {
+  if (!rinfo) return 0;
+  return getReplayGuard(ctx, `${rinfo.address}:${rinfo.port}`).epoch;
+}
+
+/**
  * Receive and process a v2 packet.
  * Pipeline: PacketParse → SequenceTrack → Decrypt → Decompress → Parse → handleMessage
  */
@@ -293,8 +327,10 @@ export async function receivePacket(
       return;
     }
 
-    // Parse packet header
-    const parsed = packetParser.parseHeader(packet, { secretKey });
+    const parsed = packetParser.parseHeader(packet, {
+      secretKey,
+      epoch: peerAuthEpoch(ctx, rinfo)
+    });
 
     if (!isPacketAccepted(ctx, parsed)) {
       return;

@@ -18,6 +18,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "secretKey",
   "stretchAsciiKey",
   "authenticatedHeaders",
+  "epochBoundAuth",
   "useMsgpack",
   "useValueDedup",
   "useCompactDeltas",
@@ -92,6 +93,18 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
 
   if (serverType !== "server" && serverType !== "client") {
     return `${p}serverType must be 'server' or 'client'`;
+  }
+
+  if (conn.epochBoundAuth !== undefined && typeof conn.epochBoundAuth !== "boolean") {
+    return `${p}epochBoundAuth must be a boolean`;
+  }
+  if (conn.epochBoundAuth === true) {
+    if (conn.authenticatedHeaders === false) {
+      return `${p}epochBoundAuth requires authenticatedHeaders (the epoch is bound into that same tag)`;
+    }
+    if (Number(conn.protocolVersion ?? 1) < 2) {
+      return `${p}epochBoundAuth requires protocolVersion 3`;
+    }
   }
 
   if (serverType === "server") {

@@ -194,6 +194,29 @@ describe("H3 anti-replay", () => {
     expect(ctx.metrics.replayedPackets).toBe(0);
   });
 
+  // Regression: the replay window is re-baselined on an epoch increase, but the
+  // session's sequence tracker was not. A restarted peer picks a fresh random
+  // initial sequence; when that landed BELOW the previous stream (but within the
+  // resync threshold) every packet was classified as a late arrival — correctly
+  // not re-dispatched, and therefore silently dropped.
+  test("accepts a restarted peer whose new sequence base is below the old one", async () => {
+    const app = makeApp();
+    const ctx = makeCtx(app);
+
+    await receivePacket(ctx, helloPacket(1000), SECRET, client);
+    await receivePacket(ctx, await dataPacket(500, 1), SECRET, client);
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+
+    // Restart: higher epoch, new base only moderately lower than 500 — far
+    // inside the behind-resync threshold, so nothing else would rescue it.
+    await receivePacket(ctx, helloPacket(2000), SECRET, client);
+    await receivePacket(ctx, await dataPacket(50, 2), SECRET, client);
+    await receivePacket(ctx, await dataPacket(51, 3), SECRET, client);
+
+    expect(app.handleMessage).toHaveBeenCalledTimes(3);
+    expect(ctx.metrics.replayedPackets).toBe(0);
+  });
+
   test("does not strictly enforce for pre-H3 peers that send no epoch", async () => {
     const app = makeApp();
     const ctx = makeCtx(app);

@@ -51,7 +51,8 @@ describe("PacketBuilder.buildMetadataPacket", () => {
       encrypted: true,
       messagepack: true,
       pathDictionary: true,
-      authenticatedHeader: false
+      authenticatedHeader: false,
+      epochBoundAuth: false
     });
     // METADATA payloads are treated like DATA (no CRC trailer, no auth tag) so
     // the entire payload survives the round trip byte-for-byte.

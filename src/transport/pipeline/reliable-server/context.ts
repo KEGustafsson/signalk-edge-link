@@ -195,6 +195,21 @@ export function getReplayGuard(ctx: ServerContext, peerKey: string): ReplayGuard
 }
 
 /**
+ * Point the shared packet builder at a specific peer's epoch before building a
+ * packet destined for that peer.
+ *
+ * A server talks to many peers, each with its own epoch, so the epoch cannot be
+ * fixed at construction the way it is on a client. Build is synchronous and Node
+ * is single-threaded, so setting it immediately before `build*Packet()` cannot
+ * interleave with another destination. Passing 0 (an unhandshaked peer) simply
+ * produces a legacy, epoch-independent tag.
+ */
+export function bindBuilderEpochForPeer(ctx: ServerContext, destinationKey: string): void {
+  const guard = ctx.replayGuards.get(destinationKey);
+  ctx.packetBuilder.setConnectionEpoch(guard ? guard.epoch : 0);
+}
+
+/**
  * Apply a HELLO-advertised connection epoch to a peer's replay guard. A strictly
  * each epoch increase re-baselines the window so the new (random) sequence
  * space is accepted: the first HELLO (0 -> positive) discards any high-water
@@ -209,12 +224,14 @@ export function applyHelloEpoch(
   peerKey: string,
   epoch: unknown,
   address?: string
-): void {
+): boolean {
   if (typeof epoch !== "number" || !Number.isFinite(epoch) || epoch <= 0) {
-    return;
+    return false;
   }
   const guard = getReplayGuard(ctx, peerKey);
+  let advanced = false;
   if (epoch > guard.epoch) {
+    advanced = true;
     // Re-baseline on any epoch increase so the newly-negotiated epoch starts
     // from a clean window — pre-handshake (epoch 0) DATA must not carry its
     // high-water mark into the first authenticated epoch.
@@ -224,6 +241,7 @@ export function applyHelloEpoch(
   if (address) {
     markHandshakedAddress(ctx, address);
   }
+  return advanced;
 }
 
 /**
@@ -285,16 +303,20 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
   // disabled. Both ends must agree (see connection schema). Opt out with
   // `authenticatedHeaders: false` only when both peers are configured off.
   const authenticatedHeaders = state.options?.authenticatedHeaders !== false;
+  // Opt-in epoch binding; both peers must agree (see connection schema).
+  const epochBoundAuth = state.options?.epochBoundAuth === true;
   const packetParser = new PacketParser({
     secretKey: state.options?.secretKey ?? undefined,
     stretchAsciiKey,
-    authenticatedHeaders
+    authenticatedHeaders,
+    epochBoundAuth
   });
   const packetBuilder = new PacketBuilder({
     protocolVersion,
     secretKey: state.options?.secretKey ?? undefined,
     stretchAsciiKey,
-    authenticatedHeaders
+    authenticatedHeaders,
+    epochBoundAuth
   });
 
   const reliabilityConfig = (state.options && state.options.reliability) || {};

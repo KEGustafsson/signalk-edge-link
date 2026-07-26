@@ -54,6 +54,19 @@ export interface KeyNormalizationOptions {
   stretchAsciiKey?: boolean;
 }
 
+/** Options for the v3 packet auth tag: key normalization plus epoch binding. */
+export interface PacketAuthTagOptions extends KeyNormalizationOptions {
+  /**
+   * The sender's connection epoch, mixed into the HMAC when the packet's
+   * EPOCH_BOUND_AUTH flag is set. Binding it means a captured packet only
+   * authenticates inside the epoch it was sent in, so a replay reaching a
+   * receiver that has no established epoch for the source (the fresh-guard
+   * case that anti-replay cannot otherwise enforce) fails authentication.
+   * Omitted or <= 0 reproduces the legacy, epoch-independent tag.
+   */
+  epoch?: number;
+}
+
 /**
  * Normalize a secret key string into a 32-byte Buffer.
  *
@@ -376,7 +389,7 @@ export function createControlPacketAuthTag(
   headerData: Buffer,
   payload: Buffer | string | null,
   secretKey: string,
-  options: KeyNormalizationOptions = {}
+  options: PacketAuthTagOptions = {}
 ): Buffer {
   if (!Buffer.isBuffer(headerData)) {
     throw new Error("Control packet header must be a Buffer");
@@ -388,6 +401,15 @@ export function createControlPacketAuthTag(
   hmac.update(headerData);
   if (payloadBuffer.length > 0) {
     hmac.update(payloadBuffer);
+  }
+  // Epoch is appended AFTER the payload, as a fixed-width big-endian uint32, so
+  // it cannot be confused with payload bytes. Omitting it (epoch <= 0) yields
+  // exactly the legacy tag, which is what keeps 3.x interop byte-compatible.
+  const epoch = options.epoch;
+  if (typeof epoch === "number" && Number.isFinite(epoch) && epoch > 0) {
+    const epochBytes = Buffer.alloc(4);
+    epochBytes.writeUInt32BE(epoch >>> 0, 0);
+    hmac.update(epochBytes);
   }
   return hmac.digest().subarray(0, CONTROL_AUTH_TAG_LENGTH);
 }
@@ -408,7 +430,7 @@ export function verifyControlPacketAuthTag(
   payload: Buffer | string | null,
   authTag: Buffer,
   secretKey: string,
-  options: KeyNormalizationOptions = {}
+  options: PacketAuthTagOptions = {}
 ): boolean {
   if (!Buffer.isBuffer(authTag) || authTag.length !== CONTROL_AUTH_TAG_LENGTH) {
     throw new Error("Control packet authentication tag missing");

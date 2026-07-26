@@ -109,6 +109,13 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
       "Bind each DATA/METADATA packet header (type, flags, sequence, length) to the encrypted payload with an HMAC tag, preventing an on-path attacker from tampering with header fields such as the sequence number. Adds 16 bytes per packet. Enabled by default (v3). BOTH ENDS MUST USE THE SAME SETTING — otherwise authentication fails and every DATA and METADATA packet is dropped; only disable it if both peers are configured with it off.",
     default: true
   },
+  epochBoundAuth: {
+    type: "boolean",
+    title: "Bind Authentication to Connection Epoch (v3)",
+    description:
+      "Additionally bind each packet's authentication tag to the connection epoch negotiated in the HELLO handshake, so a captured packet only authenticates inside the epoch it was sent in. This closes the remaining replay path, where a packet replayed from a spoofed source address the receiver has never seen lands on a fresh anti-replay guard that has no epoch to enforce against. Requires 'Authenticate Packet Headers'. Adds no bytes on the wire. Disabled by default. BOTH ENDS MUST USE THE SAME SETTING AND BOTH MUST RUN 4.0.0 OR LATER — an older peer computes the tag without the epoch, so every packet would be dropped. Enable it once your whole fleet is upgraded.",
+    default: false
+  },
   useMsgpack: {
     type: "boolean",
     title: "Use MessagePack",
