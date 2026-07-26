@@ -155,9 +155,10 @@ export function ConfigFileEditorCard({
       )}
 
       <div className="json-editor plugin-config-editor">
-        <h3>Plugin Config JSON</h3>
+        <h3 id="pluginConfigJsonLabel">Plugin Config JSON</h3>
         <textarea
           id="pluginConfigJson"
+          aria-labelledby="pluginConfigJsonLabel"
           rows={20}
           placeholder='{"serverType":"client","udpPort":4446,"secretKey":"..."}'
           value={jsonText}

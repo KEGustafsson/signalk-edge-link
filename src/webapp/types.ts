@@ -133,7 +133,12 @@ export interface DeltaTimerConfig {
 
 export interface SubscriptionConfig {
   context: string;
-  subscribe: Array<{ path: string }>;
+  /**
+   * Signal K subscription entries. Beyond `path`, the backend subscription
+   * manager honours `period`, `minPeriod`, `policy` and `format`; the type stays
+   * open so those survive a UI round-trip instead of being silently dropped.
+   */
+  subscribe: Array<{ path: string } & Record<string, unknown>>;
   meta?: {
     enabled: boolean;
     intervalSec: number;

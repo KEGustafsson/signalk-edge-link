@@ -4,7 +4,10 @@ import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import { RJSFSchema, UiSchema, ValidatorType, getDefaultFormState } from "@rjsf/utils";
 import { apiFetch, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
-import { buildWebappConnectionSchema } from "../../shared/connection-schema";
+import {
+  buildWebappConnectionSchema,
+  commonConnectionProperties
+} from "../../shared/connection-schema";
 import { ErrorBoundary } from "./ErrorBoundary";
 // API_BASE is a plain string constant bundled into the federated remote (it is
 // not a shared singleton), so importing it from utils is safe.
@@ -238,17 +241,13 @@ const uiSchemaServer: UiSchema = {
   serverType: { "ui:widget": "select" }
 };
 
-// Shared fields preserved when the user toggles server <-> client mode
-const SHARED_FIELDS = [
-  "name",
-  "udpPort",
-  "secretKey",
-  "stretchAsciiKey",
-  "useMsgpack",
-  "usePathDictionary",
-  "protocolVersion",
-  "authenticatedHeaders"
-];
+// Fields preserved when the user toggles server <-> client mode.
+//
+// Derived from the shared schema rather than hand-maintained: a hardcoded list
+// silently dropped useValueDedup, useCompactDeltas, pathFilter, brotliQuality,
+// pathPrecision and pathThrottle, so toggling mode and back destroyed the
+// operator's entire path-tuning configuration with no warning.
+const SHARED_FIELDS = ["name", ...Object.keys(commonConnectionProperties)];
 
 // Boolean toggles that, when on, mean the connection is using advanced options.
 const ADVANCED_BOOL_KEYS = [
@@ -261,6 +260,35 @@ const ADVANCED_BOOL_KEYS = [
   "skipOwnData",
   "enableNotifications"
 ];
+
+// Schema defaults for the advanced booleans. A value equal to its default was
+// filled in by `withSchemaDefaults` on load and does not indicate operator intent.
+const ADVANCED_BOOL_DEFAULTS: Record<string, boolean> = {
+  stretchAsciiKey: false,
+  authenticatedHeaders: true,
+  useMsgpack: false,
+  useValueDedup: false,
+  useCompactDeltas: false,
+  usePathDictionary: false,
+  skipOwnData: false,
+  enableNotifications: false
+};
+
+/**
+ * True when an object group carries real operator configuration. An object whose
+ * every property is an empty array/object (e.g. the materialized default
+ * `pathFilter: { allow: [], deny: [] }`) is a schema default, not a setting.
+ */
+function isNonDefaultObject(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return false;
+  return entries.some(([, v]) => {
+    if (Array.isArray(v)) return v.length > 0;
+    if (v && typeof v === "object") return Object.keys(v).length > 0;
+    return v !== undefined && v !== null && v !== false && v !== "";
+  });
+}
 
 // Object groups that, when present and non-empty, mean advanced options are set.
 const ADVANCED_OBJECT_KEYS = [
@@ -293,11 +321,15 @@ const ADVANCED_NUMERIC_DEFAULTS: Record<string, number> = {
 function connectionUsesAdvanced(conn: ConnectionData): boolean {
   const c = conn as Record<string, unknown>;
   for (const key of ADVANCED_BOOL_KEYS) {
-    if (c[key] === true) return true;
+    // Compare against the SCHEMA default, not against `true`. `withSchemaDefaults`
+    // materializes every default on load, and `authenticatedHeaders` defaults to
+    // true — so a plain `=== true` test reported *every* loaded connection as
+    // "uses advanced options" and the progressive disclosure never engaged.
+    if (c[key] !== undefined && c[key] !== ADVANCED_BOOL_DEFAULTS[key]) return true;
   }
   for (const key of ADVANCED_OBJECT_KEYS) {
     const value = c[key];
-    if (value && typeof value === "object" && Object.keys(value as object).length > 0) {
+    if (isNonDefaultObject(value)) {
       return true;
     }
   }
@@ -338,11 +370,26 @@ const css = `
   align-items: center;
   padding: 10px 14px;
   background: #f8f9fa;
-  cursor: pointer;
   user-select: none;
   gap: 10px;
 }
 .skel-card-header:hover { background: #e9ecef; }
+/* The toggle is a real button so it is keyboard-focusable; strip the native
+   chrome so it still reads as a card header. */
+.skel-card-header-toggle {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.skel-card-header-toggle:focus-visible { outline: 2px solid #0066cc; outline-offset: 2px; }
 .skel-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -609,19 +656,33 @@ function ConnectionCard({
 
   return (
     <div className="skel-card">
-      <div className="skel-card-header" onClick={onToggle} role="button" aria-expanded={expanded}>
-        <span className={`skel-badge ${isClient ? "skel-badge-client" : "skel-badge-server"}`}>
-          {modeLabel}
-        </span>
-        <span className="skel-card-title">{displayName}</span>
-        <span className="skel-expand-icon">{expanded ? "\u25B2" : "\u25BC"}</span>
+      {/*
+        The expand/collapse control is a real <button>, and Remove is a sibling
+        rather than a descendant. Previously the header was a div with
+        role="button" but no tabIndex or key handler \u2014 so no keyboard-only
+        operator could expand a connection card at all \u2014 and it nested an
+        interactive <button> inside another button role, which is invalid ARIA.
+      */}
+      <div className="skel-card-header">
         <button
+          type="button"
+          className="skel-card-header-toggle"
+          onClick={onToggle}
+          aria-expanded={expanded}
+        >
+          <span className={`skel-badge ${isClient ? "skel-badge-client" : "skel-badge-server"}`}>
+            {modeLabel}
+          </span>
+          <span className="skel-card-title">{displayName}</span>
+          <span className="skel-expand-icon" aria-hidden="true">
+            {expanded ? "\u25B2" : "\u25BC"}
+          </span>
+        </button>
+        <button
+          type="button"
           className="skel-btn-remove"
           disabled={totalCount <= 1}
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
+          onClick={onRemove}
           title={totalCount <= 1 ? "Cannot remove the only connection" : "Remove this connection"}
         >
           Remove

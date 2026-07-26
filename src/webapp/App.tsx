@@ -74,10 +74,18 @@ export function App() {
     setNotification({ message, type });
   }, []);
 
-  useMetricsPolling(activeId, (data) => {
-    setMetrics(data);
-    refetchConnections();
-  });
+  const [metricsTick, setMetricsTick] = useState(0);
+  useMetricsPolling(
+    activeId,
+    (data) => {
+      setMetrics(data);
+      refetchConnections();
+      // Drives the dashboards' v3 monitoring/congestion/bonding refresh so
+      // those cards track the same 15s cadence as the metrics card.
+      setMetricsTick((t) => t + 1);
+    },
+    (message) => notify(message, "error")
+  );
 
   const activeConnection: ConnectionInfo | undefined = connections.find((c) => c.id === activeId);
   const activeIndex = connections.findIndex((c) => c.id === activeId);
@@ -100,11 +108,19 @@ export function App() {
       <ConnectionTabs connections={connections} activeId={activeId} onSelect={setActiveId} />
 
       <div className="container">
+        {/*
+          `key={activeId}` remounts the dashboard on every connection switch.
+          Without it React reuses the component across client→client switches,
+          so if the newly-selected connection's config request fails the cards
+          keep showing the PREVIOUS connection's values — and Save would write
+          them to the new connection's config file.
+        */}
         {activeId && activeConnection?.type === "server" ? (
           <ServerDashboard
+            key={activeId}
             connId={activeId}
             metrics={metrics}
-            monitoring={null}
+            refreshTick={metricsTick}
             pluginConfig={pluginConfig}
             pluginSchema={pluginSchema}
             activeConnectionIndex={Math.max(activeIndex, 0)}
@@ -113,8 +129,10 @@ export function App() {
           />
         ) : activeId ? (
           <ClientDashboard
+            key={activeId}
             connId={activeId}
             metrics={metrics}
+            refreshTick={metricsTick}
             pluginConfig={pluginConfig}
             pluginSchema={pluginSchema}
             activeConnectionIndex={Math.max(activeIndex, 0)}

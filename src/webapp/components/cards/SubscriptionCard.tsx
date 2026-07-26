@@ -19,11 +19,19 @@ function buildJson(
   metaEnabled: boolean,
   metaIntervalSec: number,
   metaPathsRegex: string,
-  metaMaxPerPacket: number
+  metaMaxPerPacket: number,
+  // Per-path options (period, minPeriod, policy, format, …) from the loaded
+  // config. The path list UI only edits `path`, so without carrying these
+  // through, opening the card and pressing Save would silently strip every
+  // per-path option the operator had configured — all of which the backend
+  // subscription manager honours.
+  preservedOptions?: Map<string, Record<string, unknown>>
 ): SubscriptionConfig {
   const cfg: SubscriptionConfig = {
     context,
-    subscribe: paths.map((p) => ({ path: p })).filter((s) => s.path.trim() !== "")
+    subscribe: paths
+      .filter((p) => p.trim() !== "")
+      .map((p) => ({ ...(preservedOptions?.get(p) ?? {}), path: p }))
   };
   if (metaEnabled) {
     cfg.meta = {
@@ -47,6 +55,10 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
     JSON.stringify(config ?? { context: "*", subscribe: [] }, null, 2)
   );
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const preservedOptionsRef = useRef<Map<string, Record<string, unknown>>>(new Map());
+  // True while the last state change originated from the raw JSON textarea, so
+  // the serializing effect below does not overwrite what the operator is typing.
+  const editingJsonRef = useRef(false);
   const { request, authMessage } = useApi();
 
   useEffect(() => {
@@ -56,19 +68,44 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
   }, []);
 
   useEffect(() => {
+    // Re-serializing while the operator edits the textarea directly would jump
+    // the caret to the end and drop anything buildJson does not emit.
+    if (editingJsonRef.current) {
+      editingJsonRef.current = false;
+      return;
+    }
     const cfg = buildJson(
       context,
       paths,
       metaEnabled,
       metaIntervalSec,
       metaPathsRegex,
-      metaMaxPerPacket
+      metaMaxPerPacket,
+      preservedOptionsRef.current
     );
     setJsonText(JSON.stringify(cfg, null, 2));
   }, [context, paths, metaEnabled, metaIntervalSec, metaPathsRegex, metaMaxPerPacket]);
 
   useEffect(() => {
-    if (!config) return;
+    // Reset to defaults on a null config rather than retaining the previously
+    // selected connection's subscription.
+    preservedOptionsRef.current = new Map();
+    if (!config) {
+      setContext("*");
+      setPaths([]);
+      setMetaEnabled(false);
+      setMetaIntervalSec(300);
+      setMetaPathsRegex("");
+      setMetaMaxPerPacket(500);
+      return;
+    }
+    for (const entry of config.subscribe ?? []) {
+      if (!entry || typeof entry.path !== "string") continue;
+      const { path: _path, ...rest } = entry as Record<string, unknown> & { path: string };
+      if (Object.keys(rest).length > 0) {
+        preservedOptionsRef.current.set(entry.path, rest);
+      }
+    }
     setContext(config.context ?? "*");
     setPaths(config.subscribe?.map((s) => s.path) ?? []);
     setMetaEnabled(config.meta?.enabled ?? false);
@@ -83,6 +120,17 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
     syncTimeoutRef.current = setTimeout(() => {
       try {
         const parsed = JSON.parse(text);
+        editingJsonRef.current = true;
+        if (Array.isArray(parsed.subscribe)) {
+          // Hand-written per-path options become the new preserved set.
+          const next = new Map<string, Record<string, unknown>>();
+          for (const entry of parsed.subscribe) {
+            if (!entry || typeof entry.path !== "string") continue;
+            const { path: _path, ...rest } = entry as Record<string, unknown> & { path: string };
+            if (Object.keys(rest).length > 0) next.set(entry.path, rest);
+          }
+          preservedOptionsRef.current = next;
+        }
         if (parsed.context) setContext(parsed.context);
         if (Array.isArray(parsed.subscribe))
           setPaths(parsed.subscribe.map((s: { path?: string }) => s.path ?? ""));
@@ -108,7 +156,8 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
         metaEnabled,
         metaIntervalSec,
         metaPathsRegex,
-        metaMaxPerPacket
+        metaMaxPerPacket,
+        preservedOptionsRef.current
       );
       if (!cfg.context) throw new Error("Context is required");
       if (!Array.isArray(cfg.subscribe)) throw new Error("Subscribe array is required");
@@ -272,9 +321,12 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
       </fieldset>
 
       <div className="json-editor">
-        <h3>JSON Editor</h3>
+        {/* The adjacent <h3> is not a programmatic label; without htmlFor the
+            textarea is announced as an unlabelled edit field. */}
+        <h3 id="subscriptionJsonLabel">JSON Editor</h3>
         <textarea
           id="subscriptionJson"
+          aria-labelledby="subscriptionJsonLabel"
           rows={10}
           placeholder='{"context": "*", "subscribe": [{"path": "*"}]}'
           value={jsonText}

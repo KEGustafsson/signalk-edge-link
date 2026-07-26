@@ -16,7 +16,9 @@ export function DeltaTimerCard({ connId, config, onNotify, onSaved }: Props) {
   const { request, authMessage } = useApi();
 
   useEffect(() => {
-    if (config) setValue(config.deltaTimer);
+    // Reset on a null config too. Retaining the previous value would show one
+    // connection's setting under another's tab and save it there.
+    setValue(config ? config.deltaTimer : 1000);
   }, [config]);
 
   const handleSave = async () => {

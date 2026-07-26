@@ -26,9 +26,17 @@ describe("ConnectionTabs", () => {
 
   test("active tab has active class", () => {
     render(<ConnectionTabs connections={connections} activeId="c2" onSelect={jest.fn()} />);
-    const tabs = screen.getAllByRole("button");
+    const tabs = screen.getAllByRole("tab");
     expect(tabs[1].className).toContain("active");
     expect(tabs[0].className).not.toContain("active");
+  });
+
+  test("exposes tablist semantics so the selected tab is programmatically clear", () => {
+    render(<ConnectionTabs connections={connections} activeId="c2" onSelect={jest.fn()} />);
+    expect(screen.getByRole("tablist")).toBeInTheDocument();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs[0]).toHaveAttribute("aria-selected", "false");
+    expect(tabs[1]).toHaveAttribute("aria-selected", "true");
   });
 
   test("calls onSelect when a tab is clicked", () => {

@@ -38,6 +38,8 @@ interface Props {
   activeConnectionIndex: number;
   onNotify: (msg: string, type: string) => void;
   onPluginConfigSaved: (cfg: Record<string, unknown>) => void;
+  /** Increments on each metrics poll; re-fetches the v3 monitoring surfaces. */
+  refreshTick?: number;
 }
 
 export function ClientDashboard({
@@ -47,7 +49,8 @@ export function ClientDashboard({
   pluginSchema,
   activeConnectionIndex,
   onNotify,
-  onPluginConfigSaved
+  onPluginConfigSaved,
+  refreshTick = 0
 }: Props) {
   const [deltaTimer, setDeltaTimer] = useState<DeltaTimerConfig | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionConfig | null>(null);
@@ -129,7 +132,11 @@ export function ClientDashboard({
     };
 
     loadV3();
-  }, [connId, metrics?.protocolVersion, request, authMessage, onNotify]);
+    // `refreshTick` advances on every metrics poll. Without it these deps are
+    // all stable after the first poll, so bonding "Active Link", per-link RTT
+    // and loss, the congestion delta timer, and Active Alerts would stay frozen
+    // at their page-load values while the metrics card advertises a 15s refresh.
+  }, [connId, metrics?.protocolVersion, refreshTick, request, authMessage, onNotify]);
 
   const handleFailover = async () => {
     try {
@@ -137,6 +144,10 @@ export function ClientDashboard({
       if (res.ok) {
         const result = await res.json();
         onNotify(`Failover complete. Active link: ${result.activeLink}`, "success");
+        // Refresh immediately: otherwise the card below still shows the old
+        // active link until the next poll, contradicting this notification.
+        const bondRes = await request(bondingPath(connId)).catch(() => null);
+        if (bondRes?.ok) setBonding(await bondRes.json());
       } else {
         const err = await res.json();
         onNotify(
