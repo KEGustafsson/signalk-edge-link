@@ -16,6 +16,7 @@
  */
 
 import CircularBuffer from "../../../foundation/circular-buffer";
+import { HELLO_RETRY_BASE_MS } from "../../../foundation/constants";
 import { PacketBuilder, PacketParser } from "../../../codec/packet-codec";
 import { RetransmitQueue } from "../../reliability/retransmit-queue";
 import { MetricsPublisher } from "../../metrics/publisher";
@@ -62,6 +63,12 @@ export interface ClientMutableState {
   lastAckAt: number;
   lastAckRinfo: { address: string; port: number } | null;
   recoveryDrainTimer: ReturnType<typeof setInterval> | null;
+  /** Pending HELLO retry timer; cleared once the handshake is confirmed. */
+  helloRetryTimer: ReturnType<typeof setTimeout> | null;
+  /** Current HELLO retry backoff in ms. */
+  helloRetryDelay: number;
+  /** True once any control packet has proved the server sees this source port. */
+  helloAcknowledged: boolean;
   recoveryDrainInFlight: boolean;
   telemetrySendInFlight: boolean;
 }
@@ -135,6 +142,9 @@ export function createMutableState(): ClientMutableState {
     lastAckAt: now,
     lastAckRinfo: null,
     recoveryDrainTimer: null,
+    helloRetryTimer: null,
+    helloRetryDelay: HELLO_RETRY_BASE_MS,
+    helloAcknowledged: false,
     recoveryDrainInFlight: false,
     telemetrySendInFlight: false
   };

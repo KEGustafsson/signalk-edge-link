@@ -38,11 +38,17 @@ export class RetransmitQueue {
   maxSize: number;
   maxRetransmits: number;
   queue: Map<number, QueueEntry>;
+  /** Packets dropped after exhausting `maxRetransmits` — unrecoverable loss. */
+  abandonedCount: number;
+  /** Most recent abandoned sequence, for operator diagnostics. */
+  lastAbandonedSeq: number | null;
 
   constructor(config: RetransmitQueueConfig = {}) {
     this.maxSize = config.maxSize ?? 5000;
     this.maxRetransmits = config.maxRetransmits ?? 3;
     this.queue = new Map(); // sequence -> {packet, timestamp, attempts}
+    this.abandonedCount = 0;
+    this.lastAbandonedSeq = null;
   }
 
   /**
@@ -89,12 +95,14 @@ export class RetransmitQueue {
       return 0;
     }
 
-    const first = this.queue.keys().next();
-    if (first.done) {
+    // Anchor on the numerically-oldest outstanding sequence, not the first
+    // insertion. Entries are enqueued in send-completion order, which concurrent
+    // sendDelta calls and UDP send retries can reorder relative to sequence
+    // allocation — so Map insertion order is NOT sequence order.
+    const oldestOutstanding = this.oldestOutstandingSeq();
+    if (oldestOutstanding === null) {
       return 0;
     }
-
-    const oldestOutstanding = first.value >>> 0;
     const distanceStartToEnd = (cumulativeSeq - oldestOutstanding) >>> 0;
 
     // If ACK is "behind" the oldest outstanding packet in serial space,
@@ -110,16 +118,33 @@ export class RetransmitQueue {
       const distanceStartToSeq = (seq - oldestOutstanding) >>> 0;
       if (distanceStartToSeq <= distanceStartToEnd) {
         toDelete.push(seq);
-      } else {
-        // Map preserves insertion order; once we pass the ACK range,
-        // all remaining entries are ahead — stop scanning.
-        break;
       }
     }
     for (const seq of toDelete) {
       this.queue.delete(seq);
     }
     return toDelete.length;
+  }
+
+  /**
+   * Numerically-oldest outstanding sequence in uint32 serial space, or null when
+   * the queue is empty. Uses pairwise serial comparison so wraparound is handled.
+   */
+  private oldestOutstandingSeq(): number | null {
+    let oldest: number | null = null;
+    for (const seq of this.queue.keys()) {
+      const candidate = seq >>> 0;
+      if (oldest === null) {
+        oldest = candidate;
+        continue;
+      }
+      // candidate is behind `oldest` when the forward distance from candidate
+      // to oldest is in the near half of the sequence space.
+      if ((oldest - candidate) >>> 0 < 0x80000000) {
+        oldest = candidate;
+      }
+    }
+    return oldest;
   }
 
   /**
@@ -151,14 +176,14 @@ export class RetransmitQueue {
     }
     // Collect keys to delete first, then delete — avoids modifying the Map
     // during iteration, which can cause entries to be silently skipped in V8.
+    // Scan the whole queue: entries are enqueued in send-completion order, which
+    // is not necessarily ascending sequence order, so an early `break` on the
+    // first out-of-range key could stop before reaching acknowledged entries.
     const toDelete: number[] = [];
     for (const seq of this.queue.keys()) {
       const distanceStartToSeq = (seq - prevSeq) >>> 0;
       if (distanceStartToSeq > 0 && distanceStartToSeq <= distanceStartToEnd) {
         toDelete.push(seq);
-      } else if (distanceStartToSeq > distanceStartToEnd) {
-        // Past the ACK range in insertion order — stop scanning.
-        break;
       }
     }
     for (const seq of toDelete) {
@@ -184,9 +209,13 @@ export class RetransmitQueue {
         continue;
       }
 
-      // Check max attempts
+      // Check max attempts. Dropping here is unrecoverable data loss: the
+      // receiver will keep NAKing a sequence we can no longer produce, so it
+      // must be counted rather than discarded silently.
       if (entry.attempts >= this.maxRetransmits) {
         this.queue.delete(seq);
+        this.abandonedCount++;
+        this.lastAbandonedSeq = seq >>> 0;
         continue;
       }
 
@@ -217,19 +246,19 @@ export class RetransmitQueue {
    * @returns Sequence numbers
    */
   getOldestSequences(limit = 100, minRetransmitAge = 0): number[] {
-    const result: number[] = [];
     const cutoff = minRetransmitAge > 0 ? Date.now() - minRetransmitAge : 0;
+    const eligible: Array<{ seq: number; at: number }> = [];
     for (const [seq, entry] of this.queue.entries()) {
       if (minRetransmitAge > 0 && entry.attempts > 0 && entry.timestamp > cutoff) {
         // This sequence was retransmitted too recently — skip it.
         continue;
       }
-      result.push(seq);
-      if (result.length >= limit) {
-        break;
-      }
+      eligible.push({ seq, at: entry.originalTimestamp });
     }
-    return result;
+    // Order by true age: Map insertion order tracks send completion, not
+    // sequence allocation, so it can diverge under concurrent sends.
+    eligible.sort((a, b) => a.at - b.at);
+    return eligible.slice(0, limit).map((e) => e.seq);
   }
 
   /**
@@ -301,10 +330,18 @@ export class RetransmitQueue {
       return;
     }
 
-    // Map preserves insertion order: first key is oldest queued packet.
-    const firstEntry = this.queue.keys().next();
-    if (!firstEntry.done) {
-      this.queue.delete(firstEntry.value);
+    // Evict by true age rather than Map insertion order: entries are enqueued
+    // in send order, which concurrent sends and UDP retries can reorder.
+    let oldestKey: number | null = null;
+    let oldestAt = Infinity;
+    for (const [seq, entry] of this.queue.entries()) {
+      if (entry.originalTimestamp < oldestAt) {
+        oldestAt = entry.originalTimestamp;
+        oldestKey = seq;
+      }
+    }
+    if (oldestKey !== null) {
+      this.queue.delete(oldestKey);
     }
   }
 }

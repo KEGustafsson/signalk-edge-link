@@ -33,7 +33,7 @@ import {
   UDP_RATE_LIMIT_MAX_PACKETS
 } from "../../../foundation/constants";
 
-import { preAuthRateLimited, getReplayGuard } from "./context";
+import { preAuthRateLimited, getReplayGuard, handshakedPeerAddress } from "./context";
 
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
@@ -230,6 +230,23 @@ async function rejectReplayedDataPacket(
     return false;
   }
   const guard = getReplayGuard(ctx, `${rinfo.address}:${rinfo.port}`);
+
+  // A guard is created lazily per `address:port`, so a datagram arriving from a
+  // source port we have never seen gets an empty window that accepts every
+  // sequence, and an epoch of 0 that disables enforcement. Rotating the source
+  // port would therefore bypass replay protection entirely — including while
+  // the legitimate session is still live. Fail closed instead: a legitimate v3
+  // peer always completes a HELLO handshake (retried until acknowledged) before
+  // sending DATA, so an unhandshaked port on an address that has handshaked is
+  // either a replay from a rotated port or DATA that overtook its own HELLO.
+  if (guard.epoch === 0 && handshakedPeerAddress(ctx, rinfo.address)) {
+    ctx.app.debug(
+      `v2 replay rejected: unhandshaked source port ${rinfo.port} for known peer ${rinfo.address} (seq=${parsed.sequence >>> 0})`
+    );
+    ctx.metrics.replayedPackets = (ctx.metrics.replayedPackets ?? 0) + 1;
+    return true;
+  }
+
   const fresh = guard.window.accept(parsed.sequence >>> 0);
   if (fresh || guard.epoch === 0) {
     return false;

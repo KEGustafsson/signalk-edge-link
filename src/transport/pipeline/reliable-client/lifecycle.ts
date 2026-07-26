@@ -11,6 +11,7 @@
  */
 
 import { BondingManager } from "../../bonding";
+import { HELLO_RETRY_BASE_MS, HELLO_RETRY_MAX_MS } from "../../../foundation/constants";
 import { udpSendAsync as _udpSendAsyncShared } from "../../udp-socket-manager";
 import type * as dgram from "dgram";
 import type { ClientContext } from "./context";
@@ -103,7 +104,13 @@ export async function sendHello(
   udpAddress: string,
   udpPort: number
 ): Promise<void> {
-  const { app, state, packetBuilder, protocolVersion, connectionEpoch } = ctx;
+  const { app, state, packetBuilder, protocolVersion, connectionEpoch, mut } = ctx;
+
+  // A new handshake attempt supersedes any in-flight retry schedule.
+  stopHelloRetry(ctx);
+  mut.helloAcknowledged = false;
+  mut.helloRetryDelay = HELLO_RETRY_BASE_MS;
+
   try {
     const helloPacket = packetBuilder.buildHelloPacket({
       protocolVersion,
@@ -116,6 +123,67 @@ export async function sendHello(
     app.debug("v3 HELLO sent");
   } catch (err: unknown) {
     app.debug(`v3 HELLO send failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // HELLO is unacknowledged at the packet level, so a single lost datagram
+  // would otherwise leave the server with no epoch for this peer for the life
+  // of the session — anti-replay stays disarmed and telemetry is dropped as
+  // unidentified. Keep retrying until a control packet proves otherwise.
+  scheduleHelloRetry(ctx, udpAddress, udpPort);
+}
+
+/** Cancel any pending HELLO retry. */
+export function stopHelloRetry(ctx: ClientContext): void {
+  const { mut } = ctx;
+  if (mut.helloRetryTimer) {
+    clearTimeout(mut.helloRetryTimer);
+    mut.helloRetryTimer = null;
+  }
+}
+
+/**
+ * Mark the HELLO handshake confirmed. Any control packet from the server proves
+ * it has a session bound to this source port, which is exactly what HELLO
+ * establishes.
+ */
+export function confirmHelloAcknowledged(ctx: ClientContext): void {
+  const { mut } = ctx;
+  if (mut.helloAcknowledged) return;
+  mut.helloAcknowledged = true;
+  stopHelloRetry(ctx);
+  ctx.app.debug("v3 HELLO handshake confirmed");
+}
+
+function scheduleHelloRetry(ctx: ClientContext, udpAddress: string, udpPort: number): void {
+  const { app, state, packetBuilder, protocolVersion, connectionEpoch, mut } = ctx;
+  if (mut.helloAcknowledged || state.stopped) return;
+
+  mut.helloRetryTimer = setTimeout(() => {
+    mut.helloRetryTimer = null;
+    if (mut.helloAcknowledged || state.stopped) return;
+
+    (async () => {
+      try {
+        const helloPacket = packetBuilder.buildHelloPacket({
+          protocolVersion,
+          clientId: state.instanceId || "",
+          instanceId: state.instanceId || "",
+          epoch: connectionEpoch
+        });
+        await udpSendAsync(ctx, helloPacket, udpAddress, udpPort);
+        state.lastPacketTime = Date.now();
+        app.debug(`v3 HELLO retried (backoff ${mut.helloRetryDelay}ms)`);
+      } catch (err: unknown) {
+        app.debug(`v3 HELLO retry failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      mut.helloRetryDelay = Math.min(mut.helloRetryDelay * 2, HELLO_RETRY_MAX_MS);
+      scheduleHelloRetry(ctx, udpAddress, udpPort);
+    })();
+  }, mut.helloRetryDelay);
+
+  // Never hold the event loop open for a retry.
+  if (typeof mut.helloRetryTimer?.unref === "function") {
+    mut.helloRetryTimer.unref();
   }
 }
 

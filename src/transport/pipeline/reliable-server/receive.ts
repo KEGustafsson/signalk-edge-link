@@ -130,7 +130,7 @@ function parseHelloInfo(
       // Advance the per-peer anti-replay epoch (resets the window on a strictly
       // higher epoch = legitimate restart; ignores replayed/stale HELLOs). The
       // guard key matches the DATA path: session address/port come from rinfo.
-      applyHelloEpoch(ctx, `${session.address}:${session.port}`, info.epoch);
+      applyHelloEpoch(ctx, `${session.address}:${session.port}`, info.epoch, session.address);
     }
   } catch (parseErr: unknown) {
     const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);

@@ -87,7 +87,7 @@
     "webpack-cli": "^5.1.4"
   },
   "overrides": {
-    "js-yaml": "4.2.0",
+    "js-yaml": "4.3.0",
     "ws": "8.21.0"
   },
   "engines": {

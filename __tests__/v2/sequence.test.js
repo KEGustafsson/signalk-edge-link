@@ -629,4 +629,60 @@ describe("SequenceTracker", () => {
       expect(tracker.getMissingSequences()).toEqual([]);
     });
   });
+
+  describe("permanently lost sequences", () => {
+    test("advances past a gap the sender never fills, instead of stalling", () => {
+      jest.useFakeTimers();
+      try {
+        const abandoned = [];
+        const t = new SequenceTracker({
+          nakTimeout: 50,
+          maxNakRounds: 3,
+          onGapAbandoned: (seq) => abandoned.push(seq)
+        });
+
+        t.processSequence(100);
+        // 101 is lost forever; the sender has exhausted its retransmit budget.
+        t.processSequence(102);
+        expect(t.expectedSeq).toBe(101);
+
+        // Each NAK round re-arms; after maxNakRounds the gap is given up on.
+        jest.advanceTimersByTime(50 * 4);
+
+        expect(abandoned).toEqual([101]);
+        expect(t.abandonedCount).toBe(1);
+        // Window must move past the hole so the cumulative ACK is not frozen.
+        expect(t.expectedSeq).toBe(103);
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      }
+    });
+
+    test("does not abandon a gap that the sender fills in time", () => {
+      jest.useFakeTimers();
+      try {
+        const abandoned = [];
+        const t = new SequenceTracker({
+          nakTimeout: 50,
+          maxNakRounds: 3,
+          onGapAbandoned: (seq) => abandoned.push(seq)
+        });
+
+        t.processSequence(100);
+        t.processSequence(102);
+        jest.advanceTimersByTime(50);
+
+        // Retransmission arrives before the rounds are exhausted.
+        t.processSequence(101);
+        jest.advanceTimersByTime(50 * 5);
+
+        expect(abandoned).toEqual([]);
+        expect(t.expectedSeq).toBe(103);
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      }
+    });
+  });
 });

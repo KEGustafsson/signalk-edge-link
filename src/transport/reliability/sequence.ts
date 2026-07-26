@@ -15,6 +15,10 @@ interface SequenceTrackerConfig {
   maxGapTracking?: number;
   behindResyncThreshold?: number;
   onLossDetected?: (sequences: number[]) => void;
+  /** NAK rounds per missing sequence before it is declared permanently lost. */
+  maxNakRounds?: number;
+  /** Called when a sequence is given up on and the window advances past it. */
+  onGapAbandoned?: (sequence: number) => void;
 }
 
 interface ProcessSequenceResult {
@@ -34,6 +38,19 @@ export class SequenceTracker {
   behindResyncThreshold: number;
   nakTimers: Map<number, ReturnType<typeof setTimeout>>;
   onLossDetected: (sequences: number[]) => void;
+  /**
+   * Maximum NAK rounds per missing sequence before it is declared permanently
+   * lost and the window advances past it. Without this bound, a sequence the
+   * sender can no longer produce (its retransmit budget is spent) pins
+   * `expectedSeq` for up to `maxGapTracking` packets: the cumulative ACK
+   * freezes, the peer re-NAKs it every `nakTimeout` forever, and no RTT sample
+   * can ever be taken again because the acked sequence has left the queue.
+   */
+  maxNakRounds: number;
+  /** Sequences permanently given up on, for operator diagnostics. */
+  abandonedCount: number;
+  onGapAbandoned: (sequence: number) => void;
+  private _nakAttempts: Map<number, number>;
   // Sequences whose NAK timer has fired and are still missing, awaiting the
   // next coalesced flush. Insertion order is ascending (timers are scheduled
   // in gap order), so the emitted batch stays ordered.
@@ -50,8 +67,45 @@ export class SequenceTracker {
     this.behindResyncThreshold = config.behindResyncThreshold ?? this.maxGapTracking * 2;
     this.nakTimers = new Map();
     this.onLossDetected = config.onLossDetected || (() => {});
+    this.maxNakRounds = config.maxNakRounds ?? 5;
+    this.abandonedCount = 0;
+    this.onGapAbandoned = config.onGapAbandoned || (() => {});
+    this._nakAttempts = new Map();
     this._pendingNAKs = new Set();
     this._nakFlushTimer = null;
+  }
+
+  /**
+   * Give up on a sequence that has exhausted its NAK rounds: record it as
+   * "seen" so the contiguous-advance walk can move past it, drop its timer
+   * state, and advance `expectedSeq` when it sits at the head of the window.
+   * @private
+   */
+  private _abandonSequence(sequence: number): void {
+    const timer = this.nakTimers.get(sequence);
+    if (timer) {
+      clearTimeout(timer);
+      this.nakTimers.delete(sequence);
+    }
+    this._nakAttempts.delete(sequence);
+    this._pendingNAKs.delete(sequence);
+    this.receivedSeqs.add(sequence);
+    this.abandonedCount++;
+
+    if (this.expectedSeq !== null && sequence === this.expectedSeq) {
+      this.expectedSeq = (this.expectedSeq + 1) >>> 0;
+      while (this.receivedSeqs.has(this.expectedSeq)) {
+        const pending = this.nakTimers.get(this.expectedSeq);
+        if (pending) {
+          clearTimeout(pending);
+          this.nakTimers.delete(this.expectedSeq);
+        }
+        this.expectedSeq = (this.expectedSeq + 1) >>> 0;
+      }
+      this._cleanupOldSequences();
+    }
+
+    this.onGapAbandoned(sequence);
   }
 
   /**
@@ -275,6 +329,7 @@ export class SequenceTracker {
       this._nakFlushTimer = null;
     }
     this._pendingNAKs.clear();
+    this._nakAttempts.clear();
   }
 
   /**
@@ -310,8 +365,19 @@ export class SequenceTracker {
       // produce hundreds of datagrams), queue the sequence and flush all
       // sequences whose timers expired in the same tick as one batched NAK.
       if (!this.receivedSeqs.has(sequence)) {
+        const attempts = (this._nakAttempts.get(sequence) ?? 0) + 1;
+        if (attempts >= this.maxNakRounds) {
+          // The sender has had maxNakRounds chances; assume the packet is gone
+          // for good rather than pinning the window on it indefinitely.
+          this._abandonSequence(sequence);
+          return;
+        }
+        this._nakAttempts.set(sequence, attempts);
         this._pendingNAKs.add(sequence);
         this._scheduleNAKFlush();
+        // Re-arm so the retry cadence does not depend on another ahead-packet
+        // arriving to reschedule it.
+        this._scheduleNAK(sequence);
       }
     }, this.nakTimeout);
 

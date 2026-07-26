@@ -104,6 +104,12 @@ export interface Metrics {
   dataPacketsReceived?: number;
   /** DATA packets rejected by the anti-replay window (H3). */
   replayedPackets?: number;
+  /** Control packets dropped because their source was not a configured peer. */
+  rejectedControlPackets?: number;
+  /** Packets dropped after exhausting retransmit attempts (unrecoverable loss). */
+  packetsAbandoned?: number;
+  /** Receive-side gaps given up on after exhausting NAK rounds. */
+  abandonedSequences?: number;
   rateLimitedPackets?: number;
   droppedDeltaBatches?: number;
   droppedDeltaCount?: number;

@@ -138,6 +138,62 @@ describe("H3 anti-replay", () => {
     expect(ctx.metrics.replayedPackets).toBe(1);
   });
 
+  test("rejects a replay from a rotated source port while the session is live", async () => {
+    const app = makeApp();
+    const ctx = makeCtx(app);
+
+    await receivePacket(ctx, helloPacket(1000), SECRET, client);
+    const pkt = await dataPacket(500, 4);
+    await receivePacket(ctx, pkt, SECRET, client);
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+
+    // The guard is keyed by address:port, so an attacker replaying the captured
+    // datagram from a different source port used to mint a fresh guard whose
+    // empty window accepted everything — bypassing replay protection even with
+    // the legitimate session still live.
+    await receivePacket(ctx, pkt, SECRET, { address: client.address, port: 61234 });
+    await receivePacket(ctx, pkt, SECRET, { address: client.address, port: 40000 });
+
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+    expect(ctx.metrics.replayedPackets).toBe(2);
+  });
+
+  test("rejects DATA from an unhandshaked port even with an unseen sequence", async () => {
+    const app = makeApp();
+    const ctx = makeCtx(app);
+
+    await receivePacket(ctx, helloPacket(1000), SECRET, client);
+    await receivePacket(ctx, await dataPacket(500, 1), SECRET, client);
+
+    // A sequence the window has never seen still must not be accepted from a
+    // port that never completed a handshake for this peer address.
+    await receivePacket(ctx, await dataPacket(900, 2), SECRET, {
+      address: client.address,
+      port: 55555
+    });
+
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+    expect(ctx.metrics.replayedPackets).toBe(1);
+  });
+
+  test("accepts a legitimate reconnect from a new port once it handshakes", async () => {
+    const app = makeApp();
+    const ctx = makeCtx(app);
+
+    await receivePacket(ctx, helloPacket(1000), SECRET, client);
+    await receivePacket(ctx, await dataPacket(500, 1), SECRET, client);
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+
+    // Client restarts and rebinds to a new ephemeral port: it HELLOs first with
+    // a higher epoch, so its DATA must still be accepted.
+    const reconnected = { address: client.address, port: 7100 };
+    await receivePacket(ctx, helloPacket(2000), SECRET, reconnected);
+    await receivePacket(ctx, await dataPacket(50, 2), SECRET, reconnected);
+
+    expect(app.handleMessage).toHaveBeenCalledTimes(2);
+    expect(ctx.metrics.replayedPackets).toBe(0);
+  });
+
   test("does not strictly enforce for pre-H3 peers that send no epoch", async () => {
     const app = makeApp();
     const ctx = makeCtx(app);

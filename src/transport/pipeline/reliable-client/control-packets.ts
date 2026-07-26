@@ -13,6 +13,7 @@ import { PacketType } from "../../../codec/packet-codec";
 import type * as dgram from "dgram";
 import type { ClientContext } from "./context";
 import { receiveACK, receiveNAK } from "./reliability";
+import { confirmHelloAcknowledged } from "./lifecycle";
 
 /**
  * Invoke a request handler (META_REQUEST / FULL_STATUS_REQUEST) defensively:
@@ -44,24 +45,80 @@ function invokeRequestHandler(
  * Handle incoming control packets (ACK/NAK/META_REQUEST/FULL_STATUS_REQUEST)
  * from the server. Called when data is received on the UDP socket.
  */
+/**
+ * Addresses this client is configured to talk to: the primary destination plus
+ * any bonding link destinations.
+ */
+function configuredPeerAddresses(ctx: ClientContext): Set<string> {
+  const options = ctx.state.options;
+  const addresses = new Set<string>();
+  if (!options) return addresses;
+  if (typeof options.udpAddress === "string" && options.udpAddress) {
+    addresses.add(options.udpAddress);
+  }
+  const bonding = options.bonding;
+  if (bonding?.enabled) {
+    for (const link of [bonding.primary, bonding.backup]) {
+      if (link && typeof link.address === "string" && link.address) {
+        addresses.add(link.address);
+      }
+    }
+  }
+  return addresses;
+}
+
+/**
+ * Reject control packets that did not come from a configured peer.
+ *
+ * Control packets are HMAC-authenticated but carry no freshness, so a captured
+ * ACK/NAK stays replayable forever. Because the NAK source used to double as
+ * the retransmit destination, an attacker could spoof the source address and
+ * have this client flood an arbitrary victim with retransmits (a NAK naming 256
+ * sequences yields up to 256 full-size packets). Constraining the source to the
+ * configured peer set removes the off-path victim entirely.
+ */
+function isExpectedPeer(ctx: ClientContext, rinfo: dgram.RemoteInfo): boolean {
+  const allowed = configuredPeerAddresses(ctx);
+  // No configured address (unit fixtures / not yet resolved): accept, since
+  // there is nothing to compare against.
+  if (allowed.size === 0) return true;
+  return allowed.has(rinfo.address);
+}
+
 export async function handleControlPacket(
   ctx: ClientContext,
   msg: Buffer,
   rinfo: dgram.RemoteInfo
 ): Promise<void> {
-  const { app, metricsApi, packetParser, mut } = ctx;
+  const { app, metricsApi, packetParser, mut, state } = ctx;
   const { metrics } = metricsApi;
   try {
     if (!packetParser.isV2Packet(msg)) {
       return;
     }
 
+    if (!isExpectedPeer(ctx, rinfo)) {
+      metrics.rejectedControlPackets = (metrics.rejectedControlPackets || 0) + 1;
+      app.debug(`Dropped control packet from unexpected source ${rinfo.address}:${rinfo.port}`);
+      return;
+    }
+
     const parsed = packetParser.parseHeader(msg);
 
+    // Any authenticated control packet proves the server has a session bound to
+    // this source port, which is what HELLO establishes.
+    confirmHelloAcknowledged(ctx);
+
+    // Never derive a send destination from the packet source: retransmits and
+    // recovery drains go to the configured peer (or the active bonding link),
+    // which `udpSendAsync` resolves.
+    const peerAddress = state.options?.udpAddress ?? rinfo.address;
+    const peerPort = state.options?.udpPort ?? rinfo.port;
+
     if (parsed.type === PacketType.ACK) {
-      receiveACK(ctx, parsed, rinfo);
+      receiveACK(ctx, parsed, { address: peerAddress, port: peerPort } as dgram.RemoteInfo);
     } else if (parsed.type === PacketType.NAK) {
-      await receiveNAK(ctx, parsed, rinfo.address, rinfo.port);
+      await receiveNAK(ctx, parsed, peerAddress, peerPort);
     } else if (parsed.type === PacketType.META_REQUEST) {
       // Receiver asks us to re-send the full meta snapshot. Rate-limited in
       // the handler (instance.ts).

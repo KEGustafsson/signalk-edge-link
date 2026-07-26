@@ -97,6 +97,15 @@ export function getOrCreateSession(
       onLossDetected: (missing: number[]) => {
         app.debug(`[v2-server] packet loss from ${key}: seqs ${missing.join(", ")}`);
         sendNAK(ctx, missing, { address: rinfo.address, port: rinfo.port });
+      },
+      onGapAbandoned: (sequence: number) => {
+        // The sender never produced this packet within its retransmit budget.
+        // Advancing past it keeps the cumulative ACK moving; record it so the
+        // gap is visible rather than looking like a clean stream.
+        ctx.metrics.abandonedSequences = (ctx.metrics.abandonedSequences ?? 0) + 1;
+        app.error(
+          `[v2-server] gave up on seq ${sequence} from ${key} after ${ctx.nakTimeout}ms x max NAK rounds; advancing window`
+        );
       }
     }),
     lastAckSeq: null,

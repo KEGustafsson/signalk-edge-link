@@ -138,6 +138,13 @@ export interface ServerContext {
   preAuthByIp: Map<string, { count: number; windowStart: number }>;
   /** Per-peer anti-replay guards, keyed by `address:port`. Outlives sessions. */
   replayGuards: Map<string, ReplayGuard>;
+  /**
+   * Source addresses that have completed at least one epoch handshake, keyed by
+   * address (no port). Lets DATA arriving on an unknown port of a known peer
+   * address fail closed instead of minting a fresh, unenforced guard — see
+   * {@link handshakedPeerAddress}. LRU-bounded like {@link replayGuards}.
+   */
+  handshakedAddresses: Map<string, number>;
   mut: ServerMutableState;
 }
 
@@ -197,7 +204,12 @@ export function getReplayGuard(ctx: ServerContext, peerKey: string): ReplayGuard
  * does not participate — left at epoch 0 (window not strictly enforced) for
  * backward compatibility.
  */
-export function applyHelloEpoch(ctx: ServerContext, peerKey: string, epoch: unknown): void {
+export function applyHelloEpoch(
+  ctx: ServerContext,
+  peerKey: string,
+  epoch: unknown,
+  address?: string
+): void {
   if (typeof epoch !== "number" || !Number.isFinite(epoch) || epoch <= 0) {
     return;
   }
@@ -209,6 +221,54 @@ export function applyHelloEpoch(ctx: ServerContext, peerKey: string, epoch: unkn
     guard.window.reset();
     guard.epoch = epoch;
   }
+  if (address) {
+    markHandshakedAddress(ctx, address);
+  }
+}
+
+/**
+ * Record that a source address has completed an epoch handshake.
+ *
+ * Kept separate from {@link replayGuards} (which is keyed by `address:port`) so
+ * the lookup in {@link handshakedPeerAddress} stays O(1) on the per-packet path
+ * instead of scanning every guard.
+ */
+export function markHandshakedAddress(ctx: ServerContext, address: string): void {
+  const { handshakedAddresses } = ctx;
+  const now = Date.now();
+  if (!handshakedAddresses.has(address) && handshakedAddresses.size >= MAX_REPLAY_GUARDS) {
+    let oldestKey: string | null = null;
+    let oldest = Infinity;
+    for (const [k, lastSeen] of handshakedAddresses) {
+      if (lastSeen < oldest) {
+        oldest = lastSeen;
+        oldestKey = k;
+      }
+    }
+    if (oldestKey !== null) {
+      handshakedAddresses.delete(oldestKey);
+    }
+  }
+  handshakedAddresses.set(address, now);
+}
+
+/**
+ * True when this source address has previously completed an epoch handshake.
+ *
+ * Used to fail closed on DATA that arrives from a *new port* of an
+ * already-handshaked address. A legitimate v3 peer always sends HELLO before
+ * DATA (and retries it until acknowledged), so an unknown port on a known
+ * address is either a replay from a rotated source port or DATA that raced
+ * ahead of its own HELLO — both must be rejected rather than silently minting a
+ * fresh guard whose empty window accepts everything.
+ */
+export function handshakedPeerAddress(ctx: ServerContext, address: string): boolean {
+  const lastSeen = ctx.handshakedAddresses.get(address);
+  if (lastSeen === undefined) {
+    return false;
+  }
+  ctx.handshakedAddresses.set(address, Date.now());
+  return true;
 }
 
 /**
@@ -291,6 +351,7 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
     clientSessions: new Map<string, ClientSession>(),
     preAuthByIp: new Map<string, { count: number; windowStart: number }>(),
     replayGuards: new Map<string, ReplayGuard>(),
+    handshakedAddresses: new Map<string, number>(),
     mut: {
       ackTimer: null,
       metricsInterval: null,

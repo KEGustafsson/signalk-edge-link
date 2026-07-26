@@ -98,11 +98,12 @@ jobs:
       - name: Release documentation and package truth
         run: npm run check:release-docs
 
-  # Non-blocking dependency audit. Kept out of the required `ci` gate so a
-  # newly-published advisory or registry/network hiccup cannot block merges.
-  # The npm-audit test also runs in the main suite, but there it tolerates an
-  # unreachable registry (reads as zero vulnerabilities); this isolated job
-  # surfaces advisories explicitly without gating merges.
+  # Non-blocking FULL-TREE audit (runtime + dev). The npm-audit test in the main
+  # suite deliberately covers runtime dependencies only (`--omit=dev`), because
+  # build/test tooling never ships to an operator and an advisory in eslint or
+  # webpack must not block a merge. This job is where dev-tree advisories stay
+  # visible: it reports them without gating, so tooling debt is tracked rather
+  # than silently ignored.
   audit:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -122,8 +123,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run npm audit test
-        run: npx jest __tests__/npm-audit.test.js
+      # Runtime tree: mirrors the gate in the main suite.
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev
+
+      # Full tree: dev tooling advisories, reported but never merge-blocking.
+      - name: Audit full dependency tree (informational)
+        run: npm audit
 
   # Blocking dependency audit, runs ONLY on the weekly schedule. Unlike the
   # per-PR `audit` job above this is NOT continue-on-error and fails the run on

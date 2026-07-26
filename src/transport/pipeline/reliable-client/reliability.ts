@@ -259,7 +259,19 @@ export async function receiveNAK(
 
     app.debug(`NAK received: missing=${missingSeqs.join(", ")}`);
 
+    const abandonedBefore = retransmitQueue.abandonedCount;
     const toRetransmit = retransmitQueue.retransmit(missingSeqs);
+    const abandoned = retransmitQueue.abandonedCount - abandonedBefore;
+    if (abandoned > 0) {
+      // Unrecoverable: the receiver asked for packets we can no longer produce.
+      // Surface it — a NAK that retransmits nothing is otherwise indistinguishable
+      // from a healthy no-op in the logs.
+      metrics.packetsAbandoned = (metrics.packetsAbandoned ?? 0) + abandoned;
+      recordError(
+        "sendFailure",
+        `Dropped ${abandoned} packet(s) after ${retransmitQueue.maxRetransmits} retransmit attempts (last seq=${retransmitQueue.lastAbandonedSeq})`
+      );
+    }
 
     for (const { sequence, packet: retransmitPacket, attempt } of toRetransmit) {
       app.debug(`Retransmitting seq=${sequence}, attempt=${attempt}`);
