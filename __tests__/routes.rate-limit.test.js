@@ -2087,7 +2087,16 @@ describe("management API token authorization", () => {
       };
       const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
 
-      route.handlers[1](req, res, jest.fn());
+      // Run the real middleware chain rather than indexing a fixed position:
+      // the auth guard is not always handlers[1], and hardcoding the index
+      // silently stops testing auth as soon as another middleware is added.
+      for (const handler of route.handlers) {
+        let advanced = false;
+        handler(req, res, () => {
+          advanced = true;
+        });
+        if (!advanced) {break;}
+      }
 
       expect(res.status).toHaveBeenCalledWith(401);
       expect(json).toHaveBeenCalledWith({ error: "Unauthorized management API request" });

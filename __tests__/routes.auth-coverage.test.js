@@ -110,11 +110,15 @@ async function runChain(route) {
       advanced = true;
     };
 
-    if (isLast) {reachedHandler = true;}
+    if (isLast) {
+      reachedHandler = true;
+    }
     await handler(req, res, next);
 
     // Middleware that neither responded nor called next() ends the chain.
-    if (!advanced) {break;}
+    if (!advanced) {
+      break;
+    }
   }
 
   return { res, reachedHandler };
@@ -128,7 +132,8 @@ describe("management route auth coverage", () => {
     const instanceRegistry = {
       getAll: () => [makeBundle()],
       getFirst: () => makeBundle(),
-      getById: () => makeBundle()
+      getById: () => makeBundle(),
+      get: () => makeBundle()
     };
     const routes = createRoutes(
       { debug: () => {}, error: () => {}, savePluginOptions: (_o, cb) => cb && cb(null) },
@@ -150,7 +155,9 @@ describe("management route auth coverage", () => {
 
     for (const route of router.routes) {
       const key = `${route.method.toUpperCase()} ${route.path}`;
-      if (PUBLIC_ROUTES.has(key)) {continue;}
+      if (PUBLIC_ROUTES.has(key)) {
+        continue;
+      }
 
       const { res, reachedHandler } = await runChain(route);
 
@@ -169,9 +176,85 @@ describe("management route auth coverage", () => {
   test("auth rejection is a 401 for every route that reports one", async () => {
     for (const route of router.routes) {
       const key = `${route.method.toUpperCase()} ${route.path}`;
-      if (PUBLIC_ROUTES.has(key)) {continue;}
+      if (PUBLIC_ROUTES.has(key)) {
+        continue;
+      }
       const { res } = await runChain(route);
       expect([401, 415]).toContain(res.statusCode);
     }
   });
+});
+
+describe("cross-site form protection on bodyless mutating routes", () => {
+  const MUTATING_BODYLESS = [
+    ["post", "/capture/start"],
+    ["post", "/capture/stop"],
+    ["post", "/bonding/failover"],
+    ["post", "/connections/:id/bonding/failover"]
+  ];
+
+  let router;
+
+  beforeAll(() => {
+    // No management token configured: the documented open-access default, which
+    // is exactly the case where CSRF matters.
+    const pluginRef = { _currentOptions: {} };
+    const instanceRegistry = {
+      getAll: () => [makeBundle()],
+      getFirst: () => makeBundle(),
+      getById: () => makeBundle(),
+      get: () => makeBundle()
+    };
+    const routes = createRoutes(
+      { debug: () => {}, error: () => {}, savePluginOptions: (_o, cb) => cb && cb(null) },
+      instanceRegistry,
+      pluginRef
+    );
+    router = makeRouterCollector();
+    routes.registerWithRouter(router);
+  });
+
+  function chainFor(method, path) {
+    const route = router.routes.find((r) => r.method === method && r.path === path);
+    expect(route).toBeDefined();
+    return route;
+  }
+
+  async function runWithHeaders(route, headers) {
+    const req = makeRequest(route.method, route.path);
+    req.headers = { ...headers };
+    const res = makeResponse();
+    for (const handler of route.handlers) {
+      let advanced = false;
+      await handler(req, res, () => {
+        advanced = true;
+      });
+      if (!advanced) {break;}
+    }
+    return res;
+  }
+
+  for (const [method, path] of MUTATING_BODYLESS) {
+    test(`${method.toUpperCase()} ${path} rejects a cross-site form post`, async () => {
+      const route = chainFor(method, path);
+
+      // A cross-site <form> can only produce a "simple" content type, and modern
+      // browsers additionally label the request.
+      const formPost = await runWithHeaders(route, {
+        "content-type": "application/x-www-form-urlencoded"
+      });
+      expect([403, 415]).toContain(formPost.statusCode);
+
+      const crossSite = await runWithHeaders(route, { "sec-fetch-site": "cross-site" });
+      expect(crossSite.statusCode).toBe(403);
+    });
+
+    test(`${method.toUpperCase()} ${path} still accepts a bodyless API call`, async () => {
+      const route = chainFor(method, path);
+      // The CLI sends no Content-Type when there is no body — this must not 415.
+      const res = await runWithHeaders(route, {});
+      expect(res.statusCode).not.toBe(415);
+      expect(res.statusCode).not.toBe(403);
+    });
+  }
 });

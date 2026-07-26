@@ -8,6 +8,9 @@ import https from "node:https";
 import { URL } from "node:url";
 import { migrateConfig } from "../scripts/migrate-config";
 
+/** Abort a management request that gets no response. */
+const REQUEST_TIMEOUT_MS = 30000;
+
 function printHelp(): void {
   console.log(`Signal K Edge Link CLI
 
@@ -180,7 +183,13 @@ function parsePositiveInt(value: any, label: string): number | null {
     return null;
   }
 
-  const n = Number.parseInt(String(value), 10);
+  // parseInt would silently accept "12abc" as 12; require the whole argument to
+  // be digits so a typo is reported rather than quietly reinterpreted.
+  const raw = String(value).trim();
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  const n = Number.parseInt(raw, 10);
   if (!Number.isInteger(n) || n <= 0) {
     throw new Error(`${label} must be a positive integer`);
   }
@@ -290,6 +299,15 @@ function createRequestJson(): RequestJsonFn {
         }
       );
 
+      // Without a timeout the CLI blocks forever against a host that accepts
+      // the connection but never answers (a hung server, a silently dropping
+      // firewall), with no output and no way out but Ctrl-C.
+      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+        req.destroy(
+          new Error(`Request to ${url.host}${endpoint} timed out after ${REQUEST_TIMEOUT_MS}ms`)
+        );
+      });
+
       req.on("error", reject);
       if (payload) {
         req.write(payload);
@@ -343,7 +361,14 @@ async function runInstancesCommand(args: string[], requestJson: RequestJsonFn): 
       throw new Error("instances show requires <id>");
     }
     const data = await requestJson(baseUrl, `/instances/${encodeURIComponent(id)}`, { token });
-    printInstances([data], parseFormat(args));
+    const format = parseFormat(args);
+    if (format === "table") {
+      printInstances([data], format);
+    } else {
+      // `instances show` documents "Print one instance"; wrapping in an array
+      // for the JSON output made it print a one-element list instead.
+      console.log(JSON.stringify(data, null, 2));
+    }
     return;
   }
 

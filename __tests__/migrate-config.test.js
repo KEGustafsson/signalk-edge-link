@@ -140,4 +140,44 @@ describe("migrate-config", () => {
     expect(() => migrateConfig(null)).toThrow("Expected plugin config object");
     expect(() => migrateConfig([])).toThrow("Expected plugin config object");
   });
+
+  // Regression: migration used to validate BEFORE sanitizing, the inverse of
+  // startup order, so a legacy v2 config carrying v1-only ping fields threw in
+  // `npm run migrate:config` while loading fine at runtime. samples/ still ships
+  // configs in exactly that shape.
+  test("migrates a legacy protocolVersion 2 config carrying v1-only ping fields", () => {
+    const legacy = {
+      serverType: "client",
+      udpPort: 4446,
+      udpAddress: "10.0.0.1",
+      secretKey: "12345678901234567890123456789012",
+      protocolVersion: 2,
+      testAddress: "8.8.8.8",
+      testPort: 53,
+      pingIntervalTime: 1
+    };
+
+    const migrated = migrateConfig(legacy);
+    expect(Array.isArray(migrated.connections)).toBe(true);
+    expect(migrated.connections).toHaveLength(1);
+
+    // Sanitize strips v1-only ping fields for protocolVersion >= 2.
+    const conn = migrated.connections[0];
+    expect(conn.testAddress).toBeUndefined();
+    expect(conn.testPort).toBeUndefined();
+    expect(conn.pingIntervalTime).toBeUndefined();
+    expect(conn.udpAddress).toBe("10.0.0.1");
+  });
+
+  test("migration is idempotent", () => {
+    const legacy = {
+      serverType: "server",
+      udpPort: 4446,
+      secretKey: "12345678901234567890123456789012",
+      protocolVersion: 3
+    };
+    const once = migrateConfig(legacy);
+    const twice = migrateConfig(once);
+    expect(twice).toEqual(once);
+  });
 });

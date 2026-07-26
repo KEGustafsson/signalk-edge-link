@@ -727,6 +727,47 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     };
 
     /**
+     * Reject requests that look like a cross-site form submission.
+     *
+     * `requireJson` implicitly protects most mutating routes: an
+     * `application/json` body forces a CORS preflight, which a cross-site
+     * `<form>` cannot perform. Bodyless POSTs (capture start/stop, bonding
+     * failover) cannot use it — the CLI sends no Content-Type when there is no
+     * body, so requiring JSON there would break it. Combined with the
+     * documented open-access default, that left those routes reachable from any
+     * page an operator happens to visit on the same network.
+     *
+     * A cross-site form POST is identifiable two ways, and both are checked:
+     * modern browsers send `Sec-Fetch-Site: cross-site`, and a form can only
+     * ever produce one of the three "simple" content types.
+     */
+    const SIMPLE_FORM_CONTENT_TYPES = [
+      "application/x-www-form-urlencoded",
+      "multipart/form-data",
+      "text/plain"
+    ];
+    const blockCrossSiteForm: RouteHandler = (req, res, next) => {
+      const headers = req.headers || {};
+      const fetchSite = getFirstHeaderValue(headers["sec-fetch-site"]);
+      if (
+        fetchSite &&
+        fetchSite !== "same-origin" &&
+        fetchSite !== "same-site" &&
+        fetchSite !== "none"
+      ) {
+        return res.status(403).json({ error: "Cross-site requests are not allowed" });
+      }
+      const contentType = getFirstHeaderValue(headers["content-type"]);
+      if (contentType) {
+        const base = contentType.split(";")[0].trim().toLowerCase();
+        if (SIMPLE_FORM_CONTENT_TYPES.includes(base)) {
+          return res.status(415).json({ error: "Unsupported Content-Type for this endpoint" });
+        }
+      }
+      if (next) next();
+    };
+
+    /**
      * Rate limiting middleware for API endpoints
      */
     const rateLimitMiddleware: RouteHandler = (req, res, next) => {
@@ -768,6 +809,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       pluginRef,
       rateLimitMiddleware,
       requireJson,
+      blockCrossSiteForm,
       getFirstBundle,
       getBundleById,
       getFirstClientBundle,

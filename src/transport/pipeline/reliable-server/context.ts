@@ -60,12 +60,12 @@ export interface ClientSession {
    *  us drop exact duplicates of a chunk we've already applied without
    *  rejecting other chunks (different idx, same seq) of the same multi-
    *  chunk batch. Cleared when `lastMetaEnvSeq` advances. */
-  seenMetaChunkIdx: Set<number>;
+  metaChunkWindow: Map<number, Set<number>>;
   /** Last observed source snapshot envelope seq; kept separate from metadata
    *  seq so source resends cannot make in-flight metadata chunks look stale. */
   lastSourceEnvSeq: number | null;
   /** Chunk indexes already applied for `lastSourceEnvSeq`. */
-  seenSourceChunkIdx: Set<number>;
+  sourceChunkWindow: Map<number, Set<number>>;
   /** Per-(context, path) cache for same-as-last value dedup expansion.
    *  Created lazily on first sentinel/absolute-value receipt. */
   valueDedupState: ValueDedupState | null;

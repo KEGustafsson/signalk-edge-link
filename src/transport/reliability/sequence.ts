@@ -26,6 +26,12 @@ interface ProcessSequenceResult {
   missing: number[];
   duplicate: boolean;
   resynced: boolean;
+  /**
+   * True when the sequence arrived behind the window after aging out of
+   * `receivedSeqs`. Not a duplicate as far as the tracker knows, but its
+   * payload must not be dispatched again.
+   */
+  lateArrival: boolean;
 }
 
 export class SequenceTracker {
@@ -147,7 +153,8 @@ export class SequenceTracker {
       inOrder: false,
       missing: [],
       duplicate: false,
-      resynced: false
+      resynced: false,
+      lateArrival: false
     };
 
     // Initialize baseline from the first packet we actually receive.
@@ -201,7 +208,15 @@ export class SequenceTracker {
       return;
     }
 
-    // Late arrival that was already passed over - accept it
+    // Late arrival that was already passed over — accept it for bookkeeping.
+    //
+    // `duplicate` stays false (the tracker genuinely has no record of it: the
+    // sequence aged out of `receivedSeqs`), but callers must NOT treat this as
+    // new data. The window already advanced past this sequence, so its payload
+    // was either delivered earlier or declared lost; dispatching it again would
+    // re-inject a stale delta into Signal K. `lateArrival` makes that
+    // distinction explicit rather than leaving it to the caller to infer.
+    result.lateArrival = true;
     this.receivedSeqs.add(sequence);
 
     // Cancel NAK timer if one was scheduled

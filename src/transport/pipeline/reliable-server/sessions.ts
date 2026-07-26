@@ -127,9 +127,9 @@ export function getOrCreateSession(
     statusRequested: false,
     // Stale-envelope rejection for METADATA packets
     lastMetaEnvSeq: null,
-    seenMetaChunkIdx: new Set<number>(),
+    metaChunkWindow: new Map<number, Set<number>>(),
     lastSourceEnvSeq: null,
-    seenSourceChunkIdx: new Set<number>(),
+    sourceChunkWindow: new Map<number, Set<number>>(),
     // Same-as-last value dedup expansion (created lazily when needed)
     valueDedupState: null
   };

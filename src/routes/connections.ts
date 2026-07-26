@@ -25,6 +25,7 @@ function register(router: Router, ctx: RouteContext): void {
     app,
     rateLimitMiddleware,
     requireJson,
+    blockCrossSiteForm,
     instanceRegistry,
     getBundleById,
     getEffectiveNetworkQuality,
@@ -589,6 +590,7 @@ function register(router: Router, ctx: RouteContext): void {
   router.post(
     "/connections/:id/bonding/failover",
     rateLimitMiddleware,
+    blockCrossSiteForm,
     managementAuthMiddleware("connection-bonding.failover"),
     (req: RouteRequest, res: RouteResponse) => {
       const bundle = getBundleById(req.params.id);

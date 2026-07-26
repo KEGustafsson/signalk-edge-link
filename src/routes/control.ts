@@ -10,6 +10,7 @@ function register(router: Router, ctx: RouteContext): void {
   const {
     rateLimitMiddleware,
     requireJson,
+    blockCrossSiteForm,
     getFirstBundle,
     getFirstClientBundle,
     instanceRegistry,
@@ -215,6 +216,7 @@ function register(router: Router, ctx: RouteContext): void {
   router.post(
     "/bonding/failover",
     rateLimitMiddleware,
+    blockCrossSiteForm,
     managementAuthMiddleware("bonding.failover"),
     (req: RouteRequest, res: RouteResponse) => {
       try {

@@ -280,10 +280,16 @@ async function trackDataSequence(
 
   const seqResult = session
     ? session.sequenceTracker.processSequence(parsed.sequence)
-    : { duplicate: false, resynced: false };
+    : { duplicate: false, resynced: false, lateArrival: false };
 
-  if (seqResult.duplicate) {
-    app.debug(`v2 duplicate packet: seq=${parsed.sequence}`);
+  // A late arrival is a retransmission that reached us after the window had
+  // already advanced past it (its entry aged out of the tracker's seen-set, so
+  // the duplicate check above cannot catch it). Its payload was either already
+  // dispatched or declared lost — dispatching it now would re-inject a stale
+  // delta into the Signal K tree. Treat it exactly like a duplicate here: ACK
+  // it so the sender stops retransmitting, but do not process the payload.
+  if (seqResult.duplicate || seqResult.lateArrival) {
+    app.debug(`v2 ${seqResult.lateArrival ? "late" : "duplicate"} packet: seq=${parsed.sequence}`);
     metrics.duplicatePackets = (metrics.duplicatePackets ?? 0) + 1;
     if (session && session.sequenceTracker.expectedSeq !== null && rinfo) {
       await ackDuplicate(ctx, session, rinfo);

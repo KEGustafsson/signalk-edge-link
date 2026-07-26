@@ -40,11 +40,42 @@ interface MetaEnvelope {
   }>;
 }
 
+/**
+ * Number of recent envelope sequences whose chunk-index sets are retained.
+ *
+ * A multi-chunk envelope shares one `seq` and is split across `idx` values.
+ * Tracking only the newest seq meant that receiving any chunk of envelope N+1
+ * discarded envelope N's state, so a straggling chunk of N — one ordinary UDP
+ * reordering, routine on a bonded or multi-hop path — was then rejected as
+ * "stale" and those entries never reached the Signal K tree. Retaining a small
+ * window lets late chunks of recent envelopes still be applied.
+ */
+const ENVELOPE_SEQ_WINDOW = 4;
+
 /** Per-channel dedup accessor (META vs source-snapshot share one shape). */
 interface EnvChannelState {
   getLast(): number | null;
   setLast(value: number | null): void;
-  seen: Set<number>;
+  /** envSeq -> chunk `idx` values already applied for that envelope. */
+  window: Map<number, Set<number>>;
+}
+
+/**
+ * Get (creating if needed) the chunk-index set for an envelope seq, evicting
+ * the oldest retained envelope once the window is full.
+ */
+function chunkSetFor(ch: EnvChannelState, envSeq: number): Set<number> {
+  const existing = ch.window.get(envSeq);
+  if (existing) return existing;
+  if (ch.window.size >= ENVELOPE_SEQ_WINDOW) {
+    // Map preserves insertion order and entries are inserted in arrival order,
+    // so the first key is the least recently introduced envelope.
+    const oldest = ch.window.keys().next();
+    if (!oldest.done) ch.window.delete(oldest.value);
+  }
+  const created = new Set<number>();
+  ch.window.set(envSeq, created);
+  return created;
 }
 
 /** Bind an `EnvChannelState` over the session's META or source-snapshot fields. */
@@ -55,7 +86,7 @@ function channelState(session: ClientSession, isSource: boolean): EnvChannelStat
       setLast: (value) => {
         session.lastSourceEnvSeq = value;
       },
-      seen: session.seenSourceChunkIdx
+      window: session.sourceChunkWindow
     };
   }
   return {
@@ -63,7 +94,7 @@ function channelState(session: ClientSession, isSource: boolean): EnvChannelStat
     setLast: (value) => {
       session.lastMetaEnvSeq = value;
     },
-    seen: session.seenMetaChunkIdx
+    window: session.metaChunkWindow
   };
 }
 
@@ -90,7 +121,7 @@ function maybeResetOnRestart(
       `(last seq was ${lastEnvSeq}); resetting ${channel} state`
   );
   ch.setLast(null);
-  ch.seen.clear();
+  ch.window.clear();
   if (!isSource) {
     session.metaRequested = false;
     session.statusRequested = false;
@@ -113,23 +144,29 @@ function isStaleOrDuplicateChunk(
   const lastEnvSeq = ch.getLast();
   if (lastEnvSeq === null) {
     ch.setLast(envSeq);
-    ch.seen.clear();
+    ch.window.clear();
+    chunkSetFor(ch, envSeq);
     return false;
   }
   const distance = (envSeq - lastEnvSeq) >>> 0;
   if (distance !== 0 && distance >= 0x80000000) {
-    metrics.duplicatePackets = (metrics.duplicatePackets || 0) + 1;
-    app.debug(
-      `[v2-server] stale ${channel} envelope seq=${envSeq} from ${session.key} (last=${lastEnvSeq}), dropping`
-    );
-    return true;
-  }
-  if (distance !== 0) {
+    // Behind the newest envelope. Accept it if it is one we are still
+    // retaining — that is a reordered chunk of a recent envelope, not a replay.
+    if (!ch.window.has(envSeq)) {
+      metrics.duplicatePackets = (metrics.duplicatePackets || 0) + 1;
+      app.debug(
+        `[v2-server] stale ${channel} envelope seq=${envSeq} from ${session.key} (last=${lastEnvSeq}), dropping`
+      );
+      return true;
+    }
+  } else if (distance !== 0) {
+    // A newer envelope: advance, but keep recent envelopes' chunk sets so their
+    // in-flight chunks can still land.
     ch.setLast(envSeq);
-    ch.seen.clear();
-    return false;
   }
-  if (ch.seen.has(envIdx)) {
+
+  const seen = chunkSetFor(ch, envSeq);
+  if (seen.has(envIdx)) {
     metrics.duplicatePackets = (metrics.duplicatePackets || 0) + 1;
     app.debug(
       `[v2-server] duplicate ${channel} chunk seq=${envSeq} idx=${envIdx} from ${session.key}, dropping`
@@ -170,7 +207,8 @@ export function shouldDropEnvelopeBySeq(
   // the Set) far below this many chunks. Hitting the cap means the peer is
   // pinning the seq while streaming new idx values — drop further chunks for
   // this seq instead of growing memory without bound.
-  if (ch.seen.size >= MAX_ENVELOPE_CHUNK_INDICES) {
+  const seenForSeq = chunkSetFor(ch, envSeq);
+  if (seenForSeq.size >= MAX_ENVELOPE_CHUNK_INDICES) {
     metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
     app.debug(
       `[v2-server] ${channel} chunk-index cap (${MAX_ENVELOPE_CHUNK_INDICES}) reached for ` +
@@ -179,7 +217,7 @@ export function shouldDropEnvelopeBySeq(
     return true;
   }
 
-  ch.seen.add(envIdx);
+  seenForSeq.add(envIdx);
   return false;
 }
 

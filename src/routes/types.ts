@@ -102,6 +102,7 @@ export interface RouteContext {
   pluginRef: PluginRef;
   rateLimitMiddleware: RouteHandler;
   requireJson: RouteHandler;
+  blockCrossSiteForm: RouteHandler;
   getFirstBundle(): InstanceBundle | null;
   getBundleById(id: string): InstanceBundle | null;
   getFirstClientBundle(): InstanceBundle | null;

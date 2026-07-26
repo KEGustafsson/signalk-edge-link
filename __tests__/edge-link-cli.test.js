@@ -353,6 +353,9 @@ describe("edge-link-cli", () => {
         const req = new EventEmitter();
         req.write = () => {};
         req.end = () => {};
+        // The CLI arms a request timeout so a hung server cannot block forever.
+        req.setTimeout = () => req;
+        req.destroy = () => {};
         return req;
       };
 
