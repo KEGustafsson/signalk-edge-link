@@ -290,6 +290,17 @@ function runSubscriptionRetry(ctx: SubscriptionContext, attempt: number): void {
     // error would otherwise alternate error → retry → success → error at the
     // base delay forever. The escalation window in the error handler decides
     // when the counter starts over.
+    // A successful *subscription* does not mean the send path is usable. If the
+    // UDP socket is mid-recovery, re-opening the send gate here would pump the
+    // whole Signal K tree into state.deltas while flushDeltaBatch is still
+    // blocked — overflowing the buffer, which discards 50% per overflow — and
+    // would report the connection healthy while nothing is transmitted. Socket
+    // recovery re-enables sending and replays the snapshot itself.
+    if (state.socketRecoveryInProgress || state.stopped) {
+      app.debug(`[${instanceId}] Subscription restored; send path still recovering`);
+      return;
+    }
+
     state.readyToSend = true;
     setStatus("Subscription restored", true);
     // Replay current tree state so any value that arrived in the tree

@@ -55,7 +55,7 @@ export interface V1PipelineContext {
   state: InstanceState;
   metricsApi: MetricsApi;
   throttleState: PathThrottleState;
-  setStatus: (message: string) => void;
+  setStatus: (message: string, healthyOverride?: boolean) => void;
 }
 
 /**
@@ -428,7 +428,7 @@ export function udpSendAsync(
   if (!state.socketUdp) {
     const error = new Error("UDP socket not initialized, cannot send message");
     app.error(error.message);
-    setStatus("UDP socket not initialized - cannot send data");
+    setStatus("UDP socket not initialized - cannot send data", false);
     throw error;
   }
 

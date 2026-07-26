@@ -51,6 +51,7 @@ import {
   startCongestionControl,
   stopCongestionControl,
   sendHello,
+  stopHelloRetry,
   startHeartbeat,
   initBonding,
   stopBonding
@@ -284,6 +285,7 @@ function buildControlApi(ctx: ClientContext) {
     },
     stop() {
       stopRecoveryBurst(ctx, "pipeline stop");
+      stopHelloRetry(ctx);
       stopMetricsPublishing(ctx);
       stopCongestionControl(ctx);
       stopBonding(ctx);

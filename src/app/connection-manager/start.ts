@@ -25,6 +25,20 @@ export interface ManagerContext {
   setError: (msg: string) => void;
   instances: Map<string, ConnectionApi>;
   updateAggregatedStatus: () => void;
+  /**
+   * Monotonic counter identifying the current start attempt. `start()` captures
+   * it and re-checks after every await; `stop()` and any newer `start()` bump
+   * it. Without this, a `stop()` landing mid-start would let the remaining
+   * instance group start *after* teardown — `Stopped -> Starting` is a legal
+   * transition, so those instances would bind sockets and stream deltas while
+   * holding no registry entry, unreachable by any later stop().
+   */
+  startGeneration: number;
+}
+
+/** True when a newer start(), or a stop(), superseded this start attempt. */
+function superseded(ctx: ManagerContext, generation: number): boolean {
+  return ctx.startGeneration !== generation;
 }
 
 function generateInstanceId(name: string | undefined, usedIds: Set<string>): string {
@@ -146,7 +160,7 @@ function teardownAll(ctx: ManagerContext): void {
  * Start servers (before clients), in ordered groups. Returns the first startup
  * error, or `null` if all instances started successfully.
  */
-async function startAllInstances(ctx: ManagerContext): Promise<unknown> {
+async function startAllInstances(ctx: ManagerContext, generation: number): Promise<unknown> {
   const all = [...ctx.instances.values()];
   const servers = all.filter((inst) => inst.isServerMode());
   const clients = all.filter((inst) => !inst.isServerMode());
@@ -157,6 +171,9 @@ async function startAllInstances(ctx: ManagerContext): Promise<unknown> {
   };
 
   await startGroup(ctx, servers, onError);
+  // A stop() (or a newer start()) during the server group must not go on to
+  // start the client group against a registry that has already been cleared.
+  if (superseded(ctx, generation)) return startError;
   await startGroup(ctx, clients, onError);
   return startError;
 }
@@ -179,6 +196,9 @@ function wireFullStatusCascade(ctx: ManagerContext): void {
 
 /** Start all connections from the given options payload. */
 export async function start(ctx: ManagerContext, options: Record<string, unknown>): Promise<void> {
+  // Claim this start attempt; any concurrent start() or stop() supersedes it.
+  const generation = ++ctx.startGeneration;
+
   // Tear down any existing instances (restart case).
   if (ctx.instances.size > 0) teardownAll(ctx);
 
@@ -191,7 +211,16 @@ export async function start(ctx: ManagerContext, options: Record<string, unknown
   logLegacyProtocolUsage(ctx, connectionList);
   createInstances(ctx, connectionList);
 
-  const startError = await startAllInstances(ctx);
+  const startError = await startAllInstances(ctx, generation);
+
+  // Superseded mid-start: whatever did supersede us owns the registry now.
+  // Stop anything this attempt managed to start and leave the rest alone.
+  if (superseded(ctx, generation)) {
+    ctx.app.debug("Connection start superseded by a newer start/stop — rolling back");
+    teardownAll(ctx);
+    return;
+  }
+
   if (startError) {
     ctx.app.error("Failed to start one or more connections — stopping all instances");
     // Stop EVERY instance in the registry, not just the ones that started

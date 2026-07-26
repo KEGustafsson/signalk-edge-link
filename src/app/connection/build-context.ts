@@ -186,7 +186,14 @@ function createStatusHelper(
     state.isHealthy =
       typeof healthyOverride === "boolean"
         ? healthyOverride
-        : Boolean(msg && !msg.toLowerCase().match(/error|fail|stopped/));
+        : // Text heuristic fallback for callers that pass no explicit health.
+          // It is deliberately conservative: anything describing a degraded
+          // send path counts as unhealthy, because phrasings like "UDP socket
+          // not initialized - cannot send data" contain none of error/fail/
+          // stopped and would otherwise be reported as a healthy connection.
+          Boolean(
+            msg && !msg.toLowerCase().match(/error|fail|stopped|cannot send|not initialized/)
+          );
     if (typeof onStatusChange === "function") {
       onStatusChange(instanceId, msg);
     }

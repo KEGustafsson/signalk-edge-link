@@ -74,6 +74,17 @@ function scheduleDeltaTimer(ctx: BatcherContext): void {
       return;
     }
     state.timer = true;
+    // Actually flush, don't just arm the flag. Every other flush is
+    // producer-driven from processDelta(), so with only the flag set the tail
+    // of a burst would sit in state.deltas until the *next* inbound delta —
+    // indefinitely if the source goes quiet. The documented contract is
+    // "batch fills OR deltaTimer fires".
+    if (state.deltas.length > 0) {
+      ctx.flushDeltaBatch().catch(() => {
+        // flushDeltaBatch reports its own errors; never let a rejection here
+        // escape into an unhandled rejection and kill the timer chain.
+      });
+    }
     ctx.scheduleDeltaTimer();
   }, state.deltaTimerTime);
 }

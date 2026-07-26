@@ -48,7 +48,7 @@ export function udpSendAsync(
   if (!socket) {
     const error = new Error("UDP socket not initialized, cannot send message");
     app.error(error.message);
-    setStatus("UDP socket not initialized - cannot send data");
+    setStatus("UDP socket not initialized - cannot send data", false);
     throw error;
   }
 
@@ -198,6 +198,15 @@ export function startHeartbeat(
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   heartbeatTimer = setInterval(async () => {
+    // A stop() that raced this interval's creation would otherwise leave it
+    // sending real UDP traffic with no handle left to clear it.
+    if (state.stopped) {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+      return;
+    }
     try {
       const heartbeatPacket = packetBuilder.buildHeartbeatPacket();
       await udpSendAsync(ctx, heartbeatPacket, udpAddress, udpPort);

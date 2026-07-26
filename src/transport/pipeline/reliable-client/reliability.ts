@@ -128,6 +128,9 @@ async function runRecoveryBurst(ctx: ClientContext): Promise<void> {
       if (mut.monitoringHooks && mut.monitoringHooks.packetLossTracker) {
         mut.monitoringHooks.packetLossTracker.record(true);
       }
+    }
+    // One loss sample per burst, not per retransmitted packet — see receiveNAK.
+    if (toRetransmit.length > 0) {
       ctx.lossWindow.push(true);
     }
     metrics.queueDepth = retransmitQueue.getSize();
@@ -280,6 +283,15 @@ export async function receiveNAK(
       if (mut.monitoringHooks && mut.monitoringHooks.packetLossTracker) {
         mut.monitoringHooks.packetLossTracker.record(true);
       }
+    }
+
+    // Record ONE loss sample per NAK event, not one per retransmitted packet.
+    // lossWindow holds 50 slots and receives a `false` per sent packet, so
+    // pushing per-packet let a single burst of >=50 retransmits (1% real loss
+    // over a few thousand packets) fill the window and report 100% loss. The
+    // congestion controller then walked the delta timer to its 5s ceiling and
+    // needed minutes to recover.
+    if (toRetransmit.length > 0) {
       ctx.lossWindow.push(true);
     }
 

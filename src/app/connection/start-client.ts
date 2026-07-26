@@ -184,7 +184,8 @@ function createReliableClient(ctx: ConnectionContext): ReliableClient {
 
 /** Build the reliable client pipeline and wire its handlers/heartbeat/HELLO. */
 async function setupReliableClient(ctx: ConnectionContext): Promise<void> {
-  const { state, app, instanceId, options, services, recordError } = ctx;
+  const { state, app, instanceId, options, services, recordError, lifecycle } = ctx;
+  if (lifecycle.isShuttingDown()) return;
   initMonitoring(ctx);
 
   const v2 = createReliableClient(ctx);
@@ -218,6 +219,7 @@ async function setupReliableClient(ctx: ConnectionContext): Promise<void> {
   // replay enforcement) and the peer stays unidentified (dropping all client
   // telemetry).
   await initBonding(ctx, v2);
+  if (lifecycle.isShuttingDown()) return;
 
   // Re-HELLO whenever the active link changes: failover moves the source port
   // again, which the server sees as a brand-new, unhandshaked peer.
@@ -285,9 +287,18 @@ export async function startClient(ctx: ConnectionContext): Promise<void> {
   if (lifecycle.isShuttingDown()) return;
 
   await loadDeltaTimer(ctx);
+  if (lifecycle.isShuttingDown()) return;
+
   // Resolve the monotonic anti-replay epoch before the pipeline (and its first
   // HELLO) is built in setupReliableClient below.
   state.connectionEpoch = await resolveMonotonicEpoch(epochFilePath(ctx), app);
+
+  // Every allocation below (keepalive interval, UDP socket, metrics and
+  // congestion intervals, heartbeat interval, source-snapshot interval, bonding
+  // sockets + health interval) happens after an await. Without this guard a
+  // stop() landing in one of those windows still creates them — and because
+  // teardown has already run, nothing is left holding a handle to clear them.
+  if (lifecycle.isShuttingDown()) return;
 
   services.keepaliveManager.start();
   state.socketUdp = socketManager.create();

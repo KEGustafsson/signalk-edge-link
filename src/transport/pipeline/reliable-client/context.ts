@@ -16,7 +16,11 @@
  */
 
 import CircularBuffer from "../../../foundation/circular-buffer";
-import { HELLO_RETRY_BASE_MS } from "../../../foundation/constants";
+import {
+  HELLO_RETRY_BASE_MS,
+  UDP_RATE_LIMIT_MAX_PACKETS,
+  UDP_RATE_LIMIT_WINDOW
+} from "../../../foundation/constants";
 import { PacketBuilder, PacketParser } from "../../../codec/packet-codec";
 import { RetransmitQueue } from "../../reliability/retransmit-queue";
 import { MetricsPublisher } from "../../metrics/publisher";
@@ -78,7 +82,7 @@ export interface ClientContext {
   app: SignalKApp;
   state: InstanceState;
   metricsApi: MetricsApi;
-  setStatus: (message: string) => void;
+  setStatus: (message: string, healthyOverride?: boolean) => void;
   throttleState: PathThrottleState;
   dedupState: ValueDedupState;
   protocolVersion: number;
@@ -101,6 +105,24 @@ export interface ClientContext {
 
 const LOSS_WINDOW_SIZE = 50;
 
+/**
+ * Keep the recovery-burst rate at or below the receiver's per-session packet
+ * budget, leaving headroom for the live delta stream sharing that budget.
+ */
+function clampRecoveryBurst(
+  size: number,
+  intervalMs: number
+): { recoveryBurstSize: number; recoveryBurstIntervalMs: number } {
+  const interval = Math.max(1, intervalMs);
+  // Half the server budget: retransmits must not crowd out fresh DATA.
+  const maxPacketsPerWindow = (UDP_RATE_LIMIT_MAX_PACKETS / UDP_RATE_LIMIT_WINDOW) * interval * 0.5;
+  const cap = Math.max(1, Math.floor(maxPacketsPerWindow));
+  return {
+    recoveryBurstSize: Math.max(1, Math.min(size, cap)),
+    recoveryBurstIntervalMs: interval
+  };
+}
+
 /** Derive reliability settings from the connection's reliability options. */
 export function buildReliabilitySettings(
   reliabilityConfig: NonNullable<InstanceState["options"]>["reliability"] | undefined
@@ -116,8 +138,12 @@ export function buildReliabilitySettings(
     forceDrainAfterMs: cfg.forceDrainAfterMs ?? 45000,
     recoveryBurstEnabled:
       cfg.recoveryBurstEnabled !== undefined ? !!cfg.recoveryBurstEnabled : true,
-    recoveryBurstSize: cfg.recoveryBurstSize ?? 100,
-    recoveryBurstIntervalMs: cfg.recoveryBurstIntervalMs ?? 200,
+    // Clamp the burst to the receiver's own per-session budget. The server
+    // admits UDP_RATE_LIMIT_MAX_PACKETS per UDP_RATE_LIMIT_WINDOW *before*
+    // decrypt, counting retransmits; the previous default (100 per 200ms =
+    // 500/s against a 200/s budget) had the server discard ~60% of the burst,
+    // which suppressed the very ACKs that would end it.
+    ...clampRecoveryBurst(cfg.recoveryBurstSize ?? 100, cfg.recoveryBurstIntervalMs ?? 200),
     recoveryAckGapMs: cfg.recoveryAckGapMs ?? 4000
   };
 }
