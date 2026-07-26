@@ -40,11 +40,15 @@ jest.mock("@rjsf/validator-ajv8", () => ({
   default: { validate: jest.fn(), isValid: jest.fn(() => true) }
 }));
 
-jest.mock("@rjsf/utils", () => ({
-  // Passthrough: return the caller's formData unchanged so tests don't depend
-  // on RJSF's default-expansion logic.
-  getDefaultFormState: (_validator, _schema, formData) => formData
-}));
+// NOTE: `getDefaultFormState` is deliberately NOT mocked.
+//
+// It used to be stubbed to a passthrough "so tests don't depend on RJSF's
+// default-expansion logic" — but that expansion is exactly what drives the
+// progressive-disclosure decision. With the stub, "hides advanced fields by
+// default" passed while production did the opposite: RJSF materialized
+// `authenticatedHeaders: true` (a schema default) on every loaded connection,
+// which the advanced-detection then read as operator intent. Using the real
+// implementation keeps that class of bug visible.
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

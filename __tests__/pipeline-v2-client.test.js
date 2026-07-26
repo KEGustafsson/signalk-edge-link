@@ -155,7 +155,10 @@ describe("startMetricsPublishing / stopMetricsPublishing", () => {
 // ── startHeartbeat ────────────────────────────────────────────────────────────
 
 describe("startHeartbeat", () => {
-  afterEach(() => jest.useRealTimers());
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
 
   test("returns an object with a stop() method", () => {
     const { pipeline } = makeClient();
@@ -164,11 +167,53 @@ describe("startHeartbeat", () => {
     hb.stop();
   });
 
-  test("stop is idempotent", () => {
+  // A `typeof hb.stop === "function"` check alone passes even if the interval is
+  // never armed, or if stop() never clears it — i.e. a dead NAT keepalive (the
+  // link silently goes one-way once the UDP mapping expires) or a timer leak on
+  // every socket recovery. Assert on the timer itself.
+  test("arms an interval and clears it on stop", () => {
+    jest.useFakeTimers();
+    const { pipeline } = makeClient();
+    const before = jest.getTimerCount();
+
+    const hb = pipeline.startHeartbeat("127.0.0.1", 12345, { heartbeatInterval: 100 });
+    expect(jest.getTimerCount()).toBe(before + 1);
+
+    hb.stop();
+    expect(jest.getTimerCount()).toBe(before);
+  });
+
+  test("stop is idempotent and does not clear unrelated timers", () => {
+    jest.useFakeTimers();
     const { pipeline } = makeClient();
     const hb = pipeline.startHeartbeat("127.0.0.1", 12345);
+    const other = setInterval(() => {}, 1000);
+
     hb.stop();
+    const afterFirst = jest.getTimerCount();
     expect(() => hb.stop()).not.toThrow();
+    expect(jest.getTimerCount()).toBe(afterFirst);
+
+    clearInterval(other);
+  });
+
+  test("actually sends a HEARTBEAT packet on each tick", async () => {
+    jest.useFakeTimers();
+    const { pipeline, state } = makeClient();
+    const hb = pipeline.startHeartbeat("127.0.0.1", 12345, { heartbeatInterval: 100 });
+
+    state.socketUdp.send.mockClear();
+    jest.advanceTimersByTime(100);
+    // Let the async interval body settle.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(state.socketUdp.send).toHaveBeenCalled();
+    const sent = state.socketUdp.send.mock.calls[0][0];
+    // HEARTBEAT = 0x04 at header offset 3 (magic[0..1], version[2], type[3]).
+    expect(sent[3]).toBe(0x04);
+
+    hb.stop();
   });
 });
 
