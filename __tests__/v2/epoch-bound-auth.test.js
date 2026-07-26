@@ -96,19 +96,28 @@ describe("epoch-bound authentication", () => {
   });
 
   test("a bound builder's HELLO is byte-identical to an unbound one", () => {
-    // The HELLO payload embeds Date.now(), so compare with the timestamp
-    // normalised: everything else — header, flags and auth tag — must match,
-    // proving the epoch is genuinely excluded rather than merely unflagged.
+    // buildHelloPacket stamps `timestamp: Date.now()` itself and ignores any
+    // timestamp passed in `info`, so the two builds must be frozen to the same
+    // instant. Without this the assertion passes only when both land in the
+    // same millisecond — it straddled a boundary on a slow Windows runner and
+    // failed there while every other platform passed.
     // (This is also why HELLO is not frozen in the conformance vectors.)
-    const info = { clientId: "c", instanceId: "c", epoch: EPOCH, timestamp: 1700000000000 };
-    const bound = makeBuilder({ epochBoundAuth: true, connectionEpoch: EPOCH }).buildHelloPacket(
-      info,
-      { secretKey: SECRET }
-    );
-    const unbound = makeBuilder({ epochBoundAuth: false }).buildHelloPacket(info, {
-      secretKey: SECRET
-    });
-    expect(bound.equals(unbound)).toBe(true);
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(1700000000000);
+    try {
+      const info = { clientId: "c", instanceId: "c", epoch: EPOCH };
+      const bound = makeBuilder({ epochBoundAuth: true, connectionEpoch: EPOCH }).buildHelloPacket(
+        info,
+        { secretKey: SECRET }
+      );
+      const unbound = makeBuilder({ epochBoundAuth: false }).buildHelloPacket(info, {
+        secretKey: SECRET
+      });
+      // Byte-identical proves the epoch is genuinely excluded from HELLO's auth
+      // tag, not merely omitted from the flag byte.
+      expect(bound.equals(unbound)).toBe(true);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   test("a bound tag differs from an unbound one for identical content", async () => {
