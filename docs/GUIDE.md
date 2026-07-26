@@ -366,7 +366,7 @@ The receiver identifies v1 packets because they **do not** start with the `SK` m
 - No retransmission — packet loss is unrecovered
 - No RTT measurement (uses external ping monitor instead)
 - No congestion control or bonding
-- Metadata transport requires a separate UDP port (`udpMetaPort`)
+- Metadata transport is not available (v1 has no packet-type byte); use v3 if you need metadata
 
 #### v1 configuration example
 
@@ -543,19 +543,18 @@ These sit outside `connections[]`, at the root of the plugin config:
 
 ### 7.2 Common fields (client and server)
 
-| Field                 | Type    | Default        | Description                                                                                                            |
-| --------------------- | ------- | -------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `name`                | string  | `"connection"` | Label shown in UI and logs. Used as directory name for runtime config files. Max 40 characters.                        |
-| `serverType`          | string  | `"client"`     | `"client"` sends data; `"server"` receives data.                                                                       |
-| `udpPort`             | integer | `4446`         | UDP port. Range 1024–65535. Must match on both ends.                                                                   |
-| `udpMetaPort`         | integer | —              | Optional separate UDP port for v1 metadata packets. Ignored by v3 (which multiplex metadata on the main port).         |
-| `secretKey`           | string  | — (required)   | AES-256 encryption key. Accepts 32-char ASCII, 64-char hex, or 44-char base64. Must match exactly on both ends.        |
-| `stretchAsciiKey`     | boolean | `false`        | When `true`, runs a 32-char ASCII key through PBKDF2-SHA256 (600,000 iterations) before use. **Both ends must match.** |
-| `protocolVersion`     | integer | `3`            | `1` (basic v1) or `3` (reliable v3). Legacy stored `2` is accepted and coerced to `3`; peers must match.               |
-| `useMsgpack`          | boolean | `false`        | Serialize deltas as MessagePack instead of JSON. Saves ~15–25%. **Both ends must match.**                              |
-| `usePathDictionary`   | boolean | `false`        | Replace Signal K path strings with 2-byte numeric IDs. Saves ~10–20%. **Both ends must match.**                        |
-| `enableNotifications` | boolean | `false`        | Forward Signal K notification deltas over the link.                                                                    |
-| `skipOwnData`         | boolean | `false`        | (Client only) Drop all `networking.edgeLink.*` metrics before forwarding — prevents feedback loops.                    |
+| Field                 | Type    | Default        | Description                                                                                                                                                                                     |
+| --------------------- | ------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                | string  | `"connection"` | Label shown in UI and logs. Used as directory name for runtime config files. Max 40 characters.                                                                                                 |
+| `serverType`          | string  | `"client"`     | `"client"` sends data; `"server"` receives data.                                                                                                                                                |
+| `udpPort`             | integer | `4446`         | UDP port. Range 1024–65535. Must match on both ends.                                                                                                                                            |
+| `secretKey`           | string  | — (required)   | AES-256 encryption key. Accepts 32-char ASCII, 64-char hex, or 44-char base64. Must match exactly on both ends.                                                                                 |
+| `stretchAsciiKey`     | boolean | `false`        | When `true`, runs a 32-char ASCII key through PBKDF2-SHA256 (600,000 iterations) before use. **Both ends must match.**                                                                          |
+| `protocolVersion`     | integer | `1`            | `1` (basic v1) or `3` (reliable v3). Defaults to `1`; set `3` explicitly to get reliability, bonding, metrics and metadata. Legacy stored `2` is accepted and coerced to `3`; peers must match. |
+| `useMsgpack`          | boolean | `false`        | Serialize deltas as MessagePack instead of JSON. Saves ~15–25%. **Both ends must match.**                                                                                                       |
+| `usePathDictionary`   | boolean | `false`        | Replace Signal K path strings with 2-byte numeric IDs. Saves ~10–20%. **Both ends must match.**                                                                                                 |
+| `enableNotifications` | boolean | `false`        | Forward Signal K notification deltas over the link.                                                                                                                                             |
+| `skipOwnData`         | boolean | `false`        | (Client only) Drop all `networking.edgeLink.*` metrics before forwarding — prevents feedback loops.                                                                                             |
 
 ### 7.3 Client transport fields
 
@@ -563,7 +562,7 @@ These sit outside `connections[]`, at the root of the plugin config:
 | -------------------- | ------- | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `udpAddress`         | string  | `"127.0.0.1"` | Hostname or IP address of the remote server. Required for client connections.                                             |
 | `helloMessageSender` | integer | `60`          | Interval in **seconds** between HELLO keepalive messages. Keeps NAT/firewall mappings alive. Range 10–3600.               |
-| `heartbeatInterval`  | integer | `25000`       | Interval in **ms** between HEARTBEAT probes (v3 only). Used for RTT measurement and NAT hole-punching. Range 1000–120000. |
+| `heartbeatInterval`  | integer | `25000`       | Interval in **ms** between HEARTBEAT probes (v3 only). Used for RTT measurement and NAT hole-punching. Range 5000–120000. |
 
 ### 7.4 v1 ping monitor fields (client, v1 only)
 
@@ -733,7 +732,7 @@ Controls which Signal K paths are transmitted, and optionally enables metadata s
 
 **How metadata streaming works:** When enabled, the client forwards an initial full snapshot shortly after subscribing, coalesces live `updates[].meta[]` changes over a short debounce window, and re-broadcasts the full snapshot every `intervalSec`. A restarted server may also send `META_REQUEST` to demand an immediate snapshot.
 
-**v1 caveat:** v1 has no packet-type byte, so metadata is transmitted on a separate UDP port (`udpMetaPort`). If `udpMetaPort` is not configured, metadata is a no-op on v1. v3 multiplex metadata on the main data port using packet type `0x06`.
+**v1 caveat:** v1 has no packet-type byte and therefore carries no metadata at all — metadata is a no-op on v1. Use protocol v3, which multiplexes metadata onto the main data port using packet type `0x06`.
 
 ### sentence_filter.json
 
@@ -1294,7 +1293,7 @@ Build a Grafana dashboard from the Prometheus metrics exposed at `/prometheus` (
 
 **Base path:** `/plugins/signalk-edge-link`  
 **Rate limit:** 120 requests/minute/IP → HTTP 429  
-**API version tracked (current: 3.1.0)** — for endpoint changes between releases, see `docs/pr-records/`
+**API version tracked (current: 3.1.0)** — see CHANGELOG.md for endpoint changes between releases
 
 ### 14.1 Core data endpoints
 

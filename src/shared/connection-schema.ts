@@ -20,6 +20,41 @@ export type SchemaFragment = Record<string, unknown>;
 
 // ── Common (client + server) ──────────────────────────────────────────────────
 
+/**
+ * Options that only affect the SENDING side. Every consumer lives on the client
+ * send path (delta-sender / metadata-sender / source-snapshot / v1-helpers);
+ * the receiver auto-detects the wire encoding rather than reading config. They
+ * are therefore offered in client mode only, and `sanitizeConnectionConfig`
+ * strips them from server connections.
+ */
+export const SENDER_ONLY_KEYS = [
+  "pathFilter",
+  "pathPrecision",
+  "pathThrottle",
+  "brotliQuality",
+  "useValueDedup",
+  "useCompactDeltas",
+  "heartbeatInterval"
+] as const;
+
+/** Just the sender-only entries, for the client branch of the schemas. */
+export function senderOnlyProperties(): Record<string, SchemaFragment> {
+  const out: Record<string, SchemaFragment> = {};
+  for (const key of SENDER_ONLY_KEYS) {
+    if (commonConnectionProperties[key]) out[key] = commonConnectionProperties[key];
+  }
+  return out;
+}
+
+/** `commonConnectionProperties` minus the sender-only entries. */
+export function serverConnectionProperties(): Record<string, SchemaFragment> {
+  const out: Record<string, SchemaFragment> = { ...commonConnectionProperties };
+  for (const key of SENDER_ONLY_KEYS) {
+    delete out[key];
+  }
+  return out;
+}
+
 export const commonConnectionProperties: Record<string, SchemaFragment> = {
   name: {
     type: "string",
@@ -125,7 +160,10 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     additionalProperties: false
   },
   brotliQuality: {
-    type: "number",
+    // "integer", not "number": validateConnectionConfig requires an integer, so
+    // a plain number input let the UI submit e.g. 6.5 with no client-side error
+    // and then fail the save.
+    type: "integer",
     title: "Brotli Quality (0-11)",
     description:
       "Compression quality for outbound packets. Higher values produce smaller packets at higher CPU cost. " +
@@ -627,7 +665,10 @@ export function buildConnectionItemSchema(): SchemaFragment {
     type: "object",
     title: "Connection",
     required: ["serverType", "udpPort", "secretKey"],
-    properties: { ...commonConnectionProperties },
+    // Sender-only options are attached to the client branch below instead of
+    // the shared property set, so server mode does not advertise settings its
+    // runtime ignores.
+    properties: serverConnectionProperties(),
     dependencies: {
       serverType: {
         oneOf: [
@@ -641,6 +682,7 @@ export function buildConnectionItemSchema(): SchemaFragment {
           {
             properties: {
               serverType: { enum: ["client"] },
+              ...senderOnlyProperties(),
               ...clientTransportProperties,
               ...v1ClientPingProperties,
               reliability: clientReliabilityProperty,
@@ -707,7 +749,12 @@ export function buildWebappConnectionSchema(
   }
 
   const isReliableProtocol = Number(protocolVersion) >= 2;
-  const props: Record<string, SchemaFragment> = { ...commonConnectionProperties };
+  // Sender-only options are meaningless on a server connection (see
+  // SENDER_ONLY_KEYS); offering them there would let an operator configure e.g.
+  // pathFilter and believe inbound data was being filtered.
+  const props: Record<string, SchemaFragment> = isClient
+    ? { ...commonConnectionProperties }
+    : serverConnectionProperties();
   const required = ["serverType", "udpPort", "secretKey"];
 
   // useValueDedup / useCompactDeltas are reliable-transport (v3) features; the

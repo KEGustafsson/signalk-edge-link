@@ -156,28 +156,38 @@ function sanitizeUpdateForSignalK(rawUpdate: unknown): SanitizeUpdateResult {
     updateChanged = true;
   }
 
-  const values: DeltaValue[] = [];
-  for (const rawValue of rawValues) {
+  // Allocate the filtered array only once something actually needs filtering.
+  // This runs per update of every delta (hundreds per second on an NMEA2000
+  // vessel, and twice per outbound delta because the sender re-sanitizes a
+  // payload the producer already sanitized), and the overwhelmingly common case
+  // is that nothing changes.
+  let values: DeltaValue[] | null = null;
+  let validCount = 0;
+  for (let i = 0; i < rawValues.length; i++) {
+    const rawValue = rawValues[i];
     if (!isObject(rawValue) || !isValidValuePath(rawValue.path)) {
+      if (values === null) {
+        // First rejection: materialize the values accepted so far.
+        values = rawValues.slice(0, i) as unknown as DeltaValue[];
+      }
       updateChanged = true;
       continue;
     }
-    values.push(rawValue as unknown as DeltaValue);
-  }
-
-  if (values.length !== rawValues.length) {
-    updateChanged = true;
+    validCount++;
+    if (values !== null) {
+      values.push(rawValue as unknown as DeltaValue);
+    }
   }
 
   const hasMeta = Array.isArray(update.meta) && update.meta.length > 0;
-  if (values.length === 0 && !hasMeta) {
+  if (validCount === 0 && !hasMeta) {
     return { kind: "dropped" };
   }
 
   if (!updateChanged) {
     return { kind: "unchanged", update };
   }
-  return { kind: "replaced", update: { ...update, values } };
+  return { kind: "replaced", update: { ...update, values: values ?? [] } };
 }
 
 /**
@@ -190,26 +200,34 @@ export function sanitizeDeltaForSignalK(delta: Delta | null | undefined): Delta 
     return null;
   }
 
-  let changed = false;
-  const sanitizedUpdates: DeltaUpdate[] = [];
+  // As above: build the replacement array lazily so an unchanged delta — the
+  // common case — costs no allocation at all.
+  let sanitizedUpdates: DeltaUpdate[] | null = null;
+  let keptCount = 0;
+  const rawUpdates = delta.updates as unknown[];
 
-  for (const rawUpdate of delta.updates as unknown[]) {
-    const result = sanitizeUpdateForSignalK(rawUpdate);
+  for (let i = 0; i < rawUpdates.length; i++) {
+    const result = sanitizeUpdateForSignalK(rawUpdates[i]);
     if (result.kind === "dropped") {
-      changed = true;
-    } else {
-      if (result.kind === "replaced") {
-        changed = true;
+      if (sanitizedUpdates === null) {
+        sanitizedUpdates = (delta.updates as DeltaUpdate[]).slice(0, i);
       }
+      continue;
+    }
+    if (result.kind === "replaced" && sanitizedUpdates === null) {
+      sanitizedUpdates = (delta.updates as DeltaUpdate[]).slice(0, i);
+    }
+    keptCount++;
+    if (sanitizedUpdates !== null) {
       sanitizedUpdates.push(result.update);
     }
   }
 
-  if (sanitizedUpdates.length === 0) {
+  if (keptCount === 0) {
     return null;
   }
 
-  if (!changed && sanitizedUpdates.length === delta.updates.length) {
+  if (sanitizedUpdates === null) {
     return delta;
   }
 
@@ -221,10 +239,25 @@ export function sanitizeDeltaForSignalK(delta: Delta | null | undefined): Delta 
 
 export function sanitizeDeltaPayloadForSignalK(delta: DeltaPayload): DeltaPayload | null {
   if (Array.isArray(delta)) {
-    const sanitized = delta
-      .map((item) => sanitizeDeltaForSignalK(item))
-      .filter((item): item is Delta => item !== null);
-    return sanitized.length > 0 ? sanitized : null;
+    // Return the input array by reference when every entry survives unchanged,
+    // avoiding the two intermediate arrays that .map().filter() allocates per
+    // batch.
+    let sanitized: Delta[] | null = null;
+    let keptCount = 0;
+    for (let i = 0; i < delta.length; i++) {
+      const item = sanitizeDeltaForSignalK(delta[i]);
+      if (item === null) {
+        if (sanitized === null) sanitized = delta.slice(0, i);
+        continue;
+      }
+      if (item !== delta[i] && sanitized === null) {
+        sanitized = delta.slice(0, i);
+      }
+      keptCount++;
+      if (sanitized !== null) sanitized.push(item);
+    }
+    if (keptCount === 0) return null;
+    return sanitized ?? delta;
   }
 
   if (isDeltaLike(delta)) {

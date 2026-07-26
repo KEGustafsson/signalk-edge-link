@@ -98,6 +98,24 @@ const ONE_SERVER = {
   }
 };
 
+const ONE_CLIENT = {
+  success: true,
+  configuration: {
+    connections: [
+      {
+        name: "boat-client",
+        serverType: "client",
+        udpPort: 4446,
+        udpAddress: "10.0.0.1",
+        secretKey: "a".repeat(32),
+        protocolVersion: 3
+      }
+    ],
+    managementApiToken: "",
+    requireManagementApiToken: false
+  }
+};
+
 const TWO_CONNECTIONS = {
   success: true,
   configuration: {
@@ -626,8 +644,44 @@ describe("PluginConfigurationPanel", () => {
 
     const props = Object.keys(latestRjsfForm().schema.properties);
     expect(props).toContain("useMsgpack");
-    expect(props).toContain("brotliQuality");
     expect(screen.getByText(/Hide advanced settings/)).toBeInTheDocument();
+  });
+
+  // Sender-only options have no effect on a server connection: every consumer is
+  // on the client send path, and the receiver auto-detects the wire encoding.
+  // Offering them in server mode invited operators to set e.g. pathFilter and
+  // believe inbound data was being filtered.
+  test("server mode does not offer sender-only options even when advanced", async () => {
+    apiFetch.mockResolvedValueOnce(makeOk(ONE_SERVER));
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+
+    fireEvent.click(screen.getByText(/Show advanced settings/));
+
+    const props = Object.keys(latestRjsfForm().schema.properties);
+    for (const key of [
+      "brotliQuality",
+      "pathFilter",
+      "pathPrecision",
+      "pathThrottle",
+      "useValueDedup",
+      "useCompactDeltas",
+      "heartbeatInterval"
+    ]) {
+      expect(props).not.toContain(key);
+    }
+  });
+
+  test("client mode does offer sender-only options when advanced", async () => {
+    apiFetch.mockResolvedValueOnce(makeOk(ONE_CLIENT));
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("boat-client"));
+
+    fireEvent.click(screen.getByText(/Show advanced settings/));
+
+    const props = Object.keys(latestRjsfForm().schema.properties);
+    expect(props).toContain("brotliQuality");
+    expect(props).toContain("pathFilter");
   });
 
   test("starts expanded when the connection already uses advanced options", async () => {

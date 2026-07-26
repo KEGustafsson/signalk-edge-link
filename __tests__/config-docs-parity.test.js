@@ -5,12 +5,14 @@ const path = require("path");
 const { validateConnectionConfig } = require("../src/connection-config");
 
 const repoRoot = path.join(__dirname, "..");
-const sampleFiles = [
-  "samples/minimal-config.json",
-  "samples/development.json",
-  "samples/v3-with-bonding.json",
-  "samples/v3-authenticated-control.json"
-];
+// Enumerate the directory rather than listing files: a hardcoded list let
+// samples/v2-with-bonding.json escape validation entirely (it was the only
+// sample not listed, and it still used the removed protocolVersion 2).
+const sampleFiles = fs
+  .readdirSync(path.join(repoRoot, "samples"))
+  .filter((f) => f.endsWith(".json"))
+  .sort()
+  .map((f) => `samples/${f}`);
 
 function readJson(relativePath) {
   return JSON.parse(fs.readFileSync(path.join(repoRoot, relativePath), "utf8"));

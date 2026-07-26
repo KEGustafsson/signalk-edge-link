@@ -1,6 +1,6 @@
 ---
-last_mapped_commit: a75c933eae70417f99a23fd041cbc7960b26ac6d
-mapped_at: 2026-04-30
+last_mapped_commit: HEAD
+mapped_at: 2026-07-26
 scope: full repo
 ---
 
@@ -22,28 +22,28 @@ scope: full repo
 - Impact: Packet-order, stale session, and reconnect edge cases are easy to miss without targeted tests.
 - Fix approach: Prefer small helper extraction plus tests in `__tests__/v2/` and `test/integration/` when touching these modules.
 
-**Documentation drift in architecture docs:**
+**Documentation drift in architecture docs — RESOLVED (2026-07-26):**
 
-- Issue: `docs/architecture-overview.md` references some legacy file names such as `src/bonding-manager.ts`, `src/congestion-control.ts`, `src/alert-manager.ts`, and `src/sequence-tracker.ts`; the current code uses `src/bonding.ts`, `src/congestion.ts`, `src/monitoring.ts`, and `src/sequence.ts`.
-- Why: Implementation names changed while the high-level architecture doc kept older names.
-- Impact: New contributors can search for files that no longer exist.
-- Fix approach: Update `docs/architecture-overview.md` when next touching docs or architecture.
+- `docs/architecture-overview.md` no longer references the legacy file names; `scripts/check-release-truth.js` now gates against them.
 
-**Release-version documentation drift:**
+**Release-version documentation drift — RESOLVED (2026-07-26):**
 
-- Issue: `docs/api-reference.md` title says current `2.1.1`, while `package.json` declares version `2.5.0`.
-- Why: API docs were not synchronized with later release metadata.
-- Impact: Operators may question whether endpoint docs match the installed package.
-- Fix approach: Update API doc version and add a release-doc check before publishing.
+- `docs/GUIDE.md`, `docs/README.md` and `docs/api-reference.md` all carry the current version marker, enforced by `npm run check:release-docs`.
 
 ## Known Bugs
 
-**No confirmed active runtime bug found in this mapping pass.**
+**No known open runtime bugs.**
 
-- Evidence: Existing review docs such as `docs/code-review-2026-04-29.md` report no blocking defects for the reviewed management auth/rate-limit path.
-- Caveat: This was a static mapping pass, not a full test run or manual runtime exercise.
+- Evidence: `docs/code-review-2026-07-26.md` records a full multi-aspect review (security, protocol reliability, lifecycle, web UI, tests, configuration parity, hot-path performance). Every finding it raised has been fixed; see the commits referencing that document.
+- Caveat: that review combined static analysis with targeted execution of the affected code paths, not a full field trial.
 
 ## Security Considerations
+
+**DATA replay protection depends on the HELLO handshake:**
+
+- Risk: Anti-replay enforcement arms only once a peer completes an epoch handshake. A peer that never handshakes is not strictly enforced (retained for pre-H3 compatibility).
+- Current mitigation: HELLO is retried with exponential backoff until a control packet confirms it; DATA arriving on an unhandshaked source port of an already-handshaked address fails closed, so rotating the source port cannot bypass the window.
+- Residual: an attacker able to spoof a source IP that has never been seen by this server still lands in the unenforced path. Closing that requires binding the connection epoch into the packet's authenticated data, which is a wire-format change — tracked in `.planning/ROADMAP.md` under the 999.x protocol backlog.
 
 **Management API can remain open by default for backward compatibility:**
 
@@ -74,7 +74,7 @@ scope: full repo
 **Synchronous option persistence for alert threshold updates:**
 
 - Problem: `POST /monitoring/alerts` persists changes through `app.savePluginOptions` on each request.
-- Evidence: `docs/code-quality-report.md` flags the path and recommends coalescing saves; route logic lives in `src/routes/monitoring.ts`.
+- Evidence: route logic lives in `src/routes/monitoring.ts`; alert persistence coalescing was implemented in phase 02-03 (see `.planning/phases/02-management-api-hardening-and-observability/02-03-SUMMARY.md`).
 - Cause: Alert updates are persisted immediately for durability.
 - Improvement path: Debounce or coalesce alert persistence per connection, then add tests for persistence ordering and failure responses.
 
@@ -91,7 +91,7 @@ scope: full repo
 - Why fragile: `src/app/connection.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, `src/bonding.ts`, and `src/sequence.ts` create timers, intervals, sockets, and listener callbacks.
 - Common failures: Leaked timers after stop, duplicate socket listeners after recovery, stale pipeline workers, or cleanup order regressions.
 - Safe modification: Pair every new timer/listener/resource with explicit cleanup and add tests around stop/restart/recovery.
-- Test coverage: Existing tests cover many recovery paths, but `docs/code-quality-report.md` still lists lifecycle modules as coverage gaps.
+- Test coverage: `__tests__/app/socket-recovery.test.js` now covers client socket recovery (backoff, re-arm, shutdown guards) directly; server-mode recovery was added 2026-07-26.
 
 **Shared schema and validation parity:**
 
@@ -152,7 +152,7 @@ _No outstanding critical-feature gaps in this area at the time of last mapping p
 
 **Lifecycle and pipeline branch coverage:**
 
-- What's not fully covered: File-level branch coverage for `src/app/connection.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, and `src/config-watcher.ts` is called out in `docs/code-quality-report.md`.
+- What's not fully covered: branch coverage in `src/app/connection.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, and `src/app/config/watcher.ts` remains below the rest of the tree.
 - Risk: Regressions in rare error/recovery paths can escape broad tests.
 - Priority: High for protocol/lifecycle changes.
 - Difficulty to test: Requires carefully controlled sockets, timers, filesystem watcher behavior, and packet-loss scenarios.

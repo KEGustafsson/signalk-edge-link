@@ -8,6 +8,13 @@ Findings are ordered by severity. Each one names the file and line so it can be
 checked independently. "Verified" marks a finding reproduced by executing the code;
 the rest were confirmed by reading the implementation and its tests.
 
+> **Status: all findings in this document have been fixed.** See the commits that
+> reference this file. Line numbers below refer to the code _as reviewed_, before
+> those fixes, so they will not match current `HEAD` — the descriptions of the
+> defects and their consequences are preserved as the rationale for the changes.
+> The conformance vectors regenerate byte-identical after every fix, so none of
+> the changes altered the wire format.
+
 ## Toolchain baseline
 
 | Check                                       | Result                                   |

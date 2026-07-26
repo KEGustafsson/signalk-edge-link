@@ -250,15 +250,18 @@ value length are capped, the per-snapshot provider count is bounded,
 and recursion depth is limited. Exact numeric limits are
 implementation-defined.
 
-### v1 metadata transport (separate UDP port)
+### v1 metadata transport
 
 The legacy v1 (Basic) wire format has no packet-type byte, so meta cannot be
 multiplexed onto the DATA port without confusing existing v1 receivers.
-Instead, when a v1 client has `udpMetaPort` configured, meta is sent to that
-**separate UDP port** with the 4-byte ASCII magic `SKM1` prefixed inside the
-encrypted plaintext (i.e. before Brotli/AES). Receivers without the magic-aware
-unpacker fail to JSON-parse the payload and silently drop it, preserving
-backwards compatibility.
+
+**v1 therefore carries no metadata.** Metadata transport requires protocol v3,
+which uses the METADATA packet type (`0x06`) on the main data port.
+
+> An earlier design proposed a separate metadata UDP port (`udpMetaPort`) with
+> the 4-byte ASCII magic `SKM1` prefixed inside the encrypted plaintext. It was
+> never implemented — no such option exists in the configuration schema or the
+> runtime — and the documentation that described it has been removed.
 
 ## 4. Flags
 

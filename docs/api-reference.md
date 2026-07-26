@@ -2,7 +2,7 @@
 
 > **Base path:** `/plugins/signalk-edge-link`  
 > **Rate limit:** 120 requests/minute/IP → HTTP 429  
-> **API version tracked (current: 3.1.0)** — for endpoint changes between releases, see `docs/pr-records/`
+> **API version tracked (current: 3.1.0)** — see CHANGELOG.md for endpoint changes between releases
 
 ---
 
@@ -413,7 +413,7 @@ Patch one instance configuration. Triggers a plugin restart. Returns `200` on su
 
 Updatable: `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`, `udpAddress`, `helloMessageSender`, `reliability`, `congestionControl`, `bonding`, `alertThresholds`.
 
-**Not updatable via this endpoint:** `serverType`, `udpPort`, `secretKey`. Any other field (including `udpMetaPort`, `testAddress`, `testPort`, and `pingIntervalTime`) is rejected with `400`; change those by replacing the full configuration via `POST /plugin-config`.
+**Not updatable via this endpoint:** `serverType`, `udpPort`, `secretKey`. Any other field (including `testAddress`, `testPort`, and `pingIntervalTime`) is rejected with `400`; change those by replacing the full configuration via `POST /plugin-config`.
 
 **Errors:** `400` (unsupported field, validation), `401`, `404`, `503`.
 

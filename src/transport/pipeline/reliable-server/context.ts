@@ -352,19 +352,24 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
     preAuthByIp: new Map<string, { count: number; windowStart: number }>(),
     replayGuards: new Map<string, ReplayGuard>(),
     handshakedAddresses: new Map<string, number>(),
-    mut: {
-      ackTimer: null,
-      metricsInterval: null,
-      lastMetricsTime: Date.now(),
-      lastBytesReceived: 0,
-      lastPacketsReceived: 0,
-      previousSourceMissingIdentity: 0,
-      previousSourceConflicts: 0,
-      lastProtocolVersionMismatchWarnAt: 0,
-      lastAuthHeaderMismatchWarnAt: 0,
-      telemetryOwnerSessionKey: null,
-      telemetryOwnerLastSeen: 0
-    }
+    mut: createMutableState()
+  };
+}
+
+/** Initial per-pipeline mutable scalars. Extracted to keep the factory small. */
+function createMutableState(): ServerMutableState {
+  return {
+    ackTimer: null,
+    metricsInterval: null,
+    lastMetricsTime: Date.now(),
+    lastBytesReceived: 0,
+    lastPacketsReceived: 0,
+    previousSourceMissingIdentity: 0,
+    previousSourceConflicts: 0,
+    lastProtocolVersionMismatchWarnAt: 0,
+    lastAuthHeaderMismatchWarnAt: 0,
+    telemetryOwnerSessionKey: null,
+    telemetryOwnerLastSeen: 0
   };
 }
 

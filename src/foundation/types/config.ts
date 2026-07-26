@@ -40,15 +40,15 @@ export interface ReliabilityConfig {
 
 /** Congestion control configuration. */
 export interface CongestionControlConfig {
-  /** Enable automatic congestion-based delta timer adjustment. Default true. */
+  /** Enable automatic congestion-based delta timer adjustment. Default false. */
   enabled?: boolean;
-  /** RTT target that the algorithm aims for (ms). Default 150. */
+  /** RTT target that the algorithm aims for (ms). Default 200. */
   targetRTT?: number;
   /** Normal delta send interval used as the starting point for adjustment (ms). Default 1000. */
   nominalDeltaTimer?: number;
   /** Minimum delta send interval the algorithm will set (ms). Default 100. */
   minDeltaTimer?: number;
-  /** Maximum delta send interval the algorithm will set (ms). Default 10000. */
+  /** Maximum delta send interval the algorithm will set (ms). Default 5000. */
   maxDeltaTimer?: number;
 }
 
@@ -143,11 +143,12 @@ export interface ConnectionConfig {
    * unauthenticated-header gap (an on-path attacker can otherwise flip header
    * bits such as the sequence number and recompute only the CRC). **Both peers
    * must use the same setting** — a mismatch fails authentication and drops
-   * every DATA packet. Default false (legacy CRC-only header). Adds 16 bytes
-   * per DATA/METADATA packet.
+   * every DATA packet. Default TRUE in v3; set false only when both peers are
+   * configured with it off (legacy CRC-only header). Adds 16 bytes per
+   * DATA/METADATA packet.
    */
   authenticatedHeaders?: boolean;
-  /** Wire protocol version (1 or 3). Legacy stored 2 is coerced to 3. Default 3. */
+  /** Wire protocol version (1 or 3). Legacy stored 2 is coerced to 3. Default 1. */
   protocolVersion?: number;
   /** Serialize deltas with MessagePack instead of JSON (smaller, faster). Default false. */
   useMsgpack?: boolean;
@@ -244,13 +245,13 @@ export interface ConnectionConfig {
    * retry count. Default 60.
    */
   helloMessageSender?: number;
-  /** Override destination address used in automated tests. */
+  /** Target address for the v1 ping-monitor reachability probe. Default "127.0.0.1". */
   testAddress?: string;
-  /** Override destination port used in automated tests. */
+  /** Target port for the v1 ping-monitor reachability probe. Default 80. */
   testPort?: number;
-  /** Interval between PING keepalive packets (ms). Default 25000. */
+  /** Interval between v1 ping-monitor probes, in MINUTES. Default 1 (range 0.1-60). */
   pingIntervalTime?: number;
-  /** Interval between heartbeat packets (ms). */
+  /** Interval between heartbeat packets (ms). Default 25000 (range 5000-120000). */
   heartbeatInterval?: number;
   /** ARQ reliability layer configuration (ACK/NAK/retransmit). */
   reliability?: ReliabilityConfig;

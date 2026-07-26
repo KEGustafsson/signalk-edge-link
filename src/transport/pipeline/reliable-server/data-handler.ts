@@ -260,6 +260,37 @@ async function rejectReplayedDataPacket(
 }
 
 /**
+ * Drop a packet the receive window has already accounted for.
+ *
+ * Besides an outright duplicate, this covers a *late arrival*: a retransmission
+ * that reached us after the window advanced past it, so its entry had aged out
+ * of the tracker's seen-set and the duplicate check cannot catch it. Its payload
+ * was either already dispatched or declared lost, so dispatching it now would
+ * re-inject a stale delta into the Signal K tree. Both cases still ACK, so the
+ * sender stops retransmitting.
+ *
+ * @returns true when the packet was handled here and must not be processed.
+ */
+async function rejectAlreadySeenPacket(
+  ctx: ServerContext,
+  session: ClientSession | null,
+  parsed: ParsedPacket,
+  seqResult: { duplicate: boolean; lateArrival?: boolean },
+  rinfo?: { address: string; port: number }
+): Promise<boolean> {
+  if (!seqResult.duplicate && !seqResult.lateArrival) {
+    return false;
+  }
+  const { app, metrics } = ctx;
+  app.debug(`v2 ${seqResult.lateArrival ? "late" : "duplicate"} packet: seq=${parsed.sequence}`);
+  metrics.duplicatePackets = (metrics.duplicatePackets ?? 0) + 1;
+  if (session && session.sequenceTracker.expectedSeq !== null && rinfo) {
+    await ackDuplicate(ctx, session, rinfo);
+  }
+  return true;
+}
+
+/**
  * Sequence-track an authenticated DATA packet. Returns false (stop) for a
  * duplicate (after reflecting an immediate ACK); otherwise records the accepted
  * packet's bookkeeping (counters, full-status trigger, loss window) and returns
@@ -282,18 +313,7 @@ async function trackDataSequence(
     ? session.sequenceTracker.processSequence(parsed.sequence)
     : { duplicate: false, resynced: false, lateArrival: false };
 
-  // A late arrival is a retransmission that reached us after the window had
-  // already advanced past it (its entry aged out of the tracker's seen-set, so
-  // the duplicate check above cannot catch it). Its payload was either already
-  // dispatched or declared lost — dispatching it now would re-inject a stale
-  // delta into the Signal K tree. Treat it exactly like a duplicate here: ACK
-  // it so the sender stops retransmitting, but do not process the payload.
-  if (seqResult.duplicate || seqResult.lateArrival) {
-    app.debug(`v2 ${seqResult.lateArrival ? "late" : "duplicate"} packet: seq=${parsed.sequence}`);
-    metrics.duplicatePackets = (metrics.duplicatePackets ?? 0) + 1;
-    if (session && session.sequenceTracker.expectedSeq !== null && rinfo) {
-      await ackDuplicate(ctx, session, rinfo);
-    }
+  if (await rejectAlreadySeenPacket(ctx, session, parsed, seqResult, rinfo)) {
     return false;
   }
 

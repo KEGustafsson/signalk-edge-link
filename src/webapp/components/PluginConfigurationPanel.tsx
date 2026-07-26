@@ -274,22 +274,6 @@ const ADVANCED_BOOL_DEFAULTS: Record<string, boolean> = {
   enableNotifications: false
 };
 
-/**
- * True when an object group carries real operator configuration. An object whose
- * every property is an empty array/object (e.g. the materialized default
- * `pathFilter: { allow: [], deny: [] }`) is a schema default, not a setting.
- */
-function isNonDefaultObject(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
-  const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.length === 0) return false;
-  return entries.some(([, v]) => {
-    if (Array.isArray(v)) return v.length > 0;
-    if (v && typeof v === "object") return Object.keys(v).length > 0;
-    return v !== undefined && v !== null && v !== false && v !== "";
-  });
-}
-
 // Object groups that, when present and non-empty, mean advanced options are set.
 const ADVANCED_OBJECT_KEYS = [
   "pathFilter",
@@ -315,27 +299,51 @@ const ADVANCED_NUMERIC_DEFAULTS: Record<string, number> = {
 /**
  * Decide whether a loaded connection already uses advanced options, so the
  * Advanced section starts expanded instead of hiding settings the user has
- * deliberately configured. Default-valued scalars (filled in on load by
- * withSchemaDefaults) do not count as advanced.
+ * deliberately configured.
+ *
+ * Compares each advanced key against the value RJSF would materialize from the
+ * schema for an otherwise-bare connection of the same mode/protocol. Anything
+ * equal to its schema default was filled in by `withSchemaDefaults` on load and
+ * does not indicate operator intent.
+ *
+ * Getting this wrong is easy and was: an earlier version treated any `true`
+ * boolean as advanced, and `authenticatedHeaders` defaults to `true`, so every
+ * loaded connection reported "uses advanced options" and the progressive
+ * disclosure never engaged for anything but a brand-new card.
  */
+function schemaDefaultsFor(conn: ConnectionData): Record<string, unknown> {
+  const isClient = conn.serverType !== "server";
+  const schema = buildWebappConnectionSchema(isClient, conn.protocolVersion) as RJSFSchema;
+  const bare: Record<string, unknown> = {
+    serverType: conn.serverType,
+    protocolVersion: conn.protocolVersion
+  };
+  try {
+    return getDefaultFormState(validator, schema, bare) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
 function connectionUsesAdvanced(conn: ConnectionData): boolean {
   const c = conn as Record<string, unknown>;
+  const defaults = schemaDefaultsFor(conn);
+
+  const differsFromDefault = (key: string): boolean => {
+    const value = c[key];
+    if (value === undefined) return false;
+    return stableStringify(value) !== stableStringify(defaults[key]);
+  };
+
   for (const key of ADVANCED_BOOL_KEYS) {
-    // Compare against the SCHEMA default, not against `true`. `withSchemaDefaults`
-    // materializes every default on load, and `authenticatedHeaders` defaults to
-    // true — so a plain `=== true` test reported *every* loaded connection as
-    // "uses advanced options" and the progressive disclosure never engaged.
-    if (c[key] !== undefined && c[key] !== ADVANCED_BOOL_DEFAULTS[key]) return true;
+    if (differsFromDefault(key)) return true;
   }
   for (const key of ADVANCED_OBJECT_KEYS) {
-    const value = c[key];
-    if (isNonDefaultObject(value)) {
-      return true;
-    }
+    if (differsFromDefault(key)) return true;
   }
-  for (const [key, dflt] of Object.entries(ADVANCED_NUMERIC_DEFAULTS)) {
+  for (const key of Object.keys(ADVANCED_NUMERIC_DEFAULTS)) {
     if (key === "testAddress") continue;
-    if (c[key] !== undefined && c[key] !== dflt) return true;
+    if (differsFromDefault(key)) return true;
   }
   if (typeof c.testAddress === "string" && c.testAddress !== "127.0.0.1") return true;
   return false;

@@ -597,6 +597,18 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
     delete out.bonding;
     delete out.alertThresholds;
     delete out.skipOwnData;
+    // Sender-only options. Every consumer is on the client send path; the
+    // receiver auto-detects the wire encoding instead of consulting config
+    // (decodeDelta/undedupDelta run unconditionally). Retaining them on a
+    // server connection let an operator set e.g. pathFilter and reasonably
+    // believe inbound data was being filtered, which it never was.
+    delete out.pathFilter;
+    delete out.pathPrecision;
+    delete out.pathThrottle;
+    delete out.brotliQuality;
+    delete out.useValueDedup;
+    delete out.useCompactDeltas;
+    delete out.heartbeatInterval;
   } else if (serverType === "client") {
     // v1 ping-monitor fields are not used by reliable v3 clients; strip them so
     // upgrades from v1 don't carry unused config forward.
