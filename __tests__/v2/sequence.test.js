@@ -175,7 +175,17 @@ describe("SequenceTracker", () => {
   });
 
   describe("NAK scheduling", () => {
-    test("schedules NAK after timeout", async () => {
+    // Fake timers throughout: these assertions used real sleeps with ~20ms
+    // margins against 30-80ms timeouts, so an event-loop stall flipped them.
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    });
+
+    test("schedules NAK after timeout", () => {
       const onLoss = jest.fn();
       const t = new SequenceTracker({
         nakTimeout: 50,
@@ -185,15 +195,16 @@ describe("SequenceTracker", () => {
       t.processSequence(0);
       t.processSequence(2); // Gap at 1
 
-      // Wait for the NAK timeout and the next-tick coalescing flush.
-      await new Promise((resolve) => setTimeout(resolve, 70));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Fake timers: a real 70ms sleep against a 50ms timeout leaves only a
+      // ~20ms margin, so an event-loop stall flips the result.
+      jest.advanceTimersByTime(70);
+      jest.advanceTimersByTime(1); // next-tick coalescing flush
 
       expect(onLoss).toHaveBeenCalledWith([1]);
       t.reset();
     });
 
-    test("cancels NAK if packet arrives before timeout", async () => {
+    test("cancels NAK if packet arrives before timeout", () => {
       const onLoss = jest.fn();
       const t = new SequenceTracker({
         nakTimeout: 80,
@@ -204,11 +215,11 @@ describe("SequenceTracker", () => {
       t.processSequence(2); // Gap at 1
 
       // Packet 1 arrives before timeout
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      jest.advanceTimersByTime(20);
       t.processSequence(1);
 
-      // Wait past timeout
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      // Advance well past the timeout: nothing should fire.
+      jest.advanceTimersByTime(200);
 
       expect(onLoss).not.toHaveBeenCalled();
       t.reset();
@@ -223,7 +234,7 @@ describe("SequenceTracker", () => {
       expect(tracker.nakTimers.size).toBe(2);
     });
 
-    test("NAK fires for each missing sequence independently", async () => {
+    test("NAK fires for each missing sequence independently", () => {
       const losses = [];
       const t = new SequenceTracker({
         nakTimeout: 30,
@@ -233,7 +244,7 @@ describe("SequenceTracker", () => {
       t.processSequence(0);
       t.processSequence(3); // Missing 1, 2
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      jest.advanceTimersByTime(50);
 
       expect(losses).toContain(1);
       expect(losses).toContain(2);
@@ -264,7 +275,7 @@ describe("SequenceTracker", () => {
       }
     });
 
-    test("NAK cancelled via contiguous advancement", async () => {
+    test("NAK cancelled via contiguous advancement", () => {
       const onLoss = jest.fn();
       const t = new SequenceTracker({
         nakTimeout: 80,
@@ -275,11 +286,11 @@ describe("SequenceTracker", () => {
       t.processSequence(3); // Gap at 1, 2
 
       // Fill in the gap - contiguous advancement cancels timers
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      jest.advanceTimersByTime(20);
       t.processSequence(1);
       t.processSequence(2);
 
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      jest.advanceTimersByTime(200);
 
       expect(onLoss).not.toHaveBeenCalled();
       t.reset();
@@ -547,7 +558,8 @@ describe("SequenceTracker", () => {
       t.reset();
     });
 
-    test("late arrival cancels pending NAK timer", async () => {
+    test("late arrival cancels pending NAK timer", () => {
+      jest.useFakeTimers();
       const onLoss = jest.fn();
       const t = new SequenceTracker({ nakTimeout: 100, onLossDetected: onLoss, maxOutOfOrder: 5 });
       // Process 0-10, causing cleanup
@@ -562,9 +574,11 @@ describe("SequenceTracker", () => {
       // Late arrival of seq 3 should cancel the timer
       t.processSequence(3);
       expect(t.nakTimers.has(3)).toBe(false);
-      await new Promise((resolve) => setTimeout(resolve, 120));
+      jest.advanceTimersByTime(200);
       expect(onLoss).not.toHaveBeenCalled();
       t.reset();
+      jest.clearAllTimers();
+      jest.useRealTimers();
     });
 
     test("resyncs on excessive ahead gap to avoid timer explosion", () => {
