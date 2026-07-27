@@ -163,6 +163,14 @@ function connectionsEqual(a: Record<string, unknown>, b: Record<string, unknown>
 // Single source of truth for field definitions: src/shared/connection-schema.ts
 // (also consumed by plugin.schema in src/index.ts).
 
+// `ui:order` must cover EVERY property the schema can produce: RJSF throws
+// "uiSchema order list does not contain property 'x'" and the whole panel fails
+// to render. The trailing "*" is the guard — it absorbs any property not named
+// explicitly, so adding a field to the shared schema can never again break the
+// config UI. Named entries still control the order; "*" only decides where the
+// unnamed remainder lands. `__tests__/PluginConfigurationPanel.test.js` asserts
+// full explicit coverage so new fields get placed deliberately rather than
+// silently drifting to the end.
 const uiSchemaClient: UiSchema = {
   "ui:order": [
     "name",
@@ -172,6 +180,7 @@ const uiSchemaClient: UiSchema = {
     "secretKey",
     "stretchAsciiKey",
     "authenticatedHeaders",
+    "epochBoundAuth",
     "protocolVersion",
     "useMsgpack",
     "useValueDedup",
@@ -191,7 +200,8 @@ const uiSchemaClient: UiSchema = {
     "bonding",
     "skipOwnData",
     "enableNotifications",
-    "alertThresholds"
+    "alertThresholds",
+    "*"
   ],
   secretKey: {
     "ui:widget": "password",
@@ -214,6 +224,10 @@ const uiSchemaClient: UiSchema = {
 };
 
 const uiSchemaServer: UiSchema = {
+  // Sender-only fields (useValueDedup, useCompactDeltas, pathFilter,
+  // brotliQuality, pathPrecision, pathThrottle) are deliberately absent: a
+  // server connection no longer offers them, so listing them here described a
+  // form that cannot be rendered.
   "ui:order": [
     "name",
     "serverType",
@@ -221,17 +235,13 @@ const uiSchemaServer: UiSchema = {
     "secretKey",
     "stretchAsciiKey",
     "authenticatedHeaders",
+    "epochBoundAuth",
     "useMsgpack",
-    "useValueDedup",
-    "useCompactDeltas",
-    "pathFilter",
-    "brotliQuality",
-    "pathPrecision",
-    "pathThrottle",
     "usePathDictionary",
     "protocolVersion",
     "requestFullStatusOnRestart",
-    "reliability"
+    "reliability",
+    "*"
   ],
   secretKey: {
     "ui:widget": "password",

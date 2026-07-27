@@ -684,6 +684,39 @@ describe("PluginConfigurationPanel", () => {
     expect(props).toContain("pathFilter");
   });
 
+  // RJSF throws "uiSchema order list does not contain property 'x'" and refuses
+  // to render the entire panel when ui:order misses a schema property. The RJSF
+  // mock above ignores ui:order, so nothing else in this suite can catch it —
+  // `epochBoundAuth` was added to the shared schema and shipped with both order
+  // lists stale, taking the whole config UI down. A trailing "*" now absorbs
+  // unlisted properties so this can never break the form again; this test
+  // additionally requires explicit placement, so a new field gets positioned
+  // deliberately instead of silently landing at the end.
+  describe.each([
+    ["server", ONE_SERVER, "shore-server"],
+    ["client", ONE_CLIENT, "boat-client"]
+  ])("ui:order covers every %s schema property", (_mode, fixture, label) => {
+    test("basic and advanced", async () => {
+      apiFetch.mockResolvedValueOnce(makeOk(fixture));
+      render(React.createElement(PluginConfigurationPanel));
+      await waitFor(() => screen.getByText(label));
+
+      const check = () => {
+        const { schema, uiSchema } = latestRjsfForm();
+        const order = uiSchema["ui:order"];
+        expect(Array.isArray(order)).toBe(true);
+        const missing = Object.keys(schema.properties).filter((p) => !order.includes(p));
+        expect(missing).toEqual([]);
+        // The wildcard is the guard that keeps a future omission from throwing.
+        expect(order).toContain("*");
+      };
+
+      check();
+      fireEvent.click(screen.getByText(/Show advanced settings/));
+      check();
+    });
+  });
+
   test("starts expanded when the connection already uses advanced options", async () => {
     apiFetch.mockResolvedValueOnce(
       makeOk({
