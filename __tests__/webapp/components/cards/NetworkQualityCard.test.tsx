@@ -42,6 +42,34 @@ describe("NetworkQualityCard", () => {
     expect(screen.getByText(label)).toBeInTheDocument();
   });
 
+  // An unmeasured link used to render a green 100 "Excellent". It now reads
+  // N/A, and says which of the two reasons applies so the operator is not left
+  // guessing whether the panel itself is broken.
+  test("an unmeasured client link explains that no round trip has been timed", () => {
+    render(<NetworkQualityCard metrics={metrics({ packetLoss: 0, queueDepth: 184 })} />);
+
+    // Gauge label plus the RTT and jitter tiles.
+    expect(screen.getAllByText("N/A").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByText("\u2014")).toBeInTheDocument();
+    expect(screen.getByText("No round trip measured yet")).toBeInTheDocument();
+    // The locally-observed queue depth is real and must still be shown.
+    expect(screen.getByText("184")).toBeInTheDocument();
+  });
+
+  test("an unmeasured server link points at missing client telemetry", () => {
+    render(<NetworkQualityCard metrics={metrics({ packetLoss: 0 }, "server")} />);
+
+    expect(screen.getAllByText("N/A").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByText("Awaiting client telemetry")).toBeInTheDocument();
+  });
+
+  test("no reason line is shown once the link has been measured", () => {
+    render(<NetworkQualityCard metrics={metrics({ linkQuality: 95, rtt: 40, jitter: 5 })} />);
+
+    expect(screen.queryByText("No round trip measured yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("Awaiting client telemetry")).not.toBeInTheDocument();
+  });
+
   test("server view shows ACK/NAK stats and N/A for missing values", () => {
     render(<NetworkQualityCard metrics={metrics({ acksSent: 12, naksSent: 3 }, "server")} />);
     expect(screen.getByText(/ACKs Sent/)).toBeInTheDocument();

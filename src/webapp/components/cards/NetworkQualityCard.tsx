@@ -86,6 +86,16 @@ export function NetworkQualityCard({ metrics }: Props) {
               </text>
             </svg>
             <div className="nq-gauge-label">Link Quality</div>
+            {nq.linkQuality === undefined && (
+              // "N/A" alone reads as a broken panel. Say which of the two
+              // reasons applies: a server has no latency of its own and is
+              // waiting on client telemetry, while a client has not yet had an
+              // ACK to time — which, alongside a rising queue depth, is the
+              // signature of traffic leaving and nothing coming back.
+              <div className="nq-gauge-reason">
+                {isClient ? "No round trip measured yet" : "Awaiting client telemetry"}
+              </div>
+            )}
           </div>
           <div className="nq-key-metrics">
             <MetricItem
