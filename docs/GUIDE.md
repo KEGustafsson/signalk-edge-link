@@ -1126,15 +1126,16 @@ These counters and gauges appear in `GET /metrics` under `stats` and `bandwidth`
 
 From `GET /metrics` under `networkQuality`:
 
-| Metric                | Unit  | Description                                                               |
-| --------------------- | ----- | ------------------------------------------------------------------------- |
-| `acksSent`            | count | ACK packets sent by the server                                            |
-| `naksSent`            | count | NAK packets sent to request retransmission                                |
-| `retransmissions`     | count | Data packets retransmitted after a NAK or timeout                         |
-| `duplicatePackets`    | count | Packets received with a seq number already seen (safely dropped)          |
-| `dataPacketsReceived` | count | Total data packets accepted (excludes duplicates)                         |
-| `packetsAbandoned`    | count | Packets the sender dropped from its retransmit queue (unrecoverable)      |
-| `abandonedSequences`  | count | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable) |
+| Metric                   | Unit  | Description                                                                        |
+| ------------------------ | ----- | ---------------------------------------------------------------------------------- |
+| `acksSent`               | count | ACK packets sent by the server                                                     |
+| `naksSent`               | count | NAK packets sent to request retransmission                                         |
+| `retransmissions`        | count | Data packets retransmitted after a NAK or timeout                                  |
+| `duplicatePackets`       | count | Packets received with a seq number already seen (safely dropped)                   |
+| `dataPacketsReceived`    | count | Total data packets accepted (excludes duplicates)                                  |
+| `packetsAbandoned`       | count | Packets the sender dropped from its retransmit queue (unrecoverable)               |
+| `abandonedSequences`     | count | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable)          |
+| `rejectedControlPackets` | count | ACK/NAK/request packets dropped because the source did not match a configured peer |
 
 **Interpretation:**
 
@@ -1142,6 +1143,7 @@ From `GET /metrics` under `networkQuality`:
 - Rising `naksSent` with low `acksSent` indicates one-way UDP — check bidirectional reachability
 - `duplicatePackets > 0` is normal on unreliable links; duplicates are safely discarded
 - `packetsAbandoned` / `abandonedSequences` above zero mean data was permanently lost, not merely delayed — the window advanced past a gap the sender could no longer fill
+- `rejectedControlPackets` rising on a client is serious: it means ACKs and NAKs are being discarded before they are processed, so no RTT can be timed, the cumulative ACK freezes and `queueDepth` climbs. Check that `udpAddress` names the host the server actually replies from
 
 ### 13.3 Link quality metrics
 

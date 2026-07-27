@@ -90,6 +90,12 @@ function buildReliabilityMetrics() {
     // nothing at all when the link is healthy.
     abandonedSequences: 0,
     packetsAbandoned: 0,
+    // Control packets (ACK/NAK/requests) dropped because their source did not
+    // match a configured peer. A rising value means the reliability layer is
+    // being starved — no ACK can be timed, the cumulative ACK freezes and the
+    // retransmit queue grows — so it must be observable rather than inferred
+    // from the symptoms.
+    rejectedControlPackets: 0,
     suppressedOutboundDuplicates: 0,
     suppressedOutboundDuplicateStats: new Map(),
     processDeltaCalls: 0,

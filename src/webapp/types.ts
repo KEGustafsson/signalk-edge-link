@@ -68,6 +68,7 @@ export interface MetricsData {
     duplicatePackets?: number;
     abandonedSequences?: number;
     packetsAbandoned?: number;
+    rejectedControlPackets?: number;
   };
   status: {
     readyToSend: boolean;
