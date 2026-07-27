@@ -63,7 +63,7 @@ The server keeps a **per-peer anti-replay window** — a strict IPsec/DTLS-style
 
 To tell a legitimate peer **restart** (which picks a fresh random sequence baseline) from a replay, the window is re-baselined only when the client advertises a strictly higher **connection epoch** in its (HMAC-authenticated) HELLO. A replayed old HELLO carries an epoch ≤ the recorded one and is ignored, so it cannot be used to clear the window.
 
-This closes the deterministic idle-expiry and eviction replay vectors with no per-packet wire change (the epoch is an optional HELLO field). Two narrow residuals remain:
+This closes the deterministic idle-expiry and eviction replay vectors with no per-packet wire change (the epoch is an optional HELLO field). Three narrow residuals remain:
 
 - **Cross-epoch replay** — a packet captured before a restart whose random sequence baseline happens to fall inside the post-restart window (vanishingly unlikely, and only briefly after a restart). Closed by `epochBoundAuth` below.
 - **Spoofed-source replay** — a guard is created lazily per `address:port`, so a replay from a source the receiver has never seen lands on a fresh guard with epoch 0 and nothing to enforce against. Source-**port** rotation is closed by failing packets closed on an unhandshaked port of an already-handshaked address; source-**IP** spoofing is closed by `epochBoundAuth` below.
