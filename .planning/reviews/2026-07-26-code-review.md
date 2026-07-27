@@ -8,27 +8,9 @@ Findings are ordered by severity. Each one names the file and line so it can be
 checked independently. "Verified" marks a finding reproduced by executing the code;
 the rest were confirmed by reading the implementation and its tests.
 
-> **Status: all findings in this document have been fixed.** See the commits that
-> reference this file. Line numbers below refer to the code _as reviewed_, before
-> those fixes, so they will not match current `HEAD` — the descriptions of the
-> defects and their consequences are preserved as the rationale for the changes.
-> The conformance vectors regenerate byte-identical after every fix, so none of
-> the changes altered the wire format.
-
-## Toolchain baseline
-
-| Check                                       | Result                                   |
-| ------------------------------------------- | ---------------------------------------- |
-| `npm run check:ts`                          | pass                                     |
-| `npm run check:ts:webapp`                   | pass                                     |
-| `npm run lint` (`--max-warnings 0`)         | pass                                     |
-| `npx jest --runInBand`                      | 110/111 suites, 2237/2239 tests pass     |
-| `npm run build`                             | pass (webpack warns: 299 KiB chunk)      |
-| `npm run conformance:generate` + `git diff` | pass — vectors regenerate byte-identical |
-| `npm run check:release-docs`                | pass                                     |
-| `npm audit`                                 | 7 high, all in the dev tree              |
-
-The single failing suite is `__tests__/npm-audit.test.js` (see M1).
+> Line numbers refer to the code _as reviewed_ at `de6aa24` and will not match
+> later revisions. The value of this document is the description of each defect
+> and why it mattered, not its position in the tree.
 
 Note on labels: findings are numbered C/H/M/L by severity. The codebase's own "H3"
 refers to its anti-replay hardening phase, not to a finding in this document.

@@ -687,14 +687,15 @@ describe("PluginConfigurationPanel", () => {
     expect(props).toContain("pathFilter");
   });
 
-  // RJSF throws "uiSchema order list does not contain property 'x'" and refuses
-  // to render the entire panel when ui:order misses a schema property. The RJSF
-  // mock above ignores ui:order, so nothing else in this suite can catch it —
-  // `epochBoundAuth` was added to the shared schema and shipped with both order
-  // lists stale, taking the whole config UI down. A trailing "*" now absorbs
-  // unlisted properties so this can never break the form again; this test
-  // additionally requires explicit placement, so a new field gets positioned
-  // deliberately instead of silently landing at the end.
+  // `ui:order` must account for every property the schema can produce: RJSF
+  // throws "uiSchema order list does not contain property 'x'" and refuses to
+  // render the whole panel otherwise. The trailing "*" absorbs anything not
+  // named, so an omission degrades to placement at the wildcard rather than a
+  // dead form; asserting the explicit list separately keeps new fields
+  // deliberately positioned rather than silently landing there.
+  //
+  // The RJSF mock at the top of this file ignores ui:order, so no other test
+  // here exercises this contract.
   describe.each([
     ["server", ONE_SERVER, "shore-server"],
     ["client", ONE_CLIENT, "boat-client"]

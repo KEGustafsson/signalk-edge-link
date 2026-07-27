@@ -165,9 +165,10 @@ describe("server socket recovery", () => {
     expect(state.socketRecoveryTimer).toBeNull();
   });
 
-  // Both the persistent handler and the bind-attempt handler used to be armed
-  // on a recovery socket at the same time, so one error ran two independent
-  // reactions. Ownership must hand over at "listening" instead.
+  // Exactly one "error" listener is armed per socket, and ownership hands over
+  // at "listening": the bind attempt owns errors while binding, the persistent
+  // handler owns them once listening. Two armed at once would run two
+  // independent reactions to a single error.
   test("only one error listener is armed per socket at a time", async () => {
     const { ctx, sockets } = makeCtx();
     const first = await startListening(ctx, sockets);
