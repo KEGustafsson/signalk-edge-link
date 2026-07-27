@@ -12,7 +12,15 @@ export function Notification({ message, type, onDismiss }: Props) {
   // previously restarted the 4s timer on every App re-render — a notification
   // raised while the operator was typing never dismissed itself.
   const onDismissRef = useRef(onDismiss);
-  onDismissRef.current = onDismiss;
+
+  // Assigned in an effect rather than during render: a render may be discarded
+  // or replayed, and mutating a ref on that path would hand the timer below a
+  // callback from a render that never committed. No dependency array, so it
+  // runs after every commit — and effects run in declaration order, so the
+  // timer effect always sees the current callback.
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => onDismissRef.current(), 4000);

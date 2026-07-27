@@ -104,7 +104,11 @@ export function getOrCreateSession(
         // Advancing past it keeps the cumulative ACK moving; record it so the
         // gap is visible rather than looking like a clean stream.
         ctx.metrics.abandonedSequences = (ctx.metrics.abandonedSequences ?? 0) + 1;
-        app.error(
+        // debug, not error: on a lossy link this fires once per unrecoverable
+        // gap, which would bury genuine operator-actionable errors under a
+        // steady stream of per-packet lines. The `abandonedSequences` counter
+        // above is the durable signal and is published in the status metrics.
+        app.debug(
           `[v2-server] gave up on seq ${sequence} from ${key} after ${ctx.nakTimeout}ms x max NAK rounds; advancing window`
         );
       }

@@ -5,8 +5,8 @@ All notable changes to signalk-edge-link are documented here.
 ## [4.0.0] - 2026-07-26
 
 Fixes every finding from the multi-aspect review in
-`docs/code-review-2026-07-26.md` (security, protocol reliability, lifecycle,
-web UI, test quality, configuration parity, hot-path performance).
+`.planning/reviews/2026-07-26-code-review.md` (security, protocol reliability,
+lifecycle, web UI, test quality, configuration parity, hot-path performance).
 
 **The wire format is unchanged** — the conformance vectors regenerate
 byte-identical, so a 4.0.0 peer interoperates with a 3.x peer on the UDP link.

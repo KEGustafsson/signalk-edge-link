@@ -82,6 +82,12 @@ function buildReliabilityMetrics() {
     rateLimitedPackets: 0,
     droppedDeltaBatches: 0,
     droppedDeltaCount: 0,
+    // Unrecoverable gaps: sequences the receiver gave up on after exhausting
+    // its NAK rounds (server), and packets the sender dropped from the
+    // retransmit queue (client). Seeded so operators see a zero rather than
+    // nothing at all when the link is healthy.
+    abandonedSequences: 0,
+    packetsAbandoned: 0,
     suppressedOutboundDuplicates: 0,
     suppressedOutboundDuplicateStats: new Map(),
     processDeltaCalls: 0,

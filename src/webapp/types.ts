@@ -66,6 +66,8 @@ export interface MetricsData {
     droppedDeltaBatches?: number;
     droppedDeltaCount?: number;
     duplicatePackets?: number;
+    abandonedSequences?: number;
+    packetsAbandoned?: number;
   };
   status: {
     readyToSend: boolean;
