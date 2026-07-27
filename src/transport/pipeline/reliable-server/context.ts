@@ -56,15 +56,18 @@ export interface ClientSession {
    *  that UDP reorders or replays. null until the first envelope from this
    *  session arrives. */
   lastMetaEnvSeq: number | null;
-  /** Set of chunk `idx` values already processed for `lastMetaEnvSeq`. Lets
-   *  us drop exact duplicates of a chunk we've already applied without
-   *  rejecting other chunks (different idx, same seq) of the same multi-
-   *  chunk batch. Cleared when `lastMetaEnvSeq` advances. */
+  /** Recent metadata envelope seq -> the chunk `idx` values already applied for
+   *  it. Lets us drop exact duplicates of a chunk we've already applied without
+   *  rejecting other chunks (different idx, same seq) of the same multi-chunk
+   *  batch. A window of the most recent envelopes is retained rather than only
+   *  the newest, so chunks of a recent envelope that UDP reordered behind the
+   *  next one can still land; older entries are evicted in arrival order. */
   metaChunkWindow: Map<number, Set<number>>;
   /** Last observed source snapshot envelope seq; kept separate from metadata
    *  seq so source resends cannot make in-flight metadata chunks look stale. */
   lastSourceEnvSeq: number | null;
-  /** Chunk indexes already applied for `lastSourceEnvSeq`. */
+  /** Recent source-snapshot envelope seq -> chunk indexes already applied for
+   *  it, windowed exactly like {@link metaChunkWindow}. */
   sourceChunkWindow: Map<number, Set<number>>;
   /** Per-(context, path) cache for same-as-last value dedup expansion.
    *  Created lazily on first sentinel/absolute-value receipt. */

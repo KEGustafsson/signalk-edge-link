@@ -116,10 +116,18 @@ export function ClientDashboard({
         if (alertsRes?.ok) mon.alerts = await alertsRes.json();
         if (plRes?.ok) mon.packetLoss = await plRes.json();
         if (rtxRes?.ok) mon.retransmissions = await rtxRes.json();
-        setMonitoring(mon);
+        const cong = congRes?.ok ? await congRes.json() : null;
+        const bond = bondRes?.ok ? await bondRes.json() : null;
 
-        setCongestion(congRes?.ok ? await congRes.json() : null);
-        setBonding(bondRes?.ok ? await bondRes.json() : null);
+        // Re-check after decoding, not only after the fetches: every `.json()`
+        // above is another await, and a failover landing in that gap claims the
+        // epoch. Without this the stale poll would still win the last write and
+        // put the pre-failover active link back on the card.
+        if (epoch !== v3EpochRef.current) return;
+
+        setMonitoring(mon);
+        setCongestion(cong);
+        setBonding(bond);
 
         // Surface an auth failure once instead of silently rendering empty v3
         // cards — a misconfigured token otherwise looks like "no v3 data".
