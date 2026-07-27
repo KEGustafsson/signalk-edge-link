@@ -666,14 +666,29 @@ describe("MetricsPublisher", () => {
       expect(values.length).toBeGreaterThanOrEqual(2);
     });
 
-    test("handles empty metrics object", () => {
+    // A score requires a latency measurement behind it. With an empty RTT window
+    // every component of the score reads as ideal and it comes out at 100, so
+    // publishing here would rank a link that has never completed a round trip
+    // above every link that has actually been measured.
+    test("publishes no link quality until an RTT measurement arrives", () => {
       publisher.publish({});
+      expect(publishedMessages.length).toBe(0);
 
-      // Should still publish linkQuality
+      publisher.publish({ rtt: 50 });
       expect(publishedMessages.length).toBe(1);
       const values = publishedMessages[0].updates[0].values;
-      const quality = values.find((v) => v.path === "networking.edgeLink.linkQuality");
-      expect(quality).toBeDefined();
+      expect(values.find((v) => v.path === "networking.edgeLink.linkQuality")).toBeDefined();
+    });
+
+    test("an unmeasured latency is omitted, not published as zero", () => {
+      publisher.publish({ rtt: undefined, jitter: undefined, packetLoss: 0.01 });
+
+      const values = publishedMessages[0].updates[0].values;
+      expect(values.find((v) => v.path === "networking.edgeLink.rtt")).toBeUndefined();
+      expect(values.find((v) => v.path === "networking.edgeLink.jitter")).toBeUndefined();
+      expect(values.find((v) => v.path === "networking.edgeLink.linkQuality")).toBeUndefined();
+      // Locally-observed values are unaffected.
+      expect(values.find((v) => v.path === "networking.edgeLink.packetLoss")).toBeDefined();
     });
   });
 });

@@ -551,10 +551,14 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       activeLink: hasFreshRemote ? (remote.activeLink ?? "primary") : localActiveLink,
       dataSource: hasFreshRemote ? "remote-client" : "local",
       lastUpdate: hasFreshRemote ? remote.lastUpdate : 0,
-      // A server measures no latency itself, so without fresh client telemetry
-      // it has no basis at all. A client's basis is its first timed ACK — until
-      // one arrives `rtt` and `jitter` are seed zeros, not measurements.
-      hasQualityBasis: hasFreshRemote || (!state.isServerMode && (metrics.rttSamples ?? 0) > 0)
+      // A server measures no latency itself, so its basis is telemetry that
+      // actually CARRIES a measurement — fresh telemetry alone is not enough,
+      // since a client with no samples still reports everything else. A client's
+      // basis is its first timed ACK; until one arrives `rtt` and `jitter` are
+      // seed zeros, not measurements.
+      hasQualityBasis: hasFreshRemote
+        ? typeof remote.rtt === "number"
+        : !state.isServerMode && (metrics.rttSamples ?? 0) > 0
     };
   }
 

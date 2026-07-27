@@ -108,8 +108,9 @@ function buildReliabilityMetrics() {
 /** Initial value for the remote-peer network-quality snapshot. */
 function buildRemoteNetworkQuality() {
   return {
-    rtt: 0,
-    jitter: 0,
+    // rtt and jitter are intentionally absent, not 0: a server must be able to
+    // tell "the client has not reported a measurement" from "the client
+    // measured 0 ms". See RemoteNetworkQuality.
     packetLoss: 0,
     retransmissions: 0,
     queueDepth: 0,

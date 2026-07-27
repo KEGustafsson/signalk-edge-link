@@ -63,8 +63,14 @@ export interface SmartBatchingMetrics {
 
 /** Remote network quality snapshot. */
 export interface RemoteNetworkQuality {
-  rtt: number;
-  jitter: number;
+  /**
+   * Undefined until the peer has actually reported a measurement. Seeding these
+   * to 0 made "the client has never timed a round trip" indistinguishable from
+   * "the client measured 0 ms", which a server then displayed as a 0 ms link and
+   * scored a perfect 100.
+   */
+  rtt?: number;
+  jitter?: number;
   packetLoss: number;
   retransmissions: number;
   queueDepth: number;

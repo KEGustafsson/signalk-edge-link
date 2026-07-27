@@ -26,9 +26,14 @@ interface PeriodRates {
 function publishNetworkQuality(ctx: ClientContext, rates: PeriodRates): void {
   const { metricsApi, metricsPublisher, packetBuilder, retransmitQueue, mut } = ctx;
   const { metrics } = metricsApi;
+  // Latency is reported only once an ACK has actually been timed. `|| 0` here
+  // published a 0 ms round trip for a link that had never completed one, and a
+  // server ingesting that telemetry could not tell it from a real measurement —
+  // it displayed "0 ms" and scored the link a perfect 100.
+  const measuredRtt = (metrics.rttSamples ?? 0) > 0;
   metricsPublisher.publish({
-    rtt: metrics.rtt || 0,
-    jitter: metrics.jitter || 0,
+    rtt: measuredRtt ? (metrics.rtt ?? 0) : undefined,
+    jitter: measuredRtt ? (metrics.jitter ?? 0) : undefined,
     packetLoss: rates.packetLoss,
     uploadBandwidth: rates.uploadBandwidth,
     packetsSentPerSec: rates.packetsSentPerSec,

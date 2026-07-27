@@ -93,6 +93,8 @@ class MetricsPublisher {
     metrics: Record<string, number | string | undefined>,
     values: Array<{ path: string; value: unknown }>
   ): void {
+    // Callers pass `undefined` for a latency that has not been measured — never
+    // 0, which is a legitimate reading and cannot be told apart from "no data".
     if (typeof metrics.rtt === "number") {
       this._addToWindow(this.rttWindow, metrics.rtt);
       const avgRtt = this._calculateAverage(this.rttWindow);
@@ -181,18 +183,23 @@ class MetricsPublisher {
     metrics: Record<string, number | string | undefined>,
     values: Array<{ path: string; value: unknown }>
   ): void {
-    // Calculate and publish link quality
-    const quality = this.calculateLinkQuality({
-      rtt: this._calculateAverage(this.rttWindow),
-      jitter: this._calculateAverage(this.jitterWindow),
-      packetLoss: this._calculateAverage(this.lossWindow),
-      retransmitRate: typeof metrics.retransmitRate === "number" ? metrics.retransmitRate : 0
-    });
+    // Only publish a score once a latency measurement has actually arrived. With
+    // an empty RTT window every component reads as ideal and the score comes out
+    // at 100, so a link that has never completed a round trip would publish as
+    // perfect — ranking above every link that has been measured.
+    if (this.rttWindow.length > 0) {
+      const quality = this.calculateLinkQuality({
+        rtt: this._calculateAverage(this.rttWindow),
+        jitter: this._calculateAverage(this.jitterWindow),
+        packetLoss: this._calculateAverage(this.lossWindow),
+        retransmitRate: typeof metrics.retransmitRate === "number" ? metrics.retransmitRate : 0
+      });
 
-    values.push({
-      path: `${this.pathPrefix}.linkQuality`,
-      value: parseFloat(quality.toFixed(0))
-    });
+      values.push({
+        path: `${this.pathPrefix}.linkQuality`,
+        value: parseFloat(quality.toFixed(0))
+      });
+    }
 
     // Active link
     if (metrics.activeLink) {
