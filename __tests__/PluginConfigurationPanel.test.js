@@ -7,6 +7,9 @@
 import React from "react";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
+// The real RJSF ordering helper. @rjsf/core is mocked below; @rjsf/utils is not,
+// so the ui:order contract can still be checked against RJSF's own rule.
+import { orderProperties } from "@rjsf/utils";
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
@@ -704,11 +707,20 @@ describe("PluginConfigurationPanel", () => {
       const check = () => {
         const { schema, uiSchema } = latestRjsfForm();
         const order = uiSchema["ui:order"];
-        expect(Array.isArray(order)).toBe(true);
-        const missing = Object.keys(schema.properties).filter((p) => !order.includes(p));
-        expect(missing).toEqual([]);
-        // The wildcard is the guard that keeps a future omission from throwing.
+        const props = Object.keys(schema.properties);
+
+        // "*" is the production safety net: with it present a missing entry
+        // renders at the wildcard instead of taking the whole panel down.
         expect(order).toContain("*");
+
+        // Checked against the explicit list with the wildcard stripped —
+        // `orderProperties` can never throw while "*" is present, so asserting
+        // it with the net in place would assert nothing. This is RJSF's own
+        // ordering function (the one that raises "uiSchema order list does not
+        // contain property 'x'"), not a reimplementation of its rule, so it
+        // enforces the real contract despite @rjsf/core being mocked above.
+        const explicit = order.filter((key) => key !== "*");
+        expect(() => orderProperties(props, explicit)).not.toThrow();
       };
 
       check();
