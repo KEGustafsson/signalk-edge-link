@@ -165,6 +165,32 @@ describe("server socket recovery", () => {
     expect(state.socketRecoveryTimer).toBeNull();
   });
 
+  // Both the persistent handler and the bind-attempt handler used to be armed
+  // on a recovery socket at the same time, so one error ran two independent
+  // reactions. Ownership must hand over at "listening" instead.
+  test("only one error listener is armed per socket at a time", async () => {
+    const { ctx, sockets } = makeCtx();
+    const first = await startListening(ctx, sockets);
+
+    first.emit("error", Object.assign(new Error("network down"), { code: "ENETDOWN" }));
+    jest.advanceTimersByTime(SOCKET_RECOVERY_BASE_MS);
+
+    // Binding: only the attempt's handler is armed.
+    const replacement = sockets[1];
+    expect(replacement.listenerCount("error")).toBe(1);
+
+    // Listening: ownership passes to the persistent handler, still one.
+    replacement.emit("listening");
+    expect(replacement.listenerCount("error")).toBe(1);
+
+    // And that one handler is the persistent one — a later fault starts a
+    // fresh recovery rather than re-arming the finished attempt.
+    ctx.socketManager.close.mockClear();
+    replacement.emit("error", Object.assign(new Error("flap"), { code: "ENETDOWN" }));
+    expect(ctx.socketManager.close).toHaveBeenCalled();
+    expect(ctx.state.socketRecoveryInProgress).toBe(true);
+  });
+
   test("shutting down while a retry is pending creates no socket", async () => {
     const { ctx, sockets, shuttingDown } = makeCtx();
     const first = await startListening(ctx, sockets);

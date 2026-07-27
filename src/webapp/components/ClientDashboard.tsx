@@ -160,8 +160,13 @@ export function ClientDashboard({
         // stale active link straight back on the card.
         const epoch = ++v3EpochRef.current;
         const bondRes = await request(bondingPath(connId)).catch(() => null);
+        if (!bondRes?.ok) return;
+        const bond = await bondRes.json();
+        // Decoding is another await, so re-check: a newer refresh claiming the
+        // epoch in that gap must win over this response, not the other way
+        // round.
         if (epoch !== v3EpochRef.current) return;
-        if (bondRes?.ok) setBonding(await bondRes.json());
+        setBonding(bond);
       } else {
         const err = await res.json();
         onNotify(

@@ -82,8 +82,39 @@ function scheduleServerRecovery(ctx: ConnectionContext): void {
       app.debug(`[${instanceId}] Attempting server UDP socket recovery`);
       const socket = ctx.socketManager.create();
       state.socketUdp = socket;
-      attachServerErrorHandler(ctx);
       attachServerPipeline(ctx);
+
+      // Exactly one "error" listener is live per socket, and ownership hands
+      // over at "listening".
+      //
+      // Until the socket binds, this attempt owns errors: it retries, or stops
+      // on a code that will not fix itself. Once it is listening the persistent
+      // handler takes over and starts a fresh recovery on a later interface
+      // fault. Attaching both at once ran two independent reactions to the same
+      // event — and the persistent one's call back into scheduleServerRecovery
+      // is a no-op while a recovery is already in progress, so it could not have
+      // re-armed the retry anyway.
+      const onBindError = (err: NodeJS.ErrnoException): void => {
+        if (state.socketUdp === socket) {
+          try {
+            ctx.socketManager.close();
+          } catch {
+            /* already closed */
+          }
+          state.socketUdp = null;
+        }
+        state.readyToSend = false;
+        app.error(`[${instanceId}] Server UDP socket recovery failed: ${err.message}`);
+        if (FATAL_BIND_CODES.has(err.code ?? "")) {
+          // A port conflict or a permissions problem needs an operator, not a
+          // retry loop.
+          ctx.setStatus(`Failed to start – ${err.message}`, false);
+          state.socketRecoveryInProgress = false;
+          return;
+        }
+        retry(err.message);
+      };
+      socket.once("error", onBindError);
 
       // Success is declared on "listening", never straight after bind().
       // `bind()` is asynchronous and reports failure as an "error" event rather
@@ -92,23 +123,12 @@ function scheduleServerRecovery(ctx: ConnectionContext): void {
       // with it, degrading exponential retry to a fixed-interval hot loop.
       socket.once("listening", () => {
         if (state.socketUdp !== socket) return;
+        socket.removeListener("error", onBindError);
+        attachServerErrorHandler(ctx);
         state.socketRecoveryInProgress = false;
         ctx.socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS;
         state.readyToSend = true;
         ctx.setStatus("UDP socket recovered", true);
-      });
-
-      // The persistent handler attached above reports and closes the socket, but
-      // its call back into scheduleServerRecovery is a no-op while this recovery
-      // is still in progress — so the next attempt is re-armed here.
-      socket.once("error", (err: NodeJS.ErrnoException) => {
-        if (state.socketUdp !== null && state.socketUdp !== socket) return;
-        if (FATAL_BIND_CODES.has(err.code ?? "")) {
-          // A port conflict or a permissions problem will not fix itself.
-          state.socketRecoveryInProgress = false;
-          return;
-        }
-        retry(err.message);
       });
 
       ctx.socketManager.bind(ctx.options.udpPort);

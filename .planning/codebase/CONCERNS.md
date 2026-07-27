@@ -22,20 +22,16 @@ scope: full repo
 - Impact: Packet-order, stale session, and reconnect edge cases are easy to miss without targeted tests.
 - Fix approach: Prefer small helper extraction plus tests in `__tests__/v2/` and `test/integration/` when touching these modules.
 
-**Documentation drift in architecture docs — RESOLVED (2026-07-26):**
+**Documentation drift between docs and source layout:**
 
-- `docs/architecture-overview.md` no longer references the legacy file names; `scripts/check-release-truth.js` now gates against them.
-
-**Release-version documentation drift — RESOLVED (2026-07-26):**
-
-- `docs/GUIDE.md`, `docs/README.md` and `docs/api-reference.md` all carry the current version marker, enforced by `npm run check:release-docs`.
+- Issue: Architecture docs and per-release version markers describe module paths and versions that source refactors can move out from under them.
+- Why: Docs and code change in separate passes.
+- Impact: Contributors search for files that no longer exist, or doubt whether endpoint docs match the installed package.
+- Fix approach: `scripts/check-release-truth.js` (`npm run check:release-docs`) gates the known drift cases; extend it when a new class of drift appears rather than relying on review to catch it.
 
 ## Known Bugs
 
-**No known open runtime bugs.**
-
-- Evidence: `docs/code-review-2026-07-26.md` records a full multi-aspect review (security, protocol reliability, lifecycle, web UI, tests, configuration parity, hot-path performance). Every finding it raised has been fixed; see the commits referencing that document.
-- Caveat: that review combined static analysis with targeted execution of the affected code paths, not a full field trial.
+_Runtime defects are tracked as issues and fixed in the commit that finds them; this file records enduring risk, not defect status._
 
 ## Security Considerations
 
