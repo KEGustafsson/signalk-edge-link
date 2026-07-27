@@ -19,13 +19,13 @@ const SECRET = "12345678901234567890123456789012";
 const WRONG_SECRET = "abcdefghijklmnopqrstuvwxyz012345";
 const PEER = { address: "127.0.0.1", port: 4446 };
 
-function makeClient() {
+function makeClient(udpAddress = PEER.address) {
   const app = { debug: jest.fn(), error: jest.fn(), handleMessage: jest.fn() };
   const state = {
     instanceId: "client-1",
     options: {
       secretKey: SECRET,
-      udpAddress: PEER.address,
+      udpAddress,
       udpPort: PEER.port,
       protocolVersion: 3,
       stretchAsciiKey: false
@@ -54,6 +54,48 @@ describe("client control-request dispatch", () => {
     await pipeline.handleControlPacket(packet, PEER);
 
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  // The source-address check compares rinfo.address against the CONFIGURED
+  // udpAddress. Those are different representations of the same peer whenever a
+  // hostname is configured, or when an IPv6 socket reports an IPv4 peer as
+  // ::ffff:x.x.x.x. Comparing them as raw strings dropped every ACK and NAK
+  // from a correctly configured server, which stalls RTT measurement, freezes
+  // the cumulative ACK and lets the retransmit queue grow without bound.
+  describe("peer address matching", () => {
+    test("accepts a peer reported in IPv4-mapped IPv6 form", async () => {
+      const { pipeline } = makeClient("127.0.0.1");
+      const handler = jest.fn();
+      pipeline.setMetaRequestHandler(handler);
+
+      const packet = builder().buildMetaRequestPacket({ secretKey: SECRET });
+      await pipeline.handleControlPacket(packet, { address: "::ffff:127.0.0.1", port: 4446 });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    test("accepts a peer when the configured address is a hostname", async () => {
+      const { pipeline } = makeClient("my-server.example");
+      const handler = jest.fn();
+      pipeline.setMetaRequestHandler(handler);
+
+      const packet = builder().buildMetaRequestPacket({ secretKey: SECRET });
+      await pipeline.handleControlPacket(packet, { address: "192.0.2.10", port: 4446 });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    test("still rejects an unrelated source when the peer is a literal address", async () => {
+      const { pipeline, app } = makeClient("127.0.0.1");
+      const handler = jest.fn();
+      pipeline.setMetaRequestHandler(handler);
+
+      const packet = builder().buildMetaRequestPacket({ secretKey: SECRET });
+      await pipeline.handleControlPacket(packet, { address: "203.0.113.9", port: 4446 });
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(app.debug).toHaveBeenCalledWith(expect.stringContaining("unexpected source"));
+    });
   });
 
   test("a FULL_STATUS_REQUEST packet invokes the registered handler", async () => {

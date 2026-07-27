@@ -9,11 +9,53 @@
  * @module transport/pipeline/reliable-client/control-packets
  */
 
+import { isIP } from "net";
+import { lookup } from "dns";
 import { PacketType } from "../../../codec/packet-codec";
 import type * as dgram from "dgram";
 import type { ClientContext } from "./context";
 import { receiveACK, receiveNAK } from "./reliability";
 import { confirmHelloAcknowledged } from "./lifecycle";
+
+/**
+ * Hostname -> the addresses it resolves to.
+ *
+ * A configured `udpAddress` may be a hostname, but `rinfo.address` is always a
+ * literal address, so the two can never compare equal as strings. Resolving
+ * closes that gap. Module-level because DNS results are not instance-specific.
+ */
+const resolvedPeerHosts = new Map<string, Set<string>>();
+/** Hostnames with a lookup in flight, so the packet path issues one at a time. */
+const pendingHostLookups = new Set<string>();
+
+/**
+ * Canonical form for comparing two addresses.
+ *
+ * A socket bound to IPv6 reports an IPv4 peer as `::ffff:192.0.2.1`, which does
+ * not equal the `192.0.2.1` an operator configured.
+ */
+function normalizeAddress(address: string): string {
+  const lower = address.toLowerCase();
+  return lower.startsWith("::ffff:") ? lower.slice("::ffff:".length) : lower;
+}
+
+/** Resolve a configured hostname in the background and cache every address. */
+function ensureHostResolved(ctx: ClientContext, host: string): void {
+  if (resolvedPeerHosts.has(host) || pendingHostLookups.has(host)) {
+    return;
+  }
+  pendingHostLookups.add(host);
+  lookup(host, { all: true }, (err, addresses) => {
+    pendingHostLookups.delete(host);
+    if (err || !Array.isArray(addresses)) {
+      ctx.app.debug(
+        `Could not resolve configured peer ${host}: ${err ? err.message : "no result"}`
+      );
+      return;
+    }
+    resolvedPeerHosts.set(host, new Set(addresses.map((a) => normalizeAddress(a.address))));
+  });
+}
 
 /**
  * Invoke a request handler (META_REQUEST / FULL_STATUS_REQUEST) defensively:
@@ -78,11 +120,39 @@ function configuredPeerAddresses(ctx: ClientContext): Set<string> {
  * configured peer set removes the off-path victim entirely.
  */
 function isExpectedPeer(ctx: ClientContext, rinfo: dgram.RemoteInfo): boolean {
-  const allowed = configuredPeerAddresses(ctx);
+  const configured = configuredPeerAddresses(ctx);
   // No configured address (unit fixtures / not yet resolved): accept, since
   // there is nothing to compare against.
-  if (allowed.size === 0) return true;
-  return allowed.has(rinfo.address);
+  if (configured.size === 0) return true;
+
+  const source = normalizeAddress(rinfo.address);
+  let sawUnresolvedHost = false;
+
+  for (const entry of configured) {
+    const candidate = normalizeAddress(entry);
+    if (isIP(candidate)) {
+      if (candidate === source) return true;
+      continue;
+    }
+    // A hostname cannot be compared to a literal address directly.
+    const resolved = resolvedPeerHosts.get(candidate);
+    if (!resolved) {
+      ensureHostResolved(ctx, candidate);
+      sawUnresolvedHost = true;
+      continue;
+    }
+    if (resolved.has(source)) return true;
+  }
+
+  // Accept while a hostname is still unresolved rather than dropping. Comparing
+  // a hostname to `rinfo.address` as raw strings never matches, so failing
+  // closed here silently discarded every ACK and NAK from a correctly
+  // configured peer — which stalls RTT measurement, freezes the cumulative ACK
+  // and lets the retransmit queue grow without bound. The check exists to deny
+  // an off-path attacker a reflection target, and that property is not worth
+  // breaking the link for.
+  if (sawUnresolvedHost) return true;
+  return false;
 }
 
 export async function handleControlPacket(
