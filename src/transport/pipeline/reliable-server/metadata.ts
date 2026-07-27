@@ -203,12 +203,20 @@ export function shouldDropEnvelopeBySeq(
     return true;
   }
 
-  // Bound the dedup Set: a well-behaved sender advances envSeq (which clears
-  // the Set) far below this many chunks. Hitting the cap means the peer is
-  // pinning the seq while streaming new idx values — drop further chunks for
-  // this seq instead of growing memory without bound.
+  // Bound the dedup state: a well-behaved sender advances envSeq (which retires
+  // old chunk sets) far below this many chunks. Hitting the cap means the peer
+  // is streaming unbounded idx values — drop further chunks instead of growing
+  // memory without bound.
+  //
+  // The cap is on the CHANNEL total, not per envSeq. Retaining ENVELOPE_SEQ_WINDOW
+  // envelopes so reordered chunks can still land means a per-seq cap would let an
+  // abusive peer hold ENVELOPE_SEQ_WINDOW × MAX_ENVELOPE_CHUNK_INDICES entries per
+  // channel per session. The window is tiny, so summing it is cheaper than the
+  // Set lookup it guards.
   const seenForSeq = chunkSetFor(ch, envSeq);
-  if (seenForSeq.size >= MAX_ENVELOPE_CHUNK_INDICES) {
+  let totalSeen = 0;
+  for (const set of ch.window.values()) totalSeen += set.size;
+  if (totalSeen >= MAX_ENVELOPE_CHUNK_INDICES) {
     metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
     app.debug(
       `[v2-server] ${channel} chunk-index cap (${MAX_ENVELOPE_CHUNK_INDICES}) reached for ` +

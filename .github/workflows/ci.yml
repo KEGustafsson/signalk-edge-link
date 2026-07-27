@@ -98,12 +98,20 @@ jobs:
       - name: Release documentation and package truth
         run: npm run check:release-docs
 
-  # Non-blocking FULL-TREE audit (runtime + dev). The npm-audit test in the main
-  # suite deliberately covers runtime dependencies only (`--omit=dev`), because
-  # build/test tooling never ships to an operator and an advisory in eslint or
-  # webpack must not block a merge. This job is where dev-tree advisories stay
-  # visible: it reports them without gating, so tooling debt is tracked rather
-  # than silently ignored.
+  # REPORTING ONLY — this job never gates a merge, hence continue-on-error at
+  # the job level. Do not read the runtime step below as a gate; the two real
+  # gates live elsewhere:
+  #
+  #   * per-PR: the npm-audit test in the main suite (`--omit=dev`), which runs
+  #     inside the required `ci` job above;
+  #   * weekly: the `audit-blocking` job, which fails on high/critical runtime
+  #     advisories.
+  #
+  # What this job adds is visibility for the DEV tree. The in-suite gate covers
+  # runtime dependencies only, because build/test tooling never ships to an
+  # operator and an advisory in eslint or webpack must not block a merge — so
+  # dev-tree advisories would otherwise be invisible. Reported here, tracked, and
+  # never merge-blocking.
   audit:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -123,17 +131,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Runtime tree: mirrors the gate in the main suite.
-      - name: Audit runtime dependencies
+      # Runtime tree: the same query the in-suite gate makes, reported here so
+      # both trees appear side by side in one place. continue-on-error is what
+      # keeps the full-tree step below reachable — `npm audit` exits non-zero on
+      # ANY advisory, and a failed step would otherwise end the job.
+      - name: Audit runtime dependencies (informational)
+        continue-on-error: true
         run: npm audit --omit=dev
 
-      # Full tree: dev tooling advisories, reported but never merge-blocking.
-      #
-      # `npm audit` exits non-zero whenever ANY advisory exists, so without
-      # continue-on-error a step whose entire purpose is to *report* dev-tree
-      # advisories turns this check red permanently — which is exactly the noise
-      # the runtime/dev split was meant to remove. The step still shows as failed
-      # in the job's step list when advisories exist, so they stay visible.
+      # Full tree: adds the dev tooling advisories the in-suite gate omits.
       - name: Audit full dependency tree (informational)
         continue-on-error: true
         run: npm audit

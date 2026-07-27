@@ -8,7 +8,7 @@ import { MonitoringAlertsCard } from "./cards/MonitoringAlertsCard";
 import { ConfigFileEditorCard } from "./cards/ConfigFileEditorCard";
 import { MonitoringData } from "../types";
 import { getTokenHelpText } from "../utils/apiFetch";
-import { useApi, ApiError } from "../hooks/useApi";
+import { useApi } from "../hooks/useApi";
 import { monitoringPath } from "../utils";
 
 interface Props {

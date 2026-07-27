@@ -402,13 +402,21 @@ export function createControlPacketAuthTag(
   if (payloadBuffer.length > 0) {
     hmac.update(payloadBuffer);
   }
-  // Epoch is appended AFTER the payload, as a fixed-width big-endian uint32, so
+  // Epoch is appended AFTER the payload, as a fixed-width big-endian uint64, so
   // it cannot be confused with payload bytes. Omitting it (epoch <= 0) yields
   // exactly the legacy tag, which is what keeps 3.x interop byte-compatible.
+  //
+  // 64 bits, not 32: the epoch is millisecond wall-clock scale (~1.7e12), so a
+  // uint32 encoding would silently drop the high bits and make any two epochs
+  // 2^32 ms apart — a little under 50 days — produce an identical tag, handing
+  // back exactly the cross-epoch replay the binding exists to prevent.
   const epoch = options.epoch;
   if (typeof epoch === "number" && Number.isFinite(epoch) && epoch > 0) {
-    const epochBytes = Buffer.alloc(4);
-    epochBytes.writeUInt32BE(epoch >>> 0, 0);
+    const epochBytes = Buffer.alloc(8);
+    // A peer-advertised epoch is only bounded by "finite and positive", and
+    // writeBigUInt64BE throws on anything wider than 64 bits — clamping keeps a
+    // nonsense value a failed verification rather than a thrown receive.
+    epochBytes.writeBigUInt64BE(BigInt.asUintN(64, BigInt(Math.floor(epoch))), 0);
     hmac.update(epochBytes);
   }
   return hmac.digest().subarray(0, CONTROL_AUTH_TAG_LENGTH);

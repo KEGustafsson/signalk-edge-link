@@ -64,16 +64,54 @@ function scheduleServerRecovery(ctx: ConnectionContext): void {
     }
     const delay = ctx.socketRecoveryBackoffMs;
     ctx.socketRecoveryBackoffMs = Math.min(ctx.socketRecoveryBackoffMs * 2, SOCKET_RECOVERY_MAX_MS);
+
+    /** Re-arm the next attempt at the backoff already computed for this round. */
+    const retry = (msg: string): void => {
+      if (ctx.lifecycle.isShuttingDown()) {
+        state.socketRecoveryInProgress = false;
+        return;
+      }
+      ctx.setStatus(
+        `UDP socket recovery failed: ${msg} — retrying in ${Math.round(delay / 1000)}s`,
+        false
+      );
+      state.socketRecoveryTimer = setTimeout(attempt, delay);
+    };
+
     try {
       app.debug(`[${instanceId}] Attempting server UDP socket recovery`);
-      state.socketUdp = ctx.socketManager.create();
+      const socket = ctx.socketManager.create();
+      state.socketUdp = socket;
       attachServerErrorHandler(ctx);
       attachServerPipeline(ctx);
+
+      // Success is declared on "listening", never straight after bind().
+      // `bind()` is asynchronous and reports failure as an "error" event rather
+      // than a throw, so doing this bookkeeping inline marked a socket that had
+      // not bound — and might never bind — as recovered, and reset the backoff
+      // with it, degrading exponential retry to a fixed-interval hot loop.
+      socket.once("listening", () => {
+        if (state.socketUdp !== socket) return;
+        state.socketRecoveryInProgress = false;
+        ctx.socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS;
+        state.readyToSend = true;
+        ctx.setStatus("UDP socket recovered", true);
+      });
+
+      // The persistent handler attached above reports and closes the socket, but
+      // its call back into scheduleServerRecovery is a no-op while this recovery
+      // is still in progress — so the next attempt is re-armed here.
+      socket.once("error", (err: NodeJS.ErrnoException) => {
+        if (state.socketUdp !== null && state.socketUdp !== socket) return;
+        if (FATAL_BIND_CODES.has(err.code ?? "")) {
+          // A port conflict or a permissions problem will not fix itself.
+          state.socketRecoveryInProgress = false;
+          return;
+        }
+        retry(err.message);
+      });
+
       ctx.socketManager.bind(ctx.options.udpPort);
-      state.socketRecoveryInProgress = false;
-      ctx.socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS;
-      state.readyToSend = true;
-      ctx.setStatus("UDP socket recovered", true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       app.error(`[${instanceId}] Server UDP socket recovery failed: ${msg}`);
@@ -85,15 +123,7 @@ function scheduleServerRecovery(ctx: ConnectionContext): void {
         }
         state.socketUdp = null;
       }
-      if (ctx.lifecycle.isShuttingDown()) {
-        state.socketRecoveryInProgress = false;
-        return;
-      }
-      ctx.setStatus(
-        `UDP socket recovery failed: ${msg} — retrying in ${Math.round(delay / 1000)}s`,
-        false
-      );
-      state.socketRecoveryTimer = setTimeout(attempt, delay);
+      retry(msg);
     }
   };
 

@@ -1,5 +1,5 @@
 ---
-last_mapped_commit: HEAD
+last_mapped_commit: de6aa24a9154d5f95cf9918433aa360df0be6cf4
 mapped_at: 2026-07-26
 scope: full repo
 ---
@@ -43,7 +43,7 @@ scope: full repo
 
 - Risk: Anti-replay enforcement arms only once a peer completes an epoch handshake. A peer that never handshakes is not strictly enforced (retained for pre-H3 compatibility).
 - Current mitigation: HELLO is retried with exponential backoff until a control packet confirms it; DATA arriving on an unhandshaked source port of an already-handshaked address fails closed, so rotating the source port cannot bypass the window.
-- Residual: an attacker able to spoof a source IP that has never been seen by this server still lands in the unenforced path. Closing that requires binding the connection epoch into the packet's authenticated data, which is a wire-format change — tracked in `.planning/ROADMAP.md` under the 999.x protocol backlog.
+- Residual: an attacker able to spoof a source IP that has never been seen by this server lands in the unenforced path. Closed by `epochBoundAuth` (4.0.0), which binds the connection epoch into the packet auth tag so a captured packet only authenticates inside the epoch it was sent in. It is **opt-in and off by default** — both peers must enable it and both must run 4.0.0+ — so the residual still applies to any deployment that has not turned it on.
 
 **Management API can remain open by default for backward compatibility:**
 
@@ -74,7 +74,7 @@ scope: full repo
 **Synchronous option persistence for alert threshold updates:**
 
 - Problem: `POST /monitoring/alerts` persists changes through `app.savePluginOptions` on each request.
-- Evidence: route logic lives in `src/routes/monitoring.ts`; alert persistence coalescing was implemented in phase 02-03 (see `.planning/phases/02-management-api-hardening-and-observability/02-03-SUMMARY.md`).
+- Evidence: `src/routes/monitoring.ts` calls `app.savePluginOptions` inline on every `POST /monitoring/alerts`; no debounce or coalescing is in place.
 - Cause: Alert updates are persisted immediately for durability.
 - Improvement path: Debounce or coalesce alert persistence per connection, then add tests for persistence ordering and failure responses.
 
@@ -91,7 +91,7 @@ scope: full repo
 - Why fragile: `src/app/connection.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, `src/bonding.ts`, and `src/sequence.ts` create timers, intervals, sockets, and listener callbacks.
 - Common failures: Leaked timers after stop, duplicate socket listeners after recovery, stale pipeline workers, or cleanup order regressions.
 - Safe modification: Pair every new timer/listener/resource with explicit cleanup and add tests around stop/restart/recovery.
-- Test coverage: `__tests__/app/socket-recovery.test.js` now covers client socket recovery (backoff, re-arm, shutdown guards) directly; server-mode recovery was added 2026-07-26.
+- Test coverage: `__tests__/app/socket-recovery.test.js` covers client socket recovery and `__tests__/app/server-socket-recovery.test.js` covers server-mode re-bind (backoff, listening-gated success, fatal-code handling, shutdown guards).
 
 **Shared schema and validation parity:**
 

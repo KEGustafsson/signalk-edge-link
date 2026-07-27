@@ -18,9 +18,17 @@ export function useMetricsPolling(
 ) {
   const { request, authMessage } = useApi();
   const onDataRef = useRef(onData);
-  onDataRef.current = onData;
   const onErrorRef = useRef(onError);
-  onErrorRef.current = onError;
+
+  // Assigned in an effect rather than during render: a render may be discarded
+  // or replayed, and mutating a ref on that path would publish a callback from a
+  // render that never committed. This effect has no dependency array, so it runs
+  // after every commit — and effects run in declaration order, so the polling
+  // effect below always sees the current callbacks.
+  useEffect(() => {
+    onDataRef.current = onData;
+    onErrorRef.current = onError;
+  });
 
   useEffect(() => {
     if (!connId) return;

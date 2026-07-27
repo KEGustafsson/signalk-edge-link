@@ -245,7 +245,7 @@ async function rejectReplayedDataPacket(
   // peer always completes a HELLO handshake (retried until acknowledged) before
   // sending DATA, so an unhandshaked port on an address that has handshaked is
   // either a replay from a rotated port or DATA that overtook its own HELLO.
-  if (guard.epoch === 0 && handshakedPeerAddress(ctx, rinfo.address)) {
+  if (!guard.handshaked && handshakedPeerAddress(ctx, rinfo.address)) {
     ctx.app.debug(
       `v2 replay rejected: unhandshaked source port ${rinfo.port} for known peer ${rinfo.address} (seq=${parsed.sequence >>> 0})`
     );

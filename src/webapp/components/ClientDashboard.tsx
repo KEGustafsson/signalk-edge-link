@@ -146,7 +146,13 @@ export function ClientDashboard({
         onNotify(`Failover complete. Active link: ${result.activeLink}`, "success");
         // Refresh immediately: otherwise the card below still shows the old
         // active link until the next poll, contradicting this notification.
+        //
+        // Claiming the v3 epoch first discards any poll already in flight — its
+        // response predates the failover, so letting it resolve would put the
+        // stale active link straight back on the card.
+        const epoch = ++v3EpochRef.current;
         const bondRes = await request(bondingPath(connId)).catch(() => null);
+        if (epoch !== v3EpochRef.current) return;
         if (bondRes?.ok) setBonding(await bondRes.json());
       } else {
         const err = await res.json();

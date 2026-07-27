@@ -217,6 +217,36 @@ describe("H3 anti-replay", () => {
     expect(ctx.metrics.replayedPackets).toBe(0);
   });
 
+  // The unhandshaked-port gate is keyed by ADDRESS, so two peers behind one NAT
+  // share it. Using `epoch > 0` as the handshake proxy made a pre-H3 peer — which
+  // completes a real handshake but advertises no epoch — look identical to a
+  // never-seen source port: once its H3 neighbour handshaked, the legacy peer's
+  // data was silently dropped as a rotated-port replay.
+  test("accepts a pre-H3 peer sharing a NAT address with an H3 peer", async () => {
+    const app = makeApp();
+    const ctx = makeCtx(app);
+    const modern = { address: "10.0.0.5", port: 6000 };
+    const legacy = { address: "10.0.0.5", port: 6001 };
+
+    await receivePacket(ctx, helloPacket(1000), SECRET, modern);
+    await receivePacket(ctx, await dataPacket(500, 1), SECRET, modern);
+
+    // Same address, different port, HELLO carries no epoch.
+    await receivePacket(ctx, helloPacket(undefined), SECRET, legacy);
+    await receivePacket(ctx, await dataPacket(700, 2), SECRET, legacy);
+
+    expect(app.handleMessage).toHaveBeenCalledTimes(2);
+    expect(ctx.metrics.replayedPackets).toBe(0);
+
+    // The gate still holds for a port that never handshaked at all.
+    await receivePacket(ctx, await dataPacket(900, 3), SECRET, {
+      address: "10.0.0.5",
+      port: 6002
+    });
+    expect(app.handleMessage).toHaveBeenCalledTimes(2);
+    expect(ctx.metrics.replayedPackets).toBe(1);
+  });
+
   test("does not strictly enforce for pre-H3 peers that send no epoch", async () => {
     const app = makeApp();
     const ctx = makeCtx(app);

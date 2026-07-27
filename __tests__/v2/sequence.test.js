@@ -649,9 +649,11 @@ describe("SequenceTracker", () => {
       jest.useFakeTimers();
       try {
         const abandoned = [];
+        const nakRounds = [];
         const t = new SequenceTracker({
           nakTimeout: 50,
           maxNakRounds: 3,
+          onLossDetected: (seqs) => nakRounds.push(seqs),
           onGapAbandoned: (seq) => abandoned.push(seq)
         });
 
@@ -661,8 +663,13 @@ describe("SequenceTracker", () => {
         expect(t.expectedSeq).toBe(101);
 
         // Each NAK round re-arms; after maxNakRounds the gap is given up on.
-        jest.advanceTimersByTime(50 * 4);
+        jest.advanceTimersByTime(50 * 5);
 
+        // maxNakRounds means exactly that many NAKs reach the sender. The
+        // abandon check counts the round it is about to emit, so an off-by-one
+        // here silently spends the last round on the give-up instead of on a
+        // retransmit request.
+        expect(nakRounds).toEqual([[101], [101], [101]]);
         expect(abandoned).toEqual([101]);
         expect(t.abandonedCount).toBe(1);
         // Window must move past the hole so the cumulative ACK is not frozen.
@@ -693,6 +700,34 @@ describe("SequenceTracker", () => {
 
         expect(abandoned).toEqual([]);
         expect(t.expectedSeq).toBe(103);
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      }
+    });
+
+    // The retry counter is keyed per sequence and had no reader other than the
+    // abandon path, so every successfully-retransmitted packet left an entry
+    // behind: unbounded growth for the life of the session on a lossy link.
+    test("does not retain NAK retry state for sequences that arrive", () => {
+      jest.useFakeTimers();
+      try {
+        const t = new SequenceTracker({ nakTimeout: 50, maxNakRounds: 5 });
+        const attempts = t._nakAttempts ?? t["_nakAttempts"];
+
+        let seq = 200;
+        for (let i = 0; i < 50; i++) {
+          t.processSequence(seq); // in order
+          t.processSequence(seq + 2); // opens a gap at seq+1
+          jest.advanceTimersByTime(50); // one NAK round for seq+1
+          t.processSequence(seq + 1); // retransmit lands
+          seq += 3;
+        }
+        jest.advanceTimersByTime(50 * 10);
+
+        expect(t.expectedSeq).toBe(seq);
+        expect(attempts.size).toBe(0);
+        expect(t.nakTimers.size).toBe(0);
       } finally {
         jest.clearAllTimers();
         jest.useRealTimers();

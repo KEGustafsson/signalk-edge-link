@@ -82,6 +82,17 @@ export interface ReplayGuard {
   epoch: number;
   window: ReplayWindow;
   lastSeen: number;
+  /**
+   * True once an authenticated HELLO has arrived from this exact `address:port`,
+   * whether or not it carried an epoch.
+   *
+   * Distinct from `epoch > 0`: a pre-H3 peer completes a real handshake but
+   * advertises no epoch. Using the epoch as the handshake proxy meant such a
+   * peer was indistinguishable from a never-seen source port, so as soon as any
+   * H3 peer behind the same NAT address handshaked, the legacy peer's DATA was
+   * rejected as a rotated-port replay and silently dropped.
+   */
+  handshaked: boolean;
 }
 
 /**
@@ -189,7 +200,7 @@ export function getReplayGuard(ctx: ServerContext, peerKey: string): ReplayGuard
       replayGuards.delete(oldestKey);
     }
   }
-  guard = { epoch: 0, window: new ReplayWindow(), lastSeen: now };
+  guard = { epoch: 0, window: new ReplayWindow(), lastSeen: now, handshaked: false };
   replayGuards.set(peerKey, guard);
   return guard;
 }
@@ -219,12 +230,7 @@ export function bindBuilderEpochForPeer(ctx: ServerContext, destinationKey: stri
  * does not participate — left at epoch 0 (window not strictly enforced) for
  * backward compatibility.
  */
-export function applyHelloEpoch(
-  ctx: ServerContext,
-  peerKey: string,
-  epoch: unknown,
-  address?: string
-): boolean {
+export function applyHelloEpoch(ctx: ServerContext, peerKey: string, epoch: unknown): boolean {
   if (typeof epoch !== "number" || !Number.isFinite(epoch) || epoch <= 0) {
     return false;
   }
@@ -238,10 +244,19 @@ export function applyHelloEpoch(
     guard.window.reset();
     guard.epoch = epoch;
   }
-  if (address) {
-    markHandshakedAddress(ctx, address);
-  }
   return advanced;
+}
+
+/**
+ * Record that an authenticated HELLO completed for this exact peer, and that its
+ * address is one the server has seen handshake.
+ *
+ * Called for EVERY authenticated HELLO, including one from a pre-H3 peer that
+ * advertises no epoch — see {@link ReplayGuard.handshaked}.
+ */
+export function markPeerHandshaked(ctx: ServerContext, peerKey: string, address: string): void {
+  getReplayGuard(ctx, peerKey).handshaked = true;
+  markHandshakedAddress(ctx, address);
 }
 
 /**

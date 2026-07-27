@@ -82,12 +82,17 @@ export class SequenceTracker {
   }
 
   /**
-   * Give up on a sequence that has exhausted its NAK rounds: record it as
-   * "seen" so the contiguous-advance walk can move past it, drop its timer
-   * state, and advance `expectedSeq` when it sits at the head of the window.
+   * Drop every piece of per-sequence NAK state: the pending timer, the retry
+   * counter, and any queued flush entry.
+   *
+   * Retry counters MUST be dropped here and not only on abandonment. A sequence
+   * that is successfully retransmitted cancels its timer and leaves the window,
+   * but its `_nakAttempts` entry has no other reader — on a lossy link that is
+   * one permanently retained Map entry per recovered packet, unbounded for the
+   * lifetime of the session.
    * @private
    */
-  private _abandonSequence(sequence: number): void {
+  private _cancelNAK(sequence: number): void {
     const timer = this.nakTimers.get(sequence);
     if (timer) {
       clearTimeout(timer);
@@ -95,17 +100,23 @@ export class SequenceTracker {
     }
     this._nakAttempts.delete(sequence);
     this._pendingNAKs.delete(sequence);
+  }
+
+  /**
+   * Give up on a sequence that has exhausted its NAK rounds: record it as
+   * "seen" so the contiguous-advance walk can move past it, drop its timer
+   * state, and advance `expectedSeq` when it sits at the head of the window.
+   * @private
+   */
+  private _abandonSequence(sequence: number): void {
+    this._cancelNAK(sequence);
     this.receivedSeqs.add(sequence);
     this.abandonedCount++;
 
     if (this.expectedSeq !== null && sequence === this.expectedSeq) {
       this.expectedSeq = (this.expectedSeq + 1) >>> 0;
       while (this.receivedSeqs.has(this.expectedSeq)) {
-        const pending = this.nakTimers.get(this.expectedSeq);
-        if (pending) {
-          clearTimeout(pending);
-          this.nakTimers.delete(this.expectedSeq);
-        }
+        this._cancelNAK(this.expectedSeq);
         this.expectedSeq = (this.expectedSeq + 1) >>> 0;
       }
       this._cleanupOldSequences();
@@ -179,6 +190,11 @@ export class SequenceTracker {
     }
 
     this.receivedSeqs.add(sequence);
+    // The arrival satisfies any NAK outstanding for this very sequence — the
+    // common case for a successful retransmit. Its timer would otherwise stay
+    // armed until it fired and found the sequence already received, leaving the
+    // retry counter behind for good.
+    this._cancelNAK(sequence);
 
     // Proactively clean up if the set grows too large
     if (this.receivedSeqs.size > this.maxGapTracking * 2) {
@@ -220,10 +236,7 @@ export class SequenceTracker {
     this.receivedSeqs.add(sequence);
 
     // Cancel NAK timer if one was scheduled
-    if (this.nakTimers.has(sequence)) {
-      clearTimeout(this.nakTimers.get(sequence)!);
-      this.nakTimers.delete(sequence);
-    }
+    this._cancelNAK(sequence);
   }
 
   /**
@@ -238,10 +251,7 @@ export class SequenceTracker {
     // Advance past contiguous buffered sequences
     while (this.receivedSeqs.has(this.expectedSeq)) {
       // Cancel NAK timer for this sequence since it arrived
-      if (this.nakTimers.has(this.expectedSeq)) {
-        clearTimeout(this.nakTimers.get(this.expectedSeq)!);
-        this.nakTimers.delete(this.expectedSeq);
-      }
+      this._cancelNAK(this.expectedSeq);
       this.expectedSeq = (this.expectedSeq + 1) >>> 0;
     }
 
@@ -368,8 +378,7 @@ export class SequenceTracker {
         }
       }
       if (oldestSeq !== null) {
-        clearTimeout(this.nakTimers.get(oldestSeq)!);
-        this.nakTimers.delete(oldestSeq);
+        this._cancelNAK(oldestSeq);
       }
     }
 
@@ -380,8 +389,12 @@ export class SequenceTracker {
       // produce hundreds of datagrams), queue the sequence and flush all
       // sequences whose timers expired in the same tick as one batched NAK.
       if (!this.receivedSeqs.has(sequence)) {
+        // `attempts` counts the round this firing is about to emit, so the
+        // bound is `>` and not `>=`: at `>=` the maxNakRounds'th NAK was
+        // abandoned instead of sent, giving the sender only maxNakRounds - 1
+        // chances.
         const attempts = (this._nakAttempts.get(sequence) ?? 0) + 1;
-        if (attempts >= this.maxNakRounds) {
+        if (attempts > this.maxNakRounds) {
           // The sender has had maxNakRounds chances; assume the packet is gone
           // for good rather than pinning the window on it indefinitely.
           this._abandonSequence(sequence);

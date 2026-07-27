@@ -15,7 +15,7 @@ import { PacketType, ParsedPacket } from "../../../codec/packet-codec";
 import { getOrCreateSession, sendUDP, sendMetaRequest, sendFullStatusRequest } from "./sessions";
 import { handleMetadataPacket } from "./metadata";
 import { handleDataPacket } from "./data-handler";
-import { preAuthRateLimited, verifyHbProbe, applyHelloEpoch, getReplayGuard } from "./context";
+import { preAuthRateLimited, verifyHbProbe, applyHelloEpoch, markPeerHandshaked } from "./context";
 import type { ServerContext, ClientSession } from "./context";
 
 import {
@@ -127,15 +127,15 @@ function parseHelloInfo(
     app.debug(`v2 hello from client: ${JSON.stringify(info)}`);
     if (session && info && typeof info === "object") {
       applyHelloIdentity(session, info);
+      // The guard key matches the DATA path: session address/port come from rinfo.
+      const peerKey = `${session.address}:${session.port}`;
+      // Mark the handshake first and unconditionally — a pre-H3 peer sends no
+      // epoch, and its DATA must still be distinguishable from a rotated-port
+      // replay when another peer shares its NAT address.
+      markPeerHandshaked(ctx, peerKey, session.address);
       // Advance the per-peer anti-replay epoch (resets the window on a strictly
-      // higher epoch = legitimate restart; ignores replayed/stale HELLOs). The
-      // guard key matches the DATA path: session address/port come from rinfo.
-      const restarted = applyHelloEpoch(
-        ctx,
-        `${session.address}:${session.port}`,
-        info.epoch,
-        session.address
-      );
+      // higher epoch = legitimate restart; ignores replayed/stale HELLOs).
+      const restarted = applyHelloEpoch(ctx, peerKey, info.epoch);
       if (restarted) {
         // A strictly higher epoch means the peer restarted with a brand-new,
         // randomized sequence space. The replay window is re-baselined above;
@@ -284,14 +284,21 @@ function reportReceiveError(ctx: ServerContext, error: unknown): void {
 /**
  * The epoch an incoming packet's auth tag must be bound to.
  *
- * `getReplayGuard` returns epoch 0 for a source we have never completed a
- * handshake with — precisely the replayed/spoofed case — and under epoch-bound
- * auth the parser rejects that rather than falling back to the
- * epoch-independent tag.
+ * Strictly a read-only lookup. This runs on EVERY inbound datagram, before any
+ * authentication has happened, so it must not allocate: `getReplayGuard` inserts
+ * a guard and LRU-evicts to stay under the cap, which would let a spoofed source
+ * port flood churn out the guards of established peers. An evicted peer reverts
+ * to epoch 0 and its DATA is then rejected as a replay by the fail-closed rule
+ * in `data-handler.ts` until it re-handshakes — a remote DoS.
+ *
+ * A missing guard yields 0, which is the right answer anyway: a source we have
+ * never completed a handshake with is precisely the replayed/spoofed case, and
+ * under epoch-bound auth the parser rejects epoch 0 rather than falling back to
+ * the epoch-independent tag.
  */
 function peerAuthEpoch(ctx: ServerContext, rinfo?: { address: string; port: number }): number {
   if (!rinfo) return 0;
-  return getReplayGuard(ctx, `${rinfo.address}:${rinfo.port}`).epoch;
+  return ctx.replayGuards.get(`${rinfo.address}:${rinfo.port}`)?.epoch ?? 0;
 }
 
 /**

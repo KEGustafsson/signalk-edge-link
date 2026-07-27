@@ -275,7 +275,7 @@ Byte 4 of the header contains feature flags:
 | 3   | 0x08 | PATH_DICTIONARY      | Paths encoded with path dictionary                                                                                                                                                                                                   |
 | 4   | 0x10 | AUTHENTICATED_HEADER | DATA/METADATA carry a trailing HMAC tag binding the header to the AEAD ciphertext (default on in v3; both peers must use the same `authenticatedHeaders` setting)                                                                    |
 | 5   | 0x20 | EPOCH_BOUND_AUTH     | The trailing HMAC tag additionally covers the sender's connection epoch (see §5.1). Opt-in via `epochBoundAuth`; both peers must agree and both must run 4.0.0+. Never set on HELLO, which is the packet that establishes the epoch. |
-| 5-7 | -    | Reserved             | Must be 0                                                                                                                                                                                                                            |
+| 6-7 | -    | Reserved             | Must be 0                                                                                                                                                                                                                            |
 
 Both client and server must agree on flag settings via configuration. Mismatched flags will cause decoding failures.
 
@@ -311,11 +311,16 @@ the AES-256-GCM auth tag.
 
 When both peers enable `epochBoundAuth`, the tag additionally covers the
 sender's **connection epoch** — the monotonic value the client advertises in its
-HELLO — appended as a big-endian uint32:
+HELLO — appended as a big-endian uint64:
 
+```text
+tag = HMAC-SHA256(secretKey, header[0..12] ‖ payload ‖ uint64(epoch))[0..15]
 ```
-tag = HMAC-SHA256(secretKey, header[0..12] ‖ payload ‖ uint32(epoch))[0..15]
-```
+
+The width is 64 bits because the epoch is millisecond wall-clock scale
+(`max(Date.now(), stored + 1)`), which does not fit in 32 bits. Truncating it
+would make any two epochs 2^32 ms apart — just under 50 days — produce the same
+tag, restoring the cross-epoch replay this binding exists to prevent.
 
 Packets carrying an epoch-bound tag set the `EPOCH_BOUND_AUTH` flag (bit 5).
 The flag is inside the HMAC-covered header, so an attacker cannot strip it to

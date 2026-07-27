@@ -274,17 +274,17 @@
     "encrypted": "U0sDBhIAAAAAAAAAINIEABEiM0RVZneImaq7zN3u/5kjzBPFieWNtdsaKntYHnU="
   },
   "dataPacketsEpochBound": {
-    "encrypted": "U0sDATIAAAAAAAAAIGkCABEiM0RVZneImaq7zN3u/3GSwUIZ/g9KKJdqUJFnm0g=",
-    "all": "U0sDAT8AAAAAAAAAIDcxABEiM0RVZneImaq7zN3u/3rw+XzBsgWDPIkdpiygVVY="
+    "encrypted": "U0sDATIAAAAAAAAAIGkCABEiM0RVZneImaq7zN3u/37KLDqRRyFXUZgmlOZNPxQ=",
+    "all": "U0sDAT8AAAAAAAAAIDcxABEiM0RVZneImaq7zN3u//mxEPINWXZW5xsxzJWKgwI="
   },
   "metadataPacketsEpochBound": {
-    "encrypted": "U0sDBjIAAAAAAAAAIHX4ABEiM0RVZneImaq7zN3u/+LkhAjNyvjB1kF8YJ/4kZk="
+    "encrypted": "U0sDBjIAAAAAAAAAIHX4ABEiM0RVZneImaq7zN3u/+vGpsb13l1ktsVeAGTcivk="
   },
   "controlPacketsEpochBound": {
-    "ack": "U0sDAiAAAAAAAAAAFDuDCgsMDYbCmJrMeLw8i4Y1jN4dedc=",
-    "nak": "U0sDAyAAAAAAAAAAHNXOAAAAAQAAAAIAAAAD3r0AHT0e8+6Z3sGaZz3HvA==",
-    "heartbeat": "U0sDBCAAAAAAAAAAEAi4CoSBALXWv0hKTPAPVmf7MA==",
-    "metaRequest": "U0sDByAAAAAAAAAAELl316fKCRTKrjJPDOmwg2H1uw=="
+    "ack": "U0sDAiAAAAAAAAAAFDuDCgsMDc3b91i6tYBF6plL5IYoEPI=",
+    "nak": "U0sDAyAAAAAAAAAAHNXOAAAAAQAAAAIAAAADtnMn3K539isn+SB9kzQt3w==",
+    "heartbeat": "U0sDBCAAAAAAAAAAEAi43MIzVlZ6ITqkja1o5Dgngw==",
+    "metaRequest": "U0sDByAAAAAAAAAAELl3txKI+l806+f+iqTBJR+/hQ=="
   },
   "sourceSnapshotEnvelope": {
     "v": 1,

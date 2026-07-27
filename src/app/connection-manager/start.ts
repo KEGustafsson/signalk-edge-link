@@ -118,16 +118,27 @@ function logLegacyProtocolUsage(ctx: ManagerContext, connectionList: ConnectionC
   }
 }
 
-function createInstances(ctx: ManagerContext, connectionList: ConnectionConfig[]): void {
+/**
+ * Create one instance per connection and register it. Returns the instances
+ * this attempt owns, so a superseded attempt can roll back exactly what it
+ * created rather than whatever happens to be in the shared registry.
+ */
+function createInstances(
+  ctx: ManagerContext,
+  connectionList: ConnectionConfig[]
+): Map<string, ConnectionApi> {
   const usedIds = new Set<string>();
+  const owned = new Map<string, ConnectionApi>();
   for (const cfg of connectionList) {
     const instanceId = generateInstanceId(cfg.name, usedIds);
     usedIds.add(instanceId);
     const conn = createConnection(ctx.app, cfg, instanceId, ctx.pluginId, (_id, _msg) =>
       ctx.updateAggregatedStatus()
     );
+    owned.set(instanceId, conn);
     ctx.instances.set(instanceId, conn);
   }
+  return owned;
 }
 
 /** Start every instance in a group, capturing the first error encountered. */
@@ -157,11 +168,31 @@ function teardownAll(ctx: ManagerContext): void {
 }
 
 /**
+ * Roll back only the instances a superseded start attempt created.
+ *
+ * `teardownAll` would be wrong here: by the time a superseded attempt resumes,
+ * the newer start() has already cleared the registry and repopulated it with its
+ * own live instances, so clearing again would stop connections that the current
+ * owner believes are running — and leave them unreachable by any later stop().
+ * Registry entries are only removed when they still point at our instance.
+ */
+function teardownOwned(ctx: ManagerContext, owned: Map<string, ConnectionApi>): void {
+  for (const [id, inst] of owned) {
+    inst.stop();
+    if (ctx.instances.get(id) === inst) ctx.instances.delete(id);
+  }
+}
+
+/**
  * Start servers (before clients), in ordered groups. Returns the first startup
  * error, or `null` if all instances started successfully.
  */
-async function startAllInstances(ctx: ManagerContext, generation: number): Promise<unknown> {
-  const all = [...ctx.instances.values()];
+async function startAllInstances(
+  ctx: ManagerContext,
+  owned: Map<string, ConnectionApi>,
+  generation: number
+): Promise<unknown> {
+  const all = [...owned.values()];
   const servers = all.filter((inst) => inst.isServerMode());
   const clients = all.filter((inst) => !inst.isServerMode());
 
@@ -209,15 +240,15 @@ export async function start(ctx: ManagerContext, options: Record<string, unknown
   if (!connectionList) return;
 
   logLegacyProtocolUsage(ctx, connectionList);
-  createInstances(ctx, connectionList);
+  const owned = createInstances(ctx, connectionList);
 
-  const startError = await startAllInstances(ctx, generation);
+  const startError = await startAllInstances(ctx, owned, generation);
 
   // Superseded mid-start: whatever did supersede us owns the registry now.
   // Stop anything this attempt managed to start and leave the rest alone.
   if (superseded(ctx, generation)) {
     ctx.app.debug("Connection start superseded by a newer start/stop — rolling back");
-    teardownAll(ctx);
+    teardownOwned(ctx, owned);
     return;
   }
 

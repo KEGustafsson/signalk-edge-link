@@ -65,25 +65,51 @@ To tell a legitimate peer **restart** (which picks a fresh random sequence basel
 
 This closes the deterministic idle-expiry and eviction replay vectors with no per-packet wire change (the epoch is an optional HELLO field). Two narrow residuals remain:
 
-- **Cross-epoch replay** — a packet captured before a restart whose random sequence baseline happens to fall inside the post-restart window (vanishingly unlikely, and only briefly after a restart). Fully closing it would require binding the epoch into per-packet authentication; that is intentionally out of scope, because it would couple the wire codec to session state and break the path where DATA legitimately precedes HELLO.
+- **Cross-epoch replay** — a packet captured before a restart whose random sequence baseline happens to fall inside the post-restart window (vanishingly unlikely, and only briefly after a restart). Closed by `epochBoundAuth` below.
+- **Spoofed-source replay** — a guard is created lazily per `address:port`, so a replay from a source the receiver has never seen lands on a fresh guard with epoch 0 and nothing to enforce against. Source-**port** rotation is closed by failing packets closed on an unhandshaked port of an already-handshaked address; source-**IP** spoofing is closed by `epochBoundAuth` below.
 - **Post-server-restart race** — the replay window is in-memory, so it does not persist across a _server_ restart; an attacker who beats the legitimate client's reconnect in that brief window could replay once. The client re-establishes a higher epoch on reconnect, so it self-heals.
 
 For pre-H3 peers that do not advertise an epoch, the strict window is not enforced (backward compatibility); those peers retain the previous behavior.
+
+### Epoch-bound packet authentication (`epochBoundAuth`)
+
+The two residuals above share one root cause: the auth tag is independent of the
+connection epoch, so a captured packet stays valid forever. `epochBoundAuth`
+appends the sender's connection epoch to the HMAC input (as a big-endian uint64
+— see [protocol-v3-spec.md §5.1](protocol-v3-spec.md)), so a packet authenticates
+_only_ inside the epoch it was sent in:
+
+- a receiver holding **no** epoch for the source — the freshly-created-guard case
+  a spoofed source address produces — has no value to verify with;
+- a receiver whose peer has since **restarted** holds a strictly newer epoch, so
+  the pre-restart capture no longer verifies.
+
+The `EPOCH_BOUND_AUTH` flag sits inside the HMAC-covered header, so it cannot be
+stripped to force a downgrade: clearing the bit changes the authenticated bytes.
+HELLO is always exempt — it is the packet that establishes the epoch.
+
+**Off by default, and it is a breaking change between peers.** A peer that does
+not implement the flag computes the tag without the epoch, so **both ends must
+set `epochBoundAuth: true` and both must run 4.0.0 or later**; otherwise every
+DATA and METADATA packet fails authentication. It also requires
+`authenticatedHeaders` (the epoch is bound into that same tag) and
+`protocolVersion: 3`. Upgrade one end, then the other, then enable the flag on
+both. Wire cost: zero — the tag length is unchanged.
 
 ---
 
 ## Security Properties
 
-| Property                       | Status          | Detail                                                                |
-| ------------------------------ | --------------- | --------------------------------------------------------------------- |
-| Data confidentiality           | ✓ Strong        | AES-256-GCM                                                           |
-| Data integrity                 | ✓ Strong        | GCM auth tag (16 bytes)                                               |
-| DATA/METADATA header integrity | Default on (v3) | HMAC-SHA256 by default; CRC16-only with `authenticatedHeaders: false` |
-| DATA replay protection         | Strong (v3)     | Per-peer sliding window survives idle/eviction; epoch-gated reset     |
-| Control packet authentication  | v3 only         | HMAC-SHA256; v1 uses no control layer                                 |
-| Forward secrecy                | ✗ None          | Same pre-shared key for lifetime of connection                        |
-| Client authentication          | ✗ None          | Any holder of the key can connect                                     |
-| Compression side-channel       | ✗ Low risk      | Brotli before encryption — size observable                            |
+| Property                       | Status          | Detail                                                                                                                           |
+| ------------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Data confidentiality           | ✓ Strong        | AES-256-GCM                                                                                                                      |
+| Data integrity                 | ✓ Strong        | GCM auth tag (16 bytes)                                                                                                          |
+| DATA/METADATA header integrity | Default on (v3) | HMAC-SHA256 by default; CRC16-only with `authenticatedHeaders: false`                                                            |
+| DATA replay protection         | Strong (v3)     | Per-peer sliding window survives idle/eviction; epoch-gated reset; `epochBoundAuth` closes cross-epoch and spoofed-source replay |
+| Control packet authentication  | v3 only         | HMAC-SHA256; v1 uses no control layer                                                                                            |
+| Forward secrecy                | ✗ None          | Same pre-shared key for lifetime of connection                                                                                   |
+| Client authentication          | ✗ None          | Any holder of the key can connect                                                                                                |
+| Compression side-channel       | ✗ Low risk      | Brotli before encryption — size observable                                                                                       |
 
 ### Advanced (v3) control-plane authentication
 
