@@ -79,7 +79,7 @@ export function NetworkQualityCard({ metrics }: Props) {
                 fontWeight="bold"
                 fill={qualityColor}
               >
-                {qualityPct}
+                {nq.linkQuality !== undefined ? qualityPct : "—"}
               </text>
               <text x={cx} y={cy + 8} textAnchor="middle" fontSize="7" fill="#666">
                 {qualityLabel}

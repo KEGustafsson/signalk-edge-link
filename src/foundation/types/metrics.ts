@@ -96,6 +96,13 @@ export interface Metrics {
   smartBatching: SmartBatchingMetrics;
   rtt?: number;
   jitter?: number;
+  /**
+   * Number of RTT samples taken (one per freshly-ACKed, non-retransmitted
+   * packet). `rtt` alone cannot distinguish "never measured" from "measured 0",
+   * and treating the seed value as a measurement scores an unmeasured link as
+   * a perfect one — see {@link EffectiveNetworkQuality.hasQualityBasis}.
+   */
+  rttSamples?: number;
   retransmissions?: number;
   queueDepth?: number;
   acksSent?: number;

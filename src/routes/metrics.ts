@@ -58,8 +58,10 @@ function register(router: Router, ctx: RouteContext): void {
         const { metrics } = bundle.metricsApi;
         const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
         const networkMetrics: Record<string, unknown> = {
-          rtt: effectiveNetwork.rtt,
-          jitter: effectiveNetwork.jitter,
+          // See the identical guard in routes.ts: 0 here would mean "measured a
+          // 0 ms round trip", not "never measured one".
+          rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
+          jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
           packetLoss: effectiveNetwork.packetLoss,
           retransmissions: effectiveNetwork.retransmissions,
           queueDepth: effectiveNetwork.queueDepth,
@@ -75,7 +77,7 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         const nmPublisher = getActiveMetricsPublisher(state);
-        if (nmPublisher) {
+        if (nmPublisher && effectiveNetwork.hasQualityBasis) {
           networkMetrics.linkQuality = nmPublisher.calculateLinkQuality({
             rtt: effectiveNetwork.rtt,
             jitter: effectiveNetwork.jitter,

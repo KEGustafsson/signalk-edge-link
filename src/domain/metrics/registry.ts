@@ -72,6 +72,8 @@ function buildReliabilityMetrics() {
     packetLoss: 0,
     rtt: 0,
     jitter: 0,
+    // Zero means "no RTT measured yet"; `rtt: 0` above is a seed, not a sample.
+    rttSamples: 0,
     retransmissions: 0,
     queueDepth: 0,
     acksSent: 0,

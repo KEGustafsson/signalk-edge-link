@@ -550,7 +550,11 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       retransmitRate: selectMetric(remote.retransmitRate, clientRetransmitRate),
       activeLink: hasFreshRemote ? (remote.activeLink ?? "primary") : localActiveLink,
       dataSource: hasFreshRemote ? "remote-client" : "local",
-      lastUpdate: hasFreshRemote ? remote.lastUpdate : 0
+      lastUpdate: hasFreshRemote ? remote.lastUpdate : 0,
+      // A server measures no latency itself, so without fresh client telemetry
+      // it has no basis at all. A client's basis is its first timed ACK — until
+      // one arrives `rtt` and `jitter` are seed zeros, not measurements.
+      hasQualityBasis: hasFreshRemote || (!state.isServerMode && (metrics.rttSamples ?? 0) > 0)
     };
   }
 
@@ -662,8 +666,10 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       networkQuality: (() => {
         const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
         const networkData: Record<string, unknown> = {
-          rtt: effectiveNetwork.rtt,
-          jitter: effectiveNetwork.jitter,
+          // Omitted rather than reported as 0 when nothing has been measured, so
+          // the UI can say "N/A" instead of claiming a 0 ms round trip.
+          rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
+          jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
           packetLoss: effectiveNetwork.packetLoss,
           retransmissions: effectiveNetwork.retransmissions,
           queueDepth: effectiveNetwork.queueDepth,
@@ -678,7 +684,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         }
 
         const publisher = getActiveMetricsPublisher(state);
-        if (publisher) {
+        if (publisher && effectiveNetwork.hasQualityBasis) {
           networkData.linkQuality = publisher.calculateLinkQuality({
             rtt: effectiveNetwork.rtt,
             jitter: effectiveNetwork.jitter,

@@ -177,6 +177,9 @@ function recordRttSample(ctx: ClientContext, rttSample: number): void {
   const { metricsApi, rttSamples } = ctx;
   const { metrics } = metricsApi;
   metrics.rtt = rttSample;
+  // Counted so consumers can tell a measured 0 ms from a link that has never
+  // been timed at all.
+  metrics.rttSamples = (metrics.rttSamples ?? 0) + 1;
   rttSamples.push(rttSample);
 
   if (rttSamples.length >= 2) {

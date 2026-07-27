@@ -40,19 +40,22 @@ From `GET /metrics` under `stats` and `bandwidth`:
 
 From `GET /metrics` under `networkQuality`:
 
-| Metric                | Unit  | Description                                                      |
-| --------------------- | ----- | ---------------------------------------------------------------- |
-| `acksSent`            | count | ACK packets sent by the server                                   |
-| `naksSent`            | count | NAK packets sent to request retransmission                       |
-| `retransmissions`     | count | Data packets retransmitted after a NAK or timeout                |
-| `duplicatePackets`    | count | Packets received with a seq number already seen (safely dropped) |
-| `dataPacketsReceived` | count | Total data packets accepted (excludes duplicates)                |
+| Metric                | Unit  | Description                                                               |
+| --------------------- | ----- | ------------------------------------------------------------------------- |
+| `acksSent`            | count | ACK packets sent by the server                                            |
+| `naksSent`            | count | NAK packets sent to request retransmission                                |
+| `retransmissions`     | count | Data packets retransmitted after a NAK or timeout                         |
+| `duplicatePackets`    | count | Packets received with a seq number already seen (safely dropped)          |
+| `dataPacketsReceived` | count | Total data packets accepted (excludes duplicates)                         |
+| `packetsAbandoned`    | count | Packets the sender dropped from its retransmit queue (unrecoverable)      |
+| `abandonedSequences`  | count | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable) |
 
 **Interpretation:**
 
 - `retransmissions / dataPacketsReceived` < 1% is healthy
 - Rising `naksSent` with low `acksSent` indicates one-way UDP — check bidirectional reachability
 - `duplicatePackets > 0` is normal on unreliable links; duplicates are safely discarded
+- `packetsAbandoned` / `abandonedSequences` above zero mean data was permanently lost, not merely delayed — the window advanced past a gap the sender could no longer fill
 
 ---
 
@@ -77,6 +80,14 @@ Returned by `GET /network-metrics` and embedded in `GET /metrics` under `network
 | 70–89  | Good      | Acceptable for most use cases                       |
 | 50–69  | Degraded  | Congestion control and bonding failover recommended |
 | < 50   | Poor      | High loss or latency; data delivery unreliable      |
+
+**No score without a measurement.** `rtt`, `jitter` and `linkQuality` are
+**omitted entirely** — not reported as `0` — until the link has actually been
+measured. A client's first measurement is its first timed ACK; a server measures
+no latency of its own, so it has no figures until client telemetry arrives.
+Scoring an unmeasured link would treat those zeros as ideal and return 100
+("Excellent") for a link carrying no traffic. `packetLoss`, `queueDepth` and
+`retransmitRate` are locally observed and always reported.
 
 ---
 

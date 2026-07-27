@@ -76,7 +76,8 @@ function makeCtx(overrides = {}) {
       activeLink: "primary",
       dataSource: "local",
       lastUpdate: 0,
-      retransmitRate: 0
+      retransmitRate: 0,
+      hasQualityBasis: true
     }),
     getActiveMetricsPublisher: () => null,
     buildFullMetricsResponse: (_bundle) => ({ ok: true }),
@@ -242,7 +243,8 @@ describe("GET /network-metrics", () => {
         activeLink: "primary",
         dataSource: "remote",
         lastUpdate: now,
-        retransmitRate: 0
+        retransmitRate: 0,
+        hasQualityBasis: true
       })
     });
     const router = makeRouterCollector();
@@ -251,6 +253,45 @@ describe("GET /network-metrics", () => {
     const res = makeResponse();
     handler({}, res);
     expect(res.body.lastRemoteUpdate).toBe(now);
+  });
+
+  // rtt/jitter fall back to 0 when nothing has been measured — a server with no
+  // client telemetry, or a client that has not yet timed an ACK. Feeding those
+  // zeros to calculateLinkQuality yields a perfect 100, so an unmeasured link
+  // outscored every real one and the dashboard reported "Excellent" for a link
+  // that was not working. Report nothing instead of a measurement never taken.
+  test("omits linkQuality, rtt and jitter when nothing has been measured", () => {
+    const ctx = makeCtx({
+      getFirstBundle: () => ({
+        state: { isServerMode: true },
+        metricsApi: { metrics: { acksSent: 0, naksSent: 0 } }
+      }),
+      getEffectiveNetworkQuality: () => ({
+        rtt: 0,
+        jitter: 0,
+        packetLoss: 0,
+        retransmissions: 0,
+        queueDepth: 0,
+        activeLink: "primary",
+        dataSource: "local",
+        lastUpdate: 0,
+        retransmitRate: 0,
+        hasQualityBasis: false
+      }),
+      getActiveMetricsPublisher: () => ({ calculateLinkQuality: () => 100 })
+    });
+    const router = makeRouterCollector();
+    metricsRoutes.register(router, ctx);
+    const handler = findHandler(router, "get", "/network-metrics");
+    const res = makeResponse();
+    handler({}, res);
+
+    expect(res.body.linkQuality).toBeUndefined();
+    expect(res.body.rtt).toBeUndefined();
+    expect(res.body.jitter).toBeUndefined();
+    // Counters that ARE genuinely observed locally must still be reported.
+    expect(res.body.queueDepth).toBe(0);
+    expect(res.body.packetLoss).toBe(0);
   });
 
   test("returns 500 when handler throws", () => {
