@@ -112,6 +112,50 @@ describe("client control-request dispatch", () => {
       }
     });
 
+    // A peer that moves — dynamic DNS, failover to a standby host — must be
+    // recognised at its new address. Resolving once and never re-checking would
+    // reject it permanently, dropping every ACK exactly as the original string
+    // comparison did.
+    test("picks up a peer whose address changes", async () => {
+      const dns = require("dns");
+      let current = "192.0.2.10";
+      const spy = jest.spyOn(dns, "lookup").mockImplementation((_host, _opts, cb) => {
+        const done = typeof _opts === "function" ? _opts : cb;
+        done(null, [{ address: current, family: 4 }]);
+      });
+      const realNow = Date.now;
+      try {
+        const { pipeline } = makeClient("moves.example");
+        const handler = jest.fn();
+        pipeline.setMetaRequestHandler(handler);
+
+        await pipeline.handleControlPacket(
+          builder().buildMetaRequestPacket({ secretKey: SECRET }),
+          { address: "192.0.2.10", port: 4446 }
+        );
+        expect(handler).toHaveBeenCalledTimes(1);
+
+        // The peer moves; the old address must stop being accepted...
+        current = "198.51.100.5";
+        Date.now = () => realNow() + 120_000;
+        await pipeline.handleControlPacket(
+          builder().buildMetaRequestPacket({ secretKey: SECRET }),
+          { address: "192.0.2.10", port: 4446 }
+        );
+        expect(handler).toHaveBeenCalledTimes(1);
+
+        // ...and the new one must start.
+        await pipeline.handleControlPacket(
+          builder().buildMetaRequestPacket({ secretKey: SECRET }),
+          { address: "198.51.100.5", port: 4446 }
+        );
+        expect(handler).toHaveBeenCalledTimes(2);
+      } finally {
+        Date.now = realNow;
+        spy.mockRestore();
+      }
+    });
+
     // An open-ended grace is the validation switched off, not relaxed.
     test("stops accepting once the resolve grace expires without a result", async () => {
       const dns = require("dns");

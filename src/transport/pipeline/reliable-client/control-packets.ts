@@ -169,12 +169,18 @@ function isExpectedPeer(ctx: ClientContext, rinfo: dgram.RemoteInfo): boolean {
       continue;
     }
     // A hostname cannot be compared to a literal address directly.
+    if (!hostFirstSeenAt.has(candidate)) {
+      hostFirstSeenAt.set(candidate, now);
+    }
+    // Called even when a result is already cached: it self-rate-limits, and
+    // refreshing is what lets a peer whose address changes — dynamic DNS, a
+    // failover to a standby host — be recognised again. Resolving once and
+    // never re-checking would reject the new address permanently, silently
+    // dropping every ACK exactly as the original string comparison did.
+    ensureHostResolved(ctx, candidate);
+
     const resolved = resolvedPeerHosts.get(candidate);
     if (!resolved) {
-      if (!hostFirstSeenAt.has(candidate)) {
-        hostFirstSeenAt.set(candidate, now);
-      }
-      ensureHostResolved(ctx, candidate);
       if (now - (hostFirstSeenAt.get(candidate) ?? now) < HOST_RESOLVE_GRACE_MS) {
         withinResolveGrace = true;
       }
