@@ -35,21 +35,57 @@ describe("MonitoringAlertsCard", () => {
     expect(screen.getByText("WARNING")).toBeInTheDocument();
   });
 
-  test("renders packet loss and retransmission subsections", () => {
-    const data = {
-      packetLoss: { summary: { totalLost: 5, totalExpected: 100, lossRate: 0.05 } },
-      retransmissions: { totalRetransmissions: 3, retransmitRate: 0.03 }
-    } as unknown as MonitoringData;
+  // This previously fed the card a hand-written shape invented to match what
+  // the card read, so it passed while every number in the real UI was a
+  // permanent 0. The producers are the contract, so drive their actual output
+  // through the card: a field rename on either side now fails here.
+  test("renders the real tracker summaries, not zeros", () => {
+    const {
+      PacketLossTracker,
+      RetransmissionTracker
+    } = require("../../../../lib/domain/monitoring");
+
+    jest.useFakeTimers();
+    let data;
+    try {
+      const loss = new PacketLossTracker();
+      for (let i = 0; i < 92; i++) loss.record(false);
+      for (let i = 0; i < 8; i++) loss.record(true); // 8 lost of 100 observed
+      // The in-progress bucket is excluded until it closes, so cross a bucket
+      // boundary (5s) or the summary is legitimately empty.
+      jest.advanceTimersByTime(6000);
+
+      const rtx = new RetransmissionTracker();
+      rtx.snapshot(0, 0);
+      // snapshot() ignores a zero-elapsed call, so time must move between them.
+      jest.advanceTimersByTime(1000);
+      rtx.snapshot(1000, 30); // 30 retransmissions over 1000 packets
+
+      data = {
+        packetLoss: { summary: loss.getSummary() },
+        retransmissions: { summary: rtx.getSummary() }
+      } as unknown as MonitoringData;
+    } finally {
+      jest.useRealTimers();
+    }
+
     render(<MonitoringAlertsCard data={data} />);
+
     expect(screen.getByText("Packet Loss")).toBeInTheDocument();
     expect(screen.getByText("Retransmissions")).toBeInTheDocument();
-    expect(screen.getByText(/Total Lost/)).toBeInTheDocument();
+    // The counts must survive the trip. Asserting the rendered values (not just
+    // that a label exists) is the whole point: the labels rendered fine before.
+    expect(screen.getByText("8")).toBeInTheDocument();
+    expect(screen.getByText("100")).toBeInTheDocument();
+    expect(screen.getByText("30")).toBeInTheDocument();
+    expect(screen.getByText("8.0%")).toBeInTheDocument();
+    expect(screen.getByText("3.0%")).toBeInTheDocument();
   });
 
   test("renders partial packet loss and retransmission data without crashing", () => {
     const data = {
       packetLoss: { summary: {} },
-      retransmissions: {}
+      retransmissions: { summary: {} }
     } as unknown as MonitoringData;
 
     render(<MonitoringAlertsCard data={data} />);

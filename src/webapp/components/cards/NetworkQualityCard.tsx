@@ -12,6 +12,13 @@ export function NetworkQualityCard({ metrics }: Props) {
   if (!nq) return null;
 
   const isClient = metrics?.mode === "client";
+  // Loss is a ratio over observed traffic: with nothing sent or received it is
+  // 0/0, and the seeded 0 would render as a confident "0.0%". Fresh client
+  // telemetry counts on its own — the remote peer did the observing.
+  const hasLossBasis =
+    nq.dataSource === "remote-client" ||
+    (metrics?.bandwidth?.packetsIn ?? 0) > 0 ||
+    (metrics?.bandwidth?.packetsOut ?? 0) > 0;
   // Normalize then clamp to [0,100]: `?? 0` only covers null/undefined, so guard
   // NaN/Infinity (which would propagate through round/clamp) with Number.isFinite.
   // An out-of-range value would otherwise push gaugeAngle past 180°, flipping
@@ -118,11 +125,26 @@ export function NetworkQualityCard({ metrics }: Props) {
                   : ""
               }
             />
+            {/*
+              Packet loss needs its own basis, not linkQuality's. A server
+              derives it from sequence gaps in traffic it has actually
+              received, so it can be real while RTT is still unknown — but
+              with nothing received yet the seeded 0 renders as a confident
+              "0.0%" beside three N/As, which reads as a healthy link on a
+              link that has told us nothing. That is what a proxy's
+              downstream-facing instance shows before its client connects.
+            */}
             <MetricItem
               label="Packet Loss"
-              value={formatRatioPercent(nq.packetLoss ?? 0)}
+              value={hasLossBasis ? formatRatioPercent(nq.packetLoss ?? 0) : "N/A"}
               statusClass={
-                (nq.packetLoss ?? 0) > 0.1 ? "error" : (nq.packetLoss ?? 0) > 0.03 ? "warning" : ""
+                !hasLossBasis
+                  ? ""
+                  : (nq.packetLoss ?? 0) > 0.1
+                    ? "error"
+                    : (nq.packetLoss ?? 0) > 0.03
+                      ? "warning"
+                      : ""
               }
             />
           </div>

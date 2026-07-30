@@ -92,9 +92,15 @@ export class RetransmissionTracker {
    * Get summary statistics
    * @returns {Object}
    */
-  getSummary(): { avgRate: number; maxRate: number; currentRate: number; entries: number } {
+  getSummary(): {
+    avgRate: number;
+    maxRate: number;
+    currentRate: number;
+    entries: number;
+    totalRetransmissions: number;
+  } {
     if (this.history.length === 0) {
-      return { avgRate: 0, maxRate: 0, currentRate: 0, entries: 0 };
+      return { avgRate: 0, maxRate: 0, currentRate: 0, entries: 0, totalRetransmissions: 0 };
     }
 
     let sumRate = 0;
@@ -112,7 +118,11 @@ export class RetransmissionTracker {
       avgRate: Math.round((sumRate / this.history.length) * 10000) / 10000,
       maxRate,
       currentRate: current.rate,
-      entries: this.history.length
+      entries: this.history.length,
+      // The running total is already carried on the snapshot cursor for the
+      // per-period delta; exposing it costs nothing and is the figure the web
+      // UI asks for by name.
+      totalRetransmissions: this._lastSnapshot.retransmissions
     };
   }
 

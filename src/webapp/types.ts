@@ -98,16 +98,29 @@ export interface MonitoringData {
   alerts?: {
     activeAlerts: Record<string, string | { level: string; value?: unknown }>;
   };
+  // These mirror GET /monitoring/packet-loss and /monitoring/retransmissions
+  // verbatim. They previously named fields no producer emitted — `lossRate`
+  // for `overallLossRate`, and the retransmission counters hoisted out of
+  // `summary` — and because every field is optional TypeScript could not catch
+  // it: each read produced `undefined`, which the card rendered as 0.
   packetLoss?: {
     summary?: {
+      overallLossRate?: number;
+      maxLossRate?: number;
+      trend?: string;
+      bucketCount?: number;
       totalLost?: number;
       totalExpected?: number;
-      lossRate?: number;
     };
   };
   retransmissions?: {
-    totalRetransmissions?: number;
-    retransmitRate?: number;
+    summary?: {
+      avgRate?: number;
+      maxRate?: number;
+      currentRate?: number;
+      entries?: number;
+      totalRetransmissions?: number;
+    };
   };
 }
 
