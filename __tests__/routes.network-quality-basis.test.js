@@ -87,7 +87,7 @@ function makeBundle({ isServerMode, metrics: overrides = {} }) {
   };
 }
 
-function getMetrics(bundle) {
+function callRoute(bundle, path) {
   const instanceRegistry = {
     getAll: () => [bundle],
     getFirst: () => bundle,
@@ -99,8 +99,13 @@ function getMetrics(bundle) {
   const router = makeRouterCollector();
   routes.registerWithRouter(router);
   const res = makeResponse();
-  findHandler(router, "get", "/metrics")({ headers: {}, params: {}, query: {} }, res);
+  res.set = () => res;
+  findHandler(router, "get", path)({ headers: {}, params: {}, query: {} }, res);
   return res.body;
+}
+
+function getMetrics(bundle) {
+  return callRoute(bundle, "/metrics");
 }
 
 describe("network quality measurement basis", () => {
@@ -187,5 +192,43 @@ describe("network quality measurement basis", () => {
 
     expect(unmeasured).toBe(100);
     expect(good).toBeLessThan(unmeasured);
+  });
+});
+
+/**
+ * The scrape is where a false green does the most damage: dashboards and
+ * alerting rules are built on it, and `rtt_milliseconds 0` is indistinguishable
+ * from a genuinely instant link. Gating only `link_quality_score` would leave
+ * the same lie in the latency series.
+ */
+describe("prometheus network quality basis", () => {
+  test("omits rtt/jitter/link-quality series for an unmeasured link", () => {
+    const text = callRoute(
+      makeBundle({
+        isServerMode: false,
+        metrics: { rtt: 0, jitter: 0, rttSamples: 0, queueDepth: 184 }
+      }),
+      "/prometheus"
+    );
+
+    expect(text).not.toMatch(/^signalk_edge_link_rtt_milliseconds/m);
+    expect(text).not.toMatch(/^signalk_edge_link_jitter_milliseconds/m);
+    expect(text).not.toMatch(/^signalk_edge_link_link_quality_score/m);
+    // Counters that rest on local observation are unaffected by the gate.
+    expect(text).toMatch(/^signalk_edge_link_queue_depth\{[^}]*\} 184$/m);
+  });
+
+  test("emits rtt/jitter/link-quality series once measured", () => {
+    const text = callRoute(
+      makeBundle({
+        isServerMode: false,
+        metrics: { rtt: 42, jitter: 5, rttSamples: 3, queueDepth: 0 }
+      }),
+      "/prometheus"
+    );
+
+    expect(text).toMatch(/^signalk_edge_link_rtt_milliseconds\{[^}]*\} 42$/m);
+    expect(text).toMatch(/^signalk_edge_link_jitter_milliseconds\{[^}]*\} 5$/m);
+    expect(text).toMatch(/^signalk_edge_link_link_quality_score\{[^}]*\} \d+/m);
   });
 });

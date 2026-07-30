@@ -26,8 +26,21 @@ Returns comprehensive real-time statistics. Available in client and server mode.
     "deltasSent": 12345,
     "deltasReceived": 0,
     "udpSendErrors": 0,
+    "udpRetries": 0,
     "compressionErrors": 0,
-    "encryptionErrors": 0
+    "encryptionErrors": 0,
+    "subscriptionErrors": 0,
+    "duplicatePackets": 0,
+    "malformedPackets": 0,
+    "dataPacketsReceived": 0,
+    "rateLimitedPackets": 0,
+    "droppedDeltaBatches": 0,
+    "droppedDeltaCount": 0,
+    "abandonedSequences": 0,
+    "packetsAbandoned": 0,
+    "rejectedControlPackets": 0,
+    "suppressedOutboundDuplicates": 0,
+    "errorCounts": {}
   },
   "status": { "readyToSend": true, "deltasBuffered": 5 },
   "bandwidth": {
@@ -396,10 +409,17 @@ Detailed runtime, network, bonding, metrics, and config view for one instance.
 }
 ```
 
-`network.rtt` and `network.jitter` appear only once the link has actually been
-measured — a client's first timed ACK, or a server's first client telemetry.
-Before that they are **absent**, not zero. Treat a missing field as "no data"
-rather than a 0 ms round trip.
+`network.rtt`, `network.jitter` and `linkQuality` appear only once the link has
+actually been measured — a client's first timed ACK, or a server's first client
+telemetry. Before that they are **absent**, not zero. Treat a missing field as
+"no data" rather than a 0 ms round trip or a perfect link.
+
+The same gate applies everywhere these values are exposed: `networkQuality` in
+`GET /metrics`, `GET /network-metrics`, and the
+`signalk_edge_link_rtt_milliseconds`, `signalk_edge_link_jitter_milliseconds`
+and `signalk_edge_link_link_quality_score` series in `GET /prometheus` — all of
+which omit the field or the whole time-series until there is a measurement
+behind it.
 
 **Errors:** `401` unauthorized, `404` instance not found.
 

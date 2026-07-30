@@ -162,10 +162,16 @@ function register(router: Router, ctx: RouteContext): void {
             }
           }
 
+          // rtt/jitter follow the same gate as linkQuality. Gating only the
+          // quality score would still scrape an unmeasured link as a 0 ms round
+          // trip — the same false green in a different series. `undefined` (not
+          // omission) is deliberate: the spread above carries the seeded
+          // `metrics.rtt: 0`, so the key has to be overwritten to suppress it,
+          // and `emitNetworkQuality` skips the series when it is undefined.
           const prometheusMetrics = {
             ...metrics,
-            rtt: effectiveNetwork.rtt,
-            jitter: effectiveNetwork.jitter,
+            rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
+            jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
             retransmissions: effectiveNetwork.retransmissions,
             queueDepth: effectiveNetwork.queueDepth
           };

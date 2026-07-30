@@ -180,8 +180,15 @@ function emitBandwidth(e: MetricEmitter, metrics: Metrics): void {
 }
 
 function emitNetworkQuality(e: MetricEmitter, metrics: Metrics): void {
-  e.gauge("rtt_milliseconds", "Round trip time in milliseconds", metrics.rtt || 0);
-  e.gauge("jitter_milliseconds", "Jitter in milliseconds", metrics.jitter || 0);
+  // Omit rather than zero-fill: `rtt_milliseconds 0` for a link that has never
+  // been measured reads as a perfect round trip on every dashboard and alert
+  // built on the scrape. An absent series is visibly absent; a fake 0 is not.
+  if (metrics.rtt !== undefined) {
+    e.gauge("rtt_milliseconds", "Round trip time in milliseconds", metrics.rtt);
+  }
+  if (metrics.jitter !== undefined) {
+    e.gauge("jitter_milliseconds", "Jitter in milliseconds", metrics.jitter);
+  }
   e.counter("retransmissions_total", "Total packet retransmissions", metrics.retransmissions || 0);
   e.gauge("queue_depth", "Retransmit queue depth", metrics.queueDepth || 0);
   e.counter("acks_sent_total", "Total ACKs sent", metrics.acksSent || 0);
