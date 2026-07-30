@@ -95,6 +95,22 @@ class MetricsPublisher {
   ): void {
     // Callers pass `undefined` for a latency that has not been measured — never
     // 0, which is a legitimate reading and cannot be told apart from "no data".
+    //
+    // When it goes away, the samples behind it must go too. Nothing new is
+    // pushed into the windows once measurement stops, so they would keep their
+    // last values forever: linkQuality would carry on being computed from a
+    // round trip that is no longer happening, and the Signal K paths would
+    // retain their final reading indefinitely. Clearing the windows suppresses
+    // the score, and an explicit null clears the retained paths — Signal K
+    // treats a null value as "this data is no longer available".
+    if (metrics.rtt === undefined && this.rttWindow.length > 0) {
+      this.rttWindow = new CircularBuffer(this.windowSize);
+      this.jitterWindow = new CircularBuffer(this.windowSize);
+      values.push({ path: `${this.pathPrefix}.rtt`, value: null });
+      values.push({ path: `${this.pathPrefix}.jitter`, value: null });
+      values.push({ path: `${this.pathPrefix}.linkQuality`, value: null });
+    }
+
     if (typeof metrics.rtt === "number") {
       this._addToWindow(this.rttWindow, metrics.rtt);
       const avgRtt = this._calculateAverage(this.rttWindow);
@@ -170,6 +186,16 @@ class MetricsPublisher {
       values.push({
         path: `${this.pathPrefix}.queueDepth`,
         value: parseFloat(metrics.queueDepth.toFixed(0))
+      });
+    }
+
+    // Published alongside the other reliability counters. It feeds the link
+    // quality score, so leaving it unpublished made one of the score's four
+    // inputs invisible to anyone reading the Signal K tree.
+    if (typeof metrics.retransmitRate === "number") {
+      values.push({
+        path: `${this.pathPrefix}.retransmitRate`,
+        value: parseFloat(metrics.retransmitRate.toFixed(4))
       });
     }
   }

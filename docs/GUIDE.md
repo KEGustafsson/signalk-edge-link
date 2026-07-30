@@ -1704,7 +1704,7 @@ Detailed runtime, network, bonding, metrics, and config view for one instance.
   "state": "Server listening on port 4446",
   "readyToSend": true,
   "currentLink": "primary",
-  "network": { "rtt": 0, "jitter": 0, "packetLoss": 0 },
+  "network": { "rtt": 42, "jitter": 6, "packetLoss": 0 },
   "metrics": { "deltasSent": 1234, "deltasReceived": 0 },
   "bonding": { "enabled": false },
   "config": {
@@ -1715,6 +1715,11 @@ Detailed runtime, network, bonding, metrics, and config view for one instance.
   }
 }
 ```
+
+`network.rtt` and `network.jitter` appear only once the link has actually been
+measured — a client's first timed ACK, or a server's first client telemetry.
+Before that they are **absent**, not zero. Treat a missing field as "no data"
+rather than a 0 ms round trip.
 
 **Errors:** `401` unauthorized, `404` instance not found.
 

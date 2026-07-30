@@ -74,15 +74,104 @@ describe("client control-request dispatch", () => {
       expect(handler).toHaveBeenCalledTimes(1);
     });
 
-    test("accepts a peer when the configured address is a hostname", async () => {
-      const { pipeline } = makeClient("my-server.example");
-      const handler = jest.fn();
-      pipeline.setMetaRequestHandler(handler);
+    test("accepts only the addresses a configured hostname resolves to", async () => {
+      const dns = require("dns");
+      const spy = jest.spyOn(dns, "lookup").mockImplementation((_host, _opts, cb) => {
+        const done = typeof _opts === "function" ? _opts : cb;
+        done(null, [{ address: "192.0.2.10", family: 4 }]);
+      });
+      try {
+        const { pipeline } = makeClient("resolves.example");
+        const handler = jest.fn();
+        pipeline.setMetaRequestHandler(handler);
 
-      const packet = builder().buildMetaRequestPacket({ secretKey: SECRET });
-      await pipeline.handleControlPacket(packet, { address: "192.0.2.10", port: 4446 });
+        // First packet lands inside the resolve grace and also triggers the
+        // lookup, which the mock completes synchronously.
+        await pipeline.handleControlPacket(
+          builder().buildMetaRequestPacket({ secretKey: SECRET }),
+          { address: "192.0.2.10", port: 4446 }
+        );
+        expect(handler).toHaveBeenCalledTimes(1);
 
-      expect(handler).toHaveBeenCalledTimes(1);
+        // Now that the name is resolved, an address outside its set is refused —
+        // a hostname must not become a wildcard.
+        await pipeline.handleControlPacket(
+          builder().buildMetaRequestPacket({ secretKey: SECRET }),
+          { address: "203.0.113.9", port: 4446 }
+        );
+        expect(handler).toHaveBeenCalledTimes(1);
+
+        // ...and a resolved address still is.
+        await pipeline.handleControlPacket(
+          builder().buildMetaRequestPacket({ secretKey: SECRET }),
+          { address: "192.0.2.10", port: 4446 }
+        );
+        expect(handler).toHaveBeenCalledTimes(2);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    // An open-ended grace is the validation switched off, not relaxed.
+    test("stops accepting once the resolve grace expires without a result", async () => {
+      const dns = require("dns");
+      const spy = jest.spyOn(dns, "lookup").mockImplementation((_host, _opts, cb) => {
+        const done = typeof _opts === "function" ? _opts : cb;
+        done(Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" }), []);
+      });
+      const realNow = Date.now;
+      try {
+        const { pipeline } = makeClient("never-resolves.example");
+        const handler = jest.fn();
+        pipeline.setMetaRequestHandler(handler);
+
+        await pipeline.handleControlPacket(
+          builder().buildMetaRequestPacket({ secretKey: SECRET }),
+          { address: "203.0.113.9", port: 4446 }
+        );
+        expect(handler).toHaveBeenCalledTimes(1); // inside the grace
+
+        Date.now = () => realNow() + 120_000;
+        await pipeline.handleControlPacket(
+          builder().buildMetaRequestPacket({ secretKey: SECRET }),
+          { address: "203.0.113.9", port: 4446 }
+        );
+        expect(handler).toHaveBeenCalledTimes(1); // grace expired: refused
+      } finally {
+        Date.now = realNow;
+        spy.mockRestore();
+      }
+    });
+
+    // A name that does not resolve leaves nothing cached, so without a
+    // rate limit every inbound control packet would start another lookup — a
+    // DNS flood at packet rate, triggered by the very misconfiguration the
+    // operator is trying to diagnose.
+    test("an unresolvable peer name does not issue a lookup per packet", async () => {
+      const dns = require("dns");
+      // Fail synchronously so the in-flight guard has already cleared by the
+      // next packet — otherwise a burst is absorbed by that guard alone and the
+      // rate limit is never exercised.
+      const spy = jest.spyOn(dns, "lookup").mockImplementation((_host, _opts, cb) => {
+        const done = typeof _opts === "function" ? _opts : cb;
+        done(Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" }), []);
+      });
+      try {
+        const { pipeline } = makeClient("no-such-host.invalid");
+        const handler = jest.fn();
+        pipeline.setMetaRequestHandler(handler);
+
+        for (let i = 0; i < 25; i++) {
+          const packet = builder().buildMetaRequestPacket({ secretKey: SECRET });
+          await pipeline.handleControlPacket(packet, { address: "192.0.2.10", port: 4446 });
+        }
+
+        expect(spy.mock.calls.length).toBeLessThanOrEqual(1);
+        // Packets are still accepted while the name is unresolved.
+        expect(handler).toHaveBeenCalledTimes(25);
+      } finally {
+        spy.mockRestore();
+      }
     });
 
     test("still rejects an unrelated source when the peer is a literal address", async () => {

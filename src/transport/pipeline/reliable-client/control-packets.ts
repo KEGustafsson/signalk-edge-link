@@ -27,6 +27,34 @@ import { confirmHelloAcknowledged } from "./lifecycle";
 const resolvedPeerHosts = new Map<string, Set<string>>();
 /** Hostnames with a lookup in flight, so the packet path issues one at a time. */
 const pendingHostLookups = new Set<string>();
+/**
+ * When each hostname was last looked up, successfully or not.
+ *
+ * Without this, a name that fails to resolve is in neither the resolved nor the
+ * pending set, so every inbound control packet would start another lookup — a
+ * DNS flood at packet rate, triggered precisely by a misconfiguration. It also
+ * bounds how long a stale success is trusted after the peer's address changes.
+ */
+const hostLookupAttemptedAt = new Map<string, number>();
+/** When each hostname was FIRST asked for, to bound the startup grace below. */
+const hostFirstSeenAt = new Map<string, number>();
+/** Re-resolve at most this often per hostname. */
+const HOST_LOOKUP_INTERVAL_MS = 60_000;
+/**
+ * How long a not-yet-resolved hostname is given the benefit of the doubt.
+ *
+ * DNS is asynchronous, so the first control packets can arrive before the very
+ * first lookup returns; rejecting those would drop the ACKs that start the
+ * reliability layer. That grace must be bounded, though — an open-ended one
+ * means a name that never resolves accepts control packets from ANY source
+ * forever, which is the validation switched off rather than relaxed.
+ *
+ * Failing closed after the grace costs nothing real: `dgram.send` resolves the
+ * same name, so a peer whose hostname cannot be resolved is unreachable in the
+ * send direction too. The link is already down; refusing spoofed control
+ * packets does not make it more so.
+ */
+const HOST_RESOLVE_GRACE_MS = 30_000;
 
 /**
  * Canonical form for comparing two addresses.
@@ -41,13 +69,18 @@ function normalizeAddress(address: string): string {
 
 /** Resolve a configured hostname in the background and cache every address. */
 function ensureHostResolved(ctx: ClientContext, host: string): void {
-  if (resolvedPeerHosts.has(host) || pendingHostLookups.has(host)) {
+  if (pendingHostLookups.has(host)) {
+    return;
+  }
+  const lastAttempt = hostLookupAttemptedAt.get(host);
+  if (lastAttempt !== undefined && Date.now() - lastAttempt < HOST_LOOKUP_INTERVAL_MS) {
     return;
   }
   pendingHostLookups.add(host);
+  hostLookupAttemptedAt.set(host, Date.now());
   lookup(host, { all: true }, (err, addresses) => {
     pendingHostLookups.delete(host);
-    if (err || !Array.isArray(addresses)) {
+    if (err || !Array.isArray(addresses) || addresses.length === 0) {
       ctx.app.debug(
         `Could not resolve configured peer ${host}: ${err ? err.message : "no result"}`
       );
@@ -126,7 +159,8 @@ function isExpectedPeer(ctx: ClientContext, rinfo: dgram.RemoteInfo): boolean {
   if (configured.size === 0) return true;
 
   const source = normalizeAddress(rinfo.address);
-  let sawUnresolvedHost = false;
+  const now = Date.now();
+  let withinResolveGrace = false;
 
   for (const entry of configured) {
     const candidate = normalizeAddress(entry);
@@ -137,22 +171,29 @@ function isExpectedPeer(ctx: ClientContext, rinfo: dgram.RemoteInfo): boolean {
     // A hostname cannot be compared to a literal address directly.
     const resolved = resolvedPeerHosts.get(candidate);
     if (!resolved) {
+      if (!hostFirstSeenAt.has(candidate)) {
+        hostFirstSeenAt.set(candidate, now);
+      }
       ensureHostResolved(ctx, candidate);
-      sawUnresolvedHost = true;
+      if (now - (hostFirstSeenAt.get(candidate) ?? now) < HOST_RESOLVE_GRACE_MS) {
+        withinResolveGrace = true;
+      }
       continue;
     }
     if (resolved.has(source)) return true;
   }
 
-  // Accept while a hostname is still unresolved rather than dropping. Comparing
-  // a hostname to `rinfo.address` as raw strings never matches, so failing
-  // closed here silently discarded every ACK and NAK from a correctly
-  // configured peer — which stalls RTT measurement, freezes the cumulative ACK
-  // and lets the retransmit queue grow without bound. The check exists to deny
-  // an off-path attacker a reflection target, and that property is not worth
-  // breaking the link for.
-  if (sawUnresolvedHost) return true;
-  return false;
+  // Briefly accept while a configured hostname is still being resolved for the
+  // first time, so the ACKs that start the reliability layer are not dropped in
+  // the DNS round-trip window. Comparing a hostname to `rinfo.address` as raw
+  // strings never matches, and failing closed on that discarded every ACK and
+  // NAK from a correctly configured peer — stalling RTT measurement, freezing
+  // the cumulative ACK and letting the retransmit queue grow without bound.
+  //
+  // Bounded, because an unbounded grace is the check switched off: a name that
+  // never resolves would accept spoofed control packets from any source
+  // forever.
+  return withinResolveGrace;
 }
 
 export async function handleControlPacket(

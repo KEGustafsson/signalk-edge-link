@@ -141,8 +141,12 @@ function register(router: Router, ctx: RouteContext): void {
             extra.packetLoss = effectiveNetwork.packetLoss;
           }
 
+          // Same measurement-basis gate as /metrics and /network-metrics.
+          // Without it Prometheus scrapes a perfect 100 for a link that has
+          // never been measured — and a dashboard built on the scrape is
+          // exactly where that false green does the most damage.
           const promPublisher = getActiveMetricsPublisher(state);
-          if (promPublisher) {
+          if (promPublisher && effectiveNetwork.hasQualityBasis) {
             extra.linkQuality = promPublisher.calculateLinkQuality({
               rtt: effectiveNetwork.rtt,
               jitter: effectiveNetwork.jitter,
