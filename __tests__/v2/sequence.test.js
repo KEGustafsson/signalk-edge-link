@@ -733,5 +733,38 @@ describe("SequenceTracker", () => {
         jest.useRealTimers();
       }
     });
+
+    // Abandonment is not free: the sender's retransmit budget (maxRetransmits,
+    // default 10) outlives the receiver's NAK budget (maxNakRounds, default 5),
+    // so a packet can still arrive after the window moved past it. It must be
+    // reported as already-accounted-for rather than as new data — re-injecting
+    // it would push a stale delta into Signal K long after the fact.
+    //
+    // This is deliberate, but it makes give-up timing observable as data loss,
+    // which is what made the e2e ARQ delivery test machine-speed dependent.
+    test("a retransmit that lands after abandonment is not dispatched again", () => {
+      jest.useFakeTimers();
+      try {
+        const t = new SequenceTracker({ nakTimeout: 50, maxNakRounds: 3 });
+
+        t.processSequence(100);
+        t.processSequence(102); // 101 is now a gap
+        jest.advanceTimersByTime(50 * 5); // exhaust the NAK rounds
+        expect(t.abandonedCount).toBe(1);
+        expect(t.expectedSeq).toBe(103);
+
+        // The sender still had budget left and the packet finally gets through.
+        const result = t.processSequence(101);
+
+        // Caller must be able to tell "already handled" from "new data".
+        expect(result.duplicate || result.lateArrival).toBe(true);
+        expect(result.inOrder).toBe(false);
+        // And the late arrival must not drag the window backwards.
+        expect(t.expectedSeq).toBe(103);
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      }
+    });
   });
 });
