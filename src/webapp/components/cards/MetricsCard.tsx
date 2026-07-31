@@ -122,6 +122,21 @@ export function MetricsCard({ metrics }: Props) {
               hasError={stats.subscriptionErrors > 0}
             />
           )}
+          {isClient && (
+            // The one counter that explains an otherwise inexplicable client:
+            // traffic leaving, queue depth climbing, RTT never measured. It
+            // means ACKs and NAKs arrived but were refused because their source
+            // is not a configured peer — typically a hostname whose DNS answers
+            // do not include the address the server actually replies from.
+            // Without it on screen that failure is completely silent, which is
+            // how it went unnoticed once already. Always shown, so a reading of
+            // 0 positively rules the cause out rather than leaving it unknown.
+            <StatItem
+              label="Rejected Control Packets"
+              value={(stats.rejectedControlPackets ?? 0).toLocaleString()}
+              hasError={(stats.rejectedControlPackets ?? 0) > 0}
+            />
+          )}
           {!isClient && (stats.duplicatePackets ?? 0) > 0 && (
             <StatItem
               label="Duplicate Packets"

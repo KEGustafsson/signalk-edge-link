@@ -63,6 +63,24 @@ describe("MetricsCard", () => {
     expect(screen.getByText("Auth Failures (V3):")).toBeInTheDocument();
   });
 
+  // A client can look completely healthy while dropping every ACK: deltas go
+  // out, no errors are raised, and only the retransmit queue quietly grows.
+  // Surfacing the counter is what turns that into something an operator can
+  // see, so it must be present at zero — an absent row proves nothing.
+  test("always surfaces rejected control packets on a client", () => {
+    render(<MetricsCard metrics={baseMetrics} />);
+    expect(screen.getByText(/Rejected Control Packets/)).toBeInTheDocument();
+  });
+
+  test("flags rejected control packets as an error when non-zero", () => {
+    const rejecting: MetricsData = {
+      ...baseMetrics,
+      stats: { ...baseMetrics.stats, rejectedControlPackets: 17 }
+    };
+    render(<MetricsCard metrics={rejecting} />);
+    expect(screen.getByText("17")).toBeInTheDocument();
+  });
+
   test("shows recent errors list", () => {
     const withErrors: MetricsData = {
       ...baseMetrics,
