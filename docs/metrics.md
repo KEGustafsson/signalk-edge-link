@@ -50,19 +50,20 @@ Under `networkQuality`:
 
 Under `stats`:
 
-| Metric                   | Unit  | Description                                                                        |
-| ------------------------ | ----- | ---------------------------------------------------------------------------------- |
-| `duplicatePackets`       | count | Packets received with a seq number already seen (safely dropped)                   |
-| `dataPacketsReceived`    | count | Total data packets accepted (excludes duplicates)                                  |
-| `packetsAbandoned`       | count | Packets the sender dropped from its retransmit queue (unrecoverable)               |
-| `abandonedSequences`     | count | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable)          |
-| `rejectedControlPackets` | count | ACK/NAK/request packets dropped because the source did not match a configured peer |
-| `replayedPackets`        | count | Datagrams the anti-replay guard refused — see below                                |
-| `epochAuthMismatches`    | count | Packets refused because the peers disagree about `epochBoundAuth`                  |
-| `epochAuthPending`       | count | Packets refused because no HELLO has established the sender's epoch yet            |
-| `fullStatusCascadeFired` | count | Times a client instance relayed FULL_STATUS_REQUEST to the servers beside it       |
-| `snapshotReplayDeltas`   | count | Deltas emitted while replaying a values snapshot on request                        |
-| `processDeltaCalls`      | count | Deltas handed to the outbound path (pre-filter, pre-batch)                         |
+| Metric                      | Unit  | Description                                                                        |
+| --------------------------- | ----- | ---------------------------------------------------------------------------------- |
+| `duplicatePackets`          | count | Packets received with a seq number already seen (safely dropped)                   |
+| `dataPacketsReceived`       | count | Total data packets accepted (excludes duplicates)                                  |
+| `packetsAbandoned`          | count | Packets the sender dropped from its retransmit queue (unrecoverable)               |
+| `abandonedSequences`        | count | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable)          |
+| `rejectedControlPackets`    | count | ACK/NAK/request packets dropped because the source did not match a configured peer |
+| `replayedPackets`           | count | Datagrams the anti-replay guard refused — see below                                |
+| `epochAuthMismatches`       | count | Packets refused because the peers disagree about `epochBoundAuth`                  |
+| `epochAuthPending`          | count | Packets refused because no HELLO has established the sender's epoch yet            |
+| `fullStatusCascadeFired`    | count | Times a client instance relayed FULL_STATUS_REQUEST to the servers beside it       |
+| `snapshotReplayDeltas`      | count | Deltas emitted while replaying a values snapshot on request                        |
+| `processDeltaCalls`         | count | Deltas handed to the outbound path (pre-filter, pre-batch)                         |
+| `deltasBufferHighWaterMark` | count | Peak outbound buffer depth reached — the backpressure signal before drops start    |
 
 **Interpretation:**
 

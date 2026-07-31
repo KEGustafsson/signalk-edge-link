@@ -1206,10 +1206,18 @@ telemetry arrives. The web UI shows `N/A` in that state.
 
 This matters because the score is computed from those values: scoring an
 unmeasured link would treat the zeros as ideal and return 100 ("Excellent") for a
-link carrying no traffic at all. `packetLoss`, `queueDepth` and `retransmitRate`
-are locally observed and are always reported, so a growing `queueDepth` alongside
-an absent `rtt` is the signature of a link that is sending but receiving nothing
-back.
+link carrying no traffic at all. `linkQuality` is therefore withheld unless all
+four of its inputs — `rtt`, `jitter`, `packetLoss` and `retransmitRate` — are
+present, since substituting a zero for any of them can only inflate the score.
+
+`packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate` and `activeLink`
+follow the same rule and may also be absent. On a **client** they are local
+observations and are reported from the first packet, so a growing `queueDepth`
+beside an absent `rtt` is the signature of a link that is sending but receiving
+nothing back. On a **server** they arrive as client telemetry like everything
+else, and a peer that reports some fields and not others — an older build, or a
+value the ingest validator rejected — has its silence reported as absence rather
+than as a measured zero.
 
 ### 13.4 Smart batching metrics
 

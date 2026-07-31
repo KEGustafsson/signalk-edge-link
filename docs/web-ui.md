@@ -167,12 +167,41 @@ congestion/bonding cards:
 
 - **Full Plugin Configuration** (JSON editor).
 
+### Reading `N/A` on the Network Quality card
+
+`N/A` means **not measured**, and it is deliberately not shown as `0`. The two
+are different states and conflating them hid real faults: an unmeasured link
+scored a perfect 100 ("Excellent") because zero RTT, zero jitter and zero loss
+look ideal to the scoring function — so a client sending into a void with a
+growing retransmit queue displayed as the healthiest link on the dashboard.
+
+- **On a client**, `RTT` and `Jitter` read `N/A` until the first ACK has been
+  timed. `N/A` beside a climbing `Queue Depth` is the signature of traffic
+  leaving and nothing coming back — check `Rejected Control Packets` next.
+- **On a server**, every network-quality figure arrives as client telemetry,
+  because a server measures no latency of its own. The card reads `N/A` until
+  the first telemetry report lands, and the gauge says which of the two reasons
+  applies rather than only showing a dash.
+- **A field can be `N/A` while its neighbours are populated.** Each is reported
+  independently, so a peer running an older build — or one field the ingest
+  validator rejected — shows as absent instead of being invented.
+- **`Link Quality` is withheld unless all four of its inputs are present**
+  (RTT, jitter, packet loss, retransmit rate), since substituting a zero for a
+  missing input can only inflate the score.
+
+A `0` on this card is a measured zero and can be trusted as one.
+
 ### Verifying a healthy link
 
 On the **client**, confirm `Deltas Sent` is increasing and encryption errors
 stay at `0`; on the **server**, confirm `Deltas Received` is increasing and
 decryption errors stay at `0`. For v3 links, the Network Quality and Monitoring
 & Alerts cards give you loss, RTT, and retransmission detail.
+
+`Rejected Control Packets` on a client should read `0`. A non-zero value means
+ACKs and NAKs are being discarded before they are processed, so no RTT can be
+timed, the cumulative ACK freezes and the retransmit queue grows without bound
+— check that `udpAddress` names the host the server actually replies from.
 
 ---
 
