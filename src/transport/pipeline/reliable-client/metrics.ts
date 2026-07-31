@@ -26,9 +26,14 @@ interface PeriodRates {
 function publishNetworkQuality(ctx: ClientContext, rates: PeriodRates): void {
   const { metricsApi, metricsPublisher, packetBuilder, retransmitQueue, mut } = ctx;
   const { metrics } = metricsApi;
+  // Latency is reported only once an ACK has actually been timed. `|| 0` here
+  // published a 0 ms round trip for a link that had never completed one, and a
+  // server ingesting that telemetry could not tell it from a real measurement —
+  // it displayed "0 ms" and scored the link a perfect 100.
+  const measuredRtt = (metrics.rttSamples ?? 0) > 0;
   metricsPublisher.publish({
-    rtt: metrics.rtt || 0,
-    jitter: metrics.jitter || 0,
+    rtt: measuredRtt ? (metrics.rtt ?? 0) : undefined,
+    jitter: measuredRtt ? (metrics.jitter ?? 0) : undefined,
     packetLoss: rates.packetLoss,
     uploadBandwidth: rates.uploadBandwidth,
     packetsSentPerSec: rates.packetsSentPerSec,
@@ -83,8 +88,6 @@ function canEmitTelemetry(ctx: ClientContext): boolean {
 function emitTelemetryDelta(ctx: ClientContext, rates: PeriodRates): void {
   const { app, state, metricsApi, retransmitQueue, mut } = ctx;
   const { metrics } = metricsApi;
-  // RTT is always published — operators rely on it for link-health visibility
-  // even when skipOwnData suppresses the rest of edge-link's own metrics.
   if (!canEmitTelemetry(ctx) || !state.options) {
     return;
   }
@@ -95,21 +98,46 @@ function emitTelemetryDelta(ctx: ClientContext, rates: PeriodRates): void {
     return;
   }
 
-  const rttValues = [{ path: "networking.edgeLink.rtt", value: metrics.rtt || 0 }];
-
-  const extraValues = state.options.skipOwnData
-    ? []
-    : [
-        { path: "networking.edgeLink.jitter", value: metrics.jitter || 0 },
-        { path: "networking.edgeLink.packetLoss", value: rates.packetLoss },
-        { path: "networking.edgeLink.retransmissions", value: metrics.retransmissions || 0 },
-        { path: "networking.edgeLink.queueDepth", value: retransmitQueue.getSize() },
-        { path: "networking.edgeLink.retransmitRate", value: rates.retransmitRate },
-        {
-          path: "networking.edgeLink.activeLink",
-          value: mut.bondingManager ? mut.bondingManager.getActiveLinkName() : "primary"
-        }
-      ];
+  // The full quality set, unconditionally.
+  //
+  // `skipOwnData` used to suppress everything here except RTT, which is why a
+  // server saw a real round trip from its client and 0 ms jitter beside it: the
+  // jitter was never sent, and the receiver substitutes 0 for a value the peer
+  // never reported. The same silence hid packet loss, retransmissions, queue
+  // depth, retransmit rate and the active link.
+  //
+  // That coupling was wrong on its own terms. `skipOwnData` means "do not
+  // forward my Signal K tree's networking.edgeLink.* paths as ordinary data,
+  // so a chain cannot feed its own metrics back around". This delta is not
+  // ordinary data — it is the dedicated, source-labelled link telemetry the
+  // peer needs in order to report the link at all, and since the receiver
+  // consumes it rather than dispatching it into its own tree, forwarding it
+  // creates no loop to prevent. RTT was already exempted on exactly this
+  // reasoning; the reasoning was never specific to RTT.
+  // rtt and jitter are omitted until an ACK has actually been timed, for the
+  // same reason the receiver reports a field the peer never sent as absent
+  // rather than 0: `metrics.rtt` is seeded to 0, not undefined, so publishing
+  // it unconditionally hands the peer a 0 ms round trip it cannot tell from a
+  // measured one. `rttSamples` exists precisely to make that distinction, and
+  // `publishNetworkQuality` above already gates on it. A measured 0 is still
+  // sent — the gate is on whether a sample exists, not on the value.
+  const measuredRtt = (metrics.rttSamples ?? 0) > 0;
+  const telemetryValues = [
+    ...(measuredRtt
+      ? [
+          { path: "networking.edgeLink.rtt", value: metrics.rtt ?? 0 },
+          { path: "networking.edgeLink.jitter", value: metrics.jitter ?? 0 }
+        ]
+      : []),
+    { path: "networking.edgeLink.packetLoss", value: rates.packetLoss },
+    { path: "networking.edgeLink.retransmissions", value: metrics.retransmissions || 0 },
+    { path: "networking.edgeLink.queueDepth", value: retransmitQueue.getSize() },
+    { path: "networking.edgeLink.retransmitRate", value: rates.retransmitRate },
+    {
+      path: "networking.edgeLink.activeLink",
+      value: mut.bondingManager ? mut.bondingManager.getActiveLinkName() : "primary"
+    }
+  ];
 
   const telemetryDelta = {
     context: "vessels.self",
@@ -117,7 +145,7 @@ function emitTelemetryDelta(ctx: ClientContext, rates: PeriodRates): void {
       {
         source: { label: ctx.clientTelemetrySource, type: "plugin" },
         timestamp: new Date().toISOString(),
-        values: [...rttValues, ...extraValues]
+        values: telemetryValues
       }
     ]
   };

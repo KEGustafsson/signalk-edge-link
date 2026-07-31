@@ -176,10 +176,19 @@ module.exports = {
     "no-throw-literal": "error",
     "require-await": "warn",
 
-    // Style
-    semi: ["error", "always"],
-    quotes: ["error", "double", { avoidEscape: true }],
-    indent: ["error", 2, { SwitchCase: 1 }],
-    "comma-dangle": ["error", "never"]
+    // Style — owned by Prettier, not ESLint.
+    //
+    // These four rules duplicated .prettierrc.js exactly (semi: true,
+    // singleQuote: false, trailingComma: "none", tabWidth: 2) but ran AFTER
+    // prettier in lint-staged, so `eslint --fix` silently reverted prettier's
+    // output and eight JS files drifted out of prettier conformance without
+    // any check noticing. The TS/TSX override above already delegates these to
+    // Prettier for the same reason; this keeps the base config consistent with
+    // that decision. Enforcement did not go away — it moved to
+    // `npm run format:check`, which the plugin-test workflow now runs.
+    semi: "off",
+    quotes: "off",
+    indent: "off",
+    "comma-dangle": "off"
   }
 };

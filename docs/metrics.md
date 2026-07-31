@@ -38,21 +38,55 @@ From `GET /metrics` under `stats` and `bandwidth`:
 
 ## Reliability Metrics (Advanced v3 only)
 
-From `GET /metrics` under `networkQuality`:
+These live in two different objects in the `GET /metrics` response.
 
-| Metric                | Unit  | Description                                                      |
-| --------------------- | ----- | ---------------------------------------------------------------- |
-| `acksSent`            | count | ACK packets sent by the server                                   |
-| `naksSent`            | count | NAK packets sent to request retransmission                       |
-| `retransmissions`     | count | Data packets retransmitted after a NAK or timeout                |
-| `duplicatePackets`    | count | Packets received with a seq number already seen (safely dropped) |
-| `dataPacketsReceived` | count | Total data packets accepted (excludes duplicates)                |
+Under `networkQuality`:
+
+| Metric            | Unit  | Description                                       |
+| ----------------- | ----- | ------------------------------------------------- |
+| `acksSent`        | count | ACK packets sent by the server                    |
+| `naksSent`        | count | NAK packets sent to request retransmission        |
+| `retransmissions` | count | Data packets retransmitted after a NAK or timeout |
+
+Under `stats`:
+
+| Metric                      | Unit  | Description                                                                        |
+| --------------------------- | ----- | ---------------------------------------------------------------------------------- |
+| `duplicatePackets`          | count | Packets received with a seq number already seen (safely dropped)                   |
+| `dataPacketsReceived`       | count | Total data packets accepted (excludes duplicates)                                  |
+| `packetsAbandoned`          | count | Packets the sender dropped from its retransmit queue (unrecoverable)               |
+| `abandonedSequences`        | count | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable)          |
+| `rejectedControlPackets`    | count | ACK/NAK/request packets dropped because the source did not match a configured peer |
+| `replayedPackets`           | count | Datagrams the anti-replay guard refused — see below                                |
+| `epochAuthMismatches`       | count | Packets refused because the peers disagree about `epochBoundAuth`                  |
+| `epochAuthPending`          | count | Packets refused because no HELLO has established the sender's epoch yet            |
+| `fullStatusCascadeFired`    | count | Times a client instance relayed FULL_STATUS_REQUEST to the servers beside it       |
+| `snapshotReplayDeltas`      | count | Deltas emitted while replaying a values snapshot on request                        |
+| `processDeltaCalls`         | count | Deltas handed to the outbound path (pre-filter, pre-batch)                         |
+| `deltasBufferHighWaterMark` | count | Peak outbound buffer depth reached — the backpressure signal before drops start    |
 
 **Interpretation:**
 
-- `retransmissions / dataPacketsReceived` < 1% is healthy
+- `retransmissions / dataPacketsReceived` < 1% is healthy — the ratio is only
+  meaningful while `dataPacketsReceived` is greater than zero; with a zero
+  denominator report it as N/A rather than 0%
+- `replayedPackets > 0` means the anti-replay guard rejected a datagram. That is
+  either a replay attempt or a peer bug; it is never routine, and this counter is
+  the only external evidence either happened
+- `epochAuthMismatches > 0` means this receiver requires `epochBoundAuth` and the
+  sender is not using it, so every DATA packet is refused. It is a configuration
+  mismatch, not an attack — set the same value on both peers
+- `epochAuthPending > 0` is a different condition with the same symptom: the
+  sender IS binding, but no HELLO has established its epoch yet, so the packet
+  cannot be verified. A brief burst at startup is normal and clears once the
+  HELLO completes. A number that keeps climbing means the HELLO is not arriving
+  — check that the peer's DATA and HELLO leave from the same address and port
+- `fullStatusCascadeFired` at zero on a proxy's client instance means the node is
+  terminating snapshot requests rather than relaying them upstream
 - Rising `naksSent` with low `acksSent` indicates one-way UDP — check bidirectional reachability
 - `duplicatePackets > 0` is normal on unreliable links; duplicates are safely discarded
+- `packetsAbandoned` / `abandonedSequences` above zero mean data was permanently lost, not merely delayed — the window advanced past a gap the sender could no longer fill
+- `rejectedControlPackets` rising on a client is serious: it means ACKs and NAKs are being discarded before they are processed, so no RTT can be timed, the cumulative ACK freezes and `queueDepth` climbs. Check that `udpAddress` names the host the server actually replies from
 
 ---
 
@@ -77,6 +111,24 @@ Returned by `GET /network-metrics` and embedded in `GET /metrics` under `network
 | 70–89  | Good      | Acceptable for most use cases                       |
 | 50–69  | Degraded  | Congestion control and bonding failover recommended |
 | < 50   | Poor      | High loss or latency; data delivery unreliable      |
+
+**No score without a measurement.** `rtt`, `jitter` and `linkQuality` are
+**omitted entirely** — not reported as `0` — until the link has actually been
+measured. A client's first measurement is its first timed ACK; a server measures
+no latency of its own, so it has no figures until client telemetry arrives.
+Scoring an unmeasured link would treat those zeros as ideal and return 100
+("Excellent") for a link carrying no traffic.
+
+`packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate` and `activeLink`
+follow the same rule and may also be **absent**. On a server these figures come
+from client telemetry, and a peer that reports some fields and not others — an
+older build, or a value the ingest validator rejected — must not have its
+silence rendered as a measurement. An absent field means "not reported"; a `0`
+means "measured as zero". The web UI shows the first as `N/A`.
+
+`linkQuality` is withheld unless all four of its inputs (`rtt`, `jitter`,
+`packetLoss`, `retransmitRate`) are present, since a substituted zero for any of
+them can only inflate the score.
 
 ---
 

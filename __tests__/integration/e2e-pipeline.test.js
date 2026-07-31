@@ -1093,7 +1093,22 @@ describe("E2E Pipeline Tests", () => {
 
       for (const scenario of scenarios) {
         const client = createV2ClientPipeline({ maxRetransmits: 10 });
-        const server = createV2ServerPipeline({ nakTimeout: 0 });
+        // The NAK timeout is load-bearing here, not incidental.
+        //
+        // This scenario drives retransmit rounds itself and never reads
+        // `server.naks`, so the receiver's own loss detection is pure
+        // interference: it re-NAKs each still-missing sequence every
+        // `nakTimeout` ms, and after `maxNakRounds` rounds `_abandonSequence`
+        // records the sequence as seen — so the retransmit that finally lands
+        // is correctly reported as a duplicate, dropped, and scored here as a
+        // delivery failure. Whether it fires depends only on how long the loop
+        // below takes in wall-clock time, so it varies with machine speed.
+        //
+        // `nakTimeout: 0` does not disable it: `createV2ServerPipeline` reads
+        // `opts.nakTimeout || 50`, so 0 becomes 50 ms. A timeout longer than
+        // the test can possibly run keeps the receiver's give-up policy out of
+        // a sender-side ARQ measurement.
+        const server = createV2ServerPipeline({ nakTimeout: 10 * 60 * 1000 });
         const sim = new NetworkSimulator({ packetLoss: scenario.lossRate, seed: scenario.seed });
 
         const expectedLatBySeq = new Map();

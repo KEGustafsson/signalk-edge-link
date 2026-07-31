@@ -112,11 +112,15 @@ export function createConnectionManager({
     setStatus,
     setError,
     instances,
-    updateAggregatedStatus
+    updateAggregatedStatus,
+    startGeneration: 0
   };
 
   // ── stop ──────────────────────────────────────────────────────────────────
   function stop(): void {
+    // Invalidate any start() still in flight so it cannot go on to start
+    // instances into a registry we are about to clear.
+    ctx.startGeneration++;
     for (const inst of instances.values()) inst.stop();
     instances.clear();
     setStatus("Stopped");

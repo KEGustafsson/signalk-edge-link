@@ -39,11 +39,14 @@ if (typeof packageJson.version !== "string" || !packageJson.version) {
 }
 const guide = readText("docs/GUIDE.md");
 const docsReadme = readText("docs/README.md");
+const apiReference = readText("docs/api-reference.md");
 const publishWorkflow = readText(".github/workflows/publish-packages.yml");
 const currentMarker = `current: ${packageJson.version}`;
 
 requireIncludes(guide, currentMarker, "docs/GUIDE.md");
 requireIncludes(docsReadme, currentMarker, "docs/README.md");
+// api-reference.md carries the same marker and had drifted before; gate it too.
+requireIncludes(apiReference, currentMarker, "docs/api-reference.md");
 
 function requireNoStaleVersionMarker(content, relativePath) {
   const stalePattern = /current:\s*(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?)/g;
@@ -59,6 +62,7 @@ function requireNoStaleVersionMarker(content, relativePath) {
 
 requireNoStaleVersionMarker(guide, "docs/GUIDE.md");
 requireNoStaleVersionMarker(docsReadme, "docs/README.md");
+requireNoStaleVersionMarker(apiReference, "docs/api-reference.md");
 
 for (const staleName of [
   "bonding-manager.ts",

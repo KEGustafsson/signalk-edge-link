@@ -6,8 +6,14 @@
 #
 # It calls the shared SignalK workflow which tests your plugin
 # across Linux, macOS, and Windows (Node 22 + 24). armv7/Cerbo GX
-# and the Signal K integration test are opt-in — the auto-run job
-# below disables them; use the manual trigger to enable per-run.
+# and the Signal K integration test are enabled on the auto-run job
+# too, so every push and PR exercises the full matrix. The armv7 leg
+# runs under QEMU and takes ~13 minutes, which sets the floor for how
+# long a push takes to go green.
+#
+# node-versions must be a JSON array — '["22","24"]', not '22, 24'.
+# A bare list collapses to a single matrix leg named "Node 22, 24"
+# that fails in the Node setup step.
 #
 # On push/PR it runs with sensible defaults.
 # You can also trigger it manually from the GitHub Actions UI
@@ -28,7 +34,7 @@ on:
       test-command:
         description: Command to run tests
         required: false
-        default: npm test
+        default: npm run test
         type: string
       build-command:
         description: Command to build the plugin
@@ -36,29 +42,33 @@ on:
         default: npm run build --if-present
         type: string
       format-check-command:
-        description: 'Optional blocking format check, e.g. npm run prettier:check'
+        description: 'Blocking format check'
         required: false
-        default: ''
+        default: npm run format:check
         type: string
+      # Left empty on purpose: this input REPLACES the test run, and ci.yml
+      # already runs `npm run test:coverage` against the configured
+      # coverageThreshold. Setting it here would duplicate that enforcement
+      # while making every matrix leg slower.
       coverage-command:
-        description: 'Optional coverage command (replaces the test run), e.g. npm run coverage'
+        description: 'Coverage command (replaces the test run); normally empty, ci.yml gates coverage'
         required: false
         default: ''
         type: string
       node-versions:
         description: 'JSON array of Node versions, example: ["22","24"]'
         required: false
-        default: '["24"]'
+        default: '["22","24"]'
         type: string
       enable-armv7:
         description: Run armv7 (Cerbo GX) tests via QEMU
         required: false
-        default: false
+        default: true
         type: boolean
       enable-signalk-integration:
         description: Start SignalK server and install plugin for integration testing
         required: false
-        default: false
+        default: true
         type: boolean
       signalk-server-versions:
         description: 'JSON array of signalk-server versions for integration testing, e.g. ["2.23.0","latest"]'
@@ -72,11 +82,12 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' }}
     uses: SignalK/signalk-server/.github/workflows/plugin-ci.yml@master
     with:
-      test-command: npm test
+      test-command: npm run test
       build-command: npm run build --if-present
-      node-versions: '["24"]'
-      enable-armv7: false
-      enable-signalk-integration: false
+      format-check-command: npm run format:check
+      node-versions: '["22","24"]'
+      enable-armv7: true
+      enable-signalk-integration: true
       signalk-server-versions: '["latest"]'
 
   # ── Manual runs (workflow_dispatch with custom inputs) ────

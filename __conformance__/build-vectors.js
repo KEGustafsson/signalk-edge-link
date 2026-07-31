@@ -193,6 +193,46 @@ module.exports = function buildVectors(mods) {
     encrypted: b64(mkAuthBuilder().buildMetadataPacket(fixedPayload, { encrypted: true }))
   };
 
+  // Epoch-bound variants (opt-in `epochBoundAuth`): the tag additionally covers
+  // a fixed-width big-endian uint32 epoch, and the EPOCH_BOUND_AUTH flag (bit 5)
+  // is set. Freezing these pins the epoch-binding construction so a change to
+  // the byte layout — which would silently break every peer that has enabled it
+  // — cannot land unnoticed. HELLO is included precisely because it must NOT be
+  // bound: it is the packet that establishes the epoch.
+  const CONFORMANCE_EPOCH = 0x0000162e;
+  const mkEpochBuilder = () =>
+    new packet.PacketBuilder({
+      protocolVersion: 3,
+      secretKey: KEY_HEX,
+      authenticatedHeaders: true,
+      epochBoundAuth: true,
+      connectionEpoch: CONFORMANCE_EPOCH
+    });
+  const dataPacketsEpochBound = {
+    encrypted: b64(mkEpochBuilder().buildDataPacket(fixedPayload, { encrypted: true })),
+    all: b64(
+      mkEpochBuilder().buildDataPacket(fixedPayload, {
+        compressed: true,
+        encrypted: true,
+        messagepack: true,
+        pathDictionary: true
+      })
+    )
+  };
+  const metadataPacketsEpochBound = {
+    encrypted: b64(mkEpochBuilder().buildMetadataPacket(fixedPayload, { encrypted: true }))
+  };
+  const controlPacketsEpochBound = {
+    ack: b64(mkEpochBuilder().buildACKPacket(0x0a0b0c0d)),
+    nak: b64(mkEpochBuilder().buildNAKPacket([1, 2, 3])),
+    heartbeat: b64(mkEpochBuilder().buildHeartbeatPacket()),
+    metaRequest: b64(mkEpochBuilder().buildMetaRequestPacket({ secretKey: KEY_HEX }))
+    // HELLO is deliberately NOT frozen here: its payload embeds Date.now(), so
+    // the bytes are not reproducible (which is why the unbound `controlPackets`
+    // vectors omit it too). Its exemption from epoch binding is asserted
+    // behaviourally in __tests__/v2/epoch-bound-auth.test.js instead.
+  };
+
   // ── 9. Source-snapshot envelope (application-level wire shape) ────────────
   // Mirrors the `{ v, kind: "sources", seq, idx, total, sources }` envelope the
   // client emits inside a METADATA payload. Frozen as JSON so its shape cannot
@@ -234,6 +274,9 @@ module.exports = function buildVectors(mods) {
     metadataPackets,
     dataPacketsAuthHeader,
     metadataPacketsAuthHeader,
+    dataPacketsEpochBound,
+    metadataPacketsEpochBound,
+    controlPacketsEpochBound,
     sourceSnapshotEnvelope,
     sourceSnapshotPacket
   };

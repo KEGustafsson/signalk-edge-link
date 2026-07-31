@@ -2,6 +2,364 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [4.0.0] - 2026-07-31
+
+Fixes every finding from the multi-aspect review in
+`.planning/reviews/2026-07-26-code-review.md` (security, protocol reliability,
+lifecycle, web UI, test quality, configuration parity, hot-path performance),
+plus a series of defects found by running the plugin on a real
+client → proxy → server link. Those were almost all in the observability
+layer — figures the UI invented rather than measured, and error messages that
+named the wrong cause — and they are called out individually below.
+
+**The wire format is unchanged** — the conformance vectors regenerate
+byte-identical, so a 4.0.0 peer interoperates with a 3.x peer on the UDP link.
+The major bump reflects the behaviour changes below, not a protocol break.
+
+### Breaking changes
+
+Each corrects behaviour that was documented or implied but never actually
+implemented. None removes a working feature, and none requires a coordinated
+upgrade of both peers.
+
+- **Sender-only options are stripped from SERVER connections on load.**
+  `pathFilter`, `pathPrecision`, `pathThrottle`, `brotliQuality`,
+  `useValueDedup`, `useCompactDeltas` and `heartbeatInterval` were accepted,
+  persisted and rendered in the UI for server connections, but no server code
+  path has ever read them — the receiver auto-detects the wire encoding. A
+  server that carried them behaves identically after upgrading; they simply
+  stop appearing in the configuration form.
+
+  _Why this is breaking:_ an operator who set `pathFilter` on a server
+  connection believing it filtered inbound data will now see that setting
+  disappear rather than silently do nothing. If you were relying on any of
+  these, set them on the **client** (sending) side, which is where they take
+  effect.
+
+- **DATA arriving on an unhandshaked source port of an already-handshaked peer
+  address is rejected.** This closes a replay bypass (see Security below). A
+  conforming client always completes a HELLO handshake before sending DATA, and
+  HELLO is now retried with backoff until confirmed, so only replayed or
+  spoofed traffic is affected.
+
+  _Why this is breaking:_ a non-conforming sender that transmits DATA without
+  ever completing a handshake — or that changes source port mid-stream without
+  re-announcing — will now have those packets dropped instead of accepted.
+  No first-party client does this.
+
+- **Network-quality fields may be absent, not zero.** `packetLoss`,
+  `retransmissions`, `queueDepth`, `retransmitRate` and `activeLink` join
+  `rtt`, `jitter` and `linkQuality` in being **omitted** rather than reported
+  as `0` (or `"primary"`) when the peer never reported them. A server derives
+  these from client telemetry, and a peer that reports some fields and not
+  others — an older build, or a value the ingest validator rejected — must not
+  have its silence rendered as a measurement. Consumers should treat absence as
+  "no data"; a `0` now means a measured zero. `linkQuality` is withheld unless
+  all four of its scoring inputs are present, since a substituted zero can only
+  inflate the score.
+- **`maxNakRounds` moved from the client to the server reliability schema.** It
+  is receiver-side, connection validation only ever accepted it in server mode,
+  and no client code path read it — so setting it on a client saved
+  successfully and did nothing. Existing server configurations are unaffected.
+
+### Added
+
+- **Epoch-bound packet authentication (`epochBoundAuth`, opt-in, default off).**
+  Binds each packet's HMAC tag to the connection epoch established in the HELLO
+  handshake, so a captured packet only authenticates inside the epoch it was
+  sent in.
+
+  This closes the last replay residual. Anti-replay enforcement arms only once
+  a peer completes a handshake, so a packet replayed from a source address the
+  receiver has never seen lands on a freshly-created guard with epoch 0 — there
+  is nothing to enforce against. Keying guards per address closes source-port
+  rotation but cannot close source-IP spoofing; epoch binding does, because the
+  receiver has no valid epoch to verify such a packet against. It also expires
+  captures across a peer restart, since the epoch advances.
+
+  Uses flag bit 5 (`EPOCH_BOUND_AUTH`) and adds no bytes on the wire. The flag
+  sits inside the HMAC-covered header, so it cannot be stripped to force a
+  downgrade. HELLO is exempt — it is the packet that establishes the epoch.
+
+  **Both ends must enable it and both must run 4.0.0 or later**; an older peer
+  computes the tag without the epoch, so every packet would fail
+  authentication. Left off by default so mixed fleets keep working during a
+  rolling upgrade — enable it once every vessel is on 4.x. Requires
+  `authenticatedHeaders` and protocol v3, both enforced by config validation.
+  See `docs/protocol-v3-spec.md` §5.1.
+
+- **Observability counters.** `GET /metrics` now exposes, under `stats`:
+  `replayedPackets` (datagrams the anti-replay guard refused — the only
+  external evidence the mechanism fired), `epochAuthMismatches` and
+  `epochAuthPending` (see Security), `fullStatusCascadeFired`,
+  `snapshotReplayDeltas`, `processDeltaCalls` and `deltasBufferHighWaterMark`
+  (peak outbound buffer depth — the backpressure signal that precedes
+  `droppedDeltaBatches`). Several were counted since the beginning and read by
+  nothing, which made the conditions they record undiagnosable from outside the
+  process.
+
+### Security
+
+- **Anti-replay could be bypassed by rotating the source port.** The per-peer
+  replay guard was keyed on `address:port`, so a datagram from an unseen port
+  got a fresh guard whose empty window accepted every sequence and whose epoch
+  of 0 disabled enforcement outright. A captured DATA datagram could therefore
+  be replayed verbatim from any other port — while the legitimate session was
+  still live — re-injecting a stale position or depth into the Signal K tree.
+  Handshaked source addresses are now tracked, and DATA arriving on an
+  unhandshaked port of a known address fails closed. Guards remain per-port so
+  multiple clients behind one NAT keep independent sequence windows.
+- **With bonding enabled, anti-replay was inert and client telemetry was
+  silently dropped.** Bonding was initialised _after_ the first HELLO, so HELLO
+  left on the plain socket while all DATA left on the bonding link's port; the
+  data-carrying session never handshaked. Bonding is now initialised first, and
+  HELLO is re-sent on failover/failback, which move the source port again.
+- **Control packets were accepted from any source address, and the NAK source
+  doubled as the retransmit destination.** A spoofed NAK naming 256 sequences
+  turned a client into a ~290x reflector, and a replayed ACK could suppress
+  loss recovery indefinitely. Control packets are now restricted to configured
+  peer addresses and always sent to the configured destination.
+- **HELLO is retried with exponential backoff** until a control packet confirms
+  the handshake. Previously a single lost datagram left the session
+  unhandshaked for its lifetime.
+- **Bodyless mutating POSTs** (`/capture/start`, `/capture/stop`,
+  `/bonding/failover`, `/connections/:id/bonding/failover`) now reject
+  cross-site form submissions. Under the documented open-access default, any
+  page an operator visited could previously trigger them.
+- **An `epochBoundAuth` mismatch reported itself as a key problem.** A receiver
+  that requires epoch binding refuses packets from a sender that does not bind,
+  and refused them as `"v2 authentication failed: packet tampered or wrong
+key"` — sending an operator after a key mismatch that did not exist. The two
+  distinct causes are now reported separately, because they point at different
+  machines: `EPOCH_BOUND_AUTH flag not set` is a real configuration mismatch
+  (counted in `stats.epochAuthMismatches`, logged naming the setting), while
+  `requires an established peer epoch` means the sender **is** binding but no
+  HELLO has established its epoch yet — the ordinary startup window, which
+  clears itself (counted in `stats.epochAuthPending`, logged at debug).
+- **The interop direction reported the same condition as a key-format
+  mismatch.** When the sender bound an epoch, the receiver did not require
+  binding, and the receiver held no epoch for that source, the tag was verified
+  against a value the sender never used. That can never match, so it surfaced
+  as `"(possible stretchAsciiKey or key-format mismatch between peers)"`. Both
+  directions now raise the same specific error; behaviour is unchanged, the
+  reported reason is now the real one.
+- **`epochBoundAuth` is asymmetric, and this is now documented.** Enforcement
+  lives in the receiver: with it on at the sender and off at the receiver the
+  link keeps working while providing none of the protection it was enabled for.
+  `docs/security.md` carries the four-way table.
+
+### Reliability
+
+- A permanently lost sequence pinned `expectedSeq` for up to 1025 packets:
+  frozen cumulative ACK, endless NAK re-emission, and no further RTT samples.
+  NAK rounds per sequence are now bounded and the window advances past a gap
+  the sender can no longer fill.
+- A failed UDP send consumed the sequence number without queueing the packet,
+  creating a hole the client could never fill. Packets are now enqueued before
+  sending.
+- The retransmit queue assumed Map insertion order equals sequence order, which
+  concurrent sends and UDP retries violate.
+- Loss accounting recorded one sample per retransmitted packet into a 50-slot
+  window, so a single burst reported 100% loss and walked the delta timer to
+  its 5s ceiling for minutes. One sample per loss event is now recorded.
+- The recovery burst defaulted to 500 packets/s against a receiver budget of
+  200/s; it is now clamped to half the receiver's budget.
+- Retransmit abandonment and receive-side gap abandonment are now counted and
+  logged instead of being silent.
+- **Jitter was reported as a hard 0 ms on every stable link.** RTT was sampled
+  as a `Date.now()` difference, which has whole-millisecond resolution, so on a
+  stable link every sample was the same integer, the variance across them was
+  exactly 0, and no amount of rounding could recover it. Samples now come from
+  a monotonic high-resolution clock (`performance.now()`, stored as `sentAtHr`
+  on the queue entry). `originalTimestamp` stays on `Date.now()`, since
+  age-based eviction wants wall-clock time.
+- **`skipOwnData` stripped everything but RTT from client telemetry.** A server
+  therefore saw a real round trip from its client and 0 ms jitter beside it —
+  the jitter was never sent, and the receiver substituted 0 for it. The setting
+  means "do not forward my own `networking.edgeLink.*` paths as ordinary data",
+  which is not what this dedicated, source-labelled telemetry is; the receiver
+  consumes it rather than dispatching it, so there is no loop to prevent. The
+  whole quality set is now sent.
+- **Client telemetry published a seeded `rtt: 0` before any ACK was timed.**
+  `metrics.rtt` is seeded to `0`, not undefined, so the peer received a 0 ms
+  round trip it could not distinguish from a measured one. `rtt` and `jitter`
+  are now omitted until `rttSamples` shows a real sample; a measured zero is
+  still sent.
+- **Instance-scoped telemetry paths were discarded.** A multi-connection or
+  proxy deployment publishes link telemetry under
+  `networking.edgeLink.<instanceId>.*`, and the receiver matched only the bare
+  prefix — so a proxy's server showed N/A for every network-quality field while
+  its client looked healthy. The instance segment is now resolved, and the
+  unscoped form still works.
+- Late retransmissions arriving after the window advanced were dispatched a
+  second time, re-injecting a stale delta.
+- Metadata/source-snapshot chunk dedup tracked only the newest envelope, so one
+  ordinary UDP reordering permanently dropped a straggling chunk.
+- Server-mode socket errors were terminal; a transient interface flap killed
+  the listener for the process lifetime. Server mode now recovers with backoff,
+  keeping `EADDRINUSE`/`EACCES` fatal.
+- **A restarted peer's new sequence stream could be silently dropped.** An
+  epoch increase re-baselined the anti-replay window but not the session's
+  sequence tracker, so when the peer's fresh random initial sequence landed
+  below the previous stream (and within the resync threshold) every packet was
+  classified as a late arrival — correctly not re-dispatched, and therefore
+  lost. Peer-restart detection now resets the session's sequence and loss state
+  too.
+
+### Lifecycle
+
+- `stop()` during an in-flight `start()` could start the remaining instance
+  group _after_ teardown, leaving live sockets and timers with no registry
+  entry and no way to stop them.
+- `start()` ignored an invalid FSM transition and leaked a dedupe-cleanup
+  interval on every repeated start.
+- `startClient()` allocated timers and sockets after awaits with no shutdown
+  guard; keepalive and heartbeat intervals now self-clear if they observe a
+  stopped instance.
+- The delta timer only set a flag and never flushed, so the tail of a burst sat
+  in the buffer until the next inbound delta — indefinitely if the source went
+  quiet. This now matches documented behaviour.
+- A dead send path reported as _healthy_, because health was inferred from
+  status text and "UDP socket not initialized - cannot send data" matched none
+  of error/fail/stopped.
+- A subscription retry succeeding during socket recovery re-opened the send
+  gate, overflowing a buffer that could not drain (50% discarded per overflow).
+- A transient read error on `subscription.json` fell back to
+  `subscribe: [{path: "*"}]`, which could silently switch a metered link to the
+  full Signal K firehose. The fallback now applies only to a genuine ENOENT.
+
+### Web UI
+
+- **Absent network-quality values render as `N/A`, not `0`.** `?? 0` at the
+  display layer would have put the invented number straight back on screen one
+  layer below the API fix. A reported zero still renders as zero.
+- **Monitoring & Alerts showed permanent zeros.** The card read `lossRate` and
+  the retransmission counters from the top level of the response, while the
+  producers emit `overallLossRate` and place the counters under `summary`. Every
+  read resolved to `undefined` and rendered as `0` — a stalled panel rather than
+  a visibly broken one. Because every field is optional, TypeScript could not
+  catch it; the `MonitoringData` type described the card's assumption rather
+  than the API.
+- **Rejected control packets are always shown on a client, and count as an
+  error.** The counter is the explanation for a client that sends into a void:
+  no RTT timed, cumulative ACK frozen, queue depth climbing. It previously had
+  no reader at all, and once shown did not feed the card's own verdict, so the
+  card could display a red row and "No errors detected" together.
+- Switching connection tabs could display the previous connection's config and
+  **save those values to the newly-selected connection's file**.
+- v3 monitoring, congestion and bonding cards were fetched once and never
+  refreshed, so bonding "Active Link", per-link RTT/loss and Active Alerts sat
+  frozen while the metrics card advertised a 15s refresh.
+- Metrics polling swallowed every failure including 401, leaving a dashboard
+  stuck on "Loading metrics…" with no notification.
+- Server connections never fetched monitoring data at all, so the alerts card
+  could not render.
+- `SubscriptionCard` silently discarded per-path `period`/`minPeriod`/`policy`/
+  `format` on save, and the JSON editor re-serialized the textarea mid-edit.
+- The "Advanced settings" disclosure never engaged, because a materialized
+  schema default (`authenticatedHeaders: true`) was read as operator intent.
+- Toggling server↔client dropped six common settings.
+- Accessibility: connection card headers are keyboard-operable, notifications
+  are announced, tabs expose `tablist`/`tab`/`aria-selected`, JSON textareas
+  are labelled.
+
+### Configuration and documentation
+
+- **`udpMetaPort` was documented across six files but does not exist in the
+  code**, so v1 metadata transport was documented as available while being
+  permanently unreachable. Removed; metadata requires v3.
+- **`protocolVersion` was documented as defaulting to 3** in `docs/GUIDE.md`
+  and in the TypeScript JSDoc, while the schema and runtime use 1 — a user
+  following the guide silently got basic v1.
+- `heartbeatInterval`'s documented range contradicted the enforced minimum, so
+  a doc-following config was rejected on save.
+- Seven sender-only options (`pathFilter`, `pathPrecision`, `pathThrottle`,
+  `brotliQuality`, `useValueDedup`, `useCompactDeltas`, `heartbeatInterval`)
+  were accepted and persisted on server connections that never read them — an
+  operator could set `pathFilter` on a server and reasonably believe inbound
+  data was filtered. They are now client-only in both schema builders and are
+  stripped from server configs on load.
+- `brotliQuality` was schema type `number` but validated as an integer, so the
+  UI accepted `6.5` and the save failed.
+- Documented `brotliQuality`, `pathFilter`, `pathPrecision` and `pathThrottle`,
+  which were implemented and rendered in both UIs but documented nowhere.
+  `pathPrecision` is lossy and now says so.
+- Config migration validated before sanitizing — the inverse of startup order —
+  so a legacy `protocolVersion: 2` config carrying v1-only ping fields threw in
+  `npm run migrate:config` while loading fine at runtime.
+- Removed `samples/v2-with-bonding.json` (removed protocol v2, superseded by
+  the v3 equivalent).
+
+### Performance
+
+- The source registry ran a recursive canonicalization, a `JSON.stringify` and
+  a SHA-256 per _received update_ — roughly 10us each, ~8% of an ARM gateway
+  core at 1000 deltas/s — and discarded essentially all of it.
+- The delta sanitizer allocated arrays before its unchanged early-return, on a
+  path that runs twice per outbound delta.
+- `extractLiveMeta` compiled a RegExp per delta, and `resolveSelfContext` was
+  re-resolved (and could log) per delta.
+
+### Tooling
+
+- **`npm audit` now covers runtime dependencies only** (`--omit=dev`). Build and
+  test tooling never reaches an operator — the package publishes `lib/` and
+  `public/` only — so a dev-tree advisory no longer fails `npm test`. Dev
+  advisories remain visible in the non-blocking CI audit job. Also fixed a
+  double-count that summed `metadata.total` alongside the severity buckets, and
+  an unreachable registry that read as zero vulnerabilities instead of being
+  reported.
+- Bumped the `js-yaml` override 4.2.0 → 4.3.0; the pin had become the advisory
+  it was meant to avoid.
+
+### CLI
+
+- Added a 30s request timeout; a host that accepted but never answered blocked
+  the CLI forever.
+- `instances show --format=json` printed a one-element array despite
+  documenting "print one instance".
+- `--limit`/`--page` accepted `12abc` as `12`.
+
+### Tests
+
+- Added a route auth-coverage gate running every registered route's full
+  middleware chain: 37 of 43 routes were guarded only by middleware that every
+  route-module test stubbed to a pass-through, so removing a guard left the
+  suite green.
+- Added a real DATA round-trip through the shipped pipelines across six codec
+  combinations; the pre-existing "e2e" suites reimplement the wire path.
+- Fuzz tests asserted inside `catch` blocks — including the AES-GCM bit-flip
+  test — so they passed when the parser stopped throwing at all.
+- Added direct coverage for client socket recovery, client control-request
+  dispatch, server packet-loss aggregation (including uint32 wraparound), and
+  real heartbeat timer behaviour.
+- Converted the NAK-timing tests from real sleeps with ~20ms margins to fake
+  timers.
+- Added a real-socket configuration matrix. Every defect reported from a
+  running link was invisible to this suite for one of two reasons: the harness
+  erased what broke (in-process suites pipe bytes between pipelines and hand
+  the receiver a synthetic `rinfo`, removing DNS and the kernel's view of a
+  datagram's source — where the hostname peer check lives), or the assertion
+  checked shape rather than justification (`linkQuality` is a number, while the
+  number was invented). The new suite binds real UDP sockets, configures peers
+  by hostname, varies the options that ship, and asserts `GET /metrics` — the
+  JSON the web UI renders — across seven single-hop configurations, the
+  telemetry round trip including the cold state where absent must stay absent,
+  instance-scoped telemetry as an interop contract, a two-hop proxy chain, and
+  an `epochBoundAuth` mismatch asserted on the diagnosis rather than the
+  refusal.
+- Added a counter-reachability sweep: every numeric counter the registry
+  defines must be readable from some endpoint or named as deliberately
+  internal. It found eight counters that were defined, incremented, and exposed
+  by nothing.
+- Added a telemetry contract test pinning that every path the publisher emits
+  is either ingested by the receiver or listed as deliberately local, so a new
+  metric cannot be silently dropped on the wire.
+- Two existing tests had pinned defects as intended behaviour and were
+  corrected: one asserted that `skipOwnData` leaves only RTT in client
+  telemetry, and one asserted `rtt: 0` for an unmeasured link, contradicting
+  the documented response shape.
+
 ## [3.1.0] - 2026-07-02
 
 ### Fixed

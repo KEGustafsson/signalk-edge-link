@@ -63,8 +63,14 @@ export interface SmartBatchingMetrics {
 
 /** Remote network quality snapshot. */
 export interface RemoteNetworkQuality {
-  rtt: number;
-  jitter: number;
+  /**
+   * Undefined until the peer has actually reported a measurement. Seeding these
+   * to 0 made "the client has never timed a round trip" indistinguishable from
+   * "the client measured 0 ms", which a server then displayed as a 0 ms link and
+   * scored a perfect 100.
+   */
+  rtt?: number;
+  jitter?: number;
   packetLoss: number;
   retransmissions: number;
   queueDepth: number;
@@ -96,6 +102,13 @@ export interface Metrics {
   smartBatching: SmartBatchingMetrics;
   rtt?: number;
   jitter?: number;
+  /**
+   * Number of RTT samples taken (one per freshly-ACKed, non-retransmitted
+   * packet). `rtt` alone cannot distinguish "never measured" from "measured 0",
+   * and treating the seed value as a measurement scores an unmeasured link as
+   * a perfect one — see {@link EffectiveNetworkQuality.hasQualityBasis}.
+   */
+  rttSamples?: number;
   retransmissions?: number;
   queueDepth?: number;
   acksSent?: number;
@@ -104,6 +117,16 @@ export interface Metrics {
   dataPacketsReceived?: number;
   /** DATA packets rejected by the anti-replay window (H3). */
   replayedPackets?: number;
+  /** Packets refused because the peers disagree about `epochBoundAuth`. */
+  epochAuthMismatches?: number;
+  /** Packets refused because no HELLO has established this peer's epoch yet. */
+  epochAuthPending?: number;
+  /** Control packets dropped because their source was not a configured peer. */
+  rejectedControlPackets?: number;
+  /** Packets dropped after exhausting retransmit attempts (unrecoverable loss). */
+  packetsAbandoned?: number;
+  /** Receive-side gaps given up on after exhausting NAK rounds. */
+  abandonedSequences?: number;
   rateLimitedPackets?: number;
   droppedDeltaBatches?: number;
   droppedDeltaCount?: number;

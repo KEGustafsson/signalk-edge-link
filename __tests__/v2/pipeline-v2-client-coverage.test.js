@@ -227,11 +227,11 @@ describe("receiveACK – Karn's algorithm", () => {
     pipeline.receiveACK(
       require("../../lib/packet").PacketParser
         ? new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY }).parseHeader(
-          ack0
-        )
+            ack0
+          )
         : (() => {
-          throw new Error("no parser");
-        })(),
+            throw new Error("no parser");
+          })(),
       rinfo
     );
 
@@ -248,6 +248,50 @@ describe("receiveACK – Karn's algorithm", () => {
     pipeline.receiveACK(parser.parseHeader(ack1), rinfo);
 
     expect(metricsApi.metrics.rtt).toBeGreaterThan(0);
+  });
+
+  // The reliability metrics are seeded at construction, and the seed values are
+  // load-bearing: the whole "is this link measured?" gate rests on rttSamples
+  // being 0 and rtt being 0 until a real ACK is timed. Nothing asserted them,
+  // so the seeds could drift to any value and every test would stay green while
+  // a brand-new client reported a fabricated round trip.
+  test("a freshly built client reports no measurement, not a fake one", () => {
+    const { metricsApi } = makeClient();
+    const m = metricsApi.metrics;
+
+    expect(m.rtt).toBe(0);
+    expect(m.jitter).toBe(0);
+    expect(m.retransmissions).toBe(0);
+    expect(m.queueDepth).toBe(0);
+    // The field that distinguishes "measured 0 ms" from "never measured".
+    expect(m.rttSamples ?? 0).toBe(0);
+  });
+
+  // Jitter was Math.round(stddev), so anything under half a millisecond
+  // collapsed to exactly 0. A stable link produces precisely that, and the
+  // published 0 is indistinguishable from "never measured" — a server
+  // ingesting this telemetry reported a hard 0 ms jitter forever.
+  test("sub-millisecond jitter is not rounded away to zero", async () => {
+    jest.useFakeTimers();
+    const { pipeline, metricsApi } = makeClient();
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
+    const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
+    const rinfo = { address: "127.0.0.1", port: 12345 };
+
+    // RTT samples of 40, 40 and 41 ms: stddev ≈ 0.471, which the old
+    // rounding turned into 0.
+    for (const [seq, delay] of [
+      [0, 40],
+      [1, 40],
+      [2, 41]
+    ]) {
+      await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
+      jest.advanceTimersByTime(delay);
+      pipeline.receiveACK(parser.parseHeader(builder.buildACKPacket(seq)), rinfo);
+    }
+
+    expect(metricsApi.metrics.jitter).toBeGreaterThan(0);
+    expect(metricsApi.metrics.jitter).toBeLessThan(1);
   });
 });
 

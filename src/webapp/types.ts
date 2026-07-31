@@ -66,6 +66,9 @@ export interface MetricsData {
     droppedDeltaBatches?: number;
     droppedDeltaCount?: number;
     duplicatePackets?: number;
+    abandonedSequences?: number;
+    packetsAbandoned?: number;
+    rejectedControlPackets?: number;
   };
   status: {
     readyToSend: boolean;
@@ -95,16 +98,28 @@ export interface MonitoringData {
   alerts?: {
     activeAlerts: Record<string, string | { level: string; value?: unknown }>;
   };
+  // These mirror GET /monitoring/packet-loss and /monitoring/retransmissions
+  // verbatim: the counters live under `summary`, not at the top level. Since
+  // every field is optional, a name that drifts from the producer type-checks
+  // and resolves to undefined at runtime.
   packetLoss?: {
     summary?: {
+      overallLossRate?: number;
+      maxLossRate?: number;
+      trend?: string;
+      bucketCount?: number;
       totalLost?: number;
       totalExpected?: number;
-      lossRate?: number;
     };
   };
   retransmissions?: {
-    totalRetransmissions?: number;
-    retransmitRate?: number;
+    summary?: {
+      avgRate?: number;
+      maxRate?: number;
+      currentRate?: number;
+      entries?: number;
+      totalRetransmissions?: number;
+    };
   };
 }
 
@@ -133,7 +148,12 @@ export interface DeltaTimerConfig {
 
 export interface SubscriptionConfig {
   context: string;
-  subscribe: Array<{ path: string }>;
+  /**
+   * Signal K subscription entries. Beyond `path`, the backend subscription
+   * manager honours `period`, `minPeriod`, `policy` and `format`; the type stays
+   * open so those survive a UI round-trip instead of being silently dropped.
+   */
+  subscribe: Array<{ path: string } & Record<string, unknown>>;
   meta?: {
     enabled: boolean;
     intervalSec: number;

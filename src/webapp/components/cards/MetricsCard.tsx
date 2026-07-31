@@ -24,6 +24,10 @@ export function MetricsCard({ metrics }: Props) {
   const rateLimited = stats.rateLimitedPackets || 0;
   const droppedBatches = stats.droppedDeltaBatches || 0;
   const droppedCount = stats.droppedDeltaCount || 0;
+  // Counted as an error here as well as on its own row: without it the card
+  // could show a red "Rejected Control Packets: 17" and "No errors detected"
+  // in the same view.
+  const rejectedControlPackets = stats.rejectedControlPackets ?? 0;
   const hasErrors =
     stats.udpSendErrors > 0 ||
     stats.compressionErrors > 0 ||
@@ -33,7 +37,8 @@ export function MetricsCard({ metrics }: Props) {
     malformed > 0 ||
     rateLimited > 0 ||
     droppedBatches > 0 ||
-    droppedCount > 0;
+    droppedCount > 0 ||
+    rejectedControlPackets > 0;
 
   return (
     <Card
@@ -120,6 +125,21 @@ export function MetricsCard({ metrics }: Props) {
               label="Subscription Errors"
               value={stats.subscriptionErrors}
               hasError={stats.subscriptionErrors > 0}
+            />
+          )}
+          {isClient && (
+            // The one counter that explains an otherwise inexplicable client:
+            // traffic leaving, queue depth climbing, RTT never measured. It
+            // means ACKs and NAKs arrived but were refused because their source
+            // is not a configured peer — typically a hostname whose DNS answers
+            // do not include the address the server actually replies from.
+            // Without it on screen that failure is completely silent, which is
+            // how it went unnoticed once already. Always shown, so a reading of
+            // 0 positively rules the cause out rather than leaving it unknown.
+            <StatItem
+              label="Rejected Control Packets"
+              value={rejectedControlPackets.toLocaleString()}
+              hasError={rejectedControlPackets > 0}
             />
           )}
           {!isClient && (stats.duplicatePackets ?? 0) > 0 && (

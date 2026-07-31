@@ -497,6 +497,71 @@ describe("HEARTBEAT and HELLO packet handling", () => {
     expect(metricsApi.metrics.remoteNetworkQuality.packetLoss).toBeCloseTo(0.01);
   });
 
+  // A client with more than one connection scopes its telemetry by instance:
+  // `networking.edgeLink.<instanceId>.rtt`. The server matched the unscoped
+  // path exactly, so those values fell through as ordinary tree updates and
+  // remoteNetworkQuality was never populated — a proxy's downstream-facing
+  // server showed N/A for RTT, jitter and link quality indefinitely, while a
+  // single-connection deployment worked and hid the bug.
+  //
+  // The paths come from the real MetricsPublisher rather than string literals:
+  // the defect was precisely a disagreement between producer and consumer, so
+  // a hand-written path here would re-encode the same assumption that hid it.
+  test("telemetry from an instance-scoped client reaches remoteNetworkQuality", async () => {
+    const { MetricsPublisher } = require("../../lib/transport/metrics/publisher");
+
+    const emitted = [];
+    const publisherApp = { handleMessage: (_id, delta) => emitted.push(delta), debug: () => {} };
+    const publisher = new MetricsPublisher(publisherApp, {
+      pathPrefix: "networking.edgeLink.boat-1"
+    });
+    publisher.publish({ rtt: 42, jitter: 3.5, packetLoss: 0.01 });
+
+    const values = emitted.flatMap((d) => d.updates.flatMap((u) => u.values));
+    // Guard the premise: if publishing ever stops being instance-scoped this
+    // test would silently go back to covering only the unscoped path.
+    expect(values.some((v) => v.path === "networking.edgeLink.boat-1.rtt")).toBe(true);
+
+    const { pipeline, metricsApi } = makeServer();
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
+    const rinfo = { address: "10.0.0.31", port: 9200 };
+
+    await pipeline.receivePacket(
+      builder.buildHelloPacket({ clientId: "boat-1", instanceId: "boat-1" }),
+      SECRET_KEY,
+      rinfo
+    );
+
+    const telemetryDelta = [
+      {
+        context: "vessels.self",
+        updates: [
+          {
+            source: { label: "signalk-edge-link-client-telemetry", type: "plugin" },
+            timestamp: new Date().toISOString(),
+            values
+          }
+        ]
+      }
+    ];
+    const builder2 = new PacketBuilder({
+      protocolVersion: 3,
+      secretKey: SECRET_KEY,
+      initialSequence: 200
+    });
+    await pipeline.receivePacket(
+      await makeEncryptedPacket(telemetryDelta, builder2),
+      SECRET_KEY,
+      rinfo
+    );
+
+    const remote = metricsApi.metrics.remoteNetworkQuality;
+    expect(remote.lastUpdate).toBeGreaterThan(0);
+    expect(remote.rtt).toBe(42);
+    expect(remote.jitter).toBe(3.5);
+    expect(remote.packetLoss).toBeCloseTo(0.01);
+  });
+
   test("HELLO packet with invalid JSON payload logs error", async () => {
     const { pipeline, app } = makeServer();
 

@@ -19,6 +19,7 @@ import {
   OUTBOUND_DEDUPE_MAX_ENTRIES
 } from "../../foundation/constants";
 import { extractLiveMeta, resolveSelfContext } from "../../codec/metadata-codec";
+import type { SignalKApp } from "../../foundation/types";
 import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "../../codec/delta-sanitizer";
 import type { Delta } from "../../foundation/types";
 import type { ConnectionContext } from "./context";
@@ -121,6 +122,32 @@ function maybeFlush(ctx: ConnectionContext): void {
 }
 
 /** Process a single inbound delta through the outbound send pipeline. */
+/**
+ * The vessel's own context URN, resolved once per app instance.
+ *
+ * `resolveSelfContext` was previously evaluated as an argument on every inbound
+ * delta. It performs a lodash path lookup (allocating a split-path array), builds
+ * a template-literal URN, and — on a vessel with neither `mmsi` nor `uuid` set —
+ * falls through to `app.signalk.retrieve()` and an `app.debug()` log line, per
+ * delta. The self URN does not change at runtime, so a WeakMap keyed by the app
+ * object caches it without keeping a stopped instance's app alive.
+ */
+const SELF_CONTEXT_CACHE = new WeakMap<object, string | null>();
+
+function cachedSelfContext(app: SignalKApp): string | null {
+  const cached = SELF_CONTEXT_CACHE.get(app as unknown as object);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const resolved = resolveSelfContext(app);
+  // Only cache a positive result: a null means the tree was not populated yet
+  // (common right after startup), and it will become available shortly.
+  if (resolved !== null) {
+    SELF_CONTEXT_CACHE.set(app as unknown as object, resolved);
+  }
+  return resolved;
+}
+
 export function processDelta(ctx: ConnectionContext, delta: Delta): void {
   const { state, metrics, options, appProxy, services } = ctx;
   metrics.processDeltaCalls = (metrics.processDeltaCalls || 0) + 1;
@@ -129,7 +156,7 @@ export function processDelta(ctx: ConnectionContext, delta: Delta): void {
   if (!state.readyToSend || state.subscribing) return;
 
   if (state.metaConfig?.enabled) {
-    const liveMeta = extractLiveMeta(delta, state.metaConfig, resolveSelfContext(appProxy));
+    const liveMeta = extractLiveMeta(delta, state.metaConfig, cachedSelfContext(appProxy));
     if (liveMeta.length > 0) services.enqueueMetaDiff(liveMeta);
   }
 

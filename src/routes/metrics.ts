@@ -16,7 +16,7 @@ function register(router: Router, ctx: RouteContext): void {
     instanceRegistry,
     getFirstBundle,
     getEffectiveNetworkQuality,
-    getActiveMetricsPublisher,
+    computeLinkQuality,
     buildFullMetricsResponse,
     getManagementAuthSnapshot,
     isManagementAuthEnabled,
@@ -58,8 +58,10 @@ function register(router: Router, ctx: RouteContext): void {
         const { metrics } = bundle.metricsApi;
         const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
         const networkMetrics: Record<string, unknown> = {
-          rtt: effectiveNetwork.rtt,
-          jitter: effectiveNetwork.jitter,
+          // See the identical guard in routes.ts: 0 here would mean "measured a
+          // 0 ms round trip", not "never measured one".
+          rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
+          jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
           packetLoss: effectiveNetwork.packetLoss,
           retransmissions: effectiveNetwork.retransmissions,
           queueDepth: effectiveNetwork.queueDepth,
@@ -74,14 +76,9 @@ function register(router: Router, ctx: RouteContext): void {
           networkMetrics.lastRemoteUpdate = effectiveNetwork.lastUpdate;
         }
 
-        const nmPublisher = getActiveMetricsPublisher(state);
-        if (nmPublisher) {
-          networkMetrics.linkQuality = nmPublisher.calculateLinkQuality({
-            rtt: effectiveNetwork.rtt,
-            jitter: effectiveNetwork.jitter,
-            packetLoss: effectiveNetwork.packetLoss,
-            retransmitRate: effectiveNetwork.retransmitRate
-          });
+        const nmLinkQuality = computeLinkQuality(state, effectiveNetwork);
+        if (nmLinkQuality !== undefined) {
+          networkMetrics.linkQuality = nmLinkQuality;
         }
 
         res.json(networkMetrics);
@@ -121,32 +118,36 @@ function register(router: Router, ctx: RouteContext): void {
           const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
 
           const extra: Record<string, unknown> = {};
-          if (state.monitoring) {
-            if (state.monitoring.packetLossTracker) {
-              const summary = state.monitoring.packetLossTracker.getSummary();
-              extra.packetLoss = summary.overallLossRate;
-            }
-            if (state.monitoring.retransmissionTracker) {
-              const summary = state.monitoring.retransmissionTracker.getSummary();
-              extra.retransmitRate = summary.currentRate;
-            }
-            if (state.monitoring.alertManager) {
-              const alertState = state.monitoring.alertManager.getState();
-              extra.activeAlerts = alertState.activeAlerts;
-            }
+          if (state.monitoring && state.monitoring.alertManager) {
+            const alertState = state.monitoring.alertManager.getState();
+            extra.activeAlerts = alertState.activeAlerts;
           }
-          if (extra.packetLoss === undefined) {
-            extra.packetLoss = effectiveNetwork.packetLoss;
-          }
+          // One source for loss and retransmit rate, shared with /metrics,
+          // /network-metrics and the web UI.
+          //
+          // This used to prefer the monitoring trackers when they existed and
+          // fall back to getEffectiveNetworkQuality otherwise, so a scrape and
+          // the dashboard could report different numbers for the same link at
+          // the same moment: the trackers measure a bucketed window while
+          // getEffectiveNetworkQuality reports the current figure (remote
+          // telemetry when fresh, local measurement otherwise). Two defensible
+          // definitions, but silently swapped depending on whether monitoring
+          // happened to be enabled — so an alert built on the scrape could
+          // disagree with the UI an operator was looking at.
+          //
+          // The trackers are not lost: they remain the windowed/heatmap view
+          // behind /monitoring/packet-loss and /monitoring/retransmissions,
+          // where the UI labels them for the window they cover.
+          extra.packetLoss = effectiveNetwork.packetLoss;
+          extra.retransmitRate = effectiveNetwork.retransmitRate;
 
-          const promPublisher = getActiveMetricsPublisher(state);
-          if (promPublisher) {
-            extra.linkQuality = promPublisher.calculateLinkQuality({
-              rtt: effectiveNetwork.rtt,
-              jitter: effectiveNetwork.jitter,
-              packetLoss: effectiveNetwork.packetLoss,
-              retransmitRate: effectiveNetwork.retransmitRate
-            });
+          // Same measurement-basis gate as /metrics and /network-metrics.
+          // Without it Prometheus scrapes a perfect 100 for a link that has
+          // never been measured — and a dashboard built on the scrape is
+          // exactly where that false green does the most damage.
+          const promLinkQuality = computeLinkQuality(state, effectiveNetwork);
+          if (promLinkQuality !== undefined) {
+            extra.linkQuality = promLinkQuality;
           }
 
           if (state.pipeline && state.pipeline.getBondingManager) {
@@ -156,10 +157,16 @@ function register(router: Router, ctx: RouteContext): void {
             }
           }
 
+          // rtt/jitter follow the same gate as linkQuality. Gating only the
+          // quality score would still scrape an unmeasured link as a 0 ms round
+          // trip — the same false green in a different series. `undefined` (not
+          // omission) is deliberate: the spread above carries the seeded
+          // `metrics.rtt: 0`, so the key has to be overwritten to suppress it,
+          // and `emitNetworkQuality` skips the series when it is undefined.
           const prometheusMetrics = {
             ...metrics,
-            rtt: effectiveNetwork.rtt,
-            jitter: effectiveNetwork.jitter,
+            rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
+            jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
             retransmissions: effectiveNetwork.retransmissions,
             queueDepth: effectiveNetwork.queueDepth
           };

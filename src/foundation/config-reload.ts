@@ -62,7 +62,23 @@ async function runLoadInner(opts: DebounceHandlerOpts): Promise<void> {
   const filePath = getFilePath();
   let content: string | null;
   if (readFallback !== undefined) {
-    content = filePath ? await readFile(filePath, "utf-8").catch(() => null) : null;
+    // Only a genuinely absent file may fall back. Swallowing every read error
+    // here is dangerous for the subscription handler, whose fallback is
+    // `subscribe: [{ path: "*" }]`: a transient EACCES/EIO, or the brief ENOENT
+    // window of an editor's delete-then-create (which fires a `rename` watcher
+    // event), would silently switch a curated path list to the full Signal K
+    // firehose on a metered link.
+    content = filePath
+      ? await readFile(filePath, "utf-8").catch((err: NodeJS.ErrnoException) => {
+          if (err && err.code === "ENOENT") {
+            return null;
+          }
+          app.error(
+            `[${instanceId}] Failed to read ${name} file (${err?.code ?? "unknown"}): ${err?.message ?? String(err)} — keeping previous configuration`
+          );
+          throw err;
+        })
+      : null;
   } else {
     content = filePath ? await readFile(filePath, "utf-8") : null;
   }

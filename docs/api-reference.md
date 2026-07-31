@@ -2,7 +2,7 @@
 
 > **Base path:** `/plugins/signalk-edge-link`  
 > **Rate limit:** 120 requests/minute/IP → HTTP 429  
-> **API version tracked (current: 3.1.0)** — for endpoint changes between releases, see `docs/pr-records/`
+> **API version tracked (current: 4.0.0)** — see CHANGELOG.md for endpoint changes between releases
 
 ---
 
@@ -26,8 +26,28 @@ Returns comprehensive real-time statistics. Available in client and server mode.
     "deltasSent": 12345,
     "deltasReceived": 0,
     "udpSendErrors": 0,
+    "udpRetries": 0,
     "compressionErrors": 0,
-    "encryptionErrors": 0
+    "encryptionErrors": 0,
+    "subscriptionErrors": 0,
+    "duplicatePackets": 0,
+    "malformedPackets": 0,
+    "dataPacketsReceived": 0,
+    "rateLimitedPackets": 0,
+    "droppedDeltaBatches": 0,
+    "droppedDeltaCount": 0,
+    "abandonedSequences": 0,
+    "packetsAbandoned": 0,
+    "rejectedControlPackets": 0,
+    "replayedPackets": 0,
+    "epochAuthMismatches": 0,
+    "epochAuthPending": 0,
+    "fullStatusCascadeFired": 0,
+    "snapshotReplayDeltas": 0,
+    "processDeltaCalls": 0,
+    "deltasBufferHighWaterMark": 0,
+    "suppressedOutboundDuplicates": 0,
+    "errorCounts": {}
   },
   "status": { "readyToSend": true, "deltasBuffered": 5 },
   "bandwidth": {
@@ -384,7 +404,7 @@ Detailed runtime, network, bonding, metrics, and config view for one instance.
   "state": "Server listening on port 4446",
   "readyToSend": true,
   "currentLink": "primary",
-  "network": { "rtt": 0, "jitter": 0, "packetLoss": 0 },
+  "network": { "rtt": 42, "jitter": 6, "packetLoss": 0 },
   "metrics": { "deltasSent": 1234, "deltasReceived": 0 },
   "bonding": { "enabled": false },
   "config": {
@@ -395,6 +415,18 @@ Detailed runtime, network, bonding, metrics, and config view for one instance.
   }
 }
 ```
+
+`network.rtt`, `network.jitter` and `linkQuality` appear only once the link has
+actually been measured — a client's first timed ACK, or a server's first client
+telemetry. Before that they are **absent**, not zero. Treat a missing field as
+"no data" rather than a 0 ms round trip or a perfect link.
+
+The same gate applies everywhere these values are exposed: `networkQuality` in
+`GET /metrics`, `GET /network-metrics`, and the
+`signalk_edge_link_rtt_milliseconds`, `signalk_edge_link_jitter_milliseconds`
+and `signalk_edge_link_link_quality_score` series in `GET /prometheus` — all of
+which omit the field or the whole time-series until there is a measurement
+behind it.
 
 **Errors:** `401` unauthorized, `404` instance not found.
 
@@ -413,7 +445,7 @@ Patch one instance configuration. Triggers a plugin restart. Returns `200` on su
 
 Updatable: `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`, `udpAddress`, `helloMessageSender`, `reliability`, `congestionControl`, `bonding`, `alertThresholds`.
 
-**Not updatable via this endpoint:** `serverType`, `udpPort`, `secretKey`. Any other field (including `udpMetaPort`, `testAddress`, `testPort`, and `pingIntervalTime`) is rejected with `400`; change those by replacing the full configuration via `POST /plugin-config`.
+**Not updatable via this endpoint:** `serverType`, `udpPort`, `secretKey`. Any other field (including `testAddress`, `testPort`, and `pingIntervalTime`) is rejected with `400`; change those by replacing the full configuration via `POST /plugin-config`.
 
 **Errors:** `400` (unsupported field, validation), `401`, `404`, `503`.
 

@@ -90,11 +90,20 @@ export class PacketLossTracker {
     maxLossRate: number;
     trend: string;
     bucketCount: number;
+    totalLost: number;
+    totalExpected: number;
   } {
     const data = this.getHeatmapData();
     const bucketCount = data.length;
     if (bucketCount === 0) {
-      return { overallLossRate: 0, maxLossRate: 0, trend: "stable", bucketCount: 0 };
+      return {
+        overallLossRate: 0,
+        maxLossRate: 0,
+        trend: "stable",
+        bucketCount: 0,
+        totalLost: 0,
+        totalExpected: 0
+      };
     }
 
     let totalSent = 0;
@@ -138,7 +147,13 @@ export class PacketLossTracker {
       overallLossRate,
       maxLossRate,
       trend,
-      bucketCount
+      bucketCount,
+      // Both are already summed above to derive overallLossRate. They were
+      // dropped on the way out, so the only loss figure any consumer could
+      // reach was a rate — the web UI wanted the raw counts and rendered
+      // permanent zeros for them instead.
+      totalLost,
+      totalExpected: totalSent
     };
   }
 

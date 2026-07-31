@@ -38,6 +38,8 @@ interface Props {
   activeConnectionIndex: number;
   onNotify: (msg: string, type: string) => void;
   onPluginConfigSaved: (cfg: Record<string, unknown>) => void;
+  /** Increments on each metrics poll; re-fetches the v3 monitoring surfaces. */
+  refreshTick?: number;
 }
 
 export function ClientDashboard({
@@ -47,7 +49,8 @@ export function ClientDashboard({
   pluginSchema,
   activeConnectionIndex,
   onNotify,
-  onPluginConfigSaved
+  onPluginConfigSaved,
+  refreshTick = 0
 }: Props) {
   const [deltaTimer, setDeltaTimer] = useState<DeltaTimerConfig | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionConfig | null>(null);
@@ -113,10 +116,18 @@ export function ClientDashboard({
         if (alertsRes?.ok) mon.alerts = await alertsRes.json();
         if (plRes?.ok) mon.packetLoss = await plRes.json();
         if (rtxRes?.ok) mon.retransmissions = await rtxRes.json();
-        setMonitoring(mon);
+        const cong = congRes?.ok ? await congRes.json() : null;
+        const bond = bondRes?.ok ? await bondRes.json() : null;
 
-        setCongestion(congRes?.ok ? await congRes.json() : null);
-        setBonding(bondRes?.ok ? await bondRes.json() : null);
+        // Re-check after decoding, not only after the fetches: every `.json()`
+        // above is another await, and a failover landing in that gap claims the
+        // epoch. Without this the stale poll would still win the last write and
+        // put the pre-failover active link back on the card.
+        if (epoch !== v3EpochRef.current) return;
+
+        setMonitoring(mon);
+        setCongestion(cong);
+        setBonding(bond);
 
         // Surface an auth failure once instead of silently rendering empty v3
         // cards — a misconfigured token otherwise looks like "no v3 data".
@@ -129,7 +140,11 @@ export function ClientDashboard({
     };
 
     loadV3();
-  }, [connId, metrics?.protocolVersion, request, authMessage, onNotify]);
+    // `refreshTick` advances on every metrics poll. Without it these deps are
+    // all stable after the first poll, so bonding "Active Link", per-link RTT
+    // and loss, the congestion delta timer, and Active Alerts would stay frozen
+    // at their page-load values while the metrics card advertises a 15s refresh.
+  }, [connId, metrics?.protocolVersion, refreshTick, request, authMessage, onNotify]);
 
   const handleFailover = async () => {
     try {
@@ -137,6 +152,21 @@ export function ClientDashboard({
       if (res.ok) {
         const result = await res.json();
         onNotify(`Failover complete. Active link: ${result.activeLink}`, "success");
+        // Refresh immediately: otherwise the card below still shows the old
+        // active link until the next poll, contradicting this notification.
+        //
+        // Claiming the v3 epoch first discards any poll already in flight — its
+        // response predates the failover, so letting it resolve would put the
+        // stale active link straight back on the card.
+        const epoch = ++v3EpochRef.current;
+        const bondRes = await request(bondingPath(connId)).catch(() => null);
+        if (!bondRes?.ok) return;
+        const bond = await bondRes.json();
+        // Decoding is another await, so re-check: a newer refresh claiming the
+        // epoch in that gap must win over this response, not the other way
+        // round.
+        if (epoch !== v3EpochRef.current) return;
+        setBonding(bond);
       } else {
         const err = await res.json();
         onNotify(

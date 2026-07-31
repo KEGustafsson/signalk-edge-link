@@ -111,6 +111,10 @@ interface ReliableClient {
   sendHello: (addr: string, port: number) => Promise<void>;
   handleControlPacket: (msg: Buffer, rinfo: dgram.RemoteInfo) => Promise<void>;
   initBonding: (cfg: unknown) => Promise<void>;
+  getBondingManager?: () => {
+    onFailover: (h: (from: string, to: string) => void) => void;
+    onFailback: (h: (from: string, to: string) => void) => void;
+  } | null;
 }
 
 /** Initialize connection bonding when configured. */
@@ -140,6 +144,37 @@ async function initBonding(ctx: ConnectionContext, v2: ReliableClient): Promise<
   }
 }
 
+/**
+ * Re-send HELLO after a bonding link change.
+ *
+ * A failover/failback swaps the active link socket, so packets start leaving
+ * from a different source port. The server keys sessions and replay guards on
+ * `address:port`, so without a fresh HELLO the new port looks like an
+ * unhandshaked peer: replay enforcement cannot arm for it and the peer stays
+ * unidentified, silently dropping client telemetry.
+ */
+function registerBondingHandshakeHooks(ctx: ConnectionContext, v2: ReliableClient): void {
+  const { app, instanceId, options, lifecycle } = ctx;
+  const manager = typeof v2.getBondingManager === "function" ? v2.getBondingManager() : null;
+  if (!manager) return;
+
+  const reHello = (reason: string, to: string) => {
+    if (lifecycle?.isShuttingDown?.()) return;
+    v2.sendHello(options.udpAddress ?? "", options.udpPort)
+      .then(() => {
+        app.debug(`[${instanceId}] [Bonding] re-sent HELLO after ${reason} to ${to}`);
+      })
+      .catch((err: unknown) => {
+        app.error(
+          `[${instanceId}] [Bonding] HELLO after ${reason} failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      });
+  };
+
+  manager.onFailover((_from: string, to: string) => reHello("failover", to));
+  manager.onFailback((_from: string, to: string) => reHello("failback", to));
+}
+
 /** Construct the reliable (v2/v3) client pipeline. */
 function createReliableClient(ctx: ConnectionContext): ReliableClient {
   const { appProxy, state, metricsApi } = ctx;
@@ -149,7 +184,8 @@ function createReliableClient(ctx: ConnectionContext): ReliableClient {
 
 /** Build the reliable client pipeline and wire its handlers/heartbeat/HELLO. */
 async function setupReliableClient(ctx: ConnectionContext): Promise<void> {
-  const { state, app, instanceId, options, services, recordError } = ctx;
+  const { state, app, instanceId, options, services, recordError, lifecycle } = ctx;
+  if (lifecycle.isShuttingDown()) return;
   initMonitoring(ctx);
 
   const v2 = createReliableClient(ctx);
@@ -166,13 +202,6 @@ async function setupReliableClient(ctx: ConnectionContext): Promise<void> {
   state.heartbeatHandle = v2.startHeartbeat(options.udpAddress ?? "", options.udpPort, {
     heartbeatInterval: options.heartbeatInterval
   }) as typeof state.heartbeatHandle;
-  await v2.sendHello(options.udpAddress ?? "", options.udpPort);
-  services.restartSourceSnapshotTimer();
-  services.sendSourceSnapshot().catch((err: unknown) => {
-    app.debug(
-      `[${instanceId}] initial source snapshot failed: ${err instanceof Error ? err.message : String(err)}`
-    );
-  });
   state.socketUdp!.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
     v2.handleControlPacket(msg, rinfo).catch((err: unknown) => {
       const m = err instanceof Error ? err.message : String(err);
@@ -181,7 +210,28 @@ async function setupReliableClient(ctx: ConnectionContext): Promise<void> {
     });
   });
 
+  // Bonding must be initialized BEFORE the first HELLO. `udpSendAsync` only
+  // routes through a bonding link socket once `mut.bondingManager` is set, so a
+  // HELLO sent earlier leaves from the plain socket's ephemeral port while all
+  // subsequent DATA leaves from the bonding link's port. The server keys
+  // sessions and replay guards on address:port, so the session that actually
+  // carries data would never see a handshake: its epoch stays 0 (disabling
+  // replay enforcement) and the peer stays unidentified (dropping all client
+  // telemetry).
   await initBonding(ctx, v2);
+  if (lifecycle.isShuttingDown()) return;
+
+  // Re-HELLO whenever the active link changes: failover moves the source port
+  // again, which the server sees as a brand-new, unhandshaked peer.
+  registerBondingHandshakeHooks(ctx, v2);
+
+  await v2.sendHello(options.udpAddress ?? "", options.udpPort);
+  services.restartSourceSnapshotTimer();
+  services.sendSourceSnapshot().catch((err: unknown) => {
+    app.debug(
+      `[${instanceId}] initial source snapshot failed: ${err instanceof Error ? err.message : String(err)}`
+    );
+  });
   app.debug(`[${instanceId}] [v3] Reliable client pipeline initialized`);
 }
 
@@ -237,9 +287,18 @@ export async function startClient(ctx: ConnectionContext): Promise<void> {
   if (lifecycle.isShuttingDown()) return;
 
   await loadDeltaTimer(ctx);
+  if (lifecycle.isShuttingDown()) return;
+
   // Resolve the monotonic anti-replay epoch before the pipeline (and its first
   // HELLO) is built in setupReliableClient below.
   state.connectionEpoch = await resolveMonotonicEpoch(epochFilePath(ctx), app);
+
+  // Every allocation below (keepalive interval, UDP socket, metrics and
+  // congestion intervals, heartbeat interval, source-snapshot interval, bonding
+  // sockets + health interval) happens after an await. Without this guard a
+  // stop() landing in one of those windows still creates them — and because
+  // teardown has already run, nothing is left holding a handle to clear them.
+  if (lifecycle.isShuttingDown()) return;
 
   services.keepaliveManager.start();
   state.socketUdp = socketManager.create();

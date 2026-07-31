@@ -47,13 +47,20 @@ function migrateConfig(config: any): any {
     return { ...config };
   }
 
-  validateLegacyConfig(config);
-
+  // Sanitize BEFORE validating, matching startup order
+  // (connection-manager/start.ts sanitizes then validates). Validating first
+  // rejected legacy configs that startup accepts: a stored `protocolVersion: 2`
+  // carrying v1-only ping fields (testAddress/testPort/pingIntervalTime) threw
+  // here, even though sanitize strips exactly those fields for protocolVersion
+  // >= 2 — which is why the same file loads fine at runtime and why the repo
+  // ships samples in that shape.
   const connection = sanitizeConnectionConfig({
     ...config,
     name: config.name || "default",
     protocolVersion: config.protocolVersion || 1
   });
+
+  validateLegacyConfig(connection);
 
   return {
     ...stripLegacyConnectionFields(config),

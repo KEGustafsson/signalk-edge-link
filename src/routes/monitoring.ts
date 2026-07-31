@@ -16,6 +16,7 @@ function register(router: Router, ctx: RouteContext): () => void {
     app,
     rateLimitMiddleware,
     requireJson,
+    blockCrossSiteForm,
     getFirstBundle,
     managementAuthMiddleware,
     pluginRef
@@ -477,6 +478,7 @@ function register(router: Router, ctx: RouteContext): () => void {
   router.post(
     "/capture/start",
     rateLimitMiddleware,
+    blockCrossSiteForm,
     managementAuthMiddleware("capture.update"),
     (req: RouteRequest, res: RouteResponse) => {
       try {
@@ -499,6 +501,7 @@ function register(router: Router, ctx: RouteContext): () => void {
   router.post(
     "/capture/stop",
     rateLimitMiddleware,
+    blockCrossSiteForm,
     managementAuthMiddleware("capture.update"),
     (req: RouteRequest, res: RouteResponse) => {
       try {

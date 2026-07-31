@@ -73,6 +73,13 @@ export function createKeepaliveManager(deps: KeepaliveManagerDeps): KeepaliveMan
     state.helloMessageSender = setInterval(async () => {
       try {
         const timeSinceLastPacket = Date.now() - state.lastPacketTime;
+        if (state.stopped) {
+          // The instance was torn down while this interval was live (e.g. a
+          // stop() that raced a start()). Do not keep logging or sending.
+          clearInterval(state.helloMessageSender ?? undefined);
+          state.helloMessageSender = null;
+          return;
+        }
         if (!state.readyToSend) {
           app.debug(`[${instanceId}] Skipping hello (not ready)`);
         } else if (timeSinceLastPacket >= helloInterval) {

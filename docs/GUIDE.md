@@ -366,7 +366,7 @@ The receiver identifies v1 packets because they **do not** start with the `SK` m
 - No retransmission — packet loss is unrecovered
 - No RTT measurement (uses external ping monitor instead)
 - No congestion control or bonding
-- Metadata transport requires a separate UDP port (`udpMetaPort`)
+- Metadata transport is not available (v1 has no packet-type byte); use v3 if you need metadata
 
 #### v1 configuration example
 
@@ -543,19 +543,20 @@ These sit outside `connections[]`, at the root of the plugin config:
 
 ### 7.2 Common fields (client and server)
 
-| Field                 | Type    | Default        | Description                                                                                                            |
-| --------------------- | ------- | -------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `name`                | string  | `"connection"` | Label shown in UI and logs. Used as directory name for runtime config files. Max 40 characters.                        |
-| `serverType`          | string  | `"client"`     | `"client"` sends data; `"server"` receives data.                                                                       |
-| `udpPort`             | integer | `4446`         | UDP port. Range 1024–65535. Must match on both ends.                                                                   |
-| `udpMetaPort`         | integer | —              | Optional separate UDP port for v1 metadata packets. Ignored by v3 (which multiplex metadata on the main port).         |
-| `secretKey`           | string  | — (required)   | AES-256 encryption key. Accepts 32-char ASCII, 64-char hex, or 44-char base64. Must match exactly on both ends.        |
-| `stretchAsciiKey`     | boolean | `false`        | When `true`, runs a 32-char ASCII key through PBKDF2-SHA256 (600,000 iterations) before use. **Both ends must match.** |
-| `protocolVersion`     | integer | `3`            | `1` (basic v1) or `3` (reliable v3). Legacy stored `2` is accepted and coerced to `3`; peers must match.               |
-| `useMsgpack`          | boolean | `false`        | Serialize deltas as MessagePack instead of JSON. Saves ~15–25%. **Both ends must match.**                              |
-| `usePathDictionary`   | boolean | `false`        | Replace Signal K path strings with 2-byte numeric IDs. Saves ~10–20%. **Both ends must match.**                        |
-| `enableNotifications` | boolean | `false`        | Forward Signal K notification deltas over the link.                                                                    |
-| `skipOwnData`         | boolean | `false`        | (Client only) Drop all `networking.edgeLink.*` metrics before forwarding — prevents feedback loops.                    |
+| Field                  | Type              | Default        | Description                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------- | ----------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`                 | string            | `"connection"` | Label shown in UI and logs. Used as directory name for runtime config files. Max 40 characters.                                                                                                                                                                                                                                                        |
+| `serverType`           | string            | `"client"`     | `"client"` sends data; `"server"` receives data.                                                                                                                                                                                                                                                                                                       |
+| `udpPort`              | integer           | `4446`         | UDP port. Range 1024–65535. Must match on both ends.                                                                                                                                                                                                                                                                                                   |
+| `secretKey`            | string            | — (required)   | AES-256 encryption key. Accepts 32-char ASCII, 64-char hex, or 44-char base64. Must match exactly on both ends.                                                                                                                                                                                                                                        |
+| `stretchAsciiKey`      | boolean           | `false`        | When `true`, runs a 32-char ASCII key through PBKDF2-SHA256 (600,000 iterations) before use. **Both ends must match.**                                                                                                                                                                                                                                 |
+| `authenticatedHeaders` | boolean           | `true`         | (v3) Append a 16-byte HMAC tag binding each DATA/METADATA header to its encrypted payload. **Both ends must match.** Set `false` on both only to interoperate with a pre-3.0.0 peer.                                                                                                                                                                   |
+| `epochBoundAuth`       | boolean           | `false`        | (v3, requires `authenticatedHeaders`) Bind the auth tag to the connection epoch, so a captured packet only authenticates inside the epoch it was sent in. **Both ends must match and both must run 4.0.0+** — an older peer computes the tag without the epoch and every packet is dropped. Adds no bytes on the wire. See [security.md](security.md). |
+| `protocolVersion`      | integer \| string | `1`            | `1` (basic v1) or `3` (reliable v3). Defaults to `1`; set `3` explicitly to get reliability, bonding, metrics and metadata. The string aliases `"basic"` and `"advanced"` are also accepted, and are normalized on save to `1` and `3`. Legacy stored `2` is accepted and coerced to `3`. Peers must match on the resolved numeric version.            |
+| `useMsgpack`           | boolean           | `false`        | Serialize deltas as MessagePack instead of JSON. Saves ~15–25%. **Both ends must match.**                                                                                                                                                                                                                                                              |
+| `usePathDictionary`    | boolean           | `false`        | Replace Signal K path strings with 2-byte numeric IDs. Saves ~10–20%. **Both ends must match.**                                                                                                                                                                                                                                                        |
+| `enableNotifications`  | boolean           | `false`        | Forward Signal K notification deltas over the link.                                                                                                                                                                                                                                                                                                    |
+| `skipOwnData`          | boolean           | `false`        | (Client only) Drop `networking.edgeLink.*` metrics from forwarded **data** — prevents feedback loops in a chain. Does **not** affect the dedicated link telemetry (RTT, jitter, loss, retransmissions, queue depth, retransmit rate, active link) the peer needs to report the link; the receiver consumes that rather than adding it to its own tree. |
 
 ### 7.3 Client transport fields
 
@@ -563,7 +564,7 @@ These sit outside `connections[]`, at the root of the plugin config:
 | -------------------- | ------- | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `udpAddress`         | string  | `"127.0.0.1"` | Hostname or IP address of the remote server. Required for client connections.                                             |
 | `helloMessageSender` | integer | `60`          | Interval in **seconds** between HELLO keepalive messages. Keeps NAT/firewall mappings alive. Range 10–3600.               |
-| `heartbeatInterval`  | integer | `25000`       | Interval in **ms** between HEARTBEAT probes (v3 only). Used for RTT measurement and NAT hole-punching. Range 1000–120000. |
+| `heartbeatInterval`  | integer | `25000`       | Interval in **ms** between HEARTBEAT probes (v3 only). Used for RTT measurement and NAT hole-punching. Range 5000–120000. |
 
 ### 7.4 v1 ping monitor fields (client, v1 only)
 
@@ -579,11 +580,12 @@ These fields **must not** appear in v3 configurations.
 
 Nested under `reliability`:
 
-| Field               | Type    | Default | Range (ms) | Description                                          |
-| ------------------- | ------- | ------- | ---------- | ---------------------------------------------------- |
-| `ackInterval`       | integer | `100`   | 20–5000    | How often the server emits a cumulative ACK.         |
-| `ackResendInterval` | integer | `1000`  | 100–10000  | Re-send the last ACK after this interval of silence. |
-| `nakTimeout`        | integer | `100`   | 20–5000    | Idle delay before sending NAK for a detected gap.    |
+| Field               | Type    | Default | Range        | Description                                                                                                                                           |
+| ------------------- | ------- | ------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ackInterval`       | integer | `100`   | 20–5000 ms   | How often the server emits a cumulative ACK.                                                                                                          |
+| `ackResendInterval` | integer | `1000`  | 100–10000 ms | Re-send the last ACK after this interval of silence.                                                                                                  |
+| `nakTimeout`        | integer | `100`   | 20–5000 ms   | Idle delay before sending NAK for a detected gap.                                                                                                     |
+| `maxNakRounds`      | integer | `5`     | 1–25 rounds  | Times a missing packet is re-requested before the window advances past it. Keep above the sender's `maxRetransmits` — a lost NAK still costs a round. |
 
 ### 7.6 Reliability — client mode (v3 only)
 
@@ -733,7 +735,7 @@ Controls which Signal K paths are transmitted, and optionally enables metadata s
 
 **How metadata streaming works:** When enabled, the client forwards an initial full snapshot shortly after subscribing, coalesces live `updates[].meta[]` changes over a short debounce window, and re-broadcasts the full snapshot every `intervalSec`. A restarted server may also send `META_REQUEST` to demand an immediate snapshot.
 
-**v1 caveat:** v1 has no packet-type byte, so metadata is transmitted on a separate UDP port (`udpMetaPort`). If `udpMetaPort` is not configured, metadata is a no-op on v1. v3 multiplex metadata on the main data port using packet type `0x06`.
+**v1 caveat:** v1 has no packet-type byte and therefore carries no metadata at all — metadata is a no-op on v1. Use protocol v3, which multiplexes metadata onto the main data port using packet type `0x06`.
 
 ### sentence_filter.json
 
@@ -1123,21 +1125,55 @@ These counters and gauges appear in `GET /metrics` under `stats` and `bandwidth`
 
 ### 13.2 Reliability metrics (v3 only)
 
-From `GET /metrics` under `networkQuality`:
+These live in two different objects in the `GET /metrics` response.
 
-| Metric                | Unit  | Description                                                      |
-| --------------------- | ----- | ---------------------------------------------------------------- |
-| `acksSent`            | count | ACK packets sent by the server                                   |
-| `naksSent`            | count | NAK packets sent to request retransmission                       |
-| `retransmissions`     | count | Data packets retransmitted after a NAK or timeout                |
-| `duplicatePackets`    | count | Packets received with a seq number already seen (safely dropped) |
-| `dataPacketsReceived` | count | Total data packets accepted (excludes duplicates)                |
+Under `networkQuality`:
+
+| Metric            | Unit  | Description                                       |
+| ----------------- | ----- | ------------------------------------------------- |
+| `acksSent`        | count | ACK packets sent by the server                    |
+| `naksSent`        | count | NAK packets sent to request retransmission        |
+| `retransmissions` | count | Data packets retransmitted after a NAK or timeout |
+
+Under `stats`:
+
+| Metric                      | Unit  | Description                                                                        |
+| --------------------------- | ----- | ---------------------------------------------------------------------------------- |
+| `duplicatePackets`          | count | Packets received with a seq number already seen (safely dropped)                   |
+| `dataPacketsReceived`       | count | Total data packets accepted (excludes duplicates)                                  |
+| `packetsAbandoned`          | count | Packets the sender dropped from its retransmit queue (unrecoverable)               |
+| `abandonedSequences`        | count | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable)          |
+| `rejectedControlPackets`    | count | ACK/NAK/request packets dropped because the source did not match a configured peer |
+| `replayedPackets`           | count | Datagrams the anti-replay guard refused — see below                                |
+| `epochAuthMismatches`       | count | Packets refused because the peers disagree about `epochBoundAuth`                  |
+| `epochAuthPending`          | count | Packets refused because no HELLO has established the sender's epoch yet            |
+| `fullStatusCascadeFired`    | count | Times a client instance relayed FULL_STATUS_REQUEST to the servers beside it       |
+| `snapshotReplayDeltas`      | count | Deltas emitted while replaying a values snapshot on request                        |
+| `processDeltaCalls`         | count | Deltas handed to the outbound path (pre-filter, pre-batch)                         |
+| `deltasBufferHighWaterMark` | count | Peak outbound buffer depth reached — the backpressure signal before drops start    |
 
 **Interpretation:**
 
-- `retransmissions / dataPacketsReceived` < 1% is healthy
+- `retransmissions / dataPacketsReceived` < 1% is healthy — the ratio is only
+  meaningful while `dataPacketsReceived` is greater than zero; with a zero
+  denominator report it as N/A rather than 0%
+- `replayedPackets > 0` means the anti-replay guard rejected a datagram: a replay
+  attempt or a peer bug, never routine. This counter is the only external
+  evidence that either occurred
+- `epochAuthMismatches > 0` means this receiver requires `epochBoundAuth` and the
+  sender is not using it, so every DATA packet is refused. It is a configuration
+  mismatch, not an attack — set the same value on both peers
+- `epochAuthPending > 0` is a different condition with the same symptom: the
+  sender IS binding, but no HELLO has established its epoch yet, so the packet
+  cannot be verified. A brief burst at startup is normal and clears once the
+  HELLO completes. A number that keeps climbing means the HELLO is not arriving
+  — check that the peer's DATA and HELLO leave from the same address and port
+- `deltasBufferHighWaterMark` climbing toward the buffer cap is the warning that
+  precedes `droppedDeltaBatches` — it rises before any data is lost
 - Rising `naksSent` with low `acksSent` indicates one-way UDP — check bidirectional reachability
 - `duplicatePackets > 0` is normal on unreliable links; duplicates are safely discarded
+- `packetsAbandoned` / `abandonedSequences` above zero mean data was permanently lost, not merely delayed — the window advanced past a gap the sender could no longer fill
+- `rejectedControlPackets` rising on a client is serious: it means ACKs and NAKs are being discarded before they are processed, so no RTT can be timed, the cumulative ACK freezes and `queueDepth` climbs. Check that `udpAddress` names the host the server actually replies from
 
 ### 13.3 Link quality metrics
 
@@ -1160,6 +1196,28 @@ Returned by `GET /network-metrics` and embedded in `GET /metrics` under `network
 | 70–89  | Good      | Acceptable for most use cases                       |
 | 50–69  | Degraded  | Congestion control and bonding failover recommended |
 | < 50   | Poor      | High loss or latency; data delivery unreliable      |
+
+**No score without a measurement.** `rtt`, `jitter` and `linkQuality` are
+**omitted entirely** — not reported as `0` — until the link has actually been
+measured. A client's first measurement is its first timed ACK; a server measures
+no latency of its own and reports whatever its clients last told it
+(`dataSource: "remote-client"`), so it has no figures at all until client
+telemetry arrives. The web UI shows `N/A` in that state.
+
+This matters because the score is computed from those values: scoring an
+unmeasured link would treat the zeros as ideal and return 100 ("Excellent") for a
+link carrying no traffic at all. `linkQuality` is therefore withheld unless all
+four of its inputs — `rtt`, `jitter`, `packetLoss` and `retransmitRate` — are
+present, since substituting a zero for any of them can only inflate the score.
+
+`packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate` and `activeLink`
+follow the same rule and may also be absent. On a **client** they are local
+observations and are reported from the first packet, so a growing `queueDepth`
+beside an absent `rtt` is the signature of a link that is sending but receiving
+nothing back. On a **server** they arrive as client telemetry like everything
+else, and a peer that reports some fields and not others — an older build, or a
+value the ingest validator rejected — has its silence reported as absence rather
+than as a measured zero.
 
 ### 13.4 Smart batching metrics
 
@@ -1294,7 +1352,7 @@ Build a Grafana dashboard from the Prometheus metrics exposed at `/prometheus` (
 
 **Base path:** `/plugins/signalk-edge-link`  
 **Rate limit:** 120 requests/minute/IP → HTTP 429  
-**API version tracked (current: 3.1.0)** — for endpoint changes between releases, see `docs/pr-records/`
+**API version tracked (current: 4.0.0)** — see CHANGELOG.md for endpoint changes between releases
 
 ### 14.1 Core data endpoints
 
@@ -1684,7 +1742,7 @@ Detailed runtime, network, bonding, metrics, and config view for one instance.
   "state": "Server listening on port 4446",
   "readyToSend": true,
   "currentLink": "primary",
-  "network": { "rtt": 0, "jitter": 0, "packetLoss": 0 },
+  "network": { "rtt": 42, "jitter": 6, "packetLoss": 0 },
   "metrics": { "deltasSent": 1234, "deltasReceived": 0 },
   "bonding": { "enabled": false },
   "config": {
@@ -1695,6 +1753,11 @@ Detailed runtime, network, bonding, metrics, and config view for one instance.
   }
 }
 ```
+
+`network.rtt` and `network.jitter` appear only once the link has actually been
+measured — a client's first timed ACK, or a server's first client telemetry.
+Before that they are **absent**, not zero. Treat a missing field as "no data"
+rather than a 0 ms round trip.
 
 **Errors:** `401` unauthorized, `404` instance not found.
 
@@ -1881,7 +1944,8 @@ npm run migrate:config -- old-config.json new-config.json
       "reliability": {
         "ackInterval": 100,
         "ackResendInterval": 1000,
-        "nakTimeout": 100
+        "nakTimeout": 100,
+        "maxNakRounds": 5
       }
     }
   ]

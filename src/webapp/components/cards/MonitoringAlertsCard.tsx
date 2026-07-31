@@ -25,12 +25,20 @@ export function MonitoringAlertsCard({ data }: Props) {
   if (!data) return null;
   const hasData = data.alerts || data.packetLoss || data.retransmissions;
   if (!hasData) return null;
+  // Every field below is read from the tracker's `summary` object and must
+  // match the name getSummary() emits. A mismatch resolves to undefined, which
+  // numberOrZero renders as 0 — a stalled panel rather than a visibly broken
+  // one, and TypeScript cannot catch it because the fields are optional.
   const packetLossSummary = data.packetLoss?.summary;
+  const retransmitSummary = data.retransmissions?.summary;
   const totalLost = numberOrZero(packetLossSummary?.totalLost);
   const totalExpected = numberOrZero(packetLossSummary?.totalExpected);
-  const lossRate = numberOrZero(packetLossSummary?.lossRate);
-  const totalRetransmissions = numberOrZero(data.retransmissions?.totalRetransmissions);
-  const retransmitRate = numberOrZero(data.retransmissions?.retransmitRate);
+  const lossRate = numberOrZero(packetLossSummary?.overallLossRate);
+  const totalRetransmissions = numberOrZero(retransmitSummary?.totalRetransmissions);
+  // `currentRate` is the latest sampling period. The Network Quality card shows
+  // a lifetime retransmissions/packetsOut ratio under the same words, so label
+  // this one for the window it actually covers.
+  const retransmitRate = numberOrZero(retransmitSummary?.currentRate);
 
   return (
     <Card
@@ -89,7 +97,7 @@ export function MonitoringAlertsCard({ data }: Props) {
               />
               <StatItem label="Total Expected" value={totalExpected.toLocaleString()} />
               <StatItem
-                label="Loss Rate"
+                label="Loss Rate (all buckets)"
                 value={`${(lossRate * 100).toFixed(1)}%`}
                 hasError={lossRate > 0.05}
               />
@@ -97,7 +105,7 @@ export function MonitoringAlertsCard({ data }: Props) {
           </div>
         )}
 
-        {data.retransmissions && (
+        {retransmitSummary && (
           <div className="monitoring-subsection">
             <h5>Retransmissions</h5>
             <div className="stats-grid">
@@ -107,7 +115,7 @@ export function MonitoringAlertsCard({ data }: Props) {
                 hasError={totalRetransmissions > 0}
               />
               <StatItem
-                label="Retransmit Rate"
+                label="Retransmit Rate (current period)"
                 value={`${(retransmitRate * 100).toFixed(1)}%`}
                 hasError={retransmitRate > 0.05}
               />

@@ -10,6 +10,7 @@
 
 import { SequenceTracker } from "../../reliability/sequence";
 import type { ServerContext, ClientSession } from "./context";
+import { bindBuilderEpochForPeer } from "./context";
 
 import { MAX_CLIENT_SESSIONS, MAX_NAK_SEQUENCES_PER_PACKET } from "../../../foundation/constants";
 
@@ -94,9 +95,23 @@ export function getOrCreateSession(
     port: rinfo.port,
     sequenceTracker: new SequenceTracker({
       nakTimeout,
+      maxNakRounds: ctx.maxNakRounds,
       onLossDetected: (missing: number[]) => {
         app.debug(`[v2-server] packet loss from ${key}: seqs ${missing.join(", ")}`);
         sendNAK(ctx, missing, { address: rinfo.address, port: rinfo.port });
+      },
+      onGapAbandoned: (sequence: number) => {
+        // The sender never produced this packet within its retransmit budget.
+        // Advancing past it keeps the cumulative ACK moving; record it so the
+        // gap is visible rather than looking like a clean stream.
+        ctx.metrics.abandonedSequences = (ctx.metrics.abandonedSequences ?? 0) + 1;
+        // debug, not error: on a lossy link this fires once per unrecoverable
+        // gap, which would bury genuine operator-actionable errors under a
+        // steady stream of per-packet lines. The `abandonedSequences` counter
+        // above is the durable signal and is published in the status metrics.
+        app.debug(
+          `[v2-server] gave up on seq ${sequence} from ${key} after ${ctx.nakTimeout}ms x max NAK rounds; advancing window`
+        );
       }
     }),
     lastAckSeq: null,
@@ -118,9 +133,9 @@ export function getOrCreateSession(
     statusRequested: false,
     // Stale-envelope rejection for METADATA packets
     lastMetaEnvSeq: null,
-    seenMetaChunkIdx: new Set<number>(),
+    metaChunkWindow: new Map<number, Set<number>>(),
     lastSourceEnvSeq: null,
-    seenSourceChunkIdx: new Set<number>(),
+    sourceChunkWindow: new Map<number, Set<number>>(),
     // Same-as-last value dedup expansion (created lazily when needed)
     valueDedupState: null
   };
@@ -156,7 +171,9 @@ export function expireIdleSessions(ctx: ServerContext): void {
 // sequenceTracker is now per-session; kept for backward-compat test access
 export function getFirstSessionTracker(ctx: ServerContext): SequenceTracker {
   const first = ctx.clientSessions.values().next().value;
-  return first ? first.sequenceTracker : new SequenceTracker({ nakTimeout: ctx.nakTimeout });
+  return first
+    ? first.sequenceTracker
+    : new SequenceTracker({ nakTimeout: ctx.nakTimeout, maxNakRounds: ctx.maxNakRounds });
 }
 
 /**
@@ -213,6 +230,7 @@ export async function sendNAK(
   for (let i = 0; i < missingSeqs.length; i += MAX_NAK_SEQUENCES_PER_PACKET) {
     const chunk = missingSeqs.slice(i, i + MAX_NAK_SEQUENCES_PER_PACKET);
     try {
+      bindBuilderEpochForPeer(ctx, `${destination.address}:${destination.port}`);
       const nakPacket = packetBuilder.buildNAKPacket(chunk);
       await sendUDP(ctx, nakPacket, destination);
 
@@ -253,6 +271,7 @@ export async function sendPeriodicACKs(ctx: ServerContext): Promise<void> {
     }
 
     try {
+      bindBuilderEpochForPeer(ctx, session.key);
       const ackPacket = packetBuilder.buildACKPacket(ackSeq);
       await sendUDP(ctx, ackPacket, { address: session.address, port: session.port });
 
@@ -276,6 +295,7 @@ export async function sendFullStatusRequest(
   session: ClientSession,
   secretKey: string
 ): Promise<void> {
+  bindBuilderEpochForPeer(ctx, session.key);
   const packet = ctx.packetBuilder.buildFullStatusRequestPacket({ secretKey });
   await sendUDP(ctx, packet, { address: session.address, port: session.port });
   ctx.app.debug(`[v2-server] FULL_STATUS_REQUEST sent to ${session.key}`);
@@ -290,6 +310,7 @@ export async function sendMetaRequest(
   secretKey: string
 ): Promise<void> {
   // Errors propagate to the caller's .catch() so they are recorded once.
+  bindBuilderEpochForPeer(ctx, session.key);
   const packet = ctx.packetBuilder.buildMetaRequestPacket({ secretKey });
   await sendUDP(ctx, packet, { address: session.address, port: session.port });
   ctx.app.debug(`[v2-server] META_REQUEST sent to ${session.key}`);

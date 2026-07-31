@@ -248,7 +248,8 @@ function recordDataSend(
 
   recordSentDataPacket(ctx, packet, udpAddress, udpPort);
 
-  retransmitQueue.add(seq, packet);
+  // The queue entry is added before the send (see sendDelta) so a failed send
+  // stays recoverable; here we only maintain depth and age-pruning.
   metrics.queueDepth = retransmitQueue.getSize();
   pruneRetransmitQueue(ctx, "send");
 
@@ -303,6 +304,15 @@ export async function sendDelta(
 
     metrics.bandwidth.bytesOut += packet.length;
     metrics.bandwidth.packetsOut++;
+
+    // Enqueue BEFORE sending. `buildDataPacket` has already consumed the
+    // sequence number, so if the send throws (EMSGSIZE, ENOBUFS after retries,
+    // socket closed mid-send, send timeout) and we enqueued afterwards, the
+    // packet would be neither sent nor recoverable: the server sees a gap it
+    // NAKs forever and the client cannot answer, freezing the cumulative ACK.
+    // Queued-then-failed is recoverable — the next NAK retransmits it.
+    ctx.retransmitQueue.add(seq, packet);
+    metrics.queueDepth = ctx.retransmitQueue.getSize();
 
     await udpSendAsync(ctx, packet, udpAddress, udpPort);
     metrics.deltasSent++;

@@ -33,7 +33,12 @@ import {
   UDP_RATE_LIMIT_MAX_PACKETS
 } from "../../../foundation/constants";
 
-import { preAuthRateLimited, getReplayGuard } from "./context";
+import {
+  preAuthRateLimited,
+  getReplayGuard,
+  handshakedPeerAddress,
+  bindBuilderEpochForPeer
+} from "./context";
 
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
@@ -87,6 +92,7 @@ async function ackDuplicate(
   const currentExpected = session.sequenceTracker.expectedSeq! >>> 0;
   const ackSeq = (currentExpected - 1) >>> 0;
   try {
+    bindBuilderEpochForPeer(ctx, `${rinfo.address}:${rinfo.port}`);
     const ackPacket = packetBuilder.buildACKPacket(ackSeq);
     await sendUDP(ctx, ackPacket, { address: rinfo.address, port: rinfo.port });
     session.lastAckSeq = ackSeq;
@@ -230,6 +236,23 @@ async function rejectReplayedDataPacket(
     return false;
   }
   const guard = getReplayGuard(ctx, `${rinfo.address}:${rinfo.port}`);
+
+  // A guard is created lazily per `address:port`, so a datagram arriving from a
+  // source port we have never seen gets an empty window that accepts every
+  // sequence, and an epoch of 0 that disables enforcement. Rotating the source
+  // port would therefore bypass replay protection entirely — including while
+  // the legitimate session is still live. Fail closed instead: a legitimate v3
+  // peer always completes a HELLO handshake (retried until acknowledged) before
+  // sending DATA, so an unhandshaked port on an address that has handshaked is
+  // either a replay from a rotated port or DATA that overtook its own HELLO.
+  if (!guard.handshaked && handshakedPeerAddress(ctx, rinfo.address)) {
+    ctx.app.debug(
+      `v2 replay rejected: unhandshaked source port ${rinfo.port} for known peer ${rinfo.address} (seq=${parsed.sequence >>> 0})`
+    );
+    ctx.metrics.replayedPackets = (ctx.metrics.replayedPackets ?? 0) + 1;
+    return true;
+  }
+
   const fresh = guard.window.accept(parsed.sequence >>> 0);
   if (fresh || guard.epoch === 0) {
     return false;
@@ -237,6 +260,37 @@ async function rejectReplayedDataPacket(
   ctx.app.debug(`v2 replay/too-old DATA rejected: seq=${parsed.sequence >>> 0}`);
   ctx.metrics.replayedPackets = (ctx.metrics.replayedPackets ?? 0) + 1;
   if (session && session.sequenceTracker.expectedSeq !== null) {
+    await ackDuplicate(ctx, session, rinfo);
+  }
+  return true;
+}
+
+/**
+ * Drop a packet the receive window has already accounted for.
+ *
+ * Besides an outright duplicate, this covers a *late arrival*: a retransmission
+ * that reached us after the window advanced past it, so its entry had aged out
+ * of the tracker's seen-set and the duplicate check cannot catch it. Its payload
+ * was either already dispatched or declared lost, so dispatching it now would
+ * re-inject a stale delta into the Signal K tree. Both cases still ACK, so the
+ * sender stops retransmitting.
+ *
+ * @returns true when the packet was handled here and must not be processed.
+ */
+async function rejectAlreadySeenPacket(
+  ctx: ServerContext,
+  session: ClientSession | null,
+  parsed: ParsedPacket,
+  seqResult: { duplicate: boolean; lateArrival?: boolean },
+  rinfo?: { address: string; port: number }
+): Promise<boolean> {
+  if (!seqResult.duplicate && !seqResult.lateArrival) {
+    return false;
+  }
+  const { app, metrics } = ctx;
+  app.debug(`v2 ${seqResult.lateArrival ? "late" : "duplicate"} packet: seq=${parsed.sequence}`);
+  metrics.duplicatePackets = (metrics.duplicatePackets ?? 0) + 1;
+  if (session && session.sequenceTracker.expectedSeq !== null && rinfo) {
     await ackDuplicate(ctx, session, rinfo);
   }
   return true;
@@ -263,14 +317,9 @@ async function trackDataSequence(
 
   const seqResult = session
     ? session.sequenceTracker.processSequence(parsed.sequence)
-    : { duplicate: false, resynced: false };
+    : { duplicate: false, resynced: false, lateArrival: false };
 
-  if (seqResult.duplicate) {
-    app.debug(`v2 duplicate packet: seq=${parsed.sequence}`);
-    metrics.duplicatePackets = (metrics.duplicatePackets ?? 0) + 1;
-    if (session && session.sequenceTracker.expectedSeq !== null && rinfo) {
-      await ackDuplicate(ctx, session, rinfo);
-    }
+  if (await rejectAlreadySeenPacket(ctx, session, parsed, seqResult, rinfo)) {
     return false;
   }
 

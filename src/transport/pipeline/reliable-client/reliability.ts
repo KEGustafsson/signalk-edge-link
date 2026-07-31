@@ -128,6 +128,9 @@ async function runRecoveryBurst(ctx: ClientContext): Promise<void> {
       if (mut.monitoringHooks && mut.monitoringHooks.packetLossTracker) {
         mut.monitoringHooks.packetLossTracker.record(true);
       }
+    }
+    // One loss sample per burst, not per retransmitted packet — see receiveNAK.
+    if (toRetransmit.length > 0) {
       ctx.lossWindow.push(true);
     }
     metrics.queueDepth = retransmitQueue.getSize();
@@ -173,7 +176,12 @@ export function startRecoveryBurstIfNeeded(
 function recordRttSample(ctx: ClientContext, rttSample: number): void {
   const { metricsApi, rttSamples } = ctx;
   const { metrics } = metricsApi;
-  metrics.rtt = rttSample;
+  // Reported to one decimal; the buffer keeps full precision because that is
+  // what the jitter calculation below needs.
+  metrics.rtt = Math.round(rttSample * 10) / 10;
+  // Counted so consumers can tell a measured 0 ms from a link that has never
+  // been timed at all.
+  metrics.rttSamples = (metrics.rttSamples ?? 0) + 1;
   rttSamples.push(rttSample);
 
   if (rttSamples.length >= 2) {
@@ -181,7 +189,12 @@ function recordRttSample(ctx: ClientContext, rttSample: number): void {
     const avg = samples.reduce((a: number, b: number) => a + b, 0) / samples.length;
     const variance =
       samples.reduce((sum: number, s: number) => sum + Math.pow(s - avg, 2), 0) / samples.length;
-    metrics.jitter = Math.round(Math.sqrt(variance));
+    // One decimal, not a whole millisecond. Jitter on a healthy link is
+    // routinely sub-millisecond, and Math.round collapsed every such value to
+    // exactly 0 — indistinguishable from "not measured" and reported as a
+    // hard 0 ms by any server ingesting this telemetry. Matches the precision
+    // MetricsPublisher already uses when it emits the value.
+    metrics.jitter = Math.round(Math.sqrt(variance) * 10) / 10;
   }
 }
 
@@ -206,7 +219,11 @@ export function receiveACK(
     // algorithm). A retransmitted-packet ACK is ambiguous, so skip it.
     const entry = retransmitQueue.get(ackedSeq);
     if (entry && entry.attempts === 0) {
-      rttSample = Math.max(0, now - entry.originalTimestamp);
+      // Monotonic, sub-millisecond clock — NOT Date.now(). See sentAtHr in
+      // retransmit-queue.ts: whole-millisecond samples on a stable link are
+      // all the same integer, so their variance is exactly 0 and jitter can
+      // only ever be reported as 0 ms.
+      rttSample = Math.max(0, performance.now() - entry.sentAtHr);
     }
 
     if (rttSample !== null) {
@@ -259,7 +276,19 @@ export async function receiveNAK(
 
     app.debug(`NAK received: missing=${missingSeqs.join(", ")}`);
 
+    const abandonedBefore = retransmitQueue.abandonedCount;
     const toRetransmit = retransmitQueue.retransmit(missingSeqs);
+    const abandoned = retransmitQueue.abandonedCount - abandonedBefore;
+    if (abandoned > 0) {
+      // Unrecoverable: the receiver asked for packets we can no longer produce.
+      // Surface it — a NAK that retransmits nothing is otherwise indistinguishable
+      // from a healthy no-op in the logs.
+      metrics.packetsAbandoned = (metrics.packetsAbandoned ?? 0) + abandoned;
+      recordError(
+        "sendFailure",
+        `Dropped ${abandoned} packet(s) after ${retransmitQueue.maxRetransmits} retransmit attempts (last seq=${retransmitQueue.lastAbandonedSeq})`
+      );
+    }
 
     for (const { sequence, packet: retransmitPacket, attempt } of toRetransmit) {
       app.debug(`Retransmitting seq=${sequence}, attempt=${attempt}`);
@@ -268,6 +297,15 @@ export async function receiveNAK(
       if (mut.monitoringHooks && mut.monitoringHooks.packetLossTracker) {
         mut.monitoringHooks.packetLossTracker.record(true);
       }
+    }
+
+    // Record ONE loss sample per NAK event, not one per retransmitted packet.
+    // lossWindow holds 50 slots and receives a `false` per sent packet, so
+    // pushing per-packet let a single burst of >=50 retransmits (1% real loss
+    // over a few thousand packets) fill the window and report 100% loss. The
+    // congestion controller then walked the delta timer to its 5s ceiling and
+    // needed minutes to recover.
+    if (toRetransmit.length > 0) {
       ctx.lossWindow.push(true);
     }
 

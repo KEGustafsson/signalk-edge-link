@@ -1083,6 +1083,16 @@ body {
   margin-top: 0.25rem;
 }
 
+/* Why the gauge reads N/A. Deliberately quiet — it explains an absent
+   measurement, it is not a warning about a bad one. */
+.nq-gauge-reason {
+  font-size: 0.7rem;
+  color: #8a8a8a;
+  margin-top: 0.15rem;
+  max-width: 160px;
+  line-height: 1.25;
+}
+
 .nq-key-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

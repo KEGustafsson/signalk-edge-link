@@ -519,18 +519,30 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         : 0;
     const hasOnlyLocalServerValues = state.isServerMode && !hasFreshRemote;
 
-    // Select a metric value based on data availability:
-    // - hasFreshRemote  → use client-reported telemetry
-    // - server with no fresh remote → no meaningful value (return 0)
-    // - client mode → use locally-measured value
-    function selectMetric(remoteVal: number | undefined, localVal: number | undefined): number {
+    /**
+     * Select a metric value based on data availability:
+     * - hasFreshRemote → use client-reported telemetry
+     * - server with no fresh remote → nothing to report (undefined)
+     * - client mode → use the locally-measured value
+     *
+     * Absence stays absent. This used to coalesce every branch to 0, and fresh
+     * telemetry does not imply every field arrived in it: a client that
+     * reported RTT but not jitter rendered as a hard "0 ms jitter" beside a
+     * real round trip — the peer's silence turned into a confident measurement
+     * of zero, and it looked exactly like a healthy link. Reporting undefined
+     * lets the UI say N/A instead.
+     */
+    function selectOptionalMetric(
+      remoteVal: number | undefined,
+      localVal: number | undefined
+    ): number | undefined {
       if (hasFreshRemote) {
-        return remoteVal ?? 0;
+        return remoteVal;
       }
       if (hasOnlyLocalServerValues) {
-        return 0;
+        return undefined;
       }
-      return localVal ?? 0;
+      return localVal;
     }
 
     const bondingManager =
@@ -542,16 +554,64 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       : "primary";
 
     return {
-      rtt: selectMetric(remote.rtt, metrics.rtt),
-      jitter: selectMetric(remote.jitter, metrics.jitter),
-      packetLoss: hasFreshRemote ? (remote.packetLoss ?? 0) : (metrics.packetLoss ?? 0),
-      retransmissions: selectMetric(remote.retransmissions, metrics.retransmissions),
-      queueDepth: selectMetric(remote.queueDepth, metrics.queueDepth),
-      retransmitRate: selectMetric(remote.retransmitRate, clientRetransmitRate),
-      activeLink: hasFreshRemote ? (remote.activeLink ?? "primary") : localActiveLink,
+      // Every remote-sourced field is optional, for the same reason jitter is:
+      // fresh telemetry does not imply every field arrived in it. A peer that
+      // reports some fields and not others — an older build, or a value the
+      // ingest validator rejected — must not have its silence rendered as a
+      // measured 0 (or a guessed "primary" link).
+      rtt: selectOptionalMetric(remote.rtt, metrics.rtt),
+      jitter: selectOptionalMetric(remote.jitter, metrics.jitter),
+      packetLoss: selectOptionalMetric(remote.packetLoss, metrics.packetLoss),
+      retransmissions: selectOptionalMetric(remote.retransmissions, metrics.retransmissions),
+      queueDepth: selectOptionalMetric(remote.queueDepth, metrics.queueDepth),
+      retransmitRate: selectOptionalMetric(remote.retransmitRate, clientRetransmitRate),
+      activeLink: hasFreshRemote ? remote.activeLink : localActiveLink,
       dataSource: hasFreshRemote ? "remote-client" : "local",
-      lastUpdate: hasFreshRemote ? remote.lastUpdate : 0
+      lastUpdate: hasFreshRemote ? remote.lastUpdate : 0,
+      // A server measures no latency itself, so its basis is telemetry that
+      // actually CARRIES a measurement — fresh telemetry alone is not enough,
+      // since a client with no samples still reports everything else. A client's
+      // basis is its first timed ACK; until one arrives `rtt` and `jitter` are
+      // seed zeros, not measurements.
+      hasQualityBasis: hasFreshRemote
+        ? typeof remote.rtt === "number"
+        : !state.isServerMode && (metrics.rttSamples ?? 0) > 0
     };
+  }
+
+  /**
+   * The single eligibility rule for a link-quality score, shared by /metrics,
+   * /network-metrics and /prometheus.
+   *
+   * All four scoring inputs must be real. A peer can report RTT without
+   * jitter, or loss without a retransmit rate; every missing input would be
+   * substituted with 0, and 0 can only push the score up — the same false
+   * green the measurement-basis gate exists to prevent.
+   *
+   * It lives here, in one place, because these three surfaces have already
+   * disagreed with each other once: a scrape and the dashboard reported
+   * different figures for the same link at the same moment. Three copies of
+   * the rule means the next change to the required inputs has to be made
+   * three times, and the surface that gets missed is the one that reports an
+   * inflated score.
+   */
+  function computeLinkQuality(
+    state: InstanceState,
+    effectiveNetwork: EffectiveNetworkQuality
+  ): number | undefined {
+    const publisher = getActiveMetricsPublisher(state);
+    const { rtt, jitter, packetLoss, retransmitRate } = effectiveNetwork;
+    if (
+      !publisher ||
+      !effectiveNetwork.hasQualityBasis ||
+      rtt === undefined ||
+      jitter === undefined ||
+      packetLoss === undefined ||
+      retransmitRate === undefined
+    ) {
+      return undefined;
+    }
+    return publisher.calculateLinkQuality({ rtt, jitter, packetLoss, retransmitRate });
   }
 
   /**
@@ -600,6 +660,37 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         rateLimitedPackets: metrics.rateLimitedPackets || 0,
         droppedDeltaBatches: metrics.droppedDeltaBatches || 0,
         droppedDeltaCount: metrics.droppedDeltaCount || 0,
+        abandonedSequences: metrics.abandonedSequences || 0,
+        packetsAbandoned: metrics.packetsAbandoned || 0,
+        rejectedControlPackets: metrics.rejectedControlPackets || 0,
+        // Counted since the beginning and read by nothing until now. Each is
+        // the only evidence of the condition it records, so leaving them
+        // unreadable made those conditions undiagnosable from outside the
+        // process — the same defect that hid rejectedControlPackets.
+        //
+        // replayedPackets is the sharpest of them: it counts datagrams the
+        // anti-replay guard refused, i.e. the security mechanism this release
+        // hardened actually doing something. A non-zero value is either an
+        // attack or a peer bug, and neither was visible.
+        replayedPackets: metrics.replayedPackets || 0,
+        // Non-zero means the peers disagree about `epochBoundAuth`: this side
+        // requires it and the sender is not using it, so every packet is
+        // refused. Its own counter because the failure is a configuration
+        // mismatch, not the tampering the generic auth error implies.
+        epochAuthMismatches: metrics.epochAuthMismatches || 0,
+        // Distinct from the mismatch above: the sender IS binding, but no
+        // HELLO has established its epoch yet. A brief burst at startup is
+        // normal; a number that keeps climbing means HELLO is not arriving.
+        epochAuthPending: metrics.epochAuthPending || 0,
+        // Fires when a client-mode instance forwards FULL_STATUS_REQUEST to the
+        // server instances beside it — the proxy cascade. In a chain this is
+        // how you tell a mid-node is relaying rather than terminating.
+        fullStatusCascadeFired: metrics.fullStatusCascadeFired || 0,
+        snapshotReplayDeltas: metrics.snapshotReplayDeltas || 0,
+        processDeltaCalls: metrics.processDeltaCalls || 0,
+        // Peak outbound buffer depth: the backpressure signal that precedes
+        // droppedDeltaBatches, and the one that could warn before loss starts.
+        deltasBufferHighWaterMark: metrics.deltasBufferHighWaterMark || 0,
         suppressedOutboundDuplicates: metrics.suppressedOutboundDuplicates || 0,
         errorCounts: { ...(metrics.errorCounts || {}) }
       },
@@ -660,8 +751,10 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       networkQuality: (() => {
         const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
         const networkData: Record<string, unknown> = {
-          rtt: effectiveNetwork.rtt,
-          jitter: effectiveNetwork.jitter,
+          // Omitted rather than reported as 0 when nothing has been measured, so
+          // the UI can say "N/A" instead of claiming a 0 ms round trip.
+          rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
+          jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
           packetLoss: effectiveNetwork.packetLoss,
           retransmissions: effectiveNetwork.retransmissions,
           queueDepth: effectiveNetwork.queueDepth,
@@ -675,14 +768,9 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
           networkData.lastRemoteUpdate = effectiveNetwork.lastUpdate;
         }
 
-        const publisher = getActiveMetricsPublisher(state);
-        if (publisher) {
-          networkData.linkQuality = publisher.calculateLinkQuality({
-            rtt: effectiveNetwork.rtt,
-            jitter: effectiveNetwork.jitter,
-            packetLoss: effectiveNetwork.packetLoss,
-            retransmitRate: effectiveNetwork.retransmitRate
-          });
+        const linkQuality = computeLinkQuality(state, effectiveNetwork);
+        if (linkQuality !== undefined) {
+          networkData.linkQuality = linkQuality;
         }
 
         return networkData;
@@ -722,6 +810,47 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     const requireJson: RouteHandler = (req, res, next) => {
       if (!hasJsonContentType(req.headers["content-type"])) {
         return res.status(415).json({ error: "Content-Type must be application/json" });
+      }
+      if (next) next();
+    };
+
+    /**
+     * Reject requests that look like a cross-site form submission.
+     *
+     * `requireJson` implicitly protects most mutating routes: an
+     * `application/json` body forces a CORS preflight, which a cross-site
+     * `<form>` cannot perform. Bodyless POSTs (capture start/stop, bonding
+     * failover) cannot use it — the CLI sends no Content-Type when there is no
+     * body, so requiring JSON there would break it. Combined with the
+     * documented open-access default, that left those routes reachable from any
+     * page an operator happens to visit on the same network.
+     *
+     * A cross-site form POST is identifiable two ways, and both are checked:
+     * modern browsers send `Sec-Fetch-Site: cross-site`, and a form can only
+     * ever produce one of the three "simple" content types.
+     */
+    const SIMPLE_FORM_CONTENT_TYPES = [
+      "application/x-www-form-urlencoded",
+      "multipart/form-data",
+      "text/plain"
+    ];
+    const blockCrossSiteForm: RouteHandler = (req, res, next) => {
+      const headers = req.headers || {};
+      const fetchSite = getFirstHeaderValue(headers["sec-fetch-site"]);
+      if (
+        fetchSite &&
+        fetchSite !== "same-origin" &&
+        fetchSite !== "same-site" &&
+        fetchSite !== "none"
+      ) {
+        return res.status(403).json({ error: "Cross-site requests are not allowed" });
+      }
+      const contentType = getFirstHeaderValue(headers["content-type"]);
+      if (contentType) {
+        const base = contentType.split(";")[0].trim().toLowerCase();
+        if (SIMPLE_FORM_CONTENT_TYPES.includes(base)) {
+          return res.status(415).json({ error: "Unsupported Content-Type for this endpoint" });
+        }
       }
       if (next) next();
     };
@@ -768,6 +897,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       pluginRef,
       rateLimitMiddleware,
       requireJson,
+      blockCrossSiteForm,
       getFirstBundle,
       getBundleById,
       getFirstClientBundle,
@@ -776,6 +906,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       saveConfigFile,
       getActiveMetricsPublisher,
       getEffectiveNetworkQuality,
+      computeLinkQuality,
       buildFullMetricsResponse,
       getManagementAuthSnapshot,
       isManagementAuthEnabled: () => getManagementToken() !== null,

@@ -7,6 +7,9 @@
 import React from "react";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
+// The real RJSF ordering helper. @rjsf/core is mocked below; @rjsf/utils is not,
+// so the ui:order contract can still be checked against RJSF's own rule.
+import { orderProperties } from "@rjsf/utils";
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
@@ -40,11 +43,15 @@ jest.mock("@rjsf/validator-ajv8", () => ({
   default: { validate: jest.fn(), isValid: jest.fn(() => true) }
 }));
 
-jest.mock("@rjsf/utils", () => ({
-  // Passthrough: return the caller's formData unchanged so tests don't depend
-  // on RJSF's default-expansion logic.
-  getDefaultFormState: (_validator, _schema, formData) => formData
-}));
+// NOTE: `getDefaultFormState` is deliberately NOT mocked.
+//
+// It used to be stubbed to a passthrough "so tests don't depend on RJSF's
+// default-expansion logic" — but that expansion is exactly what drives the
+// progressive-disclosure decision. With the stub, "hides advanced fields by
+// default" passed while production did the opposite: RJSF materialized
+// `authenticatedHeaders: true` (a schema default) on every loaded connection,
+// which the advanced-detection then read as operator intent. Using the real
+// implementation keeps that class of bug visible.
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -87,6 +94,24 @@ const ONE_SERVER = {
         udpPort: 4446,
         secretKey: "a".repeat(32),
         protocolVersion: 1
+      }
+    ],
+    managementApiToken: "",
+    requireManagementApiToken: false
+  }
+};
+
+const ONE_CLIENT = {
+  success: true,
+  configuration: {
+    connections: [
+      {
+        name: "boat-client",
+        serverType: "client",
+        udpPort: 4446,
+        udpAddress: "10.0.0.1",
+        secretKey: "a".repeat(32),
+        protocolVersion: 3
       }
     ],
     managementApiToken: "",
@@ -622,8 +647,87 @@ describe("PluginConfigurationPanel", () => {
 
     const props = Object.keys(latestRjsfForm().schema.properties);
     expect(props).toContain("useMsgpack");
-    expect(props).toContain("brotliQuality");
     expect(screen.getByText(/Hide advanced settings/)).toBeInTheDocument();
+  });
+
+  // Sender-only options have no effect on a server connection: every consumer is
+  // on the client send path, and the receiver auto-detects the wire encoding.
+  // Offering them in server mode invited operators to set e.g. pathFilter and
+  // believe inbound data was being filtered.
+  test("server mode does not offer sender-only options even when advanced", async () => {
+    apiFetch.mockResolvedValueOnce(makeOk(ONE_SERVER));
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("shore-server"));
+
+    fireEvent.click(screen.getByText(/Show advanced settings/));
+
+    const props = Object.keys(latestRjsfForm().schema.properties);
+    for (const key of [
+      "brotliQuality",
+      "pathFilter",
+      "pathPrecision",
+      "pathThrottle",
+      "useValueDedup",
+      "useCompactDeltas",
+      "heartbeatInterval"
+    ]) {
+      expect(props).not.toContain(key);
+    }
+  });
+
+  test("client mode does offer sender-only options when advanced", async () => {
+    apiFetch.mockResolvedValueOnce(makeOk(ONE_CLIENT));
+    render(React.createElement(PluginConfigurationPanel));
+    await waitFor(() => screen.getByText("boat-client"));
+
+    fireEvent.click(screen.getByText(/Show advanced settings/));
+
+    const props = Object.keys(latestRjsfForm().schema.properties);
+    expect(props).toContain("brotliQuality");
+    expect(props).toContain("pathFilter");
+  });
+
+  // `ui:order` must account for every property the schema can produce: RJSF
+  // throws "uiSchema order list does not contain property 'x'" and refuses to
+  // render the whole panel otherwise. The trailing "*" absorbs anything not
+  // named, so an omission degrades to placement at the wildcard rather than a
+  // dead form; asserting the explicit list separately keeps new fields
+  // deliberately positioned rather than silently landing there.
+  //
+  // The RJSF mock at the top of this file ignores ui:order, so no other test
+  // here exercises this contract.
+  describe.each([
+    ["server", ONE_SERVER, "shore-server"],
+    ["client", ONE_CLIENT, "boat-client"]
+  ])("ui:order covers every %s schema property", (_mode, fixture, label) => {
+    test("basic and advanced", async () => {
+      apiFetch.mockResolvedValueOnce(makeOk(fixture));
+      render(React.createElement(PluginConfigurationPanel));
+      await waitFor(() => screen.getByText(label));
+
+      const check = () => {
+        const { schema, uiSchema } = latestRjsfForm();
+        const order = uiSchema["ui:order"];
+        const props = Object.keys(schema.properties);
+
+        // "*" is the production safety net: with it present a missing entry
+        // renders at the wildcard instead of taking the whole panel down.
+        expect(order).toContain("*");
+
+        // Checked against the explicit list with the wildcard stripped —
+        // `orderProperties` can never throw while "*" is present, so asserting
+        // it with the net in place would assert nothing. This is RJSF's own
+        // ordering function (the one that raises "uiSchema order list does not
+        // contain property 'x'"), not a reimplementation of its rule, so it
+        // enforces the real contract despite @rjsf/core being mocked above.
+        const explicit = order.filter((key) => key !== "*");
+        expect(() => orderProperties(props, explicit)).not.toThrow();
+      };
+
+      check();
+      fireEvent.click(screen.getByText(/Show advanced settings/));
+      check();
+    });
   });
 
   test("starts expanded when the connection already uses advanced options", async () => {

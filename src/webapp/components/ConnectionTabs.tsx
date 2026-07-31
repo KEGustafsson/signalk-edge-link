@@ -12,7 +12,9 @@ export function ConnectionTabs({ connections, activeId, onSelect }: Props) {
 
   return (
     <div className="connection-tabs">
-      <div className="tabs-container">
+      {/* Real tablist semantics: active state was conveyed by CSS class only,
+          so assistive tech could not tell which connection was selected. */}
+      <div className="tabs-container" role="tablist" aria-label="Connections">
         {connections.map((c) => {
           const dotClass =
             c.healthy === false ? "error" : c.readyToSend || c.type === "server" ? "ok" : "warning";
@@ -20,6 +22,8 @@ export function ConnectionTabs({ connections, activeId, onSelect }: Props) {
             <button
               type="button"
               key={c.id}
+              role="tab"
+              aria-selected={c.id === activeId}
               className={`connection-tab${c.id === activeId ? " active" : ""}`}
               onClick={() => onSelect(c.id)}
             >

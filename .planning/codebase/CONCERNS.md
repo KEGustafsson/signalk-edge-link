@@ -1,6 +1,6 @@
 ---
-last_mapped_commit: a75c933eae70417f99a23fd041cbc7960b26ac6d
-mapped_at: 2026-04-30
+last_mapped_commit: de6aa24a9154d5f95cf9918433aa360df0be6cf4
+mapped_at: 2026-07-26
 scope: full repo
 ---
 
@@ -22,28 +22,24 @@ scope: full repo
 - Impact: Packet-order, stale session, and reconnect edge cases are easy to miss without targeted tests.
 - Fix approach: Prefer small helper extraction plus tests in `__tests__/v2/` and `test/integration/` when touching these modules.
 
-**Documentation drift in architecture docs:**
+**Documentation drift between docs and source layout:**
 
-- Issue: `docs/architecture-overview.md` references some legacy file names such as `src/bonding-manager.ts`, `src/congestion-control.ts`, `src/alert-manager.ts`, and `src/sequence-tracker.ts`; the current code uses `src/bonding.ts`, `src/congestion.ts`, `src/monitoring.ts`, and `src/sequence.ts`.
-- Why: Implementation names changed while the high-level architecture doc kept older names.
-- Impact: New contributors can search for files that no longer exist.
-- Fix approach: Update `docs/architecture-overview.md` when next touching docs or architecture.
-
-**Release-version documentation drift:**
-
-- Issue: `docs/api-reference.md` title says current `2.1.1`, while `package.json` declares version `2.5.0`.
-- Why: API docs were not synchronized with later release metadata.
-- Impact: Operators may question whether endpoint docs match the installed package.
-- Fix approach: Update API doc version and add a release-doc check before publishing.
+- Issue: Architecture docs and per-release version markers describe module paths and versions that source refactors can move out from under them.
+- Why: Docs and code change in separate passes.
+- Impact: Contributors search for files that no longer exist, or doubt whether endpoint docs match the installed package.
+- Fix approach: `scripts/check-release-truth.js` (`npm run check:release-docs`) gates the known drift cases; extend it when a new class of drift appears rather than relying on review to catch it.
 
 ## Known Bugs
 
-**No confirmed active runtime bug found in this mapping pass.**
-
-- Evidence: Existing review docs such as `docs/code-review-2026-04-29.md` report no blocking defects for the reviewed management auth/rate-limit path.
-- Caveat: This was a static mapping pass, not a full test run or manual runtime exercise.
+_Runtime defects are tracked as issues and fixed in the commit that finds them; this file records enduring risk, not defect status._
 
 ## Security Considerations
+
+**DATA replay protection depends on the HELLO handshake:**
+
+- Risk: Anti-replay enforcement arms only once a peer completes an epoch handshake. A peer that never handshakes is not strictly enforced (retained for pre-H3 compatibility).
+- Current mitigation: HELLO is retried with exponential backoff until a control packet confirms it; DATA arriving on an unhandshaked source port of an already-handshaked address fails closed, so rotating the source port cannot bypass the window.
+- Residual: an attacker able to spoof a source IP that has never been seen by this server lands in the unenforced path. Closed by `epochBoundAuth` (4.0.0), which binds the connection epoch into the packet auth tag so a captured packet only authenticates inside the epoch it was sent in. It is **opt-in and off by default** — both peers must enable it and both must run 4.0.0+ — so the residual still applies to any deployment that has not turned it on.
 
 **Management API can remain open by default for backward compatibility:**
 
@@ -74,9 +70,16 @@ scope: full repo
 **Synchronous option persistence for alert threshold updates:**
 
 - Problem: `POST /monitoring/alerts` persists changes through `app.savePluginOptions` on each request.
-- Evidence: `docs/code-quality-report.md` flags the path and recommends coalescing saves; route logic lives in `src/routes/monitoring.ts`.
+- Evidence: `src/routes/monitoring.ts` calls `app.savePluginOptions` inline on every `POST /monitoring/alerts`; no debounce or coalescing is in place.
 - Cause: Alert updates are persisted immediately for durability.
 - Improvement path: Debounce or coalesce alert persistence per connection, then add tests for persistence ordering and failure responses.
+
+**Linear scans on the retransmit-queue hot paths:**
+
+- Problem: `_evictOldest()` and `getOldestSequences()` in `src/transport/reliability/retransmit-queue.ts` scan or sort the whole queue by `originalTimestamp`. `_evictOldest()` runs on every `add()` once the queue reaches `maxSize` (5000), i.e. on every outbound DATA packet during sustained loss.
+- Cause: ordering by true send time rather than Map insertion order is required for correctness — concurrent sends and UDP retries reorder insertion relative to send time — and the correct ordering has no O(1) shortcut.
+- Evidence: the scans are bounded by `maxSize`, so this is a constant-factor cost in an already-degraded regime, not unbounded growth.
+- Improvement path: maintain an auxiliary min-heap or sorted index keyed on `originalTimestamp` to make eviction O(log n) and oldest-N retrieval allocation-free. Establish a baseline in `test/benchmarks/` first; the index must stay in sync with `add`, `acknowledge`, `acknowledgeRange`, and eviction, so it carries real correctness risk in the retransmit path.
 
 **Brotli, MessagePack, path dictionary, and reliable transport overhead tradeoffs:**
 
@@ -91,7 +94,7 @@ scope: full repo
 - Why fragile: `src/app/connection.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, `src/bonding.ts`, and `src/sequence.ts` create timers, intervals, sockets, and listener callbacks.
 - Common failures: Leaked timers after stop, duplicate socket listeners after recovery, stale pipeline workers, or cleanup order regressions.
 - Safe modification: Pair every new timer/listener/resource with explicit cleanup and add tests around stop/restart/recovery.
-- Test coverage: Existing tests cover many recovery paths, but `docs/code-quality-report.md` still lists lifecycle modules as coverage gaps.
+- Test coverage: `__tests__/app/socket-recovery.test.js` covers client socket recovery and `__tests__/app/server-socket-recovery.test.js` covers server-mode re-bind (backoff, listening-gated success, fatal-code handling, shutdown guards).
 
 **Shared schema and validation parity:**
 
@@ -152,7 +155,7 @@ _No outstanding critical-feature gaps in this area at the time of last mapping p
 
 **Lifecycle and pipeline branch coverage:**
 
-- What's not fully covered: File-level branch coverage for `src/app/connection.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, and `src/config-watcher.ts` is called out in `docs/code-quality-report.md`.
+- What's not fully covered: branch coverage in `src/app/connection.ts`, `src/transport/pipeline/reliable-client.ts`, `src/transport/pipeline/reliable-server.ts`, and `src/app/config/watcher.ts` remains below the rest of the tree.
 - Risk: Regressions in rare error/recovery paths can escape broad tests.
 - Priority: High for protocol/lifecycle changes.
 - Difficulty to test: Requires carefully controlled sockets, timers, filesystem watcher behavior, and packet-loss scenarios.

@@ -102,6 +102,7 @@ export interface RouteContext {
   pluginRef: PluginRef;
   rateLimitMiddleware: RouteHandler;
   requireJson: RouteHandler;
+  blockCrossSiteForm: RouteHandler;
   getFirstBundle(): InstanceBundle | null;
   getBundleById(id: string): InstanceBundle | null;
   getFirstClientBundle(): InstanceBundle | null;
@@ -121,6 +122,15 @@ export interface RouteContext {
     metrics: Metrics,
     now?: number
   ): EffectiveNetworkQuality;
+  /**
+   * The one eligibility rule for a link-quality score. Returns undefined when
+   * any scoring input is absent, so a surface cannot report an inflated score
+   * built on substituted zeroes.
+   */
+  computeLinkQuality(
+    state: InstanceState,
+    effectiveNetwork: EffectiveNetworkQuality
+  ): number | undefined;
   buildFullMetricsResponse(bundle: InstanceBundle): Record<string, unknown>;
   getManagementAuthSnapshot(): ManagementAuthSnapshot;
   /** True when a management token is configured (auth is actively enforced). */

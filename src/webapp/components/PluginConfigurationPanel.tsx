@@ -4,7 +4,10 @@ import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import { RJSFSchema, UiSchema, ValidatorType, getDefaultFormState } from "@rjsf/utils";
 import { apiFetch, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
-import { buildWebappConnectionSchema } from "../../shared/connection-schema";
+import {
+  buildWebappConnectionSchema,
+  commonConnectionProperties
+} from "../../shared/connection-schema";
 import { ErrorBoundary } from "./ErrorBoundary";
 // API_BASE is a plain string constant bundled into the federated remote (it is
 // not a shared singleton), so importing it from utils is safe.
@@ -160,6 +163,14 @@ function connectionsEqual(a: Record<string, unknown>, b: Record<string, unknown>
 // Single source of truth for field definitions: src/shared/connection-schema.ts
 // (also consumed by plugin.schema in src/index.ts).
 
+// `ui:order` must cover EVERY property the schema can produce: RJSF throws
+// "uiSchema order list does not contain property 'x'" and the whole panel fails
+// to render. The trailing "*" is the guard — it absorbs any property not named
+// explicitly, so adding a field to the shared schema can never again break the
+// config UI. Named entries still control the order; "*" only decides where the
+// unnamed remainder lands. `__tests__/PluginConfigurationPanel.test.js` asserts
+// full explicit coverage so new fields get placed deliberately rather than
+// silently drifting to the end.
 const uiSchemaClient: UiSchema = {
   "ui:order": [
     "name",
@@ -169,6 +180,7 @@ const uiSchemaClient: UiSchema = {
     "secretKey",
     "stretchAsciiKey",
     "authenticatedHeaders",
+    "epochBoundAuth",
     "protocolVersion",
     "useMsgpack",
     "useValueDedup",
@@ -188,7 +200,8 @@ const uiSchemaClient: UiSchema = {
     "bonding",
     "skipOwnData",
     "enableNotifications",
-    "alertThresholds"
+    "alertThresholds",
+    "*"
   ],
   secretKey: {
     "ui:widget": "password",
@@ -211,6 +224,10 @@ const uiSchemaClient: UiSchema = {
 };
 
 const uiSchemaServer: UiSchema = {
+  // Sender-only fields (useValueDedup, useCompactDeltas, pathFilter,
+  // brotliQuality, pathPrecision, pathThrottle) are deliberately absent: a
+  // server connection no longer offers them, so listing them here described a
+  // form that cannot be rendered.
   "ui:order": [
     "name",
     "serverType",
@@ -218,17 +235,13 @@ const uiSchemaServer: UiSchema = {
     "secretKey",
     "stretchAsciiKey",
     "authenticatedHeaders",
+    "epochBoundAuth",
     "useMsgpack",
-    "useValueDedup",
-    "useCompactDeltas",
-    "pathFilter",
-    "brotliQuality",
-    "pathPrecision",
-    "pathThrottle",
     "usePathDictionary",
     "protocolVersion",
     "requestFullStatusOnRestart",
-    "reliability"
+    "reliability",
+    "*"
   ],
   secretKey: {
     "ui:widget": "password",
@@ -238,17 +251,13 @@ const uiSchemaServer: UiSchema = {
   serverType: { "ui:widget": "select" }
 };
 
-// Shared fields preserved when the user toggles server <-> client mode
-const SHARED_FIELDS = [
-  "name",
-  "udpPort",
-  "secretKey",
-  "stretchAsciiKey",
-  "useMsgpack",
-  "usePathDictionary",
-  "protocolVersion",
-  "authenticatedHeaders"
-];
+// Fields preserved when the user toggles server <-> client mode.
+//
+// Derived from the shared schema rather than hand-maintained: a hardcoded list
+// silently dropped useValueDedup, useCompactDeltas, pathFilter, brotliQuality,
+// pathPrecision and pathThrottle, so toggling mode and back destroyed the
+// operator's entire path-tuning configuration with no warning.
+const SHARED_FIELDS = ["name", ...Object.keys(commonConnectionProperties)];
 
 // Boolean toggles that, when on, mean the connection is using advanced options.
 const ADVANCED_BOOL_KEYS = [
@@ -261,6 +270,19 @@ const ADVANCED_BOOL_KEYS = [
   "skipOwnData",
   "enableNotifications"
 ];
+
+// Schema defaults for the advanced booleans. A value equal to its default was
+// filled in by `withSchemaDefaults` on load and does not indicate operator intent.
+const ADVANCED_BOOL_DEFAULTS: Record<string, boolean> = {
+  stretchAsciiKey: false,
+  authenticatedHeaders: true,
+  useMsgpack: false,
+  useValueDedup: false,
+  useCompactDeltas: false,
+  usePathDictionary: false,
+  skipOwnData: false,
+  enableNotifications: false
+};
 
 // Object groups that, when present and non-empty, mean advanced options are set.
 const ADVANCED_OBJECT_KEYS = [
@@ -287,23 +309,51 @@ const ADVANCED_NUMERIC_DEFAULTS: Record<string, number> = {
 /**
  * Decide whether a loaded connection already uses advanced options, so the
  * Advanced section starts expanded instead of hiding settings the user has
- * deliberately configured. Default-valued scalars (filled in on load by
- * withSchemaDefaults) do not count as advanced.
+ * deliberately configured.
+ *
+ * Compares each advanced key against the value RJSF would materialize from the
+ * schema for an otherwise-bare connection of the same mode/protocol. Anything
+ * equal to its schema default was filled in by `withSchemaDefaults` on load and
+ * does not indicate operator intent.
+ *
+ * Getting this wrong is easy and was: an earlier version treated any `true`
+ * boolean as advanced, and `authenticatedHeaders` defaults to `true`, so every
+ * loaded connection reported "uses advanced options" and the progressive
+ * disclosure never engaged for anything but a brand-new card.
  */
+function schemaDefaultsFor(conn: ConnectionData): Record<string, unknown> {
+  const isClient = conn.serverType !== "server";
+  const schema = buildWebappConnectionSchema(isClient, conn.protocolVersion) as RJSFSchema;
+  const bare: Record<string, unknown> = {
+    serverType: conn.serverType,
+    protocolVersion: conn.protocolVersion
+  };
+  try {
+    return getDefaultFormState(validator, schema, bare) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
 function connectionUsesAdvanced(conn: ConnectionData): boolean {
   const c = conn as Record<string, unknown>;
+  const defaults = schemaDefaultsFor(conn);
+
+  const differsFromDefault = (key: string): boolean => {
+    const value = c[key];
+    if (value === undefined) return false;
+    return stableStringify(value) !== stableStringify(defaults[key]);
+  };
+
   for (const key of ADVANCED_BOOL_KEYS) {
-    if (c[key] === true) return true;
+    if (differsFromDefault(key)) return true;
   }
   for (const key of ADVANCED_OBJECT_KEYS) {
-    const value = c[key];
-    if (value && typeof value === "object" && Object.keys(value as object).length > 0) {
-      return true;
-    }
+    if (differsFromDefault(key)) return true;
   }
-  for (const [key, dflt] of Object.entries(ADVANCED_NUMERIC_DEFAULTS)) {
+  for (const key of Object.keys(ADVANCED_NUMERIC_DEFAULTS)) {
     if (key === "testAddress") continue;
-    if (c[key] !== undefined && c[key] !== dflt) return true;
+    if (differsFromDefault(key)) return true;
   }
   if (typeof c.testAddress === "string" && c.testAddress !== "127.0.0.1") return true;
   return false;
@@ -338,11 +388,26 @@ const css = `
   align-items: center;
   padding: 10px 14px;
   background: #f8f9fa;
-  cursor: pointer;
   user-select: none;
   gap: 10px;
 }
 .skel-card-header:hover { background: #e9ecef; }
+/* The toggle is a real button so it is keyboard-focusable; strip the native
+   chrome so it still reads as a card header. */
+.skel-card-header-toggle {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.skel-card-header-toggle:focus-visible { outline: 2px solid #0066cc; outline-offset: 2px; }
 .skel-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -609,19 +674,33 @@ function ConnectionCard({
 
   return (
     <div className="skel-card">
-      <div className="skel-card-header" onClick={onToggle} role="button" aria-expanded={expanded}>
-        <span className={`skel-badge ${isClient ? "skel-badge-client" : "skel-badge-server"}`}>
-          {modeLabel}
-        </span>
-        <span className="skel-card-title">{displayName}</span>
-        <span className="skel-expand-icon">{expanded ? "\u25B2" : "\u25BC"}</span>
+      {/*
+        The expand/collapse control is a real <button>, and Remove is a sibling
+        rather than a descendant. Previously the header was a div with
+        role="button" but no tabIndex or key handler \u2014 so no keyboard-only
+        operator could expand a connection card at all \u2014 and it nested an
+        interactive <button> inside another button role, which is invalid ARIA.
+      */}
+      <div className="skel-card-header">
         <button
+          type="button"
+          className="skel-card-header-toggle"
+          onClick={onToggle}
+          aria-expanded={expanded}
+        >
+          <span className={`skel-badge ${isClient ? "skel-badge-client" : "skel-badge-server"}`}>
+            {modeLabel}
+          </span>
+          <span className="skel-card-title">{displayName}</span>
+          <span className="skel-expand-icon" aria-hidden="true">
+            {expanded ? "\u25B2" : "\u25BC"}
+          </span>
+        </button>
+        <button
+          type="button"
           className="skel-btn-remove"
           disabled={totalCount <= 1}
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
+          onClick={onRemove}
           title={totalCount <= 1 ? "Cannot remove the only connection" : "Remove this connection"}
         >
           Remove

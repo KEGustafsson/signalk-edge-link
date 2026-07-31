@@ -142,6 +142,14 @@ export const SNAPSHOT_REPLAY_CHUNK_SIZE = 50; // Yield to event loop every N del
 // HELLO payload bound (UDP MTU is already a soft cap; reject anything larger)
 export const HELLO_PAYLOAD_MAX_BYTES = 4096;
 
+// HELLO handshake retry. HELLO is unacknowledged at the packet level and a
+// single lost datagram leaves the server with no epoch for this peer, which
+// disables anti-replay enforcement for the session and drops its telemetry as
+// unidentified. Retry with exponential backoff until any control packet proves
+// the server has seen this source port.
+export const HELLO_RETRY_BASE_MS = 1000;
+export const HELLO_RETRY_MAX_MS = 30000;
+
 // Enhanced monitoring
 export const MONITORING_HEATMAP_BUCKETS = 60; // Number of time buckets for packet loss heatmap
 export const MONITORING_HEATMAP_BUCKET_DURATION = 5000; // Duration of each bucket (5 seconds)

@@ -175,7 +175,17 @@ describe("SequenceTracker", () => {
   });
 
   describe("NAK scheduling", () => {
-    test("schedules NAK after timeout", async () => {
+    // Fake timers throughout: these assertions used real sleeps with ~20ms
+    // margins against 30-80ms timeouts, so an event-loop stall flipped them.
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    });
+
+    test("schedules NAK after timeout", () => {
       const onLoss = jest.fn();
       const t = new SequenceTracker({
         nakTimeout: 50,
@@ -185,15 +195,16 @@ describe("SequenceTracker", () => {
       t.processSequence(0);
       t.processSequence(2); // Gap at 1
 
-      // Wait for the NAK timeout and the next-tick coalescing flush.
-      await new Promise((resolve) => setTimeout(resolve, 70));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Fake timers: a real 70ms sleep against a 50ms timeout leaves only a
+      // ~20ms margin, so an event-loop stall flips the result.
+      jest.advanceTimersByTime(70);
+      jest.advanceTimersByTime(1); // next-tick coalescing flush
 
       expect(onLoss).toHaveBeenCalledWith([1]);
       t.reset();
     });
 
-    test("cancels NAK if packet arrives before timeout", async () => {
+    test("cancels NAK if packet arrives before timeout", () => {
       const onLoss = jest.fn();
       const t = new SequenceTracker({
         nakTimeout: 80,
@@ -204,11 +215,11 @@ describe("SequenceTracker", () => {
       t.processSequence(2); // Gap at 1
 
       // Packet 1 arrives before timeout
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      jest.advanceTimersByTime(20);
       t.processSequence(1);
 
-      // Wait past timeout
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      // Advance well past the timeout: nothing should fire.
+      jest.advanceTimersByTime(200);
 
       expect(onLoss).not.toHaveBeenCalled();
       t.reset();
@@ -223,7 +234,7 @@ describe("SequenceTracker", () => {
       expect(tracker.nakTimers.size).toBe(2);
     });
 
-    test("NAK fires for each missing sequence independently", async () => {
+    test("NAK fires for each missing sequence independently", () => {
       const losses = [];
       const t = new SequenceTracker({
         nakTimeout: 30,
@@ -233,7 +244,7 @@ describe("SequenceTracker", () => {
       t.processSequence(0);
       t.processSequence(3); // Missing 1, 2
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      jest.advanceTimersByTime(50);
 
       expect(losses).toContain(1);
       expect(losses).toContain(2);
@@ -264,7 +275,7 @@ describe("SequenceTracker", () => {
       }
     });
 
-    test("NAK cancelled via contiguous advancement", async () => {
+    test("NAK cancelled via contiguous advancement", () => {
       const onLoss = jest.fn();
       const t = new SequenceTracker({
         nakTimeout: 80,
@@ -275,11 +286,11 @@ describe("SequenceTracker", () => {
       t.processSequence(3); // Gap at 1, 2
 
       // Fill in the gap - contiguous advancement cancels timers
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      jest.advanceTimersByTime(20);
       t.processSequence(1);
       t.processSequence(2);
 
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      jest.advanceTimersByTime(200);
 
       expect(onLoss).not.toHaveBeenCalled();
       t.reset();
@@ -547,7 +558,8 @@ describe("SequenceTracker", () => {
       t.reset();
     });
 
-    test("late arrival cancels pending NAK timer", async () => {
+    test("late arrival cancels pending NAK timer", () => {
+      jest.useFakeTimers();
       const onLoss = jest.fn();
       const t = new SequenceTracker({ nakTimeout: 100, onLossDetected: onLoss, maxOutOfOrder: 5 });
       // Process 0-10, causing cleanup
@@ -562,9 +574,11 @@ describe("SequenceTracker", () => {
       // Late arrival of seq 3 should cancel the timer
       t.processSequence(3);
       expect(t.nakTimers.has(3)).toBe(false);
-      await new Promise((resolve) => setTimeout(resolve, 120));
+      jest.advanceTimersByTime(200);
       expect(onLoss).not.toHaveBeenCalled();
       t.reset();
+      jest.clearAllTimers();
+      jest.useRealTimers();
     });
 
     test("resyncs on excessive ahead gap to avoid timer explosion", () => {
@@ -627,6 +641,181 @@ describe("SequenceTracker", () => {
       tracker.processSequence(1);
       // expectedSeq=2, no buffered-ahead sequences → no forward gaps
       expect(tracker.getMissingSequences()).toEqual([]);
+    });
+  });
+
+  describe("permanently lost sequences", () => {
+    test("advances past a gap the sender never fills, instead of stalling", () => {
+      jest.useFakeTimers();
+      try {
+        const abandoned = [];
+        const nakRounds = [];
+        const t = new SequenceTracker({
+          nakTimeout: 50,
+          maxNakRounds: 3,
+          onLossDetected: (seqs) => nakRounds.push(seqs),
+          onGapAbandoned: (seq) => abandoned.push(seq)
+        });
+
+        t.processSequence(100);
+        // 101 is lost forever; the sender has exhausted its retransmit budget.
+        t.processSequence(102);
+        expect(t.expectedSeq).toBe(101);
+
+        // Each NAK round re-arms; after maxNakRounds the gap is given up on.
+        jest.advanceTimersByTime(50 * 5);
+
+        // maxNakRounds means exactly that many NAKs reach the sender. The
+        // abandon check counts the round it is about to emit, so an off-by-one
+        // here silently spends the last round on the give-up instead of on a
+        // retransmit request.
+        expect(nakRounds).toEqual([[101], [101], [101]]);
+        expect(abandoned).toEqual([101]);
+        expect(t.abandonedCount).toBe(1);
+        // Window must move past the hole so the cumulative ACK is not frozen.
+        expect(t.expectedSeq).toBe(103);
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      }
+    });
+
+    test("does not abandon a gap that the sender fills in time", () => {
+      jest.useFakeTimers();
+      try {
+        const abandoned = [];
+        const t = new SequenceTracker({
+          nakTimeout: 50,
+          maxNakRounds: 3,
+          onGapAbandoned: (seq) => abandoned.push(seq)
+        });
+
+        t.processSequence(100);
+        t.processSequence(102);
+        jest.advanceTimersByTime(50);
+
+        // Retransmission arrives before the rounds are exhausted.
+        t.processSequence(101);
+        jest.advanceTimersByTime(50 * 5);
+
+        expect(abandoned).toEqual([]);
+        expect(t.expectedSeq).toBe(103);
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      }
+    });
+
+    // The retry counter is keyed per sequence and had no reader other than the
+    // abandon path, so every successfully-retransmitted packet left an entry
+    // behind: unbounded growth for the life of the session on a lossy link.
+    test("does not retain NAK retry state for sequences that arrive", () => {
+      jest.useFakeTimers();
+      try {
+        const t = new SequenceTracker({ nakTimeout: 50, maxNakRounds: 5 });
+        const attempts = t._nakAttempts ?? t["_nakAttempts"];
+
+        let seq = 200;
+        for (let i = 0; i < 50; i++) {
+          t.processSequence(seq); // in order
+          t.processSequence(seq + 2); // opens a gap at seq+1
+          jest.advanceTimersByTime(50); // one NAK round for seq+1
+          t.processSequence(seq + 1); // retransmit lands
+          seq += 3;
+        }
+        jest.advanceTimersByTime(50 * 10);
+
+        expect(t.expectedSeq).toBe(seq);
+        expect(attempts.size).toBe(0);
+        expect(t.nakTimers.size).toBe(0);
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      }
+    });
+
+    // Abandonment is not free: the sender's retransmit budget (maxRetransmits,
+    // default 10) outlives the receiver's NAK budget (maxNakRounds, default 5),
+    // so a packet can still arrive after the window moved past it. It must be
+    // reported as already-accounted-for rather than as new data — re-injecting
+    // it would push a stale delta into Signal K long after the fact.
+    //
+    // This is deliberate, but it makes give-up timing observable as data loss,
+    // which is what made the e2e ARQ delivery test machine-speed dependent.
+    // maxNakRounds was hard-coded to the tracker's own default, so a user who
+    // raised maxRetransmits got a receiver that still gave up after 5 rounds —
+    // abandoning the gap while the sender still had budget to answer it. The
+    // configured value has to reach the tracker for the two budgets to be
+    // tunable against each other at all.
+    test("the configured maxNakRounds reaches the server's sequence tracker", async () => {
+      const createMetrics = require("../../lib/metrics");
+      const { createPipeline } = require("../../lib/pipeline-factory");
+      const { PacketBuilder } = require("../../lib/packet");
+
+      const SECRET = "12345678901234567890123456789012";
+      const naks = [];
+      const state = {
+        options: {
+          secretKey: SECRET,
+          udpPort: 12345,
+          protocolVersion: 3,
+          authenticatedHeaders: false,
+          // Deliberately different from the built-in default of 5.
+          reliability: { nakTimeout: 20, maxNakRounds: 2 }
+        },
+        socketUdp: {
+          send: (buf, _port, _addr, cb) => {
+            naks.push(buf);
+            if (cb) {
+              cb(null);
+            }
+          }
+        },
+        instanceId: null
+      };
+      const metricsApi = createMetrics();
+      const pipeline = createPipeline(
+        2,
+        "server",
+        { debug: () => {}, error: () => {}, handleMessage: () => {} },
+        state,
+        metricsApi
+      );
+
+      // Open a gap: deliver sequence 0, then 2, leaving 1 missing.
+      const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET });
+      const rinfo = { address: "10.4.0.1", port: 4400 };
+      await pipeline.receivePacket(builder.buildHelloPacket({ clientId: "c" }), SECRET, rinfo);
+
+      expect(typeof pipeline.getSequenceTracker).toBe("function");
+      const tracker = pipeline.getSequenceTracker();
+      expect(tracker).toBeDefined();
+      expect(tracker.maxNakRounds).toBe(2);
+    });
+
+    test("a retransmit that lands after abandonment is not dispatched again", () => {
+      jest.useFakeTimers();
+      try {
+        const t = new SequenceTracker({ nakTimeout: 50, maxNakRounds: 3 });
+
+        t.processSequence(100);
+        t.processSequence(102); // 101 is now a gap
+        jest.advanceTimersByTime(50 * 5); // exhaust the NAK rounds
+        expect(t.abandonedCount).toBe(1);
+        expect(t.expectedSeq).toBe(103);
+
+        // The sender still had budget left and the packet finally gets through.
+        const result = t.processSequence(101);
+
+        // Caller must be able to tell "already handled" from "new data".
+        expect(result.duplicate || result.lateArrival).toBe(true);
+        expect(result.inOrder).toBe(false);
+        // And the late arrival must not drag the window backwards.
+        expect(t.expectedSeq).toBe(103);
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      }
     });
   });
 });

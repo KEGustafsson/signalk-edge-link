@@ -71,7 +71,10 @@ describe("PacketParser fuzz tests", () => {
     }
   });
 
-  test("should not crash on packets with corrupted CRC", () => {
+  // NOTE: these assertions are deliberately NOT inside a try/catch. Asserting
+  // in a catch block means the test passes silently when the parser stops
+  // throwing at all — i.e. exactly when the integrity check has regressed.
+  test("rejects packets with corrupted CRC", () => {
     for (let i = 0; i < iters(100); i++) {
       const payload = randomBuffer(1, 100);
       const validPacket = builder.buildDataPacket(payload, { compressed: false });
@@ -79,26 +82,27 @@ describe("PacketParser fuzz tests", () => {
       // Flip a random bit in the CRC field (bytes 13-14)
       const crcOffset = 13 + Math.floor(rng.random() * 2);
       corrupted[crcOffset] ^= 1 << Math.floor(rng.random() * 8);
-      try {
-        parser.parseHeader(corrupted);
-      } catch (e) {
-        expect(e.message).toMatch(/CRC/i);
-      }
+      // Any bit flip in the CRC field must fail header validation.
+      expect(() => parser.parseHeader(corrupted)).toThrow(/CRC/i);
     }
   });
 
-  test("should not crash on packets with corrupted payload length field", () => {
+  test("rejects packets whose declared payload length does not match the body", () => {
     for (let i = 0; i < iters(100); i++) {
       const payload = randomBuffer(1, 50);
       const validPacket = builder.buildDataPacket(payload, { compressed: false });
       const corrupted = Buffer.from(validPacket);
-      // Corrupt payload length field (bytes 9-12)
-      corrupted.writeUInt32BE(Math.floor(rng.random() * 100000), 9);
-      try {
-        parser.parseHeader(corrupted);
-      } catch (e) {
-        expect(e).toBeInstanceOf(Error);
+      // Corrupt payload length field (bytes 9-12) to a value that cannot match
+      // the actual body length, so the outcome is deterministic.
+      const actualPayloadLength = validPacket.length - 15;
+      let bogus = Math.floor(rng.random() * 100000);
+      if (bogus === actualPayloadLength) {
+        bogus += 1;
       }
+      corrupted.writeUInt32BE(bogus, 9);
+      // Rewriting the length also invalidates the CRC, so either check may fire
+      // first — but one of them must.
+      expect(() => parser.parseHeader(corrupted)).toThrow(/CRC|[Pp]ayload length/);
     }
   });
 
@@ -162,24 +166,44 @@ describe("PacketParser fuzz tests", () => {
     expect(parser.isV2Packet(42)).toBe(false);
   });
 
-  test("parseACKPayload should handle random/short buffers", () => {
+  test("parseACKPayload either returns a uint32 or throws — never garbage", () => {
     for (let i = 0; i < iters(100); i++) {
       const buf = randomBuffer(0, 10);
+      let result;
+      let threw = false;
       try {
-        parser.parseACKPayload(buf);
+        result = parser.parseACKPayload(buf);
       } catch (e) {
+        threw = true;
         expect(e).toBeInstanceOf(Error);
+      }
+      if (!threw) {
+        // A successful parse must yield a valid uint32 sequence.
+        expect(Number.isInteger(result)).toBe(true);
+        expect(result).toBeGreaterThanOrEqual(0);
+        expect(result).toBeLessThanOrEqual(0xffffffff);
       }
     }
   });
 
-  test("parseNAKPayload should handle random/misaligned buffers", () => {
+  test("parseNAKPayload either returns uint32 sequences or throws", () => {
     for (let i = 0; i < iters(100); i++) {
       const buf = randomBuffer(0, 30);
+      let result;
+      let threw = false;
       try {
-        parser.parseNAKPayload(buf);
+        result = parser.parseNAKPayload(buf);
       } catch (e) {
+        threw = true;
         expect(e).toBeInstanceOf(Error);
+      }
+      if (!threw) {
+        expect(Array.isArray(result)).toBe(true);
+        for (const seq of result) {
+          expect(Number.isInteger(seq)).toBe(true);
+          expect(seq).toBeGreaterThanOrEqual(0);
+          expect(seq).toBeLessThanOrEqual(0xffffffff);
+        }
       }
     }
   });
@@ -211,7 +235,7 @@ describe("decryptBinary fuzz tests", () => {
     }
   });
 
-  test("should reject corrupted ciphertext (bit flips)", () => {
+  test("rejects every corrupted ciphertext (bit flips)", () => {
     const plaintext = Buffer.from("test data for encryption");
     const encrypted = encryptBinary(plaintext, validKey);
 
@@ -219,13 +243,12 @@ describe("decryptBinary fuzz tests", () => {
       const corrupted = Buffer.from(encrypted);
       const pos = Math.floor(rng.random() * corrupted.length);
       corrupted[pos] ^= 1 << Math.floor(rng.random() * 8);
-      try {
-        decryptBinary(corrupted, validKey);
-        // If it doesn't throw, the corruption was in unused padding — acceptable
-      } catch (e) {
-        // OpenSSL errors may not pass instanceof Error across realms
-        expect(e).toBeTruthy();
-      }
+      // AES-GCM has NO unused padding: the layout is [IV][ciphertext][tag], and
+      // every byte is covered by authentication. A flip anywhere must fail.
+      // This assertion is unconditional on purpose — the previous version
+      // asserted inside a catch and treated "did not throw" as acceptable, so
+      // it would have passed even if setAuthTag were removed entirely.
+      expect(() => decryptBinary(corrupted, validKey)).toThrow();
     }
   });
 

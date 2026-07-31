@@ -51,6 +51,7 @@ import {
   startCongestionControl,
   stopCongestionControl,
   sendHello,
+  stopHelloRetry,
   startHeartbeat,
   initBonding,
   stopBonding
@@ -86,11 +87,16 @@ function seedMetaBandwidthCounters(metrics: MetricsApi["metrics"]): void {
 function buildPacketCodecs(
   state: InstanceState,
   protocolVersion: number,
-  stretchAsciiKey: boolean
+  stretchAsciiKey: boolean,
+  connectionEpoch: number
 ): { packetBuilder: PacketBuilder; packetParser: PacketParser } {
   // Default ON (v3): authenticate DATA/METADATA headers unless explicitly
   // disabled. Both ends must agree (see connection schema).
   const authenticatedHeaders = state.options?.authenticatedHeaders !== false;
+  // Opt-in: binds the auth tag to this connection's epoch. Both ends must
+  // agree — a peer that does not know the flag computes the tag without the
+  // epoch, so every packet would fail authentication.
+  const epochBoundAuth = state.options?.epochBoundAuth === true;
   const secretKey = state.options?.secretKey ?? undefined;
 
   // Randomize the initial DATA sequence number per session start (anti-replay
@@ -107,9 +113,16 @@ function buildPacketCodecs(
       secretKey,
       stretchAsciiKey,
       authenticatedHeaders,
+      epochBoundAuth,
+      connectionEpoch,
       initialSequence
     }),
-    packetParser: new PacketParser({ secretKey, stretchAsciiKey, authenticatedHeaders })
+    packetParser: new PacketParser({
+      secretKey,
+      stretchAsciiKey,
+      authenticatedHeaders,
+      epochBoundAuth
+    })
   };
 }
 
@@ -138,10 +151,18 @@ function buildClientContext(
   const protocolVersion = 3;
   const stretchAsciiKey = !!state.options?.stretchAsciiKey;
 
+  // Resolved before the codecs so an epoch-bound auth tag can be computed from
+  // the same value the HELLO advertises to the peer.
+  const connectionEpoch =
+    typeof state.connectionEpoch === "number" && Number.isFinite(state.connectionEpoch)
+      ? state.connectionEpoch
+      : Date.now();
+
   const { packetBuilder, packetParser } = buildPacketCodecs(
     state,
     protocolVersion,
-    stretchAsciiKey
+    stretchAsciiKey,
+    connectionEpoch
   );
 
   // Reliability: extract config once to avoid repetitive deep-access chains
@@ -181,10 +202,7 @@ function buildClientContext(
     // Persisted monotonic epoch resolved at client start (survives an RTC-less
     // reboot). Falls back to Date.now() for callers that build the context
     // without going through the start path (e.g. unit tests).
-    connectionEpoch:
-      typeof state.connectionEpoch === "number" && Number.isFinite(state.connectionEpoch)
-        ? state.connectionEpoch
-        : Date.now(),
+    connectionEpoch,
     clientTelemetrySource: "signalk-edge-link-client-telemetry",
     packetBuilder,
     packetParser,
@@ -284,6 +302,7 @@ function buildControlApi(ctx: ClientContext) {
     },
     stop() {
       stopRecoveryBurst(ctx, "pipeline stop");
+      stopHelloRetry(ctx);
       stopMetricsPublishing(ctx);
       stopCongestionControl(ctx);
       stopBonding(ctx);

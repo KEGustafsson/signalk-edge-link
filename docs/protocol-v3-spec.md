@@ -250,28 +250,32 @@ value length are capped, the per-snapshot provider count is bounded,
 and recursion depth is limited. Exact numeric limits are
 implementation-defined.
 
-### v1 metadata transport (separate UDP port)
+### v1 metadata transport
 
 The legacy v1 (Basic) wire format has no packet-type byte, so meta cannot be
 multiplexed onto the DATA port without confusing existing v1 receivers.
-Instead, when a v1 client has `udpMetaPort` configured, meta is sent to that
-**separate UDP port** with the 4-byte ASCII magic `SKM1` prefixed inside the
-encrypted plaintext (i.e. before Brotli/AES). Receivers without the magic-aware
-unpacker fail to JSON-parse the payload and silently drop it, preserving
-backwards compatibility.
+
+**v1 therefore carries no metadata.** Metadata transport requires protocol v3,
+which uses the METADATA packet type (`0x06`) on the main data port.
+
+> An earlier design proposed a separate metadata UDP port (`udpMetaPort`) with
+> the 4-byte ASCII magic `SKM1` prefixed inside the encrypted plaintext. It was
+> never implemented — no such option exists in the configuration schema or the
+> runtime — and the documentation that described it has been removed.
 
 ## 4. Flags
 
 Byte 4 of the header contains feature flags:
 
-| Bit | Mask | Name                 | Description                                                                                                                                                       |
-| --- | ---- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | 0x01 | COMPRESSED           | Payload is Brotli compressed                                                                                                                                      |
-| 1   | 0x02 | ENCRYPTED            | Payload is AES-256-GCM encrypted                                                                                                                                  |
-| 2   | 0x04 | MESSAGEPACK          | Data serialized with MessagePack (vs JSON)                                                                                                                        |
-| 3   | 0x08 | PATH_DICTIONARY      | Paths encoded with path dictionary                                                                                                                                |
-| 4   | 0x10 | AUTHENTICATED_HEADER | DATA/METADATA carry a trailing HMAC tag binding the header to the AEAD ciphertext (default on in v3; both peers must use the same `authenticatedHeaders` setting) |
-| 5-7 | -    | Reserved             | Must be 0                                                                                                                                                         |
+| Bit | Mask | Name                 | Description                                                                                                                                                                                                                          |
+| --- | ---- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0   | 0x01 | COMPRESSED           | Payload is Brotli compressed                                                                                                                                                                                                         |
+| 1   | 0x02 | ENCRYPTED            | Payload is AES-256-GCM encrypted                                                                                                                                                                                                     |
+| 2   | 0x04 | MESSAGEPACK          | Data serialized with MessagePack (vs JSON)                                                                                                                                                                                           |
+| 3   | 0x08 | PATH_DICTIONARY      | Paths encoded with path dictionary                                                                                                                                                                                                   |
+| 4   | 0x10 | AUTHENTICATED_HEADER | DATA/METADATA carry a trailing HMAC tag binding the header to the AEAD ciphertext (default on in v3; both peers must use the same `authenticatedHeaders` setting)                                                                    |
+| 5   | 0x20 | EPOCH_BOUND_AUTH     | The trailing HMAC tag additionally covers the sender's connection epoch (see §5.1). Opt-in via `epochBoundAuth`; both peers must agree and both must run 4.0.0+. Never set on HELLO, which is the packet that establishes the epoch. |
+| 6-7 | -    | Reserved             | Must be 0                                                                                                                                                                                                                            |
 
 Both client and server must agree on flag settings via configuration. Mismatched flags will cause decoding failures.
 
@@ -302,6 +306,44 @@ The HMAC tag covers `header[0..12] ‖ payload`, keyed by the shared
 `secretKey`. The header CRC16 remains in place for fast corruption detection.
 DATA packets (type `0x01`) are unaffected — they are already authenticated by
 the AES-256-GCM auth tag.
+
+### 5.1 Epoch-bound authentication (optional)
+
+When both peers enable `epochBoundAuth`, the tag additionally covers the
+sender's **connection epoch** — the monotonic value the client advertises in its
+HELLO — appended as a big-endian uint64:
+
+```text
+tag = HMAC-SHA256(secretKey, header[0..12] ‖ payload ‖ uint64(epoch))[0..15]
+```
+
+The width is 64 bits because the epoch is millisecond wall-clock scale
+(`max(Date.now(), stored + 1)`), which does not fit in 32 bits. Truncating it
+would make any two epochs 2^32 ms apart — just under 50 days — produce the same
+tag, restoring the cross-epoch replay this binding exists to prevent.
+
+Packets carrying an epoch-bound tag set the `EPOCH_BOUND_AUTH` flag (bit 5).
+The flag is inside the HMAC-covered header, so an attacker cannot strip it to
+force a downgrade: clearing the bit changes the authenticated bytes and the tag
+no longer verifies.
+
+**HELLO is always exempt.** It is the packet that establishes the epoch, so the
+receiver has no value to verify against until it has been processed.
+
+**What this closes.** Anti-replay enforcement arms only once a peer completes
+the epoch handshake. Without epoch binding, a packet replayed from a source
+address the receiver has never seen lands on a freshly-created anti-replay guard
+whose epoch is 0 — there is nothing to enforce against, so the replay is
+accepted. Binding the epoch makes a captured packet authenticate _only_ inside
+the epoch it was sent in: a receiver with no established epoch for the source
+has no valid value to verify with, and a receiver whose peer has since restarted
+holds a newer epoch. Replays across a restart and replays from spoofed sources
+both fail authentication.
+
+**Compatibility.** Off by default. A peer that does not implement the flag
+computes the tag without the epoch, so **both ends must enable it and both must
+run 4.0.0 or later**; otherwise every packet fails authentication. It adds no
+bytes on the wire.
 
 ### Why HMAC matters
 

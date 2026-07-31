@@ -104,28 +104,49 @@ describe("Packet + Sequence Integration", () => {
     expect(parsed.flags.encrypted).toBe(true);
   });
 
-  test("simulates realistic packet flow with NAK", async () => {
-    const losses = [];
-    const t = new SequenceTracker({
-      nakTimeout: 50,
-      onLossDetected: (seqs) => losses.push(...seqs)
-    });
+  // Fake timers, not a real sleep. With real timers this waited 70ms for a
+  // 50ms NAK timeout — a 20ms margin — and an event-loop stall past 70ms makes
+  // both the NAK timer and the sleep come due in the same timers pass. Node
+  // runs them in expiry order, so the NAK fires and schedules its 0ms
+  // coalescing flush, then the sleep resolves and the assertion runs before
+  // that flush ever does: `losses` is empty and the test fails on a link that
+  // behaved perfectly. Reproduced by blocking the loop across the window; the
+  // sibling suite (__tests__/v2/sequence.test.js) was converted for exactly
+  // this reason and this file was missed.
+  test("simulates realistic packet flow with NAK", () => {
+    jest.useFakeTimers();
+    // Everything after the install lives inside the try: a throw in tracker
+    // construction or packet feeding would otherwise leave the frozen clock in
+    // place for every later test in this file.
+    try {
+      const losses = [];
+      const t = new SequenceTracker({
+        nakTimeout: 50,
+        onLossDetected: (seqs) => losses.push(...seqs)
+      });
 
-    // Simulate: send 10 packets, lose packet 3 and 7
-    const sent = [0, 1, 2, 4, 5, 6, 8, 9];
-    for (const seq of sent) {
-      builder.setSequence(seq);
-      const packet = builder.buildDataPacket(Buffer.from(`data ${seq}`));
-      const parsed = parser.parseHeader(packet);
-      t.processSequence(parsed.sequence);
+      // Simulate: send 10 packets, lose packet 3 and 7
+      const sent = [0, 1, 2, 4, 5, 6, 8, 9];
+      for (const seq of sent) {
+        builder.setSequence(seq);
+        const packet = builder.buildDataPacket(Buffer.from(`data ${seq}`));
+        const parsed = parser.parseHeader(packet);
+        t.processSequence(parsed.sequence);
+      }
+
+      // Past the 50ms NAK timeout...
+      jest.advanceTimersByTime(70);
+      // ...then one more tick for the coalescing flush that batches the
+      // expired sequences into a single onLossDetected call.
+      jest.advanceTimersByTime(1);
+
+      expect(losses).toContain(3);
+      expect(losses).toContain(7);
+      t.reset();
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
     }
-
-    // Wait for NAK timeout
-    await new Promise((resolve) => setTimeout(resolve, 70));
-
-    expect(losses).toContain(3);
-    expect(losses).toContain(7);
-    t.reset();
   });
 
   test("non-DATA packets do not affect sequence tracking", () => {

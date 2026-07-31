@@ -45,6 +45,30 @@ Server Signal K
   <- inject into local Signal K
 ```
 
+## Topologies
+
+**Point to point** — one client sends to one server.
+
+**Multiple clients to one server** — several vessels report to a single shore
+instance; each client is an independent connection with its own key.
+
+**Bonding** — one client sends over two links (for example LTE and Starlink)
+with automatic failover. See [`docs/bonding.md`](docs/bonding.md).
+
+**Relay (proxy) chain** — one Signal K instance runs **both** a server and a
+client, receiving on one hop and forwarding on the next:
+
+```text
+  [Vessel]  ──UDP v3──►  [ Relay ]  ──UDP v3──►  [Shore]
+                       server + client
+```
+
+Each hop is an independent link: its own secret key, handshake, reliability
+settings and security options. A relay therefore shows **two connections** in
+the UI, one per hop, and each dashboard reports only its own link — see
+[Reading a relay (proxy) node](docs/web-ui.md) for how to interpret them, and
+[Relay / Proxy Chains](docs/troubleshooting.md) for hop-by-hop diagnosis.
+
 ## Requirements
 
 - Two Signal K instances (source and destination)
@@ -238,6 +262,8 @@ npm run test:v2
 npm run test:integration
 npm run lint
 npm run lint:fix
+npm run format
+npm run format:check
 npm run cli -- help
 npm run cli -- instances list --token=$EDGE_LINK_TOKEN --state=running --limit=10 --page=1 --format=table
 npm run cli -- instances show alpha --token=$EDGE_LINK_TOKEN --format=table
@@ -289,7 +315,9 @@ window.__EDGE_LINK_AUTH__ = {
 ## Documentation map
 
 - `docs/README.md` (documentation index)
+- `docs/GUIDE.md` (full setup and operations guide, including topologies)
 - `docs/architecture-overview.md` (system architecture and lifecycle)
+- `docs/web-ui.md` (configuration panel and runtime dashboard, including relay nodes)
 - `docs/configuration-reference.md` (settings and defaults)
 - `docs/api-reference.md`
 - `docs/protocol-v3.md` (Basic/Advanced protocol operational overview)
@@ -301,6 +329,7 @@ window.__EDGE_LINK_AUTH__ = {
 - `docs/security.md` (security guidance and deployment hardening)
 - `docs/performance-tuning.md` (deployment tuning recommendations by hardware profile)
 - `docs/troubleshooting.md` (issue-oriented diagnostics)
+- `docs/release-checklist.md` (pre-publish verification sequence)
 - `samples/` (example JSON configurations for minimal/dev/bonding setups)
 - `src/scripts/migrate-config.ts` (legacy config migration utility)
 - `src/bin/edge-link-cli.ts` (CLI wrapper for migration and instance/bonding management)

@@ -72,6 +72,8 @@ function buildReliabilityMetrics() {
     packetLoss: 0,
     rtt: 0,
     jitter: 0,
+    // Zero means "no RTT measured yet"; `rtt: 0` above is a seed, not a sample.
+    rttSamples: 0,
     retransmissions: 0,
     queueDepth: 0,
     acksSent: 0,
@@ -79,9 +81,23 @@ function buildReliabilityMetrics() {
     duplicatePackets: 0,
     dataPacketsReceived: 0,
     replayedPackets: 0,
+    epochAuthMismatches: 0,
+    epochAuthPending: 0,
     rateLimitedPackets: 0,
     droppedDeltaBatches: 0,
     droppedDeltaCount: 0,
+    // Unrecoverable gaps: sequences the receiver gave up on after exhausting
+    // its NAK rounds (server), and packets the sender dropped from the
+    // retransmit queue (client). Seeded so operators see a zero rather than
+    // nothing at all when the link is healthy.
+    abandonedSequences: 0,
+    packetsAbandoned: 0,
+    // Control packets (ACK/NAK/requests) dropped because their source did not
+    // match a configured peer. A rising value means the reliability layer is
+    // being starved — no ACK can be timed, the cumulative ACK freezes and the
+    // retransmit queue grows — so it must be observable rather than inferred
+    // from the symptoms.
+    rejectedControlPackets: 0,
     suppressedOutboundDuplicates: 0,
     suppressedOutboundDuplicateStats: new Map(),
     processDeltaCalls: 0,
@@ -100,8 +116,9 @@ function buildReliabilityMetrics() {
 /** Initial value for the remote-peer network-quality snapshot. */
 function buildRemoteNetworkQuality() {
   return {
-    rtt: 0,
-    jitter: 0,
+    // rtt and jitter are intentionally absent, not 0: a server must be able to
+    // tell "the client has not reported a measurement" from "the client
+    // measured 0 ms". See RemoteNetworkQuality.
     packetLoss: 0,
     retransmissions: 0,
     queueDepth: 0,

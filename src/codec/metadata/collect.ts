@@ -488,18 +488,47 @@ export function isLikelyUnsafePathFilter(pattern: string): boolean {
  * ⇒ always-true (silent fallback — operators see no filtering rather
  * than hitting a hard error, which matches the existing behaviour).
  */
+const ALWAYS_INCLUDE = (): boolean => true;
+
+/**
+ * Compiled path filters, keyed by pattern string.
+ *
+ * `buildPathFilter` is called from `extractLiveMeta`, which runs per inbound
+ * delta — so this used to run the ReDoS-shape heuristic and `new RegExp(...)`
+ * on every delta, and allocate a fresh closure even for the null-pattern case.
+ * The pattern comes from configuration and changes only on reload, so a small
+ * cache removes that work entirely. Bounded because the key space is
+ * operator-controlled config, not peer input.
+ */
+const PATH_FILTER_CACHE = new Map<string, (path: string) => boolean>();
+const PATH_FILTER_CACHE_MAX = 32;
+
 function buildPathFilter(pattern: string | null | undefined): (path: string) => boolean {
   if (!pattern) {
-    return () => true;
+    return ALWAYS_INCLUDE;
   }
+  const cached = PATH_FILTER_CACHE.get(pattern);
+  if (cached) {
+    return cached;
+  }
+  const built = compilePathFilter(pattern);
+  if (PATH_FILTER_CACHE.size >= PATH_FILTER_CACHE_MAX) {
+    const oldest = PATH_FILTER_CACHE.keys().next();
+    if (!oldest.done) PATH_FILTER_CACHE.delete(oldest.value);
+  }
+  PATH_FILTER_CACHE.set(pattern, built);
+  return built;
+}
+
+function compilePathFilter(pattern: string): (path: string) => boolean {
   if (pattern.length > MAX_PATH_FILTER_PATTERN_LENGTH || isLikelyUnsafePathFilter(pattern)) {
-    return () => true;
+    return ALWAYS_INCLUDE;
   }
   try {
     const re = new RegExp(pattern);
     return (p) => re.test(p);
   } catch {
-    return () => true;
+    return ALWAYS_INCLUDE;
   }
 }
 

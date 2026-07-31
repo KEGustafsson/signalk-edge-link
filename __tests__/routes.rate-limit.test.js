@@ -424,7 +424,10 @@ describe("instances management route", () => {
         state: "running",
         readyToSend: true,
         config: expect.objectContaining({ someOption: true }),
-        network: expect.objectContaining({ rtt: 0, dataSource: "local" }),
+        // rtt is ABSENT, not 0, on a client that has never timed an ACK — the
+        // documented contract (docs/api-reference.md) and the only way a
+        // consumer can tell "no data" from a measured 0 ms round trip.
+        network: expect.objectContaining({ rtt: undefined, dataSource: "local" }),
         metrics: expect.objectContaining({ deltasSent: 0, duplicatePackets: 0 }),
         bonding: expect.objectContaining({ enabled: false })
       })
@@ -2087,7 +2090,18 @@ describe("management API token authorization", () => {
       };
       const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
 
-      route.handlers[1](req, res, jest.fn());
+      // Run the real middleware chain rather than indexing a fixed position:
+      // the auth guard is not always handlers[1], and hardcoding the index
+      // silently stops testing auth as soon as another middleware is added.
+      for (const handler of route.handlers) {
+        let advanced = false;
+        handler(req, res, () => {
+          advanced = true;
+        });
+        if (!advanced) {
+          break;
+        }
+      }
 
       expect(res.status).toHaveBeenCalledWith(401);
       expect(json).toHaveBeenCalledWith({ error: "Unauthorized management API request" });

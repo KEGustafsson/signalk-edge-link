@@ -48,7 +48,8 @@ function parseHeaderFields(packet: Buffer): {
     encrypted: !!(flagByte & PacketFlags.ENCRYPTED),
     messagepack: !!(flagByte & PacketFlags.MESSAGEPACK),
     pathDictionary: !!(flagByte & PacketFlags.PATH_DICTIONARY),
-    authenticatedHeader: !!(flagByte & PacketFlags.AUTHENTICATED_HEADER)
+    authenticatedHeader: !!(flagByte & PacketFlags.AUTHENTICATED_HEADER),
+    epochBoundAuth: !!(flagByte & PacketFlags.EPOCH_BOUND_AUTH)
   };
 
   return {
@@ -90,13 +91,20 @@ export class PacketParser {
   _secretKey: string | null;
   _stretchAsciiKey: boolean;
   _authenticatedHeaders: boolean;
+  _epochBoundAuth: boolean;
 
   constructor(
-    config: { secretKey?: string; stretchAsciiKey?: boolean; authenticatedHeaders?: boolean } = {}
+    config: {
+      secretKey?: string;
+      stretchAsciiKey?: boolean;
+      authenticatedHeaders?: boolean;
+      epochBoundAuth?: boolean;
+    } = {}
   ) {
     this._secretKey = config.secretKey || null;
     this._stretchAsciiKey = !!config.stretchAsciiKey;
     this._authenticatedHeaders = !!config.authenticatedHeaders;
+    this._epochBoundAuth = !!config.epochBoundAuth;
   }
 
   /**
@@ -106,12 +114,22 @@ export class PacketParser {
    * @param {string} [options.secretKey] - Required for v3 control packets
    * @param {boolean} [options.stretchAsciiKey] - Override the parser's
    *   constructor-time setting; both ends must agree
+   * @param {boolean} [options.epochBoundAuth] - Require the auth tag to be
+   *   bound to the peer's connection epoch; both ends must agree
+   * @param {number} [options.epoch] - The peer's established connection epoch,
+   *   used to verify an epoch-bound tag
    * @returns {Object} Parsed packet information
    * @throws {Error} If packet is invalid
    */
   parseHeader(
     packet: Buffer,
-    options: { secretKey?: string; stretchAsciiKey?: boolean; authenticatedHeaders?: boolean } = {}
+    options: {
+      secretKey?: string;
+      stretchAsciiKey?: boolean;
+      authenticatedHeaders?: boolean;
+      epochBoundAuth?: boolean;
+      epoch?: number;
+    } = {}
   ): ParsedPacket {
     if (!Buffer.isBuffer(packet)) {
       throw new Error("Packet must be a Buffer");
@@ -125,14 +143,18 @@ export class PacketParser {
 
     let payload = packet.subarray(HEADER_SIZE);
 
+    // HELLO establishes the epoch, so it can never itself be epoch-bound: the
+    // receiver has no epoch for this peer until the HELLO is processed.
+    const authOptions = type === PacketType.HELLO ? { ...options, epochBoundAuth: false } : options;
+
     const isDataOrMeta = type === PacketType.DATA || type === PacketType.METADATA;
     if (isDataOrMeta) {
       const requireAuthHeader = options.authenticatedHeaders ?? this._authenticatedHeaders;
       if (requireAuthHeader) {
-        payload = this._stripDataMetaAuthTag(packet, payload, flags, options);
+        payload = this._stripDataMetaAuthTag(packet, payload, flags, authOptions);
       }
     } else {
-      payload = this._stripControlAuthTag(packet, payload, options);
+      payload = this._stripControlAuthTag(packet, payload, flags, authOptions);
     }
 
     return {
@@ -157,11 +179,17 @@ export class PacketParser {
     packet: Buffer,
     payload: Buffer,
     flags: ParsedPacket["flags"],
-    options: { secretKey?: string; stretchAsciiKey?: boolean }
+    options: {
+      secretKey?: string;
+      stretchAsciiKey?: boolean;
+      epochBoundAuth?: boolean;
+      epoch?: number;
+    }
   ): Buffer {
     if (!flags.authenticatedHeader) {
       throw new Error("Authenticated header required but AUTHENTICATED_HEADER flag not set");
     }
+    const epoch = this._resolveAuthEpoch(flags, options);
     if (payload.length < CONTROL_AUTH_TAG_LENGTH) {
       throw new Error("DATA/METADATA authentication tag missing");
     }
@@ -173,7 +201,8 @@ export class PacketParser {
     }
     const stretchAsciiKey = options.stretchAsciiKey ?? this._stretchAsciiKey;
     verifyControlPacketAuthTag(packet.subarray(0, 13), ciphertext, authTag, secretKey, {
-      stretchAsciiKey
+      stretchAsciiKey,
+      epoch
     });
     return ciphertext;
   }
@@ -186,11 +215,18 @@ export class PacketParser {
   _stripControlAuthTag(
     packet: Buffer,
     payload: Buffer,
-    options: { secretKey?: string; stretchAsciiKey?: boolean }
+    flags: ParsedPacket["flags"],
+    options: {
+      secretKey?: string;
+      stretchAsciiKey?: boolean;
+      epochBoundAuth?: boolean;
+      epoch?: number;
+    }
   ): Buffer {
     if (payload.length < CONTROL_AUTH_TAG_LENGTH) {
       throw new Error("Control packet authentication tag missing");
     }
+    const epoch = this._resolveAuthEpoch(flags, options);
     const payloadData = payload.subarray(0, payload.length - CONTROL_AUTH_TAG_LENGTH);
     const authTag = payload.subarray(payload.length - CONTROL_AUTH_TAG_LENGTH);
     const secretKey = options.secretKey || this._secretKey;
@@ -199,9 +235,57 @@ export class PacketParser {
     }
     const stretchAsciiKey = options.stretchAsciiKey ?? this._stretchAsciiKey;
     verifyControlPacketAuthTag(packet.subarray(0, 13), payloadData, authTag, secretKey, {
-      stretchAsciiKey
+      stretchAsciiKey,
+      epoch
     });
     return payloadData;
+  }
+
+  /**
+   * Decide which epoch (if any) the auth tag must be bound to.
+   *
+   * When this parser requires epoch-bound auth, a packet without the
+   * EPOCH_BOUND_AUTH flag is a downgrade attempt and is rejected outright —
+   * mirroring how a missing AUTHENTICATED_HEADER flag is handled. A packet that
+   * sets the flag must be verified against an epoch the receiver actually
+   * knows: if we have none (a source address that never completed a handshake,
+   * which is exactly the replay case this closes), there is nothing valid to
+   * verify against, so reject rather than silently falling back to the
+   * epoch-independent tag.
+   */
+  _resolveAuthEpoch(
+    flags: ParsedPacket["flags"],
+    options: { epochBoundAuth?: boolean; epoch?: number }
+  ): number | undefined {
+    const require = options.epochBoundAuth ?? this._epochBoundAuth;
+    if (!require) {
+      // Legacy/interop mode: honour the sender's choice. A sender that bound the
+      // epoch still needs us to bind the same value, so use it when supplied.
+      if (!flags.epochBoundAuth) {
+        return undefined;
+      }
+      // The sender bound an epoch we do not have — no completed handshake for
+      // this source yet. Falling through with `undefined` (or a 0) verifies the
+      // tag against the wrong value, which cannot match and surfaced as
+      // "Control packet authentication failed (possible stretchAsciiKey or
+      // key-format mismatch between peers)". The keys are fine and nothing is
+      // tampered with; the handshake simply has not happened. Fail with the
+      // same specific error the requiring path uses, so both routes report the
+      // real cause instead of blaming the key.
+      const senderEpoch = options.epoch;
+      if (typeof senderEpoch !== "number" || !Number.isFinite(senderEpoch) || senderEpoch <= 0) {
+        throw new Error("Epoch-bound authentication requires an established peer epoch");
+      }
+      return senderEpoch;
+    }
+    if (!flags.epochBoundAuth) {
+      throw new Error("Epoch-bound authentication required but EPOCH_BOUND_AUTH flag not set");
+    }
+    const epoch = options.epoch;
+    if (typeof epoch !== "number" || !Number.isFinite(epoch) || epoch <= 0) {
+      throw new Error("Epoch-bound authentication requires an established peer epoch");
+    }
+    return epoch;
   }
 
   /**

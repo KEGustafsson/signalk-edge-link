@@ -40,7 +40,7 @@ The receiver identifies v1 packets because they **do not** start with the `SK` m
 - No retransmission — packet loss is unrecovered
 - No RTT measurement (uses external ping monitor instead)
 - No congestion control or bonding
-- Metadata transport requires a separate UDP port (`udpMetaPort`)
+- Metadata transport is not available (v1 has no packet-type byte); use v3 if you need metadata
 
 ### v1 configuration example
 

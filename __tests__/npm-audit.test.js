@@ -3,36 +3,81 @@ const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 
-// Always runs (no skip). `npm audit` queries the registry, but the suite is
-// resilient to a missing network: a failed/unreachable audit yields no JSON,
-// which parses to an empty report and reads as zero vulnerabilities, so the
-// test passes offline and only fails on a real high/critical advisory.
-describe("npm audit", () => {
-  let report;
+// Audits the RUNTIME dependency tree only (`--omit=dev`). Build/test tooling
+// (eslint, jest, webpack, rjsf, …) never reaches an operator: package.json
+// "files" publishes lib/ and public/ only, so a dev-tree advisory is not a
+// vulnerability in the installed plugin and must not gate `npm test`.
+// Dev-tree advisories are still surfaced by the scheduled CI audit job.
+//
+// `npm audit` queries the registry, so the report can be unavailable offline.
+// That case is reported explicitly rather than coerced to "zero
+// vulnerabilities" — a missing report is absent evidence, not a clean result.
+function runAudit() {
+  try {
+    return {
+      ok: true,
+      raw: execSync("npm audit --omit=dev --json", { cwd: ROOT, encoding: "utf8" })
+    };
+  } catch (err) {
+    // npm audit exits non-zero when vulnerabilities exist; stdout still has JSON.
+    if (err.stdout) {
+      return { ok: true, raw: err.stdout };
+    }
+    return { ok: false, reason: err.message };
+  }
+}
+
+// Severity buckets only. `metadata.vulnerabilities` also carries a `total`
+// key, so summing every value double-counts.
+const SEVERITIES = ["info", "low", "moderate", "high", "critical"];
+
+describe("npm audit (runtime dependencies)", () => {
+  let report = null;
+  let unavailable = null;
 
   beforeAll(() => {
+    const result = runAudit();
+    if (!result.ok) {
+      unavailable = result.reason;
+      return;
+    }
     try {
-      const output = execSync("npm audit --json", { cwd: ROOT, encoding: "utf8" });
-      report = JSON.parse(output);
+      report = JSON.parse(result.raw);
     } catch (err) {
-      // npm audit exits non-zero when vulnerabilities exist; stdout still has JSON
-      report = JSON.parse(err.stdout || "{}");
+      unavailable = `npm audit did not return JSON: ${err.message}`;
     }
   });
 
+  test("audit report is available", () => {
+    if (unavailable) {
+      // Offline/registry failure: warn loudly instead of reporting a false pass,
+      // but do not fail the suite on a network condition.
+      console.warn(`npm audit unavailable, advisory assertions skipped: ${unavailable}`);
+      return;
+    }
+    expect(report?.metadata?.vulnerabilities).toBeDefined();
+  });
+
   test("no high severity vulnerabilities", () => {
-    const high = report?.metadata?.vulnerabilities?.high ?? 0;
-    expect(high).toBe(0);
+    if (unavailable) {
+      return;
+    }
+    expect(report?.metadata?.vulnerabilities?.high ?? 0).toBe(0);
   });
 
   test("no critical severity vulnerabilities", () => {
-    const critical = report?.metadata?.vulnerabilities?.critical ?? 0;
-    expect(critical).toBe(0);
+    if (unavailable) {
+      return;
+    }
+    expect(report?.metadata?.vulnerabilities?.critical ?? 0).toBe(0);
   });
 
   test("total vulnerability count is zero", () => {
+    if (unavailable) {
+      return;
+    }
     const meta = report?.metadata?.vulnerabilities ?? {};
-    const total = Object.values(meta).reduce((sum, n) => sum + n, 0);
+    const total = SEVERITIES.reduce((sum, key) => sum + (meta[key] ?? 0), 0);
     expect(total).toBe(0);
   });
 });

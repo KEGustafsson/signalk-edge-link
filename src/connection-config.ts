@@ -1,6 +1,7 @@
 "use strict";
 
 import { validateSecretKey } from "./codec/crypto";
+import { SENDER_ONLY_KEYS } from "./shared/connection-schema";
 import type {
   ConnectionConfig,
   BondingConfig,
@@ -18,6 +19,7 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "secretKey",
   "stretchAsciiKey",
   "authenticatedHeaders",
+  "epochBoundAuth",
   "useMsgpack",
   "useValueDedup",
   "useCompactDeltas",
@@ -94,6 +96,10 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     return `${p}serverType must be 'server' or 'client'`;
   }
 
+  if (conn.epochBoundAuth !== undefined && typeof conn.epochBoundAuth !== "boolean") {
+    return `${p}epochBoundAuth must be a boolean`;
+  }
+
   if (serverType === "server") {
     if (conn.congestionControl !== undefined) {
       return `${p}congestionControl is not supported in server mode`;
@@ -142,6 +148,17 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
   // Resolve string aliases before version-gated feature checks.
   const _pv =
     _rawPv === "basic" ? 1 : _rawPv === "advanced" ? 3 : typeof _rawPv === "number" ? _rawPv : 1;
+  // Gated on the RESOLVED version: `Number("basic")` is NaN, and `NaN < 2` is
+  // false, so checking the raw field let `protocolVersion: "basic"` carry
+  // epochBoundAuth straight past this gate onto the v1 pipeline.
+  if (conn.epochBoundAuth === true) {
+    if (conn.authenticatedHeaders === false) {
+      return `${p}epochBoundAuth requires authenticatedHeaders (the epoch is bound into that same tag)`;
+    }
+    if (_pv < 2) {
+      return `${p}epochBoundAuth requires protocolVersion 3`;
+    }
+  }
   if (conn.useValueDedup === true && _pv < 2) {
     return `${p}useValueDedup is only supported on reliable protocolVersion 3`;
   }
@@ -397,7 +414,10 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
         ? ([
             ["ackInterval", 20, 5000, `${p}reliability.ackInterval`],
             ["ackResendInterval", 100, 10000, `${p}reliability.ackResendInterval`],
-            ["nakTimeout", 20, 5000, `${p}reliability.nakTimeout`]
+            ["nakTimeout", 20, 5000, `${p}reliability.nakTimeout`],
+            // Receiver side, like nakTimeout: it bounds how long this node
+            // keeps re-requesting a gap before advancing past it.
+            ["maxNakRounds", 1, 25, `${p}reliability.maxNakRounds`]
           ] as [string, number, number, string][])
         : ([
             ["retransmitQueueSize", 100, 50000, `${p}reliability.retransmitQueueSize`],
@@ -597,6 +617,18 @@ export function sanitizeConnectionConfig(connection: unknown): Partial<Connectio
     delete out.bonding;
     delete out.alertThresholds;
     delete out.skipOwnData;
+    // Sender-only options. Every consumer is on the client send path; the
+    // receiver auto-detects the wire encoding instead of consulting config
+    // (decodeDelta/undedupDelta run unconditionally). Retaining them on a
+    // server connection let an operator set e.g. pathFilter and reasonably
+    // believe inbound data was being filtered, which it never was.
+    //
+    // Driven off the same SENDER_ONLY_KEYS the config schema uses to decide
+    // which fields a server connection even offers, so the two cannot drift into
+    // a UI that shows a field this function then silently discards.
+    for (const key of SENDER_ONLY_KEYS) {
+      delete out[key];
+    }
   } else if (serverType === "client") {
     // v1 ping-monitor fields are not used by reliable v3 clients; strip them so
     // upgrades from v1 don't carry unused config forward.

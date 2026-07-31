@@ -56,16 +56,19 @@ export interface ClientSession {
    *  that UDP reorders or replays. null until the first envelope from this
    *  session arrives. */
   lastMetaEnvSeq: number | null;
-  /** Set of chunk `idx` values already processed for `lastMetaEnvSeq`. Lets
-   *  us drop exact duplicates of a chunk we've already applied without
-   *  rejecting other chunks (different idx, same seq) of the same multi-
-   *  chunk batch. Cleared when `lastMetaEnvSeq` advances. */
-  seenMetaChunkIdx: Set<number>;
+  /** Recent metadata envelope seq -> the chunk `idx` values already applied for
+   *  it. Lets us drop exact duplicates of a chunk we've already applied without
+   *  rejecting other chunks (different idx, same seq) of the same multi-chunk
+   *  batch. A window of the most recent envelopes is retained rather than only
+   *  the newest, so chunks of a recent envelope that UDP reordered behind the
+   *  next one can still land; older entries are evicted in arrival order. */
+  metaChunkWindow: Map<number, Set<number>>;
   /** Last observed source snapshot envelope seq; kept separate from metadata
    *  seq so source resends cannot make in-flight metadata chunks look stale. */
   lastSourceEnvSeq: number | null;
-  /** Chunk indexes already applied for `lastSourceEnvSeq`. */
-  seenSourceChunkIdx: Set<number>;
+  /** Recent source-snapshot envelope seq -> chunk indexes already applied for
+   *  it, windowed exactly like {@link metaChunkWindow}. */
+  sourceChunkWindow: Map<number, Set<number>>;
   /** Per-(context, path) cache for same-as-last value dedup expansion.
    *  Created lazily on first sentinel/absolute-value receipt. */
   valueDedupState: ValueDedupState | null;
@@ -82,6 +85,17 @@ export interface ReplayGuard {
   epoch: number;
   window: ReplayWindow;
   lastSeen: number;
+  /**
+   * True once an authenticated HELLO has arrived from this exact `address:port`,
+   * whether or not it carried an epoch.
+   *
+   * Distinct from `epoch > 0`: a pre-H3 peer completes a real handshake but
+   * advertises no epoch. Using the epoch as the handshake proxy meant such a
+   * peer was indistinguishable from a never-seen source port, so as soon as any
+   * H3 peer behind the same NAT address handshaked, the legacy peer's DATA was
+   * rejected as a rotated-port replay and silently dropped.
+   */
+  handshaked: boolean;
 }
 
 /**
@@ -126,6 +140,7 @@ export interface ServerContext {
   ackInterval: number;
   ackResendInterval: number;
   nakTimeout: number;
+  maxNakRounds: number;
   SESSION_IDLE_TTL_MS: number;
   MAX_SESSIONS_PER_IP: number;
   META_RESTART_THRESHOLD: number;
@@ -138,6 +153,15 @@ export interface ServerContext {
   preAuthByIp: Map<string, { count: number; windowStart: number }>;
   /** Per-peer anti-replay guards, keyed by `address:port`. Outlives sessions. */
   replayGuards: Map<string, ReplayGuard>;
+  /**
+   * Source addresses that have completed at least one authenticated HELLO
+   * handshake, keyed by address (no port). A pre-H3 peer advertises no epoch
+   * and is still recorded here — the marker is about handshake completion, not
+   * about epoch capability. Lets DATA arriving on an unknown port of a known peer
+   * address fail closed instead of minting a fresh, unenforced guard — see
+   * {@link handshakedPeerAddress}. LRU-bounded like {@link replayGuards}.
+   */
+  handshakedAddresses: Map<string, number>;
   mut: ServerMutableState;
 }
 
@@ -182,9 +206,24 @@ export function getReplayGuard(ctx: ServerContext, peerKey: string): ReplayGuard
       replayGuards.delete(oldestKey);
     }
   }
-  guard = { epoch: 0, window: new ReplayWindow(), lastSeen: now };
+  guard = { epoch: 0, window: new ReplayWindow(), lastSeen: now, handshaked: false };
   replayGuards.set(peerKey, guard);
   return guard;
+}
+
+/**
+ * Point the shared packet builder at a specific peer's epoch before building a
+ * packet destined for that peer.
+ *
+ * A server talks to many peers, each with its own epoch, so the epoch cannot be
+ * fixed at construction the way it is on a client. Build is synchronous and Node
+ * is single-threaded, so setting it immediately before `build*Packet()` cannot
+ * interleave with another destination. Passing 0 (an unhandshaked peer) simply
+ * produces a legacy, epoch-independent tag.
+ */
+export function bindBuilderEpochForPeer(ctx: ServerContext, destinationKey: string): void {
+  const guard = ctx.replayGuards.get(destinationKey);
+  ctx.packetBuilder.setConnectionEpoch(guard ? guard.epoch : 0);
 }
 
 /**
@@ -197,18 +236,78 @@ export function getReplayGuard(ctx: ServerContext, peerKey: string): ReplayGuard
  * does not participate — left at epoch 0 (window not strictly enforced) for
  * backward compatibility.
  */
-export function applyHelloEpoch(ctx: ServerContext, peerKey: string, epoch: unknown): void {
+export function applyHelloEpoch(ctx: ServerContext, peerKey: string, epoch: unknown): boolean {
   if (typeof epoch !== "number" || !Number.isFinite(epoch) || epoch <= 0) {
-    return;
+    return false;
   }
   const guard = getReplayGuard(ctx, peerKey);
+  let advanced = false;
   if (epoch > guard.epoch) {
+    advanced = true;
     // Re-baseline on any epoch increase so the newly-negotiated epoch starts
     // from a clean window — pre-handshake (epoch 0) DATA must not carry its
     // high-water mark into the first authenticated epoch.
     guard.window.reset();
     guard.epoch = epoch;
   }
+  return advanced;
+}
+
+/**
+ * Record that an authenticated HELLO completed for this exact peer, and that its
+ * address is one the server has seen handshake.
+ *
+ * Called for EVERY authenticated HELLO, including one from a pre-H3 peer that
+ * advertises no epoch — see {@link ReplayGuard.handshaked}.
+ */
+export function markPeerHandshaked(ctx: ServerContext, peerKey: string, address: string): void {
+  getReplayGuard(ctx, peerKey).handshaked = true;
+  markHandshakedAddress(ctx, address);
+}
+
+/**
+ * Record that a source address has completed an epoch handshake.
+ *
+ * Kept separate from {@link replayGuards} (which is keyed by `address:port`) so
+ * the lookup in {@link handshakedPeerAddress} stays O(1) on the per-packet path
+ * instead of scanning every guard.
+ */
+export function markHandshakedAddress(ctx: ServerContext, address: string): void {
+  const { handshakedAddresses } = ctx;
+  const now = Date.now();
+  if (!handshakedAddresses.has(address) && handshakedAddresses.size >= MAX_REPLAY_GUARDS) {
+    let oldestKey: string | null = null;
+    let oldest = Infinity;
+    for (const [k, lastSeen] of handshakedAddresses) {
+      if (lastSeen < oldest) {
+        oldest = lastSeen;
+        oldestKey = k;
+      }
+    }
+    if (oldestKey !== null) {
+      handshakedAddresses.delete(oldestKey);
+    }
+  }
+  handshakedAddresses.set(address, now);
+}
+
+/**
+ * True when this source address has previously completed an epoch handshake.
+ *
+ * Used to fail closed on DATA that arrives from a *new port* of an
+ * already-handshaked address. A legitimate v3 peer always sends HELLO before
+ * DATA (and retries it until acknowledged), so an unknown port on a known
+ * address is either a replay from a rotated source port or DATA that raced
+ * ahead of its own HELLO — both must be rejected rather than silently minting a
+ * fresh guard whose empty window accepts everything.
+ */
+export function handshakedPeerAddress(ctx: ServerContext, address: string): boolean {
+  const lastSeen = ctx.handshakedAddresses.get(address);
+  if (lastSeen === undefined) {
+    return false;
+  }
+  ctx.handshakedAddresses.set(address, Date.now());
+  return true;
 }
 
 /**
@@ -225,22 +324,31 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
   // disabled. Both ends must agree (see connection schema). Opt out with
   // `authenticatedHeaders: false` only when both peers are configured off.
   const authenticatedHeaders = state.options?.authenticatedHeaders !== false;
+  // Opt-in epoch binding; both peers must agree (see connection schema).
+  const epochBoundAuth = state.options?.epochBoundAuth === true;
   const packetParser = new PacketParser({
     secretKey: state.options?.secretKey ?? undefined,
     stretchAsciiKey,
-    authenticatedHeaders
+    authenticatedHeaders,
+    epochBoundAuth
   });
   const packetBuilder = new PacketBuilder({
     protocolVersion,
     secretKey: state.options?.secretKey ?? undefined,
     stretchAsciiKey,
-    authenticatedHeaders
+    authenticatedHeaders,
+    epochBoundAuth
   });
 
   const reliabilityConfig = (state.options && state.options.reliability) || {};
   const ackInterval: number = reliabilityConfig.ackInterval ?? 100;
   const ackResendInterval: number = reliabilityConfig.ackResendInterval ?? 1000;
   const nakTimeout: number = reliabilityConfig.nakTimeout || 100;
+  // How many NAKs a missing sequence gets before the receiver gives up and
+  // advances the window. Previously hard-coded to the tracker's own default, so
+  // raising `maxRetransmits` past it silently had no effect: the receiver
+  // abandoned the gap while the sender still had budget to answer it.
+  const maxNakRounds: number = reliabilityConfig.maxNakRounds || 5;
 
   seedServerReliabilityMetrics(metrics);
 
@@ -281,6 +389,7 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
     ackInterval,
     ackResendInterval,
     nakTimeout,
+    maxNakRounds,
     SESSION_IDLE_TTL_MS: 300000,
     MAX_SESSIONS_PER_IP: 5,
     META_RESTART_THRESHOLD: 8,
@@ -291,19 +400,25 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
     clientSessions: new Map<string, ClientSession>(),
     preAuthByIp: new Map<string, { count: number; windowStart: number }>(),
     replayGuards: new Map<string, ReplayGuard>(),
-    mut: {
-      ackTimer: null,
-      metricsInterval: null,
-      lastMetricsTime: Date.now(),
-      lastBytesReceived: 0,
-      lastPacketsReceived: 0,
-      previousSourceMissingIdentity: 0,
-      previousSourceConflicts: 0,
-      lastProtocolVersionMismatchWarnAt: 0,
-      lastAuthHeaderMismatchWarnAt: 0,
-      telemetryOwnerSessionKey: null,
-      telemetryOwnerLastSeen: 0
-    }
+    handshakedAddresses: new Map<string, number>(),
+    mut: createMutableState()
+  };
+}
+
+/** Initial per-pipeline mutable scalars. Extracted to keep the factory small. */
+function createMutableState(): ServerMutableState {
+  return {
+    ackTimer: null,
+    metricsInterval: null,
+    lastMetricsTime: Date.now(),
+    lastBytesReceived: 0,
+    lastPacketsReceived: 0,
+    previousSourceMissingIdentity: 0,
+    previousSourceConflicts: 0,
+    lastProtocolVersionMismatchWarnAt: 0,
+    lastAuthHeaderMismatchWarnAt: 0,
+    telemetryOwnerSessionKey: null,
+    telemetryOwnerLastSeen: 0
   };
 }
 

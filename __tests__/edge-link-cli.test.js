@@ -353,6 +353,9 @@ describe("edge-link-cli", () => {
         const req = new EventEmitter();
         req.write = () => {};
         req.end = () => {};
+        // The CLI arms a request timeout so a hung server cannot block forever.
+        req.setTimeout = () => req;
+        req.destroy = () => {};
         return req;
       };
 
@@ -362,6 +365,55 @@ describe("edge-link-cli", () => {
           token: "secret-token"
         })
       ).resolves.toEqual({ ok: true });
+    } finally {
+      http.request = originalRequest;
+    }
+  });
+
+  // Without this the CLI blocks forever against a host that accepts the
+  // connection but never answers. Asserting only that `setTimeout` exists on the
+  // mock would keep passing if the callback stopped destroying the request.
+  test("a hung server trips the request timeout and rejects", async () => {
+    const originalRequest = http.request;
+
+    try {
+      let timeoutMs = null;
+      let fireTimeout = null;
+      let destroyedWith = null;
+
+      http.request = (url, options, callback) => {
+        const req = new EventEmitter();
+        req.write = () => {};
+        req.end = () => {};
+        req.setTimeout = (ms, cb) => {
+          timeoutMs = ms;
+          fireTimeout = cb;
+          return req;
+        };
+        req.destroy = (err) => {
+          destroyedWith = err;
+          // Node surfaces a destroy(err) on an in-flight request as "error".
+          req.emit("error", err);
+        };
+        // The response callback is never invoked: the server accepted the
+        // connection and then went silent.
+        void callback;
+        return req;
+      };
+
+      const requestJson = createRequestJson();
+      const pending = requestJson("http://localhost:3000/plugins/signalk-edge-link", "/status", {
+        token: "secret-token"
+      });
+
+      expect(timeoutMs).toBe(30000);
+      expect(typeof fireTimeout).toBe("function");
+
+      fireTimeout();
+
+      await expect(pending).rejects.toThrow(/timed out after 30000ms/);
+      expect(destroyedWith).toBeInstanceOf(Error);
+      expect(destroyedWith.message).toContain("localhost:3000/status");
     } finally {
       http.request = originalRequest;
     }

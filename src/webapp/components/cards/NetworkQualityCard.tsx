@@ -12,6 +12,13 @@ export function NetworkQualityCard({ metrics }: Props) {
   if (!nq) return null;
 
   const isClient = metrics?.mode === "client";
+  // Loss is a ratio over observed traffic: with nothing sent or received it is
+  // 0/0, and the seeded 0 would render as a confident "0.0%". Fresh client
+  // telemetry counts on its own — the remote peer did the observing.
+  const hasLossBasis =
+    nq.dataSource === "remote-client" ||
+    (metrics?.bandwidth?.packetsIn ?? 0) > 0 ||
+    (metrics?.bandwidth?.packetsOut ?? 0) > 0;
   // Normalize then clamp to [0,100]: `?? 0` only covers null/undefined, so guard
   // NaN/Infinity (which would propagate through round/clamp) with Number.isFinite.
   // An out-of-range value would otherwise push gaugeAngle past 180°, flipping
@@ -79,13 +86,23 @@ export function NetworkQualityCard({ metrics }: Props) {
                 fontWeight="bold"
                 fill={qualityColor}
               >
-                {qualityPct}
+                {nq.linkQuality !== undefined ? qualityPct : "—"}
               </text>
               <text x={cx} y={cy + 8} textAnchor="middle" fontSize="7" fill="#666">
                 {qualityLabel}
               </text>
             </svg>
             <div className="nq-gauge-label">Link Quality</div>
+            {nq.linkQuality === undefined && (
+              // "N/A" alone reads as a broken panel. Say which of the two
+              // reasons applies: a server has no latency of its own and is
+              // waiting on client telemetry, while a client has not yet had an
+              // ACK to time — which, alongside a rising queue depth, is the
+              // signature of traffic leaving and nothing coming back.
+              <div className="nq-gauge-reason">
+                {isClient ? "No round trip measured yet" : "Awaiting client telemetry"}
+              </div>
+            )}
           </div>
           <div className="nq-key-metrics">
             <MetricItem
@@ -108,11 +125,30 @@ export function NetworkQualityCard({ metrics }: Props) {
                   : ""
               }
             />
+            {/*
+              Packet loss needs its own basis, not linkQuality's. A server
+              derives it from sequence gaps in traffic it has actually
+              received, so it can be real while RTT is still unknown — but
+              with nothing received yet the seeded 0 renders as a confident
+              "0.0%" beside three N/As, which reads as a healthy link on a
+              link that has told us nothing. That is what a proxy's
+              downstream-facing instance shows before its client connects.
+            */}
             <MetricItem
               label="Packet Loss"
-              value={formatRatioPercent(nq.packetLoss ?? 0)}
+              value={
+                hasLossBasis && nq.packetLoss !== undefined
+                  ? formatRatioPercent(nq.packetLoss)
+                  : "N/A"
+              }
               statusClass={
-                (nq.packetLoss ?? 0) > 0.1 ? "error" : (nq.packetLoss ?? 0) > 0.03 ? "warning" : ""
+                !hasLossBasis || nq.packetLoss === undefined
+                  ? ""
+                  : nq.packetLoss > 0.1
+                    ? "error"
+                    : nq.packetLoss > 0.03
+                      ? "warning"
+                      : ""
               }
             />
           </div>
@@ -123,10 +159,19 @@ export function NetworkQualityCard({ metrics }: Props) {
           <div className="stats-grid">
             <StatItem label="Data Source" value={nq.dataSource || "local"} />
             {nq.activeLink && <StatItem label="Active Link" value={nq.activeLink} />}
+            {/*
+              `?? 0` at the display layer would undo the fix behind these
+              fields. The API now reports "the peer never sent this" as
+              undefined instead of substituting 0, precisely so a silent field
+              stops reading as a measured zero; defaulting here would put the
+              same invented number back on screen, one layer down.
+            */}
             <StatItem
               label="Retransmit Rate"
-              value={formatRatioPercent(nq.retransmitRate ?? 0)}
-              hasError={(nq.retransmitRate ?? 0) > 0.1}
+              value={
+                nq.retransmitRate !== undefined ? formatRatioPercent(nq.retransmitRate) : "N/A"
+              }
+              hasError={nq.retransmitRate !== undefined && nq.retransmitRate > 0.1}
             />
             {nq.lastRemoteUpdate && (
               <StatItem
@@ -138,13 +183,15 @@ export function NetworkQualityCard({ metrics }: Props) {
               <>
                 <StatItem
                   label="Retransmissions"
-                  value={(nq.retransmissions ?? 0).toLocaleString()}
-                  hasError={(nq.retransmissions ?? 0) > 0}
+                  value={
+                    nq.retransmissions !== undefined ? nq.retransmissions.toLocaleString() : "N/A"
+                  }
+                  hasError={nq.retransmissions !== undefined && nq.retransmissions > 0}
                 />
                 <StatItem
                   label="Queue Depth"
-                  value={(nq.queueDepth ?? 0).toLocaleString()}
-                  hasError={(nq.queueDepth ?? 0) > 100}
+                  value={nq.queueDepth !== undefined ? nq.queueDepth.toLocaleString() : "N/A"}
+                  hasError={nq.queueDepth !== undefined && nq.queueDepth > 100}
                 />
               </>
             ) : (

@@ -283,6 +283,51 @@ describe("createWatcherWithRecovery", () => {
     expect(handle.watcher).toBeNull();
   });
 
+  // Which fs event types trigger a reload was unasserted: flipping the
+  // comparison left the whole suite green, so the watcher could have stopped
+  // reacting to "change" — the ordinary edit-in-place case — without any test
+  // noticing. Only "rename" additionally recreates the watch, because that is
+  // the event an atomic save (write-temp-then-move) produces, which leaves the
+  // old inode behind and the watcher pointed at nothing.
+  test.each([
+    ["change", false],
+    ["rename", true]
+  ])("reloads on fs event %s (recreates watcher: %s)", (eventType, expectRecreate) => {
+    jest.useFakeTimers();
+    const watchers = mockFsWatch();
+    const onChange = jest.fn();
+    createWatcherWithRecovery({
+      filePath: path.join(tmpDir, "watch.json"),
+      onChange,
+      name: "Watch",
+      instanceId: "default",
+      app: { debug: jest.fn(), error: jest.fn() },
+      state: { stopped: false }
+    });
+
+    watchers[0].callback(eventType);
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    jest.advanceTimersByTime(WATCHER_RECOVERY_DELAY);
+    expect(fs.watch).toHaveBeenCalledTimes(expectRecreate ? 2 : 1);
+  });
+
+  test("ignores fs events that are neither change nor rename", () => {
+    const watchers = mockFsWatch();
+    const onChange = jest.fn();
+    createWatcherWithRecovery({
+      filePath: path.join(tmpDir, "watch.json"),
+      onChange,
+      name: "Watch",
+      instanceId: "default",
+      app: { debug: jest.fn(), error: jest.fn() },
+      state: { stopped: false }
+    });
+
+    watchers[0].callback("close");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   test("does not recreate watcher after close", () => {
     jest.useFakeTimers();
     const watchers = mockFsWatch();

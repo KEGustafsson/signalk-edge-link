@@ -94,10 +94,16 @@ function resolveEffectiveQuality(
   remote: NetworkQuality,
   hasRemoteTelemetry: boolean,
   packetLoss: number
-): Required<NetworkQuality> {
+): NetworkQuality & { packetLoss: number; activeLink: string } {
+  // A server measures no latency of its own — rtt and jitter are whatever the
+  // client last reported. Left undefined when the client has reported none, so
+  // an unmeasured link is not published as a 0 ms one (which scores a perfect
+  // 100 and outranks every real measurement).
+  const remoteRtt = hasRemoteTelemetry && typeof remote.rtt === "number" ? remote.rtt : undefined;
   return {
-    rtt: hasRemoteTelemetry ? remote.rtt || 0 : 0,
-    jitter: hasRemoteTelemetry ? remote.jitter || 0 : 0,
+    rtt: remoteRtt,
+    jitter:
+      remoteRtt !== undefined && typeof remote.jitter === "number" ? remote.jitter : undefined,
     packetLoss: hasRemoteTelemetry ? remote.packetLoss || 0 : packetLoss,
     retransmissions: hasRemoteTelemetry ? remote.retransmissions || 0 : 0,
     queueDepth: hasRemoteTelemetry ? remote.queueDepth || 0 : 0,

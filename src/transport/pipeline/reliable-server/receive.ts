@@ -15,7 +15,7 @@ import { PacketType, ParsedPacket } from "../../../codec/packet-codec";
 import { getOrCreateSession, sendUDP, sendMetaRequest, sendFullStatusRequest } from "./sessions";
 import { handleMetadataPacket } from "./metadata";
 import { handleDataPacket } from "./data-handler";
-import { preAuthRateLimited, verifyHbProbe, applyHelloEpoch } from "./context";
+import { preAuthRateLimited, verifyHbProbe, applyHelloEpoch, markPeerHandshaked } from "./context";
 import type { ServerContext, ClientSession } from "./context";
 
 import {
@@ -127,10 +127,31 @@ function parseHelloInfo(
     app.debug(`v2 hello from client: ${JSON.stringify(info)}`);
     if (session && info && typeof info === "object") {
       applyHelloIdentity(session, info);
+      // The guard key matches the DATA path: session address/port come from rinfo.
+      const peerKey = `${session.address}:${session.port}`;
+      // Mark the handshake first and unconditionally — a pre-H3 peer sends no
+      // epoch, and its DATA must still be distinguishable from a rotated-port
+      // replay when another peer shares its NAT address.
+      markPeerHandshaked(ctx, peerKey, session.address);
       // Advance the per-peer anti-replay epoch (resets the window on a strictly
-      // higher epoch = legitimate restart; ignores replayed/stale HELLOs). The
-      // guard key matches the DATA path: session address/port come from rinfo.
-      applyHelloEpoch(ctx, `${session.address}:${session.port}`, info.epoch);
+      // higher epoch = legitimate restart; ignores replayed/stale HELLOs).
+      const restarted = applyHelloEpoch(ctx, peerKey, info.epoch);
+      if (restarted) {
+        // A strictly higher epoch means the peer restarted with a brand-new,
+        // randomized sequence space. The replay window is re-baselined above;
+        // the session's sequence tracker must be too, or the new stream looks
+        // like a flood of late arrivals whenever the fresh initial sequence
+        // lands below the previous one (and those are correctly not
+        // re-dispatched, so the data would be silently dropped).
+        session.sequenceTracker.reset();
+        session.lossBaseSeq = null;
+        session.lossHighestSeq = null;
+        session.lossReceivedCount = 0;
+        session.lastLossExpected = 0;
+        session.lastLossReceived = 0;
+        session.lastAckSeq = null;
+        app.debug(`v2 peer restart detected for ${session.key}; sequence state reset`);
+      }
     }
   } catch (parseErr: unknown) {
     const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
@@ -231,10 +252,60 @@ async function handleMetadataDispatch(
   await handleMetadataPacket(ctx, parsed, secretKey, session, rinfo);
 }
 
+/**
+ * Report the two ways epoch-bound authentication refuses a packet, which have
+ * the same symptom and completely different remedies.
+ *
+ * Reporting them with one message was worse than reporting neither: it told
+ * operators "the sender is not using it" while the sender was using it, which
+ * points at the wrong machine and at a setting that is already correct.
+ *
+ * @returns true when the error was one of these, so the caller stops.
+ */
+function reportEpochAuthError(ctx: ServerContext, msg: string): boolean {
+  const { app, metrics, recordError } = ctx;
+
+  if (msg.includes("EPOCH_BOUND_AUTH flag not set")) {
+    // The sender genuinely is not binding: a configuration mismatch, NOT an
+    // attack and NOT a key problem. The generic auth branch reported it as
+    // "packet tampered or wrong key", sending operators after a key mismatch
+    // that does not exist.
+    metrics.epochAuthMismatches = (metrics.epochAuthMismatches || 0) + 1;
+    app.error(
+      "v2 epoch-bound authentication mismatch: this receiver requires " +
+        "epochBoundAuth and the sender is not using it. Set the same " +
+        "epochBoundAuth value on both ends of this hop."
+    );
+    recordError("encryption", "v2 epoch-bound authentication mismatch (peer configuration)");
+    return true;
+  }
+
+  if (msg.includes("requires an established peer epoch")) {
+    // The sender IS binding, but no HELLO has established its epoch yet, so
+    // there is nothing to verify against. That is the ordinary startup window:
+    // a client whose first DATA overtakes its own HELLO produces a short burst
+    // and then works. Reported as transient, at debug, because an error-level
+    // line here reads as a fault on a link that is about to come up.
+    metrics.epochAuthPending = (metrics.epochAuthPending || 0) + 1;
+    app.debug(
+      "v2 epoch-bound authentication: no established epoch for this peer yet; " +
+        "packet refused until its HELLO completes. A brief burst at startup is " +
+        "expected. Persisting means the HELLO is not arriving — check that this " +
+        "peer's DATA and HELLO leave from the same address and port."
+    );
+    return true;
+  }
+
+  return false;
+}
+
 /** Map a caught receivePacket error to the right log + recordError category. */
 function reportReceiveError(ctx: ServerContext, error: unknown): void {
   const { app, metrics, recordError } = ctx;
   const msg = error instanceof Error ? error.message : String(error);
+  if (reportEpochAuthError(ctx, msg)) {
+    return;
+  }
   if (error instanceof DecryptError) {
     const hint = error.keyMismatchHint
       ? " (possible stretchAsciiKey or key-format mismatch between peers)"
@@ -258,6 +329,26 @@ function reportReceiveError(ctx: ServerContext, error: unknown): void {
     app.error(`v2 receivePacket error: ${msg}`);
     recordError("general", `v2 receivePacket error: ${msg}`);
   }
+}
+
+/**
+ * The epoch an incoming packet's auth tag must be bound to.
+ *
+ * Strictly a read-only lookup. This runs on EVERY inbound datagram, before any
+ * authentication has happened, so it must not allocate: `getReplayGuard` inserts
+ * a guard and LRU-evicts to stay under the cap, which would let a spoofed source
+ * port flood churn out the guards of established peers. An evicted peer reverts
+ * to epoch 0 and its DATA is then rejected as a replay by the fail-closed rule
+ * in `data-handler.ts` until it re-handshakes — a remote DoS.
+ *
+ * A missing guard yields 0, which is the right answer anyway: a source we have
+ * never completed a handshake with is precisely the replayed/spoofed case, and
+ * under epoch-bound auth the parser rejects epoch 0 rather than falling back to
+ * the epoch-independent tag.
+ */
+function peerAuthEpoch(ctx: ServerContext, rinfo?: { address: string; port: number }): number {
+  if (!rinfo) return 0;
+  return ctx.replayGuards.get(`${rinfo.address}:${rinfo.port}`)?.epoch ?? 0;
 }
 
 /**
@@ -293,8 +384,10 @@ export async function receivePacket(
       return;
     }
 
-    // Parse packet header
-    const parsed = packetParser.parseHeader(packet, { secretKey });
+    const parsed = packetParser.parseHeader(packet, {
+      secretKey,
+      epoch: peerAuthEpoch(ctx, rinfo)
+    });
 
     if (!isPacketAccepted(ctx, parsed)) {
       return;

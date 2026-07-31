@@ -54,7 +54,12 @@ function validateStartPreconditions(ctx: ConnectionContext): void {
 /** Start the connection (bind socket, begin handshake, transition to Ready). */
 export async function start(ctx: ConnectionContext): Promise<void> {
   const { options, lifecycle, state } = ctx;
-  lifecycle.transition("Starting", (msg) => ctx.app.error(msg));
+  // Honour the FSM: outside tests an invalid transition only logs and returns
+  // false. Proceeding anyway would re-run this whole body on an already-Ready
+  // instance, allocating a second socket/pipeline set and leaking timers.
+  if (!lifecycle.transition("Starting", (msg) => ctx.app.error(msg))) {
+    return;
+  }
   ctx.socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS;
   state.stopped = false;
   state.options = options;
@@ -64,6 +69,12 @@ export async function start(ctx: ConnectionContext): Promise<void> {
 
   if (lifecycle.isShuttingDown()) return;
 
+  // Clear before re-arming: a repeated start() would otherwise orphan the
+  // previous 1s interval with no handle left to clear it.
+  if (ctx.dedupeCleanupTimer) {
+    clearInterval(ctx.dedupeCleanupTimer);
+    ctx.dedupeCleanupTimer = null;
+  }
   ctx.dedupeCleanupTimer = setInterval(
     () => ctx.cleanupDedupeMap(Date.now()),
     OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS

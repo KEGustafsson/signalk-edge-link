@@ -1,6 +1,6 @@
 # Documentation Guide
 
-This folder contains documentation for Signal K Edge Link (current: 3.1.0).
+This folder contains documentation for Signal K Edge Link (current: 4.0.0).
 
 ## Primary Reference
 
@@ -14,7 +14,7 @@ These docs cover individual topics in depth and can be read independently:
 
 - **[architecture-overview.md](architecture-overview.md)** — System architecture, topology patterns, and data-flow pipelines
 - **[configuration-reference.md](configuration-reference.md)** — Complete settings reference with defaults and valid ranges
-- **[web-ui.md](web-ui.md)** — Configuration panel and runtime dashboard walkthrough (server and client)
+- **[web-ui.md](web-ui.md)** — Configuration panel and runtime dashboard walkthrough (server, client, and relay nodes)
 - **[api-reference.md](api-reference.md)** — REST API endpoint reference
 - **[protocol-v3.md](protocol-v3.md)** — Basic (v1) and Advanced (v3) protocol wire format, ACK/NAK handshake, and HMAC control-plane authentication
 - **[bonding.md](bonding.md)** — Dual-link failover configuration and monitoring
@@ -70,6 +70,16 @@ Architecture and design notes retained for contributors and maintainers.
 
 1. `../README.md` (installation and quick start)
 2. `GUIDE.md` (full reference)
+
+### Operators running a relay / proxy chain
+
+A relay runs both a server and a client in one instance, so each hop is an
+independent link and the dashboard shows one connection per hop.
+
+1. `../README.md` § Topologies
+2. [web-ui.md](web-ui.md) § Reading a relay (proxy) node
+3. [troubleshooting.md](troubleshooting.md) § Relay / Proxy Chains
+4. [metrics.md](metrics.md) — instance-scoped Signal K paths
 
 ### Operators tuning unstable links
 
