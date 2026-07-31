@@ -628,26 +628,39 @@ describe("RetransmitQueue", () => {
   // afterwards. That is what a server ingesting client telemetry was showing.
   describe("RTT clock resolution", () => {
     test("sentAtHr distinguishes sends inside a single millisecond", () => {
-      const queue = new RetransmitQueue();
+      // The shared millisecond is CONSTRUCTED, not raced for.
+      //
+      // This first enqueued in a tight loop and asserted that several entries
+      // happened to share a wall-clock millisecond. That premise is a property
+      // of the machine, not of the code: on a slower runner every iteration
+      // lands in its own millisecond and the guard fires — which is what
+      // happened on emulated arm64. Freezing Date.now() makes the condition
+      // hold everywhere, and it is a truer statement of the property anyway:
+      // when the wall clock cannot separate two sends, the high-resolution
+      // clock still must.
+      const frozen = Date.now();
+      const realNow = Date.now;
+      Date.now = () => frozen;
+      try {
+        const queue = new RetransmitQueue();
+        const entries = [];
+        for (let i = 0; i < 50; i++) {
+          queue.add(i, Buffer.from([i & 0xff]));
+          entries.push(queue.get(i));
+        }
 
-      // Enqueue in a tight loop so several land in the same millisecond.
-      const entries = [];
-      for (let i = 0; i < 200; i++) {
-        queue.add(i, Buffer.from([i & 0xff]));
-        entries.push(queue.get(i));
+        // Every entry is in the same wall-clock millisecond by construction,
+        // so the premise cannot silently stop holding.
+        const stamps = new Set(entries.map((e) => e.originalTimestamp));
+        expect(stamps.size).toBe(1);
+
+        // performance.now() is deliberately NOT frozen: it is the clock under
+        // test, and it has to resolve what Date.now() cannot.
+        const distinctHr = new Set(entries.map((e) => e.sentAtHr));
+        expect(distinctHr.size).toBeGreaterThan(1);
+      } finally {
+        Date.now = realNow;
       }
-
-      const sameWallClockMs = entries.filter(
-        (e) => e.originalTimestamp === entries[0].originalTimestamp
-      );
-      // Premise: the loop really is faster than the wall clock ticks. If this
-      // ever stops holding the test proves nothing, so assert it.
-      expect(sameWallClockMs.length).toBeGreaterThan(1);
-
-      // Within that millisecond the wall clock cannot separate the sends, but
-      // the high-resolution clock must.
-      const distinctHr = new Set(sameWallClockMs.map((e) => e.sentAtHr));
-      expect(distinctHr.size).toBeGreaterThan(1);
     });
 
     test("sentAtHr is monotonic across sends", () => {
