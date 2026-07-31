@@ -519,29 +519,18 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         : 0;
     const hasOnlyLocalServerValues = state.isServerMode && !hasFreshRemote;
 
-    // Select a metric value based on data availability:
-    // - hasFreshRemote  → use client-reported telemetry
-    // - server with no fresh remote → no meaningful value (return 0)
-    // - client mode → use locally-measured value
-    function selectMetric(remoteVal: number | undefined, localVal: number | undefined): number {
-      if (hasFreshRemote) {
-        return remoteVal ?? 0;
-      }
-      if (hasOnlyLocalServerValues) {
-        return 0;
-      }
-      return localVal ?? 0;
-    }
-
     /**
-     * As selectMetric, but reports "the peer never sent this" as undefined
-     * rather than 0.
+     * Select a metric value based on data availability:
+     * - hasFreshRemote → use client-reported telemetry
+     * - server with no fresh remote → nothing to report (undefined)
+     * - client mode → use the locally-measured value
      *
-     * Fresh telemetry does not imply every field arrived in it. A client that
-     * reported RTT but not jitter used to render as a hard "0 ms jitter" beside
-     * a real round trip — the peer's silence turned into a confident
-     * measurement of zero, and it looked exactly like a healthy link. Absence
-     * has to stay absent so the UI can say N/A.
+     * Absence stays absent. This used to coalesce every branch to 0, and fresh
+     * telemetry does not imply every field arrived in it: a client that
+     * reported RTT but not jitter rendered as a hard "0 ms jitter" beside a
+     * real round trip — the peer's silence turned into a confident measurement
+     * of zero, and it looked exactly like a healthy link. Reporting undefined
+     * lets the UI say N/A instead.
      */
     function selectOptionalMetric(
       remoteVal: number | undefined,
@@ -565,13 +554,18 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       : "primary";
 
     return {
+      // Every remote-sourced field is optional, for the same reason jitter is:
+      // fresh telemetry does not imply every field arrived in it. A peer that
+      // reports some fields and not others — an older build, or a value the
+      // ingest validator rejected — must not have its silence rendered as a
+      // measured 0 (or a guessed "primary" link).
       rtt: selectOptionalMetric(remote.rtt, metrics.rtt),
       jitter: selectOptionalMetric(remote.jitter, metrics.jitter),
-      packetLoss: hasFreshRemote ? (remote.packetLoss ?? 0) : (metrics.packetLoss ?? 0),
-      retransmissions: selectMetric(remote.retransmissions, metrics.retransmissions),
-      queueDepth: selectMetric(remote.queueDepth, metrics.queueDepth),
-      retransmitRate: selectMetric(remote.retransmitRate, clientRetransmitRate),
-      activeLink: hasFreshRemote ? (remote.activeLink ?? "primary") : localActiveLink,
+      packetLoss: selectOptionalMetric(remote.packetLoss, metrics.packetLoss),
+      retransmissions: selectOptionalMetric(remote.retransmissions, metrics.retransmissions),
+      queueDepth: selectOptionalMetric(remote.queueDepth, metrics.queueDepth),
+      retransmitRate: selectOptionalMetric(remote.retransmitRate, clientRetransmitRate),
+      activeLink: hasFreshRemote ? remote.activeLink : localActiveLink,
       dataSource: hasFreshRemote ? "remote-client" : "local",
       lastUpdate: hasFreshRemote ? remote.lastUpdate : 0,
       // A server measures no latency itself, so its basis is telemetry that
@@ -737,17 +731,21 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         // false-green this gate exists to prevent.
         const qRtt = effectiveNetwork.rtt;
         const qJitter = effectiveNetwork.jitter;
+        const qLoss = effectiveNetwork.packetLoss;
+        const qRtxRate = effectiveNetwork.retransmitRate;
         if (
           publisher &&
           effectiveNetwork.hasQualityBasis &&
           qRtt !== undefined &&
-          qJitter !== undefined
+          qJitter !== undefined &&
+          qLoss !== undefined &&
+          qRtxRate !== undefined
         ) {
           networkData.linkQuality = publisher.calculateLinkQuality({
             rtt: qRtt,
             jitter: qJitter,
-            packetLoss: effectiveNetwork.packetLoss,
-            retransmitRate: effectiveNetwork.retransmitRate
+            packetLoss: qLoss,
+            retransmitRate: qRtxRate
           });
         }
 

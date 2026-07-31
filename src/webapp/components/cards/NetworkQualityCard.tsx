@@ -136,13 +136,17 @@ export function NetworkQualityCard({ metrics }: Props) {
             */}
             <MetricItem
               label="Packet Loss"
-              value={hasLossBasis ? formatRatioPercent(nq.packetLoss ?? 0) : "N/A"}
+              value={
+                hasLossBasis && nq.packetLoss !== undefined
+                  ? formatRatioPercent(nq.packetLoss)
+                  : "N/A"
+              }
               statusClass={
-                !hasLossBasis
+                !hasLossBasis || nq.packetLoss === undefined
                   ? ""
-                  : (nq.packetLoss ?? 0) > 0.1
+                  : nq.packetLoss > 0.1
                     ? "error"
-                    : (nq.packetLoss ?? 0) > 0.03
+                    : nq.packetLoss > 0.03
                       ? "warning"
                       : ""
               }
@@ -155,10 +159,19 @@ export function NetworkQualityCard({ metrics }: Props) {
           <div className="stats-grid">
             <StatItem label="Data Source" value={nq.dataSource || "local"} />
             {nq.activeLink && <StatItem label="Active Link" value={nq.activeLink} />}
+            {/*
+              `?? 0` at the display layer would undo the fix behind these
+              fields. The API now reports "the peer never sent this" as
+              undefined instead of substituting 0, precisely so a silent field
+              stops reading as a measured zero; defaulting here would put the
+              same invented number back on screen, one layer down.
+            */}
             <StatItem
               label="Retransmit Rate"
-              value={formatRatioPercent(nq.retransmitRate ?? 0)}
-              hasError={(nq.retransmitRate ?? 0) > 0.1}
+              value={
+                nq.retransmitRate !== undefined ? formatRatioPercent(nq.retransmitRate) : "N/A"
+              }
+              hasError={nq.retransmitRate !== undefined && nq.retransmitRate > 0.1}
             />
             {nq.lastRemoteUpdate && (
               <StatItem
@@ -170,13 +183,15 @@ export function NetworkQualityCard({ metrics }: Props) {
               <>
                 <StatItem
                   label="Retransmissions"
-                  value={(nq.retransmissions ?? 0).toLocaleString()}
-                  hasError={(nq.retransmissions ?? 0) > 0}
+                  value={
+                    nq.retransmissions !== undefined ? nq.retransmissions.toLocaleString() : "N/A"
+                  }
+                  hasError={nq.retransmissions !== undefined && nq.retransmissions > 0}
                 />
                 <StatItem
                   label="Queue Depth"
-                  value={(nq.queueDepth ?? 0).toLocaleString()}
-                  hasError={(nq.queueDepth ?? 0) > 100}
+                  value={nq.queueDepth !== undefined ? nq.queueDepth.toLocaleString() : "N/A"}
+                  hasError={nq.queueDepth !== undefined && nq.queueDepth > 100}
                 />
               </>
             ) : (

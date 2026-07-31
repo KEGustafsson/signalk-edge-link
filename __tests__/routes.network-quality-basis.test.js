@@ -312,3 +312,136 @@ describe("a peer that reports RTT but not jitter", () => {
     expect(typeof body.networkQuality.linkQuality).toBe("number");
   });
 });
+
+/**
+ * Jitter was not special. Every remote-sourced field went through the same
+ * `?? 0` (and `?? "primary"` for the active link), so a peer that omitted any
+ * of them had its silence rendered as a measurement — a mixed-version rollout,
+ * or a single field the ingest validator rejected, is enough to produce it.
+ * Each field is asserted separately: a shared default hides exactly this.
+ */
+describe("fields the peer never reported stay absent", () => {
+  const OMITTABLE = ["packetLoss", "retransmissions", "queueDepth", "retransmitRate"];
+
+  function remoteWithout(missing) {
+    const full = {
+      rtt: 42,
+      jitter: 6,
+      packetLoss: 0.05,
+      retransmissions: 9,
+      queueDepth: 4,
+      retransmitRate: 0.02,
+      activeLink: "backup",
+      lastUpdate: Date.now()
+    };
+    delete full[missing];
+    return full;
+  }
+
+  test.each(OMITTABLE)("%s reads as absent, never as a measured 0", (field) => {
+    const body = getMetrics(
+      makeBundle({ isServerMode: true, metrics: { remoteNetworkQuality: remoteWithout(field) } })
+    );
+
+    expect(body.networkQuality[field]).toBeUndefined();
+    // The rest of the report still comes through — this is a per-field gap,
+    // not a reason to blank the whole panel.
+    expect(body.networkQuality.rtt).toBe(42);
+    expect(body.networkQuality.jitter).toBe(6);
+  });
+
+  test("an unreported active link is not guessed as 'primary'", () => {
+    const body = getMetrics(
+      makeBundle({
+        isServerMode: true,
+        metrics: { remoteNetworkQuality: remoteWithout("activeLink") }
+      })
+    );
+
+    // "primary" is a real link name. Substituting it tells an operator the
+    // peer is on its primary uplink when the peer said nothing at all — the
+    // single most misleading value this field can take.
+    expect(body.networkQuality.activeLink).toBeUndefined();
+  });
+
+  test("a reported active link is passed through, not overwritten by the local one", () => {
+    const body = getMetrics(
+      makeBundle({
+        isServerMode: true,
+        metrics: { remoteNetworkQuality: remoteWithout("queueDepth") }
+      })
+    );
+
+    expect(body.networkQuality.activeLink).toBe("backup");
+  });
+
+  // linkQuality scores rtt, jitter, packetLoss and retransmitRate together.
+  // Two of those four were previously substituted with 0 when missing, which
+  // can only push the score up — the same false green as the jitter case.
+  test.each(["packetLoss", "retransmitRate"])(
+    "link quality is withheld when %s never arrived",
+    (field) => {
+      const body = getMetrics(
+        makeBundle({ isServerMode: true, metrics: { remoteNetworkQuality: remoteWithout(field) } })
+      );
+
+      expect(body.networkQuality.linkQuality).toBeUndefined();
+    }
+  );
+
+  test("a complete report still scores", () => {
+    const body = getMetrics(
+      makeBundle({
+        isServerMode: true,
+        metrics: { remoteNetworkQuality: remoteWithout("__none__") }
+      })
+    );
+
+    expect(typeof body.networkQuality.linkQuality).toBe("number");
+    expect(body.networkQuality.packetLoss).toBe(0.05);
+    expect(body.networkQuality.retransmissions).toBe(9);
+    expect(body.networkQuality.queueDepth).toBe(4);
+    expect(body.networkQuality.retransmitRate).toBe(0.02);
+  });
+});
+
+/**
+ * The same gap, one layer down: /network-metrics and /prometheus each compute
+ * linkQuality from the same four inputs and must apply the same guard, or a
+ * scrape re-introduces the inflated score the JSON endpoint just stopped
+ * reporting.
+ */
+describe("the other surfaces apply the same guard", () => {
+  function serverMissing(field) {
+    const remote = {
+      rtt: 42,
+      jitter: 6,
+      packetLoss: 0.05,
+      retransmitRate: 0.02,
+      lastUpdate: Date.now()
+    };
+    delete remote[field];
+    return makeBundle({ isServerMode: true, metrics: { remoteNetworkQuality: remote } });
+  }
+
+  test.each(["jitter", "packetLoss", "retransmitRate"])(
+    "/network-metrics withholds link quality when %s never arrived",
+    (field) => {
+      const body = callRoute(serverMissing(field), "/network-metrics");
+      expect(body.linkQuality).toBeUndefined();
+    }
+  );
+
+  test.each(["jitter", "packetLoss", "retransmitRate"])(
+    "/prometheus omits the link-quality series when %s never arrived",
+    (field) => {
+      const text = callRoute(serverMissing(field), "/prometheus");
+      expect(text).not.toMatch(/^signalk_edge_link_link_quality_score/m);
+    }
+  );
+
+  test("/network-metrics reports link quality for a complete report", () => {
+    const body = callRoute(serverMissing("__none__"), "/network-metrics");
+    expect(typeof body.linkQuality).toBe("number");
+  });
+});

@@ -13,11 +13,11 @@ export interface EffectiveNetworkQuality {
    */
   rtt: number | undefined;
   jitter: number | undefined;
-  packetLoss: number;
-  retransmissions: number;
-  queueDepth: number;
-  retransmitRate: number;
-  activeLink: string;
+  packetLoss: number | undefined;
+  retransmissions: number | undefined;
+  queueDepth: number | undefined;
+  retransmitRate: number | undefined;
+  activeLink: string | undefined;
   dataSource: string;
   lastUpdate: number;
   /**

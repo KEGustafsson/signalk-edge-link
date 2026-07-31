@@ -80,17 +80,21 @@ function register(router: Router, ctx: RouteContext): void {
         // Both inputs required — see the identical guard in routes.ts.
         const nmRtt = effectiveNetwork.rtt;
         const nmJitter = effectiveNetwork.jitter;
+        const nmLoss = effectiveNetwork.packetLoss;
+        const nmRtxRate = effectiveNetwork.retransmitRate;
         if (
           nmPublisher &&
           effectiveNetwork.hasQualityBasis &&
           nmRtt !== undefined &&
-          nmJitter !== undefined
+          nmJitter !== undefined &&
+          nmLoss !== undefined &&
+          nmRtxRate !== undefined
         ) {
           networkMetrics.linkQuality = nmPublisher.calculateLinkQuality({
             rtt: nmRtt,
             jitter: nmJitter,
-            packetLoss: effectiveNetwork.packetLoss,
-            retransmitRate: effectiveNetwork.retransmitRate
+            packetLoss: nmLoss,
+            retransmitRate: nmRtxRate
           });
         }
 
@@ -161,17 +165,21 @@ function register(router: Router, ctx: RouteContext): void {
           const promPublisher = getActiveMetricsPublisher(state);
           const promRtt = effectiveNetwork.rtt;
           const promJitter = effectiveNetwork.jitter;
+          const promLoss = effectiveNetwork.packetLoss;
+          const promRtxRate = effectiveNetwork.retransmitRate;
           if (
             promPublisher &&
             effectiveNetwork.hasQualityBasis &&
             promRtt !== undefined &&
-            promJitter !== undefined
+            promJitter !== undefined &&
+            promLoss !== undefined &&
+            promRtxRate !== undefined
           ) {
             extra.linkQuality = promPublisher.calculateLinkQuality({
               rtt: promRtt,
               jitter: promJitter,
-              packetLoss: effectiveNetwork.packetLoss,
-              retransmitRate: effectiveNetwork.retransmitRate
+              packetLoss: promLoss,
+              retransmitRate: promRtxRate
             });
           }
 

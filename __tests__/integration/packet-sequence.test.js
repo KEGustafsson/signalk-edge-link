@@ -104,7 +104,17 @@ describe("Packet + Sequence Integration", () => {
     expect(parsed.flags.encrypted).toBe(true);
   });
 
-  test("simulates realistic packet flow with NAK", async () => {
+  // Fake timers, not a real sleep. With real timers this waited 70ms for a
+  // 50ms NAK timeout — a 20ms margin — and an event-loop stall past 70ms makes
+  // both the NAK timer and the sleep come due in the same timers pass. Node
+  // runs them in expiry order, so the NAK fires and schedules its 0ms
+  // coalescing flush, then the sleep resolves and the assertion runs before
+  // that flush ever does: `losses` is empty and the test fails on a link that
+  // behaved perfectly. Reproduced by blocking the loop across the window; the
+  // sibling suite (__tests__/v2/sequence.test.js) was converted for exactly
+  // this reason and this file was missed.
+  test("simulates realistic packet flow with NAK", () => {
+    jest.useFakeTimers();
     const losses = [];
     const t = new SequenceTracker({
       nakTimeout: 50,
@@ -120,12 +130,20 @@ describe("Packet + Sequence Integration", () => {
       t.processSequence(parsed.sequence);
     }
 
-    // Wait for NAK timeout
-    await new Promise((resolve) => setTimeout(resolve, 70));
+    try {
+      // Past the 50ms NAK timeout...
+      jest.advanceTimersByTime(70);
+      // ...then one more tick for the coalescing flush that batches the
+      // expired sequences into a single onLossDetected call.
+      jest.advanceTimersByTime(1);
 
-    expect(losses).toContain(3);
-    expect(losses).toContain(7);
-    t.reset();
+      expect(losses).toContain(3);
+      expect(losses).toContain(7);
+      t.reset();
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
   });
 
   test("non-DATA packets do not affect sequence tracking", () => {
