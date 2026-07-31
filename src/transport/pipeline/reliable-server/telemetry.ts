@@ -104,13 +104,48 @@ const TELEMETRY_APPLIERS: Record<string, TelemetryApplier> = {
  * recognised telemetry path that was applied. Unrecognised/invalid paths return
  * false so the caller keeps the value as a regular SK tree update.
  */
+const TELEMETRY_PREFIX = "networking.edgeLink.";
+
+/**
+ * Resolve a delta path to a telemetry applier.
+ *
+ * A client configured with more than one connection scopes its publications by
+ * instance — `networking.edgeLink.<instanceId>.rtt` rather than
+ * `networking.edgeLink.rtt` (see the pathPrefix in reliable-client.ts). The
+ * lookup here was an exact match on the unscoped path, so every such client's
+ * telemetry fell through as an ordinary tree update and `remoteNetworkQuality`
+ * was never populated: the receiving server reported no RTT, no jitter and no
+ * link quality forever. Single-connection deployments matched and worked,
+ * which is why this only showed up in proxy setups.
+ *
+ * Exact match is tried first so a nested metric name (`bandwidth.upload`) is
+ * never mistaken for an instance segment.
+ */
+function canonicalTelemetryPath(ctx: ServerContext, path: string): string | undefined {
+  if (ctx.CLIENT_TELEMETRY_PATHS.has(path)) {
+    return path;
+  }
+  if (!path.startsWith(TELEMETRY_PREFIX)) {
+    return undefined;
+  }
+  const rest = path.slice(TELEMETRY_PREFIX.length);
+  const firstDot = rest.indexOf(".");
+  if (firstDot === -1) {
+    return undefined;
+  }
+  // Drop the instance segment and retry against the canonical path.
+  const unscoped = TELEMETRY_PREFIX + rest.slice(firstDot + 1);
+  return ctx.CLIENT_TELEMETRY_PATHS.has(unscoped) ? unscoped : undefined;
+}
+
 function applyTelemetryValue(
   ctx: ServerContext,
   remote: RemoteQuality,
-  entry: DeltaValue
+  canonicalPath: string,
+  value: unknown
 ): boolean {
-  const applier = typeof entry.path === "string" ? TELEMETRY_APPLIERS[entry.path] : undefined;
-  return applier ? applier(remote, ctx.metrics, entry.value) : false;
+  const applier = TELEMETRY_APPLIERS[canonicalPath];
+  return applier ? applier(remote, ctx.metrics, value) : false;
 }
 
 /**
@@ -123,18 +158,23 @@ function processTelemetryUpdateValues(
   remote: RemoteQuality,
   values: DeltaValue[]
 ): { remainingValues: DeltaValue[]; changed: boolean } {
-  const { CLIENT_TELEMETRY_PATHS } = ctx;
   const remainingValues: DeltaValue[] = [];
   let changed = false;
   for (const entry of values) {
-    if (!entry || typeof entry.path !== "string" || !CLIENT_TELEMETRY_PATHS.has(entry.path)) {
+    // Recognition and application must use the SAME normalisation. They did
+    // not have to before, because both were exact matches on the unscoped
+    // path; an instance-scoped client failed this membership test and never
+    // reached the applier at all.
+    const canonicalPath =
+      entry && typeof entry.path === "string" ? canonicalTelemetryPath(ctx, entry.path) : undefined;
+    if (!canonicalPath) {
       remainingValues.push(entry);
       continue;
     }
     // A recognised telemetry path: applied when valid, otherwise dropped
     // silently. Either way it is never forwarded as a regular SK update
     // (it carries the telemetry source label and would confuse consumers).
-    if (applyTelemetryValue(ctx, remote, entry)) {
+    if (applyTelemetryValue(ctx, remote, canonicalPath, entry.value)) {
       changed = true;
     }
   }

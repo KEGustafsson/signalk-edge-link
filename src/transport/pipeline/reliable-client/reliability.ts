@@ -187,7 +187,12 @@ function recordRttSample(ctx: ClientContext, rttSample: number): void {
     const avg = samples.reduce((a: number, b: number) => a + b, 0) / samples.length;
     const variance =
       samples.reduce((sum: number, s: number) => sum + Math.pow(s - avg, 2), 0) / samples.length;
-    metrics.jitter = Math.round(Math.sqrt(variance));
+    // One decimal, not a whole millisecond. Jitter on a healthy link is
+    // routinely sub-millisecond, and Math.round collapsed every such value to
+    // exactly 0 — indistinguishable from "not measured" and reported as a
+    // hard 0 ms by any server ingesting this telemetry. Matches the precision
+    // MetricsPublisher already uses when it emits the value.
+    metrics.jitter = Math.round(Math.sqrt(variance) * 10) / 10;
   }
 }
 

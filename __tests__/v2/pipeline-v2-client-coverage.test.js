@@ -249,6 +249,33 @@ describe("receiveACK – Karn's algorithm", () => {
 
     expect(metricsApi.metrics.rtt).toBeGreaterThan(0);
   });
+
+  // Jitter was Math.round(stddev), so anything under half a millisecond
+  // collapsed to exactly 0. A stable link produces precisely that, and the
+  // published 0 is indistinguishable from "never measured" — a server
+  // ingesting this telemetry reported a hard 0 ms jitter forever.
+  test("sub-millisecond jitter is not rounded away to zero", async () => {
+    jest.useFakeTimers();
+    const { pipeline, metricsApi } = makeClient();
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
+    const parser = new (require("../../lib/packet").PacketParser)({ secretKey: SECRET_KEY });
+    const rinfo = { address: "127.0.0.1", port: 12345 };
+
+    // RTT samples of 40, 40 and 41 ms: stddev ≈ 0.471, which the old
+    // rounding turned into 0.
+    for (const [seq, delay] of [
+      [0, 40],
+      [1, 40],
+      [2, 41]
+    ]) {
+      await pipeline.sendDelta(simpleDelta(), SECRET_KEY, "127.0.0.1", 12345);
+      jest.advanceTimersByTime(delay);
+      pipeline.receiveACK(parser.parseHeader(builder.buildACKPacket(seq)), rinfo);
+    }
+
+    expect(metricsApi.metrics.jitter).toBeGreaterThan(0);
+    expect(metricsApi.metrics.jitter).toBeLessThan(1);
+  });
 });
 
 // ── 5. ACK out-of-order ─────────────────────────────────────────────────────
