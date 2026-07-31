@@ -176,3 +176,40 @@ describe("duplicate server port detection", () => {
     expect(findDuplicatePorts(conns)).toContain(4446);
   });
 });
+
+/**
+ * A reliability setting must be offered only on the side that reads it.
+ *
+ * `maxNakRounds` is receiver-side: the server's sequence tracker consumes it,
+ * and `validateConnectionConfig` accepts it only in server mode. It was
+ * nonetheless listed in the client reliability schema, so the UI offered it on
+ * a client connection where it would save successfully and change nothing —
+ * the operator's only feedback being that the link behaved exactly as before.
+ */
+describe("reliability settings are offered on the side that reads them", () => {
+  const {
+    clientReliabilityProperty,
+    serverReliabilityProperty,
+    buildWebappConnectionSchema
+  } = require("../lib/shared/connection-schema");
+
+  test("maxNakRounds is a server reliability setting", () => {
+    expect(Object.keys(serverReliabilityProperty.properties)).toContain("maxNakRounds");
+  });
+
+  test("maxNakRounds is not offered on client connections", () => {
+    expect(Object.keys(clientReliabilityProperty.properties)).not.toContain("maxNakRounds");
+  });
+
+  test("the webapp client-mode schema does not expose it either", () => {
+    // The property tables above feed the generated form; assert the form the
+    // operator actually sees, not only the fragment it is built from.
+    const clientReliability = buildWebappConnectionSchema(true, 3)?.properties?.reliability;
+    expect(clientReliability?.properties).toBeDefined();
+    expect(Object.keys(clientReliability.properties)).not.toContain("maxNakRounds");
+
+    // And still present where it is read, so the move did not simply hide it.
+    const serverReliability = buildWebappConnectionSchema(false, 3)?.properties?.reliability;
+    expect(Object.keys(serverReliability.properties)).toContain("maxNakRounds");
+  });
+});
