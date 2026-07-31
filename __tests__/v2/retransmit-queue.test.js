@@ -620,4 +620,46 @@ describe("RetransmitQueue", () => {
       expect(queue.get(6)).toBeDefined();
     });
   });
+
+  // RTT sampling reads sentAtHr, not originalTimestamp, and the difference is
+  // the whole point: Date.now() has whole-millisecond resolution, so on a
+  // stable link every RTT sample is the same integer, the variance across them
+  // is exactly 0, and jitter is reported as a hard 0 ms however it is rounded
+  // afterwards. That is what a server ingesting client telemetry was showing.
+  describe("RTT clock resolution", () => {
+    test("sentAtHr distinguishes sends inside a single millisecond", () => {
+      const queue = new RetransmitQueue();
+
+      // Enqueue in a tight loop so several land in the same millisecond.
+      const entries = [];
+      for (let i = 0; i < 200; i++) {
+        queue.add(i, Buffer.from([i & 0xff]));
+        entries.push(queue.get(i));
+      }
+
+      const sameWallClockMs = entries.filter(
+        (e) => e.originalTimestamp === entries[0].originalTimestamp
+      );
+      // Premise: the loop really is faster than the wall clock ticks. If this
+      // ever stops holding the test proves nothing, so assert it.
+      expect(sameWallClockMs.length).toBeGreaterThan(1);
+
+      // Within that millisecond the wall clock cannot separate the sends, but
+      // the high-resolution clock must.
+      const distinctHr = new Set(sameWallClockMs.map((e) => e.sentAtHr));
+      expect(distinctHr.size).toBeGreaterThan(1);
+    });
+
+    test("sentAtHr is monotonic across sends", () => {
+      const queue = new RetransmitQueue();
+      for (let i = 0; i < 50; i++) {
+        queue.add(i, Buffer.from([i & 0xff]));
+      }
+      // Unlike Date.now(), this clock cannot step backwards under an NTP
+      // correction — which would otherwise yield a negative or absurd RTT.
+      for (let i = 1; i < 50; i++) {
+        expect(queue.get(i).sentAtHr).toBeGreaterThanOrEqual(queue.get(i - 1).sentAtHr);
+      }
+    });
+  });
 });

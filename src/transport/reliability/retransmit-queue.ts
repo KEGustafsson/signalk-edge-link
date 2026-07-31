@@ -13,6 +13,18 @@ interface QueueEntry {
   packet: Buffer;
   timestamp: number;
   originalTimestamp: number;
+  /**
+   * Send time on a monotonic, sub-millisecond clock, for RTT sampling only.
+   *
+   * Separate from `originalTimestamp` because the two need different clocks.
+   * The age-based retransmit and eviction logic compares against `Date.now()`
+   * and must keep doing so; RTT cannot use that clock at all. `Date.now()` has
+   * whole-millisecond resolution, so on a stable link every sample comes back
+   * as the same integer, the variance across them is exactly 0, and jitter is
+   * reported as a hard 0 ms no matter how it is rounded afterwards. It is also
+   * not monotonic — an NTP step mid-flight yields a negative or absurd RTT.
+   */
+  sentAtHr: number;
   attempts: number;
 }
 
@@ -68,6 +80,7 @@ export class RetransmitQueue {
       packet: packet,
       timestamp: now,
       originalTimestamp: now,
+      sentAtHr: performance.now(),
       attempts: 0
     });
   }

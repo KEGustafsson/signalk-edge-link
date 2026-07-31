@@ -176,7 +176,9 @@ export function startRecoveryBurstIfNeeded(
 function recordRttSample(ctx: ClientContext, rttSample: number): void {
   const { metricsApi, rttSamples } = ctx;
   const { metrics } = metricsApi;
-  metrics.rtt = rttSample;
+  // Reported to one decimal; the buffer keeps full precision because that is
+  // what the jitter calculation below needs.
+  metrics.rtt = Math.round(rttSample * 10) / 10;
   // Counted so consumers can tell a measured 0 ms from a link that has never
   // been timed at all.
   metrics.rttSamples = (metrics.rttSamples ?? 0) + 1;
@@ -217,7 +219,11 @@ export function receiveACK(
     // algorithm). A retransmitted-packet ACK is ambiguous, so skip it.
     const entry = retransmitQueue.get(ackedSeq);
     if (entry && entry.attempts === 0) {
-      rttSample = Math.max(0, now - entry.originalTimestamp);
+      // Monotonic, sub-millisecond clock — NOT Date.now(). See sentAtHr in
+      // retransmit-queue.ts: whole-millisecond samples on a stable link are
+      // all the same integer, so their variance is exactly 0 and jitter can
+      // only ever be reported as 0 ms.
+      rttSample = Math.max(0, performance.now() - entry.sentAtHr);
     }
 
     if (rttSample !== null) {
