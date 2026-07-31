@@ -199,6 +199,23 @@ describe("epochBoundAuth agreement between peers", () => {
       expect(errors).not.toMatch(/tampered or wrong key/);
     });
 
+    test("a receiver that does NOT require binding reports it the same way", async () => {
+      // The asymmetry that produced the worst message in the field. The
+      // requiring path checks for a missing epoch explicitly; the
+      // interop path used to fall through and verify the tag against a zero
+      // epoch, which can never match — and surfaced as "Control packet
+      // authentication failed (possible stretchAsciiKey or key-format mismatch
+      // between peers)". The keys were fine. Only the handshake was missing.
+      const { client, server } = pair(true, false);
+
+      await expect(sendDataWithoutHello(client, server)).resolves.toBe(false);
+      expect(server.metricsApi.metrics.epochAuthPending).toBeGreaterThan(0);
+
+      const errors = server.app.error.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(errors).not.toMatch(/stretchAsciiKey|key-format mismatch/);
+      expect(errors).not.toMatch(/tampered or wrong key/);
+    });
+
     test("delivery resumes once the HELLO completes", async () => {
       const { client, server } = pair(true, true);
       await sendDataWithoutHello(client, server);

@@ -261,7 +261,22 @@ export class PacketParser {
     if (!require) {
       // Legacy/interop mode: honour the sender's choice. A sender that bound the
       // epoch still needs us to bind the same value, so use it when supplied.
-      return flags.epochBoundAuth ? options.epoch : undefined;
+      if (!flags.epochBoundAuth) {
+        return undefined;
+      }
+      // The sender bound an epoch we do not have — no completed handshake for
+      // this source yet. Falling through with `undefined` (or a 0) verifies the
+      // tag against the wrong value, which cannot match and surfaced as
+      // "Control packet authentication failed (possible stretchAsciiKey or
+      // key-format mismatch between peers)". The keys are fine and nothing is
+      // tampered with; the handshake simply has not happened. Fail with the
+      // same specific error the requiring path uses, so both routes report the
+      // real cause instead of blaming the key.
+      const senderEpoch = options.epoch;
+      if (typeof senderEpoch !== "number" || !Number.isFinite(senderEpoch) || senderEpoch <= 0) {
+        throw new Error("Epoch-bound authentication requires an established peer epoch");
+      }
+      return senderEpoch;
     }
     if (!flags.epochBoundAuth) {
       throw new Error("Epoch-bound authentication required but EPOCH_BOUND_AUTH flag not set");
