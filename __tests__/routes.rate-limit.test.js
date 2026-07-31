@@ -424,7 +424,10 @@ describe("instances management route", () => {
         state: "running",
         readyToSend: true,
         config: expect.objectContaining({ someOption: true }),
-        network: expect.objectContaining({ rtt: 0, dataSource: "local" }),
+        // rtt is ABSENT, not 0, on a client that has never timed an ACK — the
+        // documented contract (docs/api-reference.md) and the only way a
+        // consumer can tell "no data" from a measured 0 ms round trip.
+        network: expect.objectContaining({ rtt: undefined, dataSource: "local" }),
         metrics: expect.objectContaining({ deltasSent: 0, duplicatePackets: 0 }),
         bonding: expect.objectContaining({ enabled: false })
       })
@@ -2095,7 +2098,9 @@ describe("management API token authorization", () => {
         handler(req, res, () => {
           advanced = true;
         });
-        if (!advanced) {break;}
+        if (!advanced) {
+          break;
+        }
       }
 
       expect(res.status).toHaveBeenCalledWith(401);

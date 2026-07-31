@@ -6,8 +6,13 @@
 
 /** Resolved network quality snapshot (merges local and remote-telemetry sources). */
 export interface EffectiveNetworkQuality {
-  rtt: number;
-  jitter: number;
+  /**
+   * Undefined when the figure was never measured OR never reported by the
+   * peer — the two are indistinguishable to a receiver and both must read as
+   * "no data", never as a measured 0.
+   */
+  rtt: number | undefined;
+  jitter: number | undefined;
   packetLoss: number;
   retransmissions: number;
   queueDepth: number;

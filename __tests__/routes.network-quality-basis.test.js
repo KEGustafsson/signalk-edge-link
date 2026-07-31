@@ -260,3 +260,55 @@ describe("prometheus network quality basis", () => {
     expect(text).toMatch(/^signalk_edge_link_link_quality_score\{[^}]*\} \d+/m);
   });
 });
+
+// The user-reported shape: a server sees a real RTT from its client and 0 ms
+// jitter beside it. Two separate defects produced that. The client suppressed
+// everything but RTT from its telemetry when skipOwnData was set, and the
+// receiver turned the resulting silence into a confident measurement of zero.
+describe("a peer that reports RTT but not jitter", () => {
+  function freshRemote(extra) {
+    return {
+      rtt: 42,
+      packetLoss: 0,
+      retransmissions: 0,
+      queueDepth: 0,
+      retransmitRate: 0,
+      activeLink: "primary",
+      lastUpdate: Date.now(),
+      ...extra
+    };
+  }
+
+  test("jitter reads as absent, never as a measured 0", () => {
+    const body = getMetrics(
+      makeBundle({ isServerMode: true, metrics: { remoteNetworkQuality: freshRemote({}) } })
+    );
+
+    expect(body.networkQuality.rtt).toBe(42);
+    // The whole point: silence must not become a number.
+    expect(body.networkQuality.jitter).toBeUndefined();
+  });
+
+  test("link quality is withheld when jitter never arrived", () => {
+    const body = getMetrics(
+      makeBundle({ isServerMode: true, metrics: { remoteNetworkQuality: freshRemote({}) } })
+    );
+
+    // Scoring with a substituted 0 ms jitter inflates the result — the same
+    // false green the measurement-basis gate exists to prevent.
+    expect(body.networkQuality.linkQuality).toBeUndefined();
+  });
+
+  test("a peer that does report jitter is unaffected", () => {
+    const body = getMetrics(
+      makeBundle({
+        isServerMode: true,
+        metrics: { remoteNetworkQuality: freshRemote({ jitter: 3.4 }) }
+      })
+    );
+
+    expect(body.networkQuality.rtt).toBe(42);
+    expect(body.networkQuality.jitter).toBe(3.4);
+    expect(typeof body.networkQuality.linkQuality).toBe("number");
+  });
+});

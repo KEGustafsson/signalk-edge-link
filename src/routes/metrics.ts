@@ -77,10 +77,18 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         const nmPublisher = getActiveMetricsPublisher(state);
-        if (nmPublisher && effectiveNetwork.hasQualityBasis) {
+        // Both inputs required — see the identical guard in routes.ts.
+        const nmRtt = effectiveNetwork.rtt;
+        const nmJitter = effectiveNetwork.jitter;
+        if (
+          nmPublisher &&
+          effectiveNetwork.hasQualityBasis &&
+          nmRtt !== undefined &&
+          nmJitter !== undefined
+        ) {
           networkMetrics.linkQuality = nmPublisher.calculateLinkQuality({
-            rtt: effectiveNetwork.rtt,
-            jitter: effectiveNetwork.jitter,
+            rtt: nmRtt,
+            jitter: nmJitter,
             packetLoss: effectiveNetwork.packetLoss,
             retransmitRate: effectiveNetwork.retransmitRate
           });
@@ -151,10 +159,17 @@ function register(router: Router, ctx: RouteContext): void {
           // never been measured — and a dashboard built on the scrape is
           // exactly where that false green does the most damage.
           const promPublisher = getActiveMetricsPublisher(state);
-          if (promPublisher && effectiveNetwork.hasQualityBasis) {
+          const promRtt = effectiveNetwork.rtt;
+          const promJitter = effectiveNetwork.jitter;
+          if (
+            promPublisher &&
+            effectiveNetwork.hasQualityBasis &&
+            promRtt !== undefined &&
+            promJitter !== undefined
+          ) {
             extra.linkQuality = promPublisher.calculateLinkQuality({
-              rtt: effectiveNetwork.rtt,
-              jitter: effectiveNetwork.jitter,
+              rtt: promRtt,
+              jitter: promJitter,
               packetLoss: effectiveNetwork.packetLoss,
               retransmitRate: effectiveNetwork.retransmitRate
             });

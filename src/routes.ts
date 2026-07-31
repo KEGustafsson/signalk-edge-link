@@ -533,6 +533,29 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       return localVal ?? 0;
     }
 
+    /**
+     * As selectMetric, but reports "the peer never sent this" as undefined
+     * rather than 0.
+     *
+     * Fresh telemetry does not imply every field arrived in it. A client that
+     * reported RTT but not jitter used to render as a hard "0 ms jitter" beside
+     * a real round trip — the peer's silence turned into a confident
+     * measurement of zero, and it looked exactly like a healthy link. Absence
+     * has to stay absent so the UI can say N/A.
+     */
+    function selectOptionalMetric(
+      remoteVal: number | undefined,
+      localVal: number | undefined
+    ): number | undefined {
+      if (hasFreshRemote) {
+        return remoteVal;
+      }
+      if (hasOnlyLocalServerValues) {
+        return undefined;
+      }
+      return localVal;
+    }
+
     const bondingManager =
       state.pipeline && state.pipeline.getBondingManager
         ? state.pipeline.getBondingManager()
@@ -542,8 +565,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       : "primary";
 
     return {
-      rtt: selectMetric(remote.rtt, metrics.rtt),
-      jitter: selectMetric(remote.jitter, metrics.jitter),
+      rtt: selectOptionalMetric(remote.rtt, metrics.rtt),
+      jitter: selectOptionalMetric(remote.jitter, metrics.jitter),
       packetLoss: hasFreshRemote ? (remote.packetLoss ?? 0) : (metrics.packetLoss ?? 0),
       retransmissions: selectMetric(remote.retransmissions, metrics.retransmissions),
       queueDepth: selectMetric(remote.queueDepth, metrics.queueDepth),
@@ -708,10 +731,21 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         }
 
         const publisher = getActiveMetricsPublisher(state);
-        if (publisher && effectiveNetwork.hasQualityBasis) {
+        // Both latency inputs must be present, not just the measurement basis.
+        // A peer can report RTT without jitter; scoring that with a
+        // substituted 0 ms jitter inflates the result, which is the same
+        // false-green this gate exists to prevent.
+        const qRtt = effectiveNetwork.rtt;
+        const qJitter = effectiveNetwork.jitter;
+        if (
+          publisher &&
+          effectiveNetwork.hasQualityBasis &&
+          qRtt !== undefined &&
+          qJitter !== undefined
+        ) {
           networkData.linkQuality = publisher.calculateLinkQuality({
-            rtt: effectiveNetwork.rtt,
-            jitter: effectiveNetwork.jitter,
+            rtt: qRtt,
+            jitter: qJitter,
             packetLoss: effectiveNetwork.packetLoss,
             retransmitRate: effectiveNetwork.retransmitRate
           });

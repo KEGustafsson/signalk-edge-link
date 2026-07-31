@@ -1,9 +1,20 @@
 "use strict";
 
 /**
- * Tests for the client-telemetry block in pipeline-v2-client.ts:
- * RTT must always be sent; the rest of the metrics are suppressed when
- * skipOwnData is true.
+ * Tests for the client-telemetry block in pipeline-v2-client.ts.
+ *
+ * The whole quality set is always sent. skipOwnData used to strip everything
+ * but RTT here, and these tests pinned that as intended behaviour — which is
+ * how it survived: a receiver saw a real round trip from its client and 0 ms
+ * jitter beside it, because the jitter was never sent and the receiver
+ * substituted 0 for a value the peer never reported.
+ *
+ * skipOwnData means "do not forward my Signal K tree's networking.edgeLink.*
+ * paths as ordinary data, so a chain cannot feed its own metrics back around".
+ * This delta is not ordinary data — it is the dedicated, source-labelled link
+ * telemetry the peer needs to report the link at all, and the receiver consumes
+ * it rather than dispatching it into its own tree, so there is no loop to
+ * prevent. RTT was already exempted on exactly that reasoning.
  */
 
 const pipelineUtils = require("../../lib/pipeline-utils");
@@ -146,7 +157,7 @@ describe("client telemetry – RTT is always sent", () => {
     expect(rtt.value).toBe(42);
   });
 
-  test("skipOwnData=true: telemetry contains ONLY RTT", async () => {
+  test("skipOwnData=true still sends the whole quality set, not just RTT", async () => {
     const captured = captureDeltas();
     const { pipeline, metricsApi } = makeClient({
       options: { skipOwnData: true }
@@ -158,9 +169,22 @@ describe("client telemetry – RTT is always sent", () => {
 
     const update = findTelemetryDelta(captured);
     expect(update).not.toBeNull();
-    const paths = update.values.map((v) => v.path);
-    expect(paths).toEqual(["networking.edgeLink.rtt"]);
-    expect(update.values[0].value).toBe(99);
+    const byPath = new Map(update.values.map((v) => [v.path, v.value]));
+
+    // Jitter is the one the user actually saw missing: a server reporting a
+    // real RTT and a hard 0 ms jitter next to it.
+    expect(byPath.get("networking.edgeLink.rtt")).toBe(99);
+    expect(byPath.get("networking.edgeLink.jitter")).toBe(5);
+    // The rest went silent for the same reason and are just as load-bearing.
+    for (const path of [
+      "networking.edgeLink.packetLoss",
+      "networking.edgeLink.retransmissions",
+      "networking.edgeLink.queueDepth",
+      "networking.edgeLink.retransmitRate",
+      "networking.edgeLink.activeLink"
+    ]) {
+      expect(byPath.has(path)).toBe(true);
+    }
   });
 
   test("skipOwnData=true with rtt unmeasured: still emits RTT path with value 0", async () => {
@@ -174,7 +198,8 @@ describe("client telemetry – RTT is always sent", () => {
 
     const update = findTelemetryDelta(captured);
     expect(update).not.toBeNull();
-    expect(update.values).toEqual([{ path: "networking.edgeLink.rtt", value: 0 }]);
+    const rtt = update.values.find((v) => v.path === "networking.edgeLink.rtt");
+    expect(rtt.value).toBe(0);
   });
 
   test("readyToSend=false suppresses telemetry entirely (even RTT)", async () => {

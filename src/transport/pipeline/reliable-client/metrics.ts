@@ -100,21 +100,34 @@ function emitTelemetryDelta(ctx: ClientContext, rates: PeriodRates): void {
     return;
   }
 
-  const rttValues = [{ path: "networking.edgeLink.rtt", value: metrics.rtt || 0 }];
-
-  const extraValues = state.options.skipOwnData
-    ? []
-    : [
-        { path: "networking.edgeLink.jitter", value: metrics.jitter || 0 },
-        { path: "networking.edgeLink.packetLoss", value: rates.packetLoss },
-        { path: "networking.edgeLink.retransmissions", value: metrics.retransmissions || 0 },
-        { path: "networking.edgeLink.queueDepth", value: retransmitQueue.getSize() },
-        { path: "networking.edgeLink.retransmitRate", value: rates.retransmitRate },
-        {
-          path: "networking.edgeLink.activeLink",
-          value: mut.bondingManager ? mut.bondingManager.getActiveLinkName() : "primary"
-        }
-      ];
+  // The full quality set, unconditionally.
+  //
+  // `skipOwnData` used to suppress everything here except RTT, which is why a
+  // server saw a real round trip from its client and 0 ms jitter beside it: the
+  // jitter was never sent, and the receiver substitutes 0 for a value the peer
+  // never reported. The same silence hid packet loss, retransmissions, queue
+  // depth, retransmit rate and the active link.
+  //
+  // That coupling was wrong on its own terms. `skipOwnData` means "do not
+  // forward my Signal K tree's networking.edgeLink.* paths as ordinary data,
+  // so a chain cannot feed its own metrics back around". This delta is not
+  // ordinary data — it is the dedicated, source-labelled link telemetry the
+  // peer needs in order to report the link at all, and since the receiver
+  // consumes it rather than dispatching it into its own tree, forwarding it
+  // creates no loop to prevent. RTT was already exempted on exactly this
+  // reasoning; the reasoning was never specific to RTT.
+  const telemetryValues = [
+    { path: "networking.edgeLink.rtt", value: metrics.rtt || 0 },
+    { path: "networking.edgeLink.jitter", value: metrics.jitter || 0 },
+    { path: "networking.edgeLink.packetLoss", value: rates.packetLoss },
+    { path: "networking.edgeLink.retransmissions", value: metrics.retransmissions || 0 },
+    { path: "networking.edgeLink.queueDepth", value: retransmitQueue.getSize() },
+    { path: "networking.edgeLink.retransmitRate", value: rates.retransmitRate },
+    {
+      path: "networking.edgeLink.activeLink",
+      value: mut.bondingManager ? mut.bondingManager.getActiveLinkName() : "primary"
+    }
+  ];
 
   const telemetryDelta = {
     context: "vessels.self",
@@ -122,7 +135,7 @@ function emitTelemetryDelta(ctx: ClientContext, rates: PeriodRates): void {
       {
         source: { label: ctx.clientTelemetrySource, type: "plugin" },
         timestamp: new Date().toISOString(),
-        values: [...rttValues, ...extraValues]
+        values: telemetryValues
       }
     ]
   };
