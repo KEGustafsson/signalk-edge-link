@@ -95,6 +95,7 @@ export function getOrCreateSession(
     port: rinfo.port,
     sequenceTracker: new SequenceTracker({
       nakTimeout,
+      maxNakRounds: ctx.maxNakRounds,
       onLossDetected: (missing: number[]) => {
         app.debug(`[v2-server] packet loss from ${key}: seqs ${missing.join(", ")}`);
         sendNAK(ctx, missing, { address: rinfo.address, port: rinfo.port });
@@ -170,7 +171,9 @@ export function expireIdleSessions(ctx: ServerContext): void {
 // sequenceTracker is now per-session; kept for backward-compat test access
 export function getFirstSessionTracker(ctx: ServerContext): SequenceTracker {
   const first = ctx.clientSessions.values().next().value;
-  return first ? first.sequenceTracker : new SequenceTracker({ nakTimeout: ctx.nakTimeout });
+  return first
+    ? first.sequenceTracker
+    : new SequenceTracker({ nakTimeout: ctx.nakTimeout, maxNakRounds: ctx.maxNakRounds });
 }
 
 /**

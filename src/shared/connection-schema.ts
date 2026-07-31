@@ -310,6 +310,15 @@ export const clientReliabilityProperty: SchemaFragment = {
       minimum: 1,
       maximum: 20
     },
+    maxNakRounds: {
+      type: "number",
+      title: "Max NAK Rounds",
+      description:
+        "Receiver side: how many times a missing packet is re-requested before the window advances past it. Should exceed the sender's Max Retransmit Attempts, since a lost NAK still consumes a round.",
+      default: 5,
+      minimum: 1,
+      maximum: 25
+    },
     retransmitMaxAge: {
       type: "number",
       title: "Retransmit Max Age (ms)",

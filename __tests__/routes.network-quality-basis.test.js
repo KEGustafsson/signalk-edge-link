@@ -218,6 +218,34 @@ describe("prometheus network quality basis", () => {
     expect(text).toMatch(/^signalk_edge_link_queue_depth\{[^}]*\} 184$/m);
   });
 
+  // /prometheus used to prefer the monitoring trackers when they existed and
+  // fall back to getEffectiveNetworkQuality otherwise, so a scrape and the
+  // dashboard could report different loss figures for the same link at the same
+  // moment — and which one you got depended on whether monitoring was enabled.
+  // An alert built on the scrape then disagreed with the UI on screen.
+  test("scrape reports the same loss and retransmit rate as /metrics", () => {
+    const bundle = makeBundle({
+      isServerMode: false,
+      metrics: { rtt: 30, jitter: 4, rttSamples: 5, packetLoss: 0.02 }
+    });
+    // Trackers present and deliberately disagreeing with the current figures.
+    bundle.state.monitoring = {
+      packetLossTracker: { getSummary: () => ({ overallLossRate: 0.99 }) },
+      retransmissionTracker: { getSummary: () => ({ currentRate: 0.88 }) },
+      alertManager: null
+    };
+
+    const text = callRoute(bundle, "/prometheus");
+    const scraped = /^signalk_edge_link_packet_loss_rate\{[^}]*\} ([0-9.]+)$/m.exec(text);
+    expect(scraped).not.toBeNull();
+
+    const json = getMetrics(bundle);
+    // One number for one concept, whichever surface you read it from.
+    expect(Number(scraped[1])).toBeCloseTo(json.networkQuality.packetLoss, 6);
+    expect(text).not.toMatch(/^signalk_edge_link_packet_loss_rate\{[^}]*\} 0\.99$/m);
+    expect(text).not.toMatch(/^signalk_edge_link_retransmit_rate\{[^}]*\} 0\.88$/m);
+  });
+
   test("emits rtt/jitter/link-quality series once measured", () => {
     const text = callRoute(
       makeBundle({

@@ -140,6 +140,7 @@ export interface ServerContext {
   ackInterval: number;
   ackResendInterval: number;
   nakTimeout: number;
+  maxNakRounds: number;
   SESSION_IDLE_TTL_MS: number;
   MAX_SESSIONS_PER_IP: number;
   META_RESTART_THRESHOLD: number;
@@ -341,6 +342,11 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
   const ackInterval: number = reliabilityConfig.ackInterval ?? 100;
   const ackResendInterval: number = reliabilityConfig.ackResendInterval ?? 1000;
   const nakTimeout: number = reliabilityConfig.nakTimeout || 100;
+  // How many NAKs a missing sequence gets before the receiver gives up and
+  // advances the window. Previously hard-coded to the tracker's own default, so
+  // raising `maxRetransmits` past it silently had no effect: the receiver
+  // abandoned the gap while the sender still had budget to answer it.
+  const maxNakRounds: number = reliabilityConfig.maxNakRounds || 5;
 
   seedServerReliabilityMetrics(metrics);
 
@@ -381,6 +387,7 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
     ackInterval,
     ackResendInterval,
     nakTimeout,
+    maxNakRounds,
     SESSION_IDLE_TTL_MS: 300000,
     MAX_SESSIONS_PER_IP: 5,
     META_RESTART_THRESHOLD: 8,

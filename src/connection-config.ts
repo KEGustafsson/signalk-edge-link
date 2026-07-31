@@ -414,7 +414,10 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
         ? ([
             ["ackInterval", 20, 5000, `${p}reliability.ackInterval`],
             ["ackResendInterval", 100, 10000, `${p}reliability.ackResendInterval`],
-            ["nakTimeout", 20, 5000, `${p}reliability.nakTimeout`]
+            ["nakTimeout", 20, 5000, `${p}reliability.nakTimeout`],
+            // Receiver side, like nakTimeout: it bounds how long this node
+            // keeps re-requesting a gap before advancing past it.
+            ["maxNakRounds", 1, 25, `${p}reliability.maxNakRounds`]
           ] as [string, number, number, string][])
         : ([
             ["retransmitQueueSize", 100, 50000, `${p}reliability.retransmitQueueSize`],

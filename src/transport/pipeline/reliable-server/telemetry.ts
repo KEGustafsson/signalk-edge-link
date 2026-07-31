@@ -221,9 +221,16 @@ function consumeTelemetryUpdate(
   mut.telemetryOwnerLastSeen = now;
 
   const result = processTelemetryUpdateValues(ctx, remote, update.values);
-  const forward =
-    result.remainingValues.length > 0 ? { ...update, values: result.remainingValues } : null;
-  return { changed: result.changed, forward };
+  // This update carries the telemetry source label, so every value in it is the
+  // peer's own link telemetry — including the ones with no applier
+  // (`linkQuality`, `sequenceNumber`, `compressionRatio`). Forwarding those into
+  // the receiver's Signal K tree put the peer's figures on the same paths this
+  // node publishes for itself, separated only by `$source`: two `linkQuality`
+  // values under `networking.edgeLink.*`, one locally computed and one measured
+  // by the other end of the link. Dropping them keeps a node's own tree about
+  // its own link; the peer's numbers remain available through the ingested
+  // fields and the network-quality endpoints.
+  return { changed: result.changed, forward: null };
 }
 
 export function ingestRemoteTelemetry(

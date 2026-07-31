@@ -742,6 +742,56 @@ describe("SequenceTracker", () => {
     //
     // This is deliberate, but it makes give-up timing observable as data loss,
     // which is what made the e2e ARQ delivery test machine-speed dependent.
+    // maxNakRounds was hard-coded to the tracker's own default, so a user who
+    // raised maxRetransmits got a receiver that still gave up after 5 rounds —
+    // abandoning the gap while the sender still had budget to answer it. The
+    // configured value has to reach the tracker for the two budgets to be
+    // tunable against each other at all.
+    test("the configured maxNakRounds reaches the server's sequence tracker", async () => {
+      const createMetrics = require("../../lib/metrics");
+      const { createPipeline } = require("../../lib/pipeline-factory");
+      const { PacketBuilder } = require("../../lib/packet");
+
+      const SECRET = "12345678901234567890123456789012";
+      const naks = [];
+      const state = {
+        options: {
+          secretKey: SECRET,
+          udpPort: 12345,
+          protocolVersion: 3,
+          authenticatedHeaders: false,
+          // Deliberately different from the built-in default of 5.
+          reliability: { nakTimeout: 20, maxNakRounds: 2 }
+        },
+        socketUdp: {
+          send: (buf, _port, _addr, cb) => {
+            naks.push(buf);
+            if (cb) {
+              cb(null);
+            }
+          }
+        },
+        instanceId: null
+      };
+      const metricsApi = createMetrics();
+      const pipeline = createPipeline(
+        2,
+        "server",
+        { debug: () => {}, error: () => {}, handleMessage: () => {} },
+        state,
+        metricsApi
+      );
+
+      // Open a gap: deliver sequence 0, then 2, leaving 1 missing.
+      const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET });
+      const rinfo = { address: "10.4.0.1", port: 4400 };
+      await pipeline.receivePacket(builder.buildHelloPacket({ clientId: "c" }), SECRET, rinfo);
+
+      const tracker = pipeline.getSequenceTracker ? pipeline.getSequenceTracker() : undefined;
+      expect(tracker).toBeDefined();
+      expect(tracker.maxNakRounds).toBe(2);
+    });
+
     test("a retransmit that lands after abandonment is not dispatched again", () => {
       jest.useFakeTimers();
       try {

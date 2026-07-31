@@ -123,23 +123,28 @@ function register(router: Router, ctx: RouteContext): void {
           const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
 
           const extra: Record<string, unknown> = {};
-          if (state.monitoring) {
-            if (state.monitoring.packetLossTracker) {
-              const summary = state.monitoring.packetLossTracker.getSummary();
-              extra.packetLoss = summary.overallLossRate;
-            }
-            if (state.monitoring.retransmissionTracker) {
-              const summary = state.monitoring.retransmissionTracker.getSummary();
-              extra.retransmitRate = summary.currentRate;
-            }
-            if (state.monitoring.alertManager) {
-              const alertState = state.monitoring.alertManager.getState();
-              extra.activeAlerts = alertState.activeAlerts;
-            }
+          if (state.monitoring && state.monitoring.alertManager) {
+            const alertState = state.monitoring.alertManager.getState();
+            extra.activeAlerts = alertState.activeAlerts;
           }
-          if (extra.packetLoss === undefined) {
-            extra.packetLoss = effectiveNetwork.packetLoss;
-          }
+          // One source for loss and retransmit rate, shared with /metrics,
+          // /network-metrics and the web UI.
+          //
+          // This used to prefer the monitoring trackers when they existed and
+          // fall back to getEffectiveNetworkQuality otherwise, so a scrape and
+          // the dashboard could report different numbers for the same link at
+          // the same moment: the trackers measure a bucketed window while
+          // getEffectiveNetworkQuality reports the current figure (remote
+          // telemetry when fresh, local measurement otherwise). Two defensible
+          // definitions, but silently swapped depending on whether monitoring
+          // happened to be enabled — so an alert built on the scrape could
+          // disagree with the UI an operator was looking at.
+          //
+          // The trackers are not lost: they remain the windowed/heatmap view
+          // behind /monitoring/packet-loss and /monitoring/retransmissions,
+          // where the UI labels them for the window they cover.
+          extra.packetLoss = effectiveNetwork.packetLoss;
+          extra.retransmitRate = effectiveNetwork.retransmitRate;
 
           // Same measurement-basis gate as /metrics and /network-metrics.
           // Without it Prometheus scrapes a perfect 100 for a link that has

@@ -104,6 +104,61 @@ describe("telemetry survives the real publish → ingest round trip", () => {
     });
   }
 
+  async function ingestWithApp(values, rinfo) {
+    const dispatched = [];
+    const app = {
+      debug: () => {},
+      error: () => {},
+      handleMessage: (_id, delta) => dispatched.push(delta)
+    };
+    const state = {
+      options: {
+        secretKey: SECRET_KEY,
+        udpPort: 12345,
+        protocolVersion: 3,
+        authenticatedHeaders: false,
+        useMsgpack: false,
+        usePathDictionary: false,
+        reliability: {}
+      },
+      socketUdp: { send: (b, p, a, cb) => cb && cb(null) },
+      instanceId: null
+    };
+    const metricsApi = createMetrics();
+    const pipeline = createPipeline(2, "server", app, state, metricsApi);
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
+    await pipeline.receivePacket(
+      builder.buildHelloPacket({ clientId: "peer", instanceId: "peer" }),
+      SECRET_KEY,
+      rinfo
+    );
+    const b2 = new PacketBuilder({
+      protocolVersion: 3,
+      secretKey: SECRET_KEY,
+      initialSequence: 700
+    });
+    await pipeline.receivePacket(
+      await encrypted(
+        [
+          {
+            context: "vessels.self",
+            updates: [
+              {
+                source: { label: "signalk-edge-link-client-telemetry", type: "plugin" },
+                timestamp: new Date().toISOString(),
+                values
+              }
+            ]
+          }
+        ],
+        b2
+      ),
+      SECRET_KEY,
+      rinfo
+    );
+    return { dispatched, metrics: metricsApi.metrics };
+  }
+
   async function ingest(values, rinfo) {
     const { pipeline, metricsApi } = makeServer();
     const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY });
@@ -184,5 +239,26 @@ describe("telemetry survives the real publish → ingest round trip", () => {
     // A new published metric must be wired into the receiver or listed as
     // deliberately local — not silently dropped on the wire.
     expect(unaccounted).toEqual([]);
+  });
+
+  // The peer's telemetry belongs in remoteNetworkQuality, not in this node's
+  // own Signal K tree. The unconsumed paths used to be forwarded there, which
+  // put the peer's linkQuality on `networking.edgeLink.linkQuality` — the same
+  // path this node publishes for its own link, separated only by $source.
+  test("no telemetry value reaches the receiver's own Signal K tree", async () => {
+    const values = publishedPaths("networking.edgeLink");
+    const { dispatched, metrics } = await ingestWithApp(values, {
+      address: "10.9.0.4",
+      port: 9700
+    });
+
+    // The ingested figures still land — the update was consumed, not lost.
+    expect(metrics.remoteNetworkQuality.rtt).toBe(42);
+
+    const leaked = dispatched
+      .flatMap((d) => (d.updates || []).flatMap((u) => u.values || []))
+      .map((v) => v.path)
+      .filter((p) => typeof p === "string" && p.startsWith("networking.edgeLink"));
+    expect(leaked).toEqual([]);
   });
 });

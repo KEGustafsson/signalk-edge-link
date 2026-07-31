@@ -12,6 +12,7 @@ export interface ReliabilityConfig {
   ackResendInterval?: number;
   /** Idle time after the last received sequence before a NAK is emitted (ms). Default 100. */
   nakTimeout?: number;
+  maxNakRounds?: number;
   /** Maximum number of entries held in the retransmit queue. Default 5000. */
   retransmitQueueSize?: number;
   /** Maximum retransmit attempts per packet before it is dropped. Default 3. */
