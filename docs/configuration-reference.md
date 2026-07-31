@@ -65,12 +65,12 @@ These fields **must not** appear in Advanced/v3 configurations.
 
 Nested under `reliability`:
 
-| Field               | Type    | Default | Range (ms) | Description                                                                                                                                           |
-| ------------------- | ------- | ------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ackInterval`       | integer | `100`   | 20–5000    | How often the server emits a cumulative ACK.                                                                                                          |
-| `ackResendInterval` | integer | `1000`  | 100–10000  | Re-send the last ACK after this interval of silence.                                                                                                  |
-| `nakTimeout`        | integer | `100`   | 20–5000    | Idle delay before sending NAK for a detected gap.                                                                                                     |
-| `maxNakRounds`      | integer | `5`     | 1–25       | Times a missing packet is re-requested before the window advances past it. Keep above the sender's `maxRetransmits` — a lost NAK still costs a round. |
+| Field               | Type    | Default | Range        | Description                                                                                                                                           |
+| ------------------- | ------- | ------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ackInterval`       | integer | `100`   | 20–5000 ms   | How often the server emits a cumulative ACK.                                                                                                          |
+| `ackResendInterval` | integer | `1000`  | 100–10000 ms | Re-send the last ACK after this interval of silence.                                                                                                  |
+| `nakTimeout`        | integer | `100`   | 20–5000 ms   | Idle delay before sending NAK for a detected gap.                                                                                                     |
+| `maxNakRounds`      | integer | `5`     | 1–25 rounds  | Times a missing packet is re-requested before the window advances past it. Keep above the sender's `maxRetransmits` — a lost NAK still costs a round. |
 
 ---
 

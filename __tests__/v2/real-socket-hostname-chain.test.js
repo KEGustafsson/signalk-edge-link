@@ -24,6 +24,7 @@
 const dgram = require("dgram");
 const { createPipelineV2Client } = require("../../lib/pipeline-v2-client");
 const { createPipelineV2Server } = require("../../lib/pipeline-v2-server");
+const { makeMetricsApi } = require("../helpers/metrics-fixture");
 
 const BOAT_TO_PROXY_KEY = "11111111111111111111111111111111";
 const PROXY_TO_CLOUD_KEY = "22222222222222222222222222222222";
@@ -34,57 +35,21 @@ const PEER_HOSTNAME = "localhost";
 
 jest.setTimeout(30000);
 
-function makeMetricsApi() {
-  return {
-    metrics: {
-      startTime: Date.now(),
-      deltasSent: 0,
-      deltasReceived: 0,
-      udpRetries: 0,
-      udpSendErrors: 0,
-      duplicatePackets: 0,
-      rateLimitedPackets: 0,
-      malformedPackets: 0,
-      rejectedControlPackets: 0,
-      rtt: 0,
-      jitter: 0,
-      rttSamples: 0,
-      queueDepth: 0,
-      retransmissions: 0,
-      smartBatching: {
-        avgBytesPerDelta: 0,
-        maxDeltasPerBatch: 0,
-        oversizedPackets: 0,
-        earlySends: 0,
-        timerSends: 0
-      },
-      bandwidth: {
-        packetsOut: 0,
-        packetsIn: 0,
-        bytesOut: 0,
-        bytesIn: 0,
-        bytesOutRaw: 0,
-        bytesInRaw: 0,
-        lastBytesOut: 0,
-        lastBytesIn: 0,
-        lastRateCalcTime: Date.now(),
-        rateOut: 0,
-        rateIn: 0,
-        compressionRatio: 1,
-        history: { toArray: () => [] }
-      }
-    },
-    recordError: jest.fn(),
-    trackPathStats: jest.fn(),
-    updateBandwidthRates: jest.fn()
-  };
-}
-
 function bindSocket() {
   return new Promise((resolve, reject) => {
     const socket = dgram.createSocket("udp4");
-    socket.once("error", reject);
-    socket.bind(0, "127.0.0.1", () => resolve(socket));
+    const onBindError = (err) => reject(err);
+    socket.once("error", onBindError);
+    socket.bind(0, "127.0.0.1", () => {
+      // Hand the socket a permanent error listener. Without one, a socket
+      // error after bind is an unhandled 'error' event, which throws out of
+      // the event loop and fails the run with a stack that names neither the
+      // test nor the socket. Recording it lets a test assert on it instead.
+      socket.off("error", onBindError);
+      socket.socketErrors = [];
+      socket.on("error", (err) => socket.socketErrors.push(err));
+      resolve(socket);
+    });
   });
 }
 

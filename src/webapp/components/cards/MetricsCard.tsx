@@ -24,6 +24,10 @@ export function MetricsCard({ metrics }: Props) {
   const rateLimited = stats.rateLimitedPackets || 0;
   const droppedBatches = stats.droppedDeltaBatches || 0;
   const droppedCount = stats.droppedDeltaCount || 0;
+  // Counted as an error here as well as on its own row: without it the card
+  // could show a red "Rejected Control Packets: 17" and "No errors detected"
+  // in the same view.
+  const rejectedControlPackets = stats.rejectedControlPackets ?? 0;
   const hasErrors =
     stats.udpSendErrors > 0 ||
     stats.compressionErrors > 0 ||
@@ -33,7 +37,8 @@ export function MetricsCard({ metrics }: Props) {
     malformed > 0 ||
     rateLimited > 0 ||
     droppedBatches > 0 ||
-    droppedCount > 0;
+    droppedCount > 0 ||
+    rejectedControlPackets > 0;
 
   return (
     <Card
@@ -133,8 +138,8 @@ export function MetricsCard({ metrics }: Props) {
             // 0 positively rules the cause out rather than leaving it unknown.
             <StatItem
               label="Rejected Control Packets"
-              value={(stats.rejectedControlPackets ?? 0).toLocaleString()}
-              hasError={(stats.rejectedControlPackets ?? 0) > 0}
+              value={rejectedControlPackets.toLocaleString()}
+              hasError={rejectedControlPackets > 0}
             />
           )}
           {!isClient && (stats.duplicatePackets ?? 0) > 0 && (

@@ -787,7 +787,8 @@ describe("SequenceTracker", () => {
       const rinfo = { address: "10.4.0.1", port: 4400 };
       await pipeline.receivePacket(builder.buildHelloPacket({ clientId: "c" }), SECRET, rinfo);
 
-      const tracker = pipeline.getSequenceTracker ? pipeline.getSequenceTracker() : undefined;
+      expect(typeof pipeline.getSequenceTracker).toBe("function");
+      const tracker = pipeline.getSequenceTracker();
       expect(tracker).toBeDefined();
       expect(tracker.maxNakRounds).toBe(2);
     });

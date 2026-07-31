@@ -33,8 +33,14 @@ const FULL_METRICS = {
   sequenceNumber: 9,
   activeLink: "primary",
   compressionRatio: 80,
-  bandwidth: { upload: 1, download: 2 },
-  packetsPerSecond: { sent: 3, received: 4 }
+  // Flat field names, matching what the publisher actually reads. Nested
+  // `bandwidth`/`packetsPerSecond` objects were silently ignored, so the four
+  // paths below were never emitted and the "every metric" claim above was
+  // false for them.
+  uploadBandwidth: 1024,
+  downloadBandwidth: 2048,
+  packetsSentPerSec: 3,
+  packetsReceivedPerSec: 4
 };
 
 function publishedPaths(pathPrefix) {
@@ -49,17 +55,29 @@ function publishedPaths(pathPrefix) {
  *
  * `linkQuality` is recomputed by the receiver from the ingested inputs, so
  * accepting the client's own score would give two disagreeing sources for one
- * number. The other two are informational and the receiver has its own.
+ * number. The rest are informational, and the receiver measures its own side
+ * of each: it counts the bytes and packets it actually received.
  *
  * Listing them explicitly is the point: a newly published path that is neither
  * ingested nor named here fails the test, forcing the decision to be made
  * rather than defaulted.
+ *
+ * Stored unprefixed and joined with the prefix under test, so the exemptions
+ * still apply to an instance-scoped prefix such as
+ * `networking.edgeLink.boat-1`.
  */
-const INTENTIONALLY_NOT_INGESTED = new Set([
-  "networking.edgeLink.linkQuality",
-  "networking.edgeLink.sequenceNumber",
-  "networking.edgeLink.compressionRatio"
-]);
+const INTENTIONALLY_NOT_INGESTED = [
+  "linkQuality",
+  "sequenceNumber",
+  "compressionRatio",
+  "bandwidth.upload",
+  "bandwidth.download",
+  "packetsPerSecond.sent",
+  "packetsPerSecond.received"
+];
+
+const exemptPaths = (prefix) =>
+  new Set(INTENTIONALLY_NOT_INGESTED.map((name) => `${prefix}.${name}`));
 
 // The receiver's path set is module-private, so assert the contract through
 // observable behaviour instead: drive real published values into a real server
@@ -214,7 +232,8 @@ describe("telemetry survives the real publish → ingest round trip", () => {
   }
 
   test("every published path is either ingested or explicitly exempt", async () => {
-    const values = publishedPaths("networking.edgeLink");
+    const prefix = "networking.edgeLink";
+    const values = publishedPaths(prefix);
     const remote = await ingest(values, { address: "10.9.0.3", port: 9600 });
 
     // Fields the accumulator gained from this publish.
@@ -229,12 +248,13 @@ describe("telemetry survives the real publish → ingest round trip", () => {
         ["activeLink", remote.activeLink]
       ]
         .filter(([, v]) => v !== undefined)
-        .map(([k]) => `networking.edgeLink.${k}`)
+        .map(([k]) => `${prefix}.${k}`)
     );
 
+    const exempt = exemptPaths(prefix);
     const unaccounted = values
       .map((v) => v.path)
-      .filter((p) => !ingestedPaths.has(p) && !INTENTIONALLY_NOT_INGESTED.has(p));
+      .filter((p) => !ingestedPaths.has(p) && !exempt.has(p));
 
     // A new published metric must be wired into the receiver or listed as
     // deliberately local — not silently dropped on the wire.

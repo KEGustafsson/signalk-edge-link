@@ -580,12 +580,12 @@ These fields **must not** appear in v3 configurations.
 
 Nested under `reliability`:
 
-| Field               | Type    | Default | Range (ms) | Description                                                                                                                                           |
-| ------------------- | ------- | ------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ackInterval`       | integer | `100`   | 20–5000    | How often the server emits a cumulative ACK.                                                                                                          |
-| `ackResendInterval` | integer | `1000`  | 100–10000  | Re-send the last ACK after this interval of silence.                                                                                                  |
-| `nakTimeout`        | integer | `100`   | 20–5000    | Idle delay before sending NAK for a detected gap.                                                                                                     |
-| `maxNakRounds`      | integer | `5`     | 1–25       | Times a missing packet is re-requested before the window advances past it. Keep above the sender's `maxRetransmits` — a lost NAK still costs a round. |
+| Field               | Type    | Default | Range        | Description                                                                                                                                           |
+| ------------------- | ------- | ------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ackInterval`       | integer | `100`   | 20–5000 ms   | How often the server emits a cumulative ACK.                                                                                                          |
+| `ackResendInterval` | integer | `1000`  | 100–10000 ms | Re-send the last ACK after this interval of silence.                                                                                                  |
+| `nakTimeout`        | integer | `100`   | 20–5000 ms   | Idle delay before sending NAK for a detected gap.                                                                                                     |
+| `maxNakRounds`      | integer | `5`     | 1–25 rounds  | Times a missing packet is re-requested before the window advances past it. Keep above the sender's `maxRetransmits` — a lost NAK still costs a round. |
 
 ### 7.6 Reliability — client mode (v3 only)
 
@@ -1125,22 +1125,45 @@ These counters and gauges appear in `GET /metrics` under `stats` and `bandwidth`
 
 ### 13.2 Reliability metrics (v3 only)
 
-From `GET /metrics` under `networkQuality`:
+These live in two different objects in the `GET /metrics` response.
 
-| Metric                   | Unit  | Description                                                                        |
-| ------------------------ | ----- | ---------------------------------------------------------------------------------- |
-| `acksSent`               | count | ACK packets sent by the server                                                     |
-| `naksSent`               | count | NAK packets sent to request retransmission                                         |
-| `retransmissions`        | count | Data packets retransmitted after a NAK or timeout                                  |
-| `duplicatePackets`       | count | Packets received with a seq number already seen (safely dropped)                   |
-| `dataPacketsReceived`    | count | Total data packets accepted (excludes duplicates)                                  |
-| `packetsAbandoned`       | count | Packets the sender dropped from its retransmit queue (unrecoverable)               |
-| `abandonedSequences`     | count | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable)          |
-| `rejectedControlPackets` | count | ACK/NAK/request packets dropped because the source did not match a configured peer |
+Under `networkQuality`:
+
+| Metric            | Unit  | Description                                       |
+| ----------------- | ----- | ------------------------------------------------- |
+| `acksSent`        | count | ACK packets sent by the server                    |
+| `naksSent`        | count | NAK packets sent to request retransmission        |
+| `retransmissions` | count | Data packets retransmitted after a NAK or timeout |
+
+Under `stats`:
+
+| Metric                      | Unit  | Description                                                                        |
+| --------------------------- | ----- | ---------------------------------------------------------------------------------- |
+| `duplicatePackets`          | count | Packets received with a seq number already seen (safely dropped)                   |
+| `dataPacketsReceived`       | count | Total data packets accepted (excludes duplicates)                                  |
+| `packetsAbandoned`          | count | Packets the sender dropped from its retransmit queue (unrecoverable)               |
+| `abandonedSequences`        | count | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable)          |
+| `rejectedControlPackets`    | count | ACK/NAK/request packets dropped because the source did not match a configured peer |
+| `replayedPackets`           | count | Datagrams the anti-replay guard refused — see below                                |
+| `epochAuthMismatches`       | count | Packets refused because the peers disagree about `epochBoundAuth`                  |
+| `fullStatusCascadeFired`    | count | Times a client instance relayed FULL_STATUS_REQUEST to the servers beside it       |
+| `snapshotReplayDeltas`      | count | Deltas emitted while replaying a values snapshot on request                        |
+| `processDeltaCalls`         | count | Deltas handed to the outbound path (pre-filter, pre-batch)                         |
+| `deltasBufferHighWaterMark` | count | Peak outbound buffer depth reached — the backpressure signal before drops start    |
 
 **Interpretation:**
 
-- `retransmissions / dataPacketsReceived` < 1% is healthy
+- `retransmissions / dataPacketsReceived` < 1% is healthy — the ratio is only
+  meaningful while `dataPacketsReceived` is greater than zero; with a zero
+  denominator report it as N/A rather than 0%
+- `replayedPackets > 0` means the anti-replay guard rejected a datagram: a replay
+  attempt or a peer bug, never routine. This counter is the only external
+  evidence that either occurred
+- `epochAuthMismatches > 0` means this receiver requires `epochBoundAuth` and the
+  sender is not using it, so every DATA packet is refused. It is a configuration
+  mismatch, not an attack — set the same value on both peers
+- `deltasBufferHighWaterMark` climbing toward the buffer cap is the warning that
+  precedes `droppedDeltaBatches` — it rises before any data is lost
 - Rising `naksSent` with low `acksSent` indicates one-way UDP — check bidirectional reachability
 - `duplicatePackets > 0` is normal on unreliable links; duplicates are safely discarded
 - `packetsAbandoned` / `abandonedSequences` above zero mean data was permanently lost, not merely delayed — the window advanced past a gap the sender could no longer fill

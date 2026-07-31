@@ -88,8 +88,6 @@ function canEmitTelemetry(ctx: ClientContext): boolean {
 function emitTelemetryDelta(ctx: ClientContext, rates: PeriodRates): void {
   const { app, state, metricsApi, retransmitQueue, mut } = ctx;
   const { metrics } = metricsApi;
-  // RTT is always published — operators rely on it for link-health visibility
-  // even when skipOwnData suppresses the rest of edge-link's own metrics.
   if (!canEmitTelemetry(ctx) || !state.options) {
     return;
   }
@@ -116,9 +114,21 @@ function emitTelemetryDelta(ctx: ClientContext, rates: PeriodRates): void {
   // consumes it rather than dispatching it into its own tree, forwarding it
   // creates no loop to prevent. RTT was already exempted on exactly this
   // reasoning; the reasoning was never specific to RTT.
+  // rtt and jitter are omitted until an ACK has actually been timed, for the
+  // same reason the receiver reports a field the peer never sent as absent
+  // rather than 0: `metrics.rtt` is seeded to 0, not undefined, so publishing
+  // it unconditionally hands the peer a 0 ms round trip it cannot tell from a
+  // measured one. `rttSamples` exists precisely to make that distinction, and
+  // `publishNetworkQuality` above already gates on it. A measured 0 is still
+  // sent — the gate is on whether a sample exists, not on the value.
+  const measuredRtt = (metrics.rttSamples ?? 0) > 0;
   const telemetryValues = [
-    { path: "networking.edgeLink.rtt", value: metrics.rtt || 0 },
-    { path: "networking.edgeLink.jitter", value: metrics.jitter || 0 },
+    ...(measuredRtt
+      ? [
+          { path: "networking.edgeLink.rtt", value: metrics.rtt ?? 0 },
+          { path: "networking.edgeLink.jitter", value: metrics.jitter ?? 0 }
+        ]
+      : []),
     { path: "networking.edgeLink.packetLoss", value: rates.packetLoss },
     { path: "networking.edgeLink.retransmissions", value: metrics.retransmissions || 0 },
     { path: "networking.edgeLink.queueDepth", value: retransmitQueue.getSize() },

@@ -39,6 +39,12 @@ Returns comprehensive real-time statistics. Available in client and server mode.
     "abandonedSequences": 0,
     "packetsAbandoned": 0,
     "rejectedControlPackets": 0,
+    "replayedPackets": 0,
+    "epochAuthMismatches": 0,
+    "fullStatusCascadeFired": 0,
+    "snapshotReplayDeltas": 0,
+    "processDeltaCalls": 0,
+    "deltasBufferHighWaterMark": 0,
     "suppressedOutboundDuplicates": 0,
     "errorCounts": {}
   },

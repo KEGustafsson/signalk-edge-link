@@ -119,7 +119,7 @@ async function runOnePublishTick(pipeline) {
   pipeline.stopMetricsPublishing();
 }
 
-describe("client telemetry – RTT is always sent", () => {
+describe("client telemetry – the whole quality set is sent", () => {
   beforeEach(() => {
     jest.useFakeTimers();
   });
@@ -135,6 +135,7 @@ describe("client telemetry – RTT is always sent", () => {
     });
     metricsApi.metrics.rtt = 42;
     metricsApi.metrics.jitter = 3;
+    metricsApi.metrics.rttSamples = 6;
     metricsApi.metrics.retransmissions = 7;
 
     await runOnePublishTick(pipeline);
@@ -164,6 +165,7 @@ describe("client telemetry – RTT is always sent", () => {
     });
     metricsApi.metrics.rtt = 99;
     metricsApi.metrics.jitter = 5;
+    metricsApi.metrics.rttSamples = 3;
 
     await runOnePublishTick(pipeline);
 
@@ -187,22 +189,51 @@ describe("client telemetry – RTT is always sent", () => {
     }
   });
 
-  test("skipOwnData=true with rtt unmeasured: still emits RTT path with value 0", async () => {
+  // `metrics.rtt` is seeded to 0, not undefined, so publishing it before any
+  // ACK has been timed hands the peer a 0 ms round trip indistinguishable from
+  // a measured one — and the receiver has no way to tell the difference. The
+  // rest of the quality set is still sent: loss, queue depth and the active
+  // link are real observations from packet one.
+  test("rtt unmeasured: the latency paths are omitted, the rest still sent", async () => {
     const captured = captureDeltas();
     const { pipeline } = makeClient({
       options: { skipOwnData: true }
     });
-    // metrics.rtt left undefined
+    // rttSamples left at 0 — no ACK has been timed.
+
+    await runOnePublishTick(pipeline);
+
+    const update = findTelemetryDelta(captured);
+    expect(update).not.toBeNull();
+    const paths = new Set(update.values.map((v) => v.path));
+    expect(paths.has("networking.edgeLink.rtt")).toBe(false);
+    expect(paths.has("networking.edgeLink.jitter")).toBe(false);
+    expect(paths.has("networking.edgeLink.packetLoss")).toBe(true);
+    expect(paths.has("networking.edgeLink.queueDepth")).toBe(true);
+    expect(paths.has("networking.edgeLink.activeLink")).toBe(true);
+  });
+
+  // The gate is on whether a sample exists, not on the value: a link that
+  // genuinely round-trips in under half a millisecond must still report it.
+  test("a measured 0 ms round trip is still published", async () => {
+    const captured = captureDeltas();
+    const { pipeline, metricsApi } = makeClient({
+      options: { skipOwnData: true }
+    });
+    metricsApi.metrics.rtt = 0;
+    metricsApi.metrics.jitter = 0;
+    metricsApi.metrics.rttSamples = 4;
 
     await runOnePublishTick(pipeline);
 
     const update = findTelemetryDelta(captured);
     expect(update).not.toBeNull();
     const rtt = update.values.find((v) => v.path === "networking.edgeLink.rtt");
+    expect(rtt).toBeDefined();
     expect(rtt.value).toBe(0);
   });
 
-  test("readyToSend=false suppresses telemetry entirely (even RTT)", async () => {
+  test("readyToSend=false suppresses telemetry entirely", async () => {
     const captured = captureDeltas();
     const { pipeline, metricsApi } = makeClient({
       readyToSend: false,

@@ -99,10 +99,9 @@ export interface MonitoringData {
     activeAlerts: Record<string, string | { level: string; value?: unknown }>;
   };
   // These mirror GET /monitoring/packet-loss and /monitoring/retransmissions
-  // verbatim. They previously named fields no producer emitted — `lossRate`
-  // for `overallLossRate`, and the retransmission counters hoisted out of
-  // `summary` — and because every field is optional TypeScript could not catch
-  // it: each read produced `undefined`, which the card rendered as 0.
+  // verbatim: the counters live under `summary`, not at the top level. Since
+  // every field is optional, a name that drifts from the producer type-checks
+  // and resolves to undefined at runtime.
   packetLoss?: {
     summary?: {
       overallLossRate?: number;

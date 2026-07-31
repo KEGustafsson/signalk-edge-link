@@ -310,15 +310,6 @@ export const clientReliabilityProperty: SchemaFragment = {
       minimum: 1,
       maximum: 20
     },
-    maxNakRounds: {
-      type: "number",
-      title: "Max NAK Rounds",
-      description:
-        "Receiver side: how many times a missing packet is re-requested before the window advances past it. Should exceed the sender's Max Retransmit Attempts, since a lost NAK still consumes a round.",
-      default: 5,
-      minimum: 1,
-      maximum: 25
-    },
     retransmitMaxAge: {
       type: "number",
       title: "Retransmit Max Age (ms)",
@@ -436,6 +427,19 @@ export const serverReliabilityProperty: SchemaFragment = {
       default: 100,
       minimum: 20,
       maximum: 5000
+    },
+    // Receiver-side, so it belongs beside the other ACK/NAK timings. Offering
+    // it on client connections let an operator set a value that
+    // validateConnectionConfig only accepts in server mode and that no client
+    // code path reads — a setting that appeared to save and did nothing.
+    maxNakRounds: {
+      type: "number",
+      title: "Max NAK Rounds",
+      description:
+        "Receiver side: how many times a missing packet is re-requested before the window advances past it. Should exceed the sender's Max Retransmit Attempts, since a lost NAK still consumes a round.",
+      default: 5,
+      minimum: 1,
+      maximum: 25
     }
   }
 };

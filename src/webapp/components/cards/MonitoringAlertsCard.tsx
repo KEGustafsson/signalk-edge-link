@@ -25,11 +25,10 @@ export function MonitoringAlertsCard({ data }: Props) {
   if (!data) return null;
   const hasData = data.alerts || data.packetLoss || data.retransmissions;
   if (!hasData) return null;
-  // Field names here must track the trackers' getSummary() output exactly.
-  // They did not: `lossRate` (producer: `overallLossRate`) and both
-  // retransmission counters read straight off the response instead of its
-  // `summary`, so all five resolved to undefined and numberOrZero rendered a
-  // permanent 0 — a stalled panel rather than a visibly broken one.
+  // Every field below is read from the tracker's `summary` object and must
+  // match the name getSummary() emits. A mismatch resolves to undefined, which
+  // numberOrZero renders as 0 — a stalled panel rather than a visibly broken
+  // one, and TypeScript cannot catch it because the fields are optional.
   const packetLossSummary = data.packetLoss?.summary;
   const retransmitSummary = data.retransmissions?.summary;
   const totalLost = numberOrZero(packetLossSummary?.totalLost);

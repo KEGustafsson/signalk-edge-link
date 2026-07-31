@@ -24,53 +24,10 @@
 
 const { createPipelineV2Client } = require("../../lib/pipeline-v2-client");
 const { createPipelineV2Server } = require("../../lib/pipeline-v2-server");
+const { makeMetricsApi } = require("../helpers/metrics-fixture");
 
 const BOAT_TO_PROXY_KEY = "11111111111111111111111111111111";
 const PROXY_TO_CLOUD_KEY = "22222222222222222222222222222222";
-
-function makeMetricsApi() {
-  return {
-    metrics: {
-      startTime: Date.now(),
-      deltasSent: 0,
-      deltasReceived: 0,
-      udpRetries: 0,
-      udpSendErrors: 0,
-      duplicatePackets: 0,
-      rateLimitedPackets: 0,
-      malformedPackets: 0,
-      rtt: 0,
-      jitter: 0,
-      queueDepth: 0,
-      retransmissions: 0,
-      smartBatching: {
-        avgBytesPerDelta: 0,
-        maxDeltasPerBatch: 0,
-        oversizedPackets: 0,
-        earlySends: 0,
-        timerSends: 0
-      },
-      bandwidth: {
-        packetsOut: 0,
-        packetsIn: 0,
-        bytesOut: 0,
-        bytesIn: 0,
-        bytesOutRaw: 0,
-        bytesInRaw: 0,
-        lastBytesOut: 0,
-        lastBytesIn: 0,
-        lastRateCalcTime: Date.now(),
-        rateOut: 0,
-        rateIn: 0,
-        compressionRatio: 1,
-        history: { toArray: () => [] }
-      }
-    },
-    recordError: jest.fn(),
-    trackPathStats: jest.fn(),
-    updateBandwidthRates: jest.fn()
-  };
-}
 
 function makeClient(instanceId, key, port, options) {
   const wire = [];
@@ -101,6 +58,18 @@ function makeClient(instanceId, key, port, options) {
   return { wire, app, pipeline: createPipelineV2Client(app, state, makeMetricsApi()) };
 }
 
+// Every server pipeline this file creates, so none is left holding a timer.
+// `nakTimeout: 10` means receivePacket can arm a NAK (and its coalescing
+// flush) that outlives the test: jest then reports a worker that failed to
+// exit, and a late callback touches state belonging to a finished test.
+const activePipelines = [];
+
+afterEach(() => {
+  for (const pipeline of activePipelines.splice(0)) {
+    pipeline.stop();
+  }
+});
+
 function makeServer(instanceId, key, port, options) {
   const app = { debug: jest.fn(), error: jest.fn(), handleMessage: jest.fn() };
   const state = {
@@ -116,7 +85,9 @@ function makeServer(instanceId, key, port, options) {
     },
     socketUdp: { send: jest.fn((_p, _port, _addr, cb) => cb && cb(null)) }
   };
-  return { app, pipeline: createPipelineV2Server(app, state, makeMetricsApi()) };
+  const pipeline = createPipelineV2Server(app, state, makeMetricsApi());
+  activePipelines.push(pipeline);
+  return { app, pipeline };
 }
 
 /** Deltas the node dispatched into its Signal K tree. */

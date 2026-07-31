@@ -95,7 +95,10 @@ function callRoute(bundle, path) {
 
 function makeBundle(isServerMode) {
   const metricsApi = createMetrics();
-  const publisher = new MetricsPublisher({ pathPrefix: "x" }, {}, {});
+  const publisher = new MetricsPublisher(
+    { handleMessage: () => {}, debug: () => {} },
+    { pathPrefix: "x" }
+  );
   const pipeline = { getMetricsPublisher: () => publisher };
   return {
     id: "test",
@@ -144,8 +147,15 @@ describe("metrics counter reachability", () => {
         String(callRoute(bundle, "/prometheus") ?? "")
       ].join("\n");
 
+      // Anchored on non-digit boundaries. A bare substring match lets one
+      // sentinel be satisfied by a longer number that merely contains it — a
+      // derived figure, or a Prometheus label — so the sweep would report a
+      // counter as reachable when no endpoint exposes it, which is precisely
+      // the defect this test exists to catch.
       const unreachable = names.filter(
-        (name) => !INTERNAL_ONLY.has(name) && !haystack.includes(String(sentinelOf.get(name)))
+        (name) =>
+          !INTERNAL_ONLY.has(name) &&
+          !new RegExp(`(?<!\\d)${sentinelOf.get(name)}(?!\\d)`).test(haystack)
       );
 
       // A counter that no endpoint returns cannot be used to diagnose

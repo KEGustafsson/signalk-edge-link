@@ -68,7 +68,10 @@ function findHandler(router, method, path) {
 function makeBundle({ isServerMode, metrics: overrides = {} }) {
   const metricsApi = createMetrics();
   Object.assign(metricsApi.metrics, overrides);
-  const publisher = new MetricsPublisher({ pathPrefix: "x" }, {}, {});
+  const publisher = new MetricsPublisher(
+    { handleMessage: () => {}, debug: () => {} },
+    { pathPrefix: "x" }
+  );
   const pipeline = { getMetricsPublisher: () => publisher };
   return {
     id: "test",
@@ -175,7 +178,10 @@ describe("network quality measurement basis", () => {
   // measured one. This is what made the bug invisible — 100 looked like a
   // healthy reading rather than a missing one.
   test("all-zero inputs score higher than a genuinely good link", () => {
-    const publisher = new MetricsPublisher({ pathPrefix: "x" }, {}, {});
+    const publisher = new MetricsPublisher(
+      { handleMessage: () => {}, debug: () => {} },
+      { pathPrefix: "x" }
+    );
 
     const unmeasured = publisher.calculateLinkQuality({
       rtt: 0,
@@ -244,6 +250,23 @@ describe("prometheus network quality basis", () => {
     expect(Number(scraped[1])).toBeCloseTo(json.networkQuality.packetLoss, 6);
     expect(text).not.toMatch(/^signalk_edge_link_packet_loss_rate\{[^}]*\} 0\.99$/m);
     expect(text).not.toMatch(/^signalk_edge_link_retransmit_rate\{[^}]*\} 0\.88$/m);
+  });
+
+  // The client case above still resolves packetLoss from a local value. A
+  // server with no fresh telemetry resolves it to undefined, and
+  // /prometheus passes that straight into `extra` — whether the series is
+  // then omitted or emitted as 0 is decided by formatPrometheusMetrics, and
+  // nothing else pins it. A regression there puts a confident "0% loss" back
+  // on a link that has reported nothing.
+  test("omits loss and retransmit-rate series for a server with no telemetry", () => {
+    const text = callRoute(
+      makeBundle({ isServerMode: true, metrics: { rtt: 0, jitter: 0 } }),
+      "/prometheus"
+    );
+
+    expect(text).not.toMatch(/^signalk_edge_link_packet_loss_rate/m);
+    expect(text).not.toMatch(/^signalk_edge_link_retransmit_rate/m);
+    expect(text).not.toMatch(/^signalk_edge_link_link_quality_score/m);
   });
 
   test("emits rtt/jitter/link-quality series once measured", () => {

@@ -580,6 +580,41 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
   }
 
   /**
+   * The single eligibility rule for a link-quality score, shared by /metrics,
+   * /network-metrics and /prometheus.
+   *
+   * All four scoring inputs must be real. A peer can report RTT without
+   * jitter, or loss without a retransmit rate; every missing input would be
+   * substituted with 0, and 0 can only push the score up — the same false
+   * green the measurement-basis gate exists to prevent.
+   *
+   * It lives here, in one place, because these three surfaces have already
+   * disagreed with each other once: a scrape and the dashboard reported
+   * different figures for the same link at the same moment. Three copies of
+   * the rule means the next change to the required inputs has to be made
+   * three times, and the surface that gets missed is the one that reports an
+   * inflated score.
+   */
+  function computeLinkQuality(
+    state: InstanceState,
+    effectiveNetwork: EffectiveNetworkQuality
+  ): number | undefined {
+    const publisher = getActiveMetricsPublisher(state);
+    const { rtt, jitter, packetLoss, retransmitRate } = effectiveNetwork;
+    if (
+      !publisher ||
+      !effectiveNetwork.hasQualityBasis ||
+      rtt === undefined ||
+      jitter === undefined ||
+      packetLoss === undefined ||
+      retransmitRate === undefined
+    ) {
+      return undefined;
+    }
+    return publisher.calculateLinkQuality({ rtt, jitter, packetLoss, retransmitRate });
+  }
+
+  /**
    * Build the full metrics response object for a given bundle.
    * Shared by GET /metrics and GET /connections/:id/metrics.
    */
@@ -638,6 +673,11 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         // hardened actually doing something. A non-zero value is either an
         // attack or a peer bug, and neither was visible.
         replayedPackets: metrics.replayedPackets || 0,
+        // Non-zero means the peers disagree about `epochBoundAuth`: this side
+        // requires it and the sender is not using it, so every packet is
+        // refused. Its own counter because the failure is a configuration
+        // mismatch, not the tampering the generic auth error implies.
+        epochAuthMismatches: metrics.epochAuthMismatches || 0,
         // Fires when a client-mode instance forwards FULL_STATUS_REQUEST to the
         // server instances beside it — the proxy cascade. In a chain this is
         // how you tell a mid-node is relaying rather than terminating.
@@ -724,29 +764,9 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
           networkData.lastRemoteUpdate = effectiveNetwork.lastUpdate;
         }
 
-        const publisher = getActiveMetricsPublisher(state);
-        // Both latency inputs must be present, not just the measurement basis.
-        // A peer can report RTT without jitter; scoring that with a
-        // substituted 0 ms jitter inflates the result, which is the same
-        // false-green this gate exists to prevent.
-        const qRtt = effectiveNetwork.rtt;
-        const qJitter = effectiveNetwork.jitter;
-        const qLoss = effectiveNetwork.packetLoss;
-        const qRtxRate = effectiveNetwork.retransmitRate;
-        if (
-          publisher &&
-          effectiveNetwork.hasQualityBasis &&
-          qRtt !== undefined &&
-          qJitter !== undefined &&
-          qLoss !== undefined &&
-          qRtxRate !== undefined
-        ) {
-          networkData.linkQuality = publisher.calculateLinkQuality({
-            rtt: qRtt,
-            jitter: qJitter,
-            packetLoss: qLoss,
-            retransmitRate: qRtxRate
-          });
+        const linkQuality = computeLinkQuality(state, effectiveNetwork);
+        if (linkQuality !== undefined) {
+          networkData.linkQuality = linkQuality;
         }
 
         return networkData;
@@ -882,6 +902,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       saveConfigFile,
       getActiveMetricsPublisher,
       getEffectiveNetworkQuality,
+      computeLinkQuality,
       buildFullMetricsResponse,
       getManagementAuthSnapshot,
       isManagementAuthEnabled: () => getManagementToken() !== null,

@@ -154,8 +154,10 @@ export interface ServerContext {
   /** Per-peer anti-replay guards, keyed by `address:port`. Outlives sessions. */
   replayGuards: Map<string, ReplayGuard>;
   /**
-   * Source addresses that have completed at least one epoch handshake, keyed by
-   * address (no port). Lets DATA arriving on an unknown port of a known peer
+   * Source addresses that have completed at least one authenticated HELLO
+   * handshake, keyed by address (no port). A pre-H3 peer advertises no epoch
+   * and is still recorded here — the marker is about handshake completion, not
+   * about epoch capability. Lets DATA arriving on an unknown port of a known peer
    * address fail closed instead of minting a fresh, unenforced guard — see
    * {@link handshakedPeerAddress}. LRU-bounded like {@link replayGuards}.
    */

@@ -43,7 +43,7 @@ describe("MonitoringAlertsCard", () => {
     const {
       PacketLossTracker,
       RetransmissionTracker
-    } = require("../../../../lib/domain/monitoring");
+    } = require("../../../../src/domain/monitoring");
 
     jest.useFakeTimers();
     let data;
@@ -68,6 +68,12 @@ describe("MonitoringAlertsCard", () => {
     } finally {
       jest.useRealTimers();
     }
+
+    // Name the tracker as the cause when it produces nothing. Without this the
+    // failure surfaces as "Unable to find an element with the text: Packet
+    // Loss", which points at the card rather than at its input.
+    expect(data.packetLoss?.summary).toMatchObject({ totalLost: 8, totalExpected: 100 });
+    expect(data.retransmissions?.summary).toMatchObject({ totalRetransmissions: 30 });
 
     render(<MonitoringAlertsCard data={data} />);
 

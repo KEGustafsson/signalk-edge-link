@@ -191,7 +191,7 @@ describe("MetricsPublisher", () => {
       expect(metric.value).toBe(0.97);
     });
 
-    test("always publishes linkQuality", () => {
+    test("publishes linkQuality when RTT is measured", () => {
       publisher.publish({ rtt: 50 });
 
       const values = publishedMessages[0].updates[0].values;

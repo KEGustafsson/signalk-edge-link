@@ -81,6 +81,7 @@ function buildReliabilityMetrics() {
     duplicatePackets: 0,
     dataPacketsReceived: 0,
     replayedPackets: 0,
+    epochAuthMismatches: 0,
     rateLimitedPackets: 0,
     droppedDeltaBatches: 0,
     droppedDeltaCount: 0,

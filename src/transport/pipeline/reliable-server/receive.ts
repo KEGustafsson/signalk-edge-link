@@ -262,6 +262,19 @@ function reportReceiveError(ctx: ServerContext, error: unknown): void {
       : "";
     app.error(`v2 decryption/authentication failed${hint}: ${msg}`);
     recordError("encryption", `v2 decryption/authentication failed${hint}`);
+  } else if (msg.includes("Epoch-bound authentication")) {
+    // A configuration mismatch, NOT an attack and NOT a key problem. The
+    // generic branch below reported it as "packet tampered or wrong key",
+    // which sends an operator hunting for a key mismatch that does not exist:
+    // the keys are fine, the peers simply disagree about `epochBoundAuth`.
+    // The parser's own message names which half is missing, so it is kept.
+    metrics.epochAuthMismatches = (metrics.epochAuthMismatches || 0) + 1;
+    app.error(
+      `v2 epoch-bound authentication mismatch: ${msg}. ` +
+        "This receiver requires epochBoundAuth; the sender is not using it. " +
+        "Both peers must set the same epochBoundAuth value."
+    );
+    recordError("encryption", "v2 epoch-bound authentication mismatch (peer configuration)");
   } else if (msg.includes("Unsupported state") || msg.includes("auth")) {
     app.error("v2 authentication failed: packet tampered or wrong key");
     recordError("encryption", "v2 authentication failed");

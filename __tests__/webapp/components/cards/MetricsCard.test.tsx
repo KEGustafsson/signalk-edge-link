@@ -78,7 +78,25 @@ describe("MetricsCard", () => {
       stats: { ...baseMetrics.stats, rejectedControlPackets: 17 }
     };
     render(<MetricsCard metrics={rejecting} />);
-    expect(screen.getByText("17")).toBeInTheDocument();
+
+    // The count alone proves only that a number rendered. The behaviour under
+    // test is the error flag StatItem receives.
+    const row = screen.getByText(/Rejected Control Packets/).closest(".stat-item");
+    expect(row).not.toBeNull();
+    expect(row).toHaveTextContent("17");
+    expect(row?.className).toContain("error");
+  });
+
+  // The counter has to feed the card's overall verdict too, or the card shows
+  // a red "Rejected Control Packets: 17" and "No errors detected" side by side.
+  test("a non-zero count suppresses the no-errors message", () => {
+    const rejecting: MetricsData = {
+      ...baseMetrics,
+      stats: { ...baseMetrics.stats, rejectedControlPackets: 17 }
+    };
+    render(<MetricsCard metrics={rejecting} />);
+
+    expect(screen.queryByText(/No errors detected/i)).not.toBeInTheDocument();
   });
 
   test("shows recent errors list", () => {

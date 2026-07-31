@@ -96,6 +96,27 @@ DATA and METADATA packet fails authentication. It also requires
 `protocolVersion: 3`. Upgrade one end, then the other, then enable the flag on
 both. Wire cost: zero — the tag length is unchanged.
 
+**The mismatch is asymmetric, so a half-applied setting fails in two different
+ways.** Enforcement lives in the _receiver_:
+
+| Sender | Receiver | Result                                                                                                                             |
+| ------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| off    | off      | Works. No epoch binding.                                                                                                           |
+| on     | on       | Works. Fully protected.                                                                                                            |
+| on     | off      | Works, but **unprotected** — the receiver still accepts unbound packets from anyone. Enabling it on the sender alone buys nothing. |
+| off    | on       | **Link carries nothing.** The receiver refuses every DATA and METADATA packet.                                                     |
+
+Note the third row: this is why "both ends" is not merely a compatibility note.
+A receiver that does not require binding will happily verify a sender that does,
+so the link keeps working and looks configured — while providing none of the
+protection the setting was enabled for. The receiver is the end that matters.
+
+The fourth row is counted as `stats.epochAuthMismatches` and logged as an
+explicit configuration mismatch naming `epochBoundAuth`. It is deliberately not
+reported as an authentication failure: the keys are fine and nothing was
+tampered with, and a generic "packet tampered or wrong key" sends an operator
+hunting for a key problem that does not exist.
+
 ---
 
 ## Security Properties

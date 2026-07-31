@@ -16,7 +16,7 @@ function register(router: Router, ctx: RouteContext): void {
     instanceRegistry,
     getFirstBundle,
     getEffectiveNetworkQuality,
-    getActiveMetricsPublisher,
+    computeLinkQuality,
     buildFullMetricsResponse,
     getManagementAuthSnapshot,
     isManagementAuthEnabled,
@@ -76,26 +76,9 @@ function register(router: Router, ctx: RouteContext): void {
           networkMetrics.lastRemoteUpdate = effectiveNetwork.lastUpdate;
         }
 
-        const nmPublisher = getActiveMetricsPublisher(state);
-        // Both inputs required — see the identical guard in routes.ts.
-        const nmRtt = effectiveNetwork.rtt;
-        const nmJitter = effectiveNetwork.jitter;
-        const nmLoss = effectiveNetwork.packetLoss;
-        const nmRtxRate = effectiveNetwork.retransmitRate;
-        if (
-          nmPublisher &&
-          effectiveNetwork.hasQualityBasis &&
-          nmRtt !== undefined &&
-          nmJitter !== undefined &&
-          nmLoss !== undefined &&
-          nmRtxRate !== undefined
-        ) {
-          networkMetrics.linkQuality = nmPublisher.calculateLinkQuality({
-            rtt: nmRtt,
-            jitter: nmJitter,
-            packetLoss: nmLoss,
-            retransmitRate: nmRtxRate
-          });
+        const nmLinkQuality = computeLinkQuality(state, effectiveNetwork);
+        if (nmLinkQuality !== undefined) {
+          networkMetrics.linkQuality = nmLinkQuality;
         }
 
         res.json(networkMetrics);
@@ -162,25 +145,9 @@ function register(router: Router, ctx: RouteContext): void {
           // Without it Prometheus scrapes a perfect 100 for a link that has
           // never been measured — and a dashboard built on the scrape is
           // exactly where that false green does the most damage.
-          const promPublisher = getActiveMetricsPublisher(state);
-          const promRtt = effectiveNetwork.rtt;
-          const promJitter = effectiveNetwork.jitter;
-          const promLoss = effectiveNetwork.packetLoss;
-          const promRtxRate = effectiveNetwork.retransmitRate;
-          if (
-            promPublisher &&
-            effectiveNetwork.hasQualityBasis &&
-            promRtt !== undefined &&
-            promJitter !== undefined &&
-            promLoss !== undefined &&
-            promRtxRate !== undefined
-          ) {
-            extra.linkQuality = promPublisher.calculateLinkQuality({
-              rtt: promRtt,
-              jitter: promJitter,
-              packetLoss: promLoss,
-              retransmitRate: promRtxRate
-            });
+          const promLinkQuality = computeLinkQuality(state, effectiveNetwork);
+          if (promLinkQuality !== undefined) {
+            extra.linkQuality = promLinkQuality;
           }
 
           if (state.pipeline && state.pipeline.getBondingManager) {

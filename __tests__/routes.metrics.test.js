@@ -60,7 +60,7 @@ function makeCtx(overrides = {}) {
     queueDepth: 0,
     bandwidth: { packetsOut: 100 }
   };
-  return {
+  const ctx = {
     rateLimitMiddleware: (req, res, next) => next(),
     managementAuthMiddleware: () => (req, res, next) => next(),
     instanceRegistry: { getAll: () => [] },
@@ -93,6 +93,28 @@ function makeCtx(overrides = {}) {
     // Expose a default metrics object for bundle construction
     _defaultMetrics: defaultMetrics
   };
+
+  // Attached after the overrides are merged so it reads whichever publisher
+  // and quality stub a given test supplied. This mirrors the real helper in
+  // routes.ts rather than re-stating the gate: tests that override the
+  // publisher or hasQualityBasis then exercise the same rule production uses.
+  ctx.computeLinkQuality = (state, effectiveNetwork) => {
+    const publisher = ctx.getActiveMetricsPublisher(state);
+    const { rtt, jitter, packetLoss, retransmitRate } = effectiveNetwork;
+    if (
+      !publisher ||
+      !effectiveNetwork.hasQualityBasis ||
+      rtt === undefined ||
+      jitter === undefined ||
+      packetLoss === undefined ||
+      retransmitRate === undefined
+    ) {
+      return undefined;
+    }
+    return publisher.calculateLinkQuality({ rtt, jitter, packetLoss, retransmitRate });
+  };
+
+  return ctx;
 }
 
 function findHandler(router, method, path) {

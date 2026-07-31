@@ -115,22 +115,25 @@ describe("Packet + Sequence Integration", () => {
   // this reason and this file was missed.
   test("simulates realistic packet flow with NAK", () => {
     jest.useFakeTimers();
-    const losses = [];
-    const t = new SequenceTracker({
-      nakTimeout: 50,
-      onLossDetected: (seqs) => losses.push(...seqs)
-    });
-
-    // Simulate: send 10 packets, lose packet 3 and 7
-    const sent = [0, 1, 2, 4, 5, 6, 8, 9];
-    for (const seq of sent) {
-      builder.setSequence(seq);
-      const packet = builder.buildDataPacket(Buffer.from(`data ${seq}`));
-      const parsed = parser.parseHeader(packet);
-      t.processSequence(parsed.sequence);
-    }
-
+    // Everything after the install lives inside the try: a throw in tracker
+    // construction or packet feeding would otherwise leave the frozen clock in
+    // place for every later test in this file.
     try {
+      const losses = [];
+      const t = new SequenceTracker({
+        nakTimeout: 50,
+        onLossDetected: (seqs) => losses.push(...seqs)
+      });
+
+      // Simulate: send 10 packets, lose packet 3 and 7
+      const sent = [0, 1, 2, 4, 5, 6, 8, 9];
+      for (const seq of sent) {
+        builder.setSequence(seq);
+        const packet = builder.buildDataPacket(Buffer.from(`data ${seq}`));
+        const parsed = parser.parseHeader(packet);
+        t.processSequence(parsed.sequence);
+      }
+
       // Past the 50ms NAK timeout...
       jest.advanceTimersByTime(70);
       // ...then one more tick for the coalescing flush that batches the

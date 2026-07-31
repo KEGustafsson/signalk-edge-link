@@ -117,6 +117,8 @@ export interface Metrics {
   dataPacketsReceived?: number;
   /** DATA packets rejected by the anti-replay window (H3). */
   replayedPackets?: number;
+  /** Packets refused because the peers disagree about `epochBoundAuth`. */
+  epochAuthMismatches?: number;
   /** Control packets dropped because their source was not a configured peer. */
   rejectedControlPackets?: number;
   /** Packets dropped after exhausting retransmit attempts (unrecoverable loss). */
