@@ -59,6 +59,7 @@ Under `stats`:
 | `rejectedControlPackets` | count | ACK/NAK/request packets dropped because the source did not match a configured peer |
 | `replayedPackets`        | count | Datagrams the anti-replay guard refused — see below                                |
 | `epochAuthMismatches`    | count | Packets refused because the peers disagree about `epochBoundAuth`                  |
+| `epochAuthPending`       | count | Packets refused because no HELLO has established the sender's epoch yet            |
 | `fullStatusCascadeFired` | count | Times a client instance relayed FULL_STATUS_REQUEST to the servers beside it       |
 | `snapshotReplayDeltas`   | count | Deltas emitted while replaying a values snapshot on request                        |
 | `processDeltaCalls`      | count | Deltas handed to the outbound path (pre-filter, pre-batch)                         |
@@ -74,6 +75,11 @@ Under `stats`:
 - `epochAuthMismatches > 0` means this receiver requires `epochBoundAuth` and the
   sender is not using it, so every DATA packet is refused. It is a configuration
   mismatch, not an attack — set the same value on both peers
+- `epochAuthPending > 0` is a different condition with the same symptom: the
+  sender IS binding, but no HELLO has established its epoch yet, so the packet
+  cannot be verified. A brief burst at startup is normal and clears once the
+  HELLO completes. A number that keeps climbing means the HELLO is not arriving
+  — check that the peer's DATA and HELLO leave from the same address and port
 - `fullStatusCascadeFired` at zero on a proxy's client instance means the node is
   terminating snapshot requests rather than relaying them upstream
 - Rising `naksSent` with low `acksSent` indicates one-way UDP — check bidirectional reachability

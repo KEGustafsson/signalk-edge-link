@@ -119,6 +119,8 @@ export interface Metrics {
   replayedPackets?: number;
   /** Packets refused because the peers disagree about `epochBoundAuth`. */
   epochAuthMismatches?: number;
+  /** Packets refused because no HELLO has established this peer's epoch yet. */
+  epochAuthPending?: number;
   /** Control packets dropped because their source was not a configured peer. */
   rejectedControlPackets?: number;
   /** Packets dropped after exhausting retransmit attempts (unrecoverable loss). */

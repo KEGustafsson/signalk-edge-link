@@ -252,29 +252,66 @@ async function handleMetadataDispatch(
   await handleMetadataPacket(ctx, parsed, secretKey, session, rinfo);
 }
 
+/**
+ * Report the two ways epoch-bound authentication refuses a packet, which have
+ * the same symptom and completely different remedies.
+ *
+ * Reporting them with one message was worse than reporting neither: it told
+ * operators "the sender is not using it" while the sender was using it, which
+ * points at the wrong machine and at a setting that is already correct.
+ *
+ * @returns true when the error was one of these, so the caller stops.
+ */
+function reportEpochAuthError(ctx: ServerContext, msg: string): boolean {
+  const { app, metrics, recordError } = ctx;
+
+  if (msg.includes("EPOCH_BOUND_AUTH flag not set")) {
+    // The sender genuinely is not binding: a configuration mismatch, NOT an
+    // attack and NOT a key problem. The generic auth branch reported it as
+    // "packet tampered or wrong key", sending operators after a key mismatch
+    // that does not exist.
+    metrics.epochAuthMismatches = (metrics.epochAuthMismatches || 0) + 1;
+    app.error(
+      "v2 epoch-bound authentication mismatch: this receiver requires " +
+        "epochBoundAuth and the sender is not using it. Set the same " +
+        "epochBoundAuth value on both ends of this hop."
+    );
+    recordError("encryption", "v2 epoch-bound authentication mismatch (peer configuration)");
+    return true;
+  }
+
+  if (msg.includes("requires an established peer epoch")) {
+    // The sender IS binding, but no HELLO has established its epoch yet, so
+    // there is nothing to verify against. That is the ordinary startup window:
+    // a client whose first DATA overtakes its own HELLO produces a short burst
+    // and then works. Reported as transient, at debug, because an error-level
+    // line here reads as a fault on a link that is about to come up.
+    metrics.epochAuthPending = (metrics.epochAuthPending || 0) + 1;
+    app.debug(
+      "v2 epoch-bound authentication: no established epoch for this peer yet; " +
+        "packet refused until its HELLO completes. A brief burst at startup is " +
+        "expected. Persisting means the HELLO is not arriving — check that this " +
+        "peer's DATA and HELLO leave from the same address and port."
+    );
+    return true;
+  }
+
+  return false;
+}
+
 /** Map a caught receivePacket error to the right log + recordError category. */
 function reportReceiveError(ctx: ServerContext, error: unknown): void {
   const { app, metrics, recordError } = ctx;
   const msg = error instanceof Error ? error.message : String(error);
+  if (reportEpochAuthError(ctx, msg)) {
+    return;
+  }
   if (error instanceof DecryptError) {
     const hint = error.keyMismatchHint
       ? " (possible stretchAsciiKey or key-format mismatch between peers)"
       : "";
     app.error(`v2 decryption/authentication failed${hint}: ${msg}`);
     recordError("encryption", `v2 decryption/authentication failed${hint}`);
-  } else if (msg.includes("Epoch-bound authentication")) {
-    // A configuration mismatch, NOT an attack and NOT a key problem. The
-    // generic branch below reported it as "packet tampered or wrong key",
-    // which sends an operator hunting for a key mismatch that does not exist:
-    // the keys are fine, the peers simply disagree about `epochBoundAuth`.
-    // The parser's own message names which half is missing, so it is kept.
-    metrics.epochAuthMismatches = (metrics.epochAuthMismatches || 0) + 1;
-    app.error(
-      `v2 epoch-bound authentication mismatch: ${msg}. ` +
-        "This receiver requires epochBoundAuth; the sender is not using it. " +
-        "Both peers must set the same epochBoundAuth value."
-    );
-    recordError("encryption", "v2 epoch-bound authentication mismatch (peer configuration)");
   } else if (msg.includes("Unsupported state") || msg.includes("auth")) {
     app.error("v2 authentication failed: packet tampered or wrong key");
     recordError("encryption", "v2 authentication failed");

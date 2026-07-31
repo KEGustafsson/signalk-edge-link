@@ -41,6 +41,7 @@ Returns comprehensive real-time statistics. Available in client and server mode.
     "rejectedControlPackets": 0,
     "replayedPackets": 0,
     "epochAuthMismatches": 0,
+    "epochAuthPending": 0,
     "fullStatusCascadeFired": 0,
     "snapshotReplayDeltas": 0,
     "processDeltaCalls": 0,

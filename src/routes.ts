@@ -678,6 +678,10 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         // refused. Its own counter because the failure is a configuration
         // mismatch, not the tampering the generic auth error implies.
         epochAuthMismatches: metrics.epochAuthMismatches || 0,
+        // Distinct from the mismatch above: the sender IS binding, but no
+        // HELLO has established its epoch yet. A brief burst at startup is
+        // normal; a number that keeps climbing means HELLO is not arriving.
+        epochAuthPending: metrics.epochAuthPending || 0,
         // Fires when a client-mode instance forwards FULL_STATUS_REQUEST to the
         // server instances beside it — the proxy cascade. In a chain this is
         // how you tell a mid-node is relaying rather than terminating.

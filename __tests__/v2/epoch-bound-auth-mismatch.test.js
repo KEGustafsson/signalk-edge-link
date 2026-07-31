@@ -160,4 +160,51 @@ describe("epochBoundAuth agreement between peers", () => {
       expect(logged).not.toMatch(/tampered or wrong key/);
     });
   });
+
+  /**
+   * The other way the parser refuses a packet under epoch binding, and the one
+   * that must NOT read as a misconfigured peer: the sender IS binding, but no
+   * HELLO has established its epoch yet. A client whose first DATA overtakes
+   * its own HELLO produces exactly this, and it clears itself.
+   *
+   * A single message covering both causes told operators "the sender is not
+   * using it" while the sender was using it — a false diagnosis pointing at
+   * the wrong machine.
+   */
+  describe("both peers require it, but the HELLO has not landed yet", () => {
+    async function sendDataWithoutHello(client, server) {
+      await client.pipeline.sendDelta([sampleDelta(1)], KEY, "127.0.0.1", PORT);
+      for (const pkt of client.wire.splice(0)) {
+        await server.pipeline.receivePacket(pkt, KEY, CLIENT_RINFO).catch(() => {});
+      }
+      return server.app.handleMessage.mock.calls.length > 0;
+    }
+
+    test("the packet is refused, and counted apart from a real mismatch", async () => {
+      const { client, server } = pair(true, true);
+
+      await expect(sendDataWithoutHello(client, server)).resolves.toBe(false);
+      expect(server.metricsApi.metrics.epochAuthPending).toBeGreaterThan(0);
+      expect(server.metricsApi.metrics.epochAuthMismatches || 0).toBe(0);
+    });
+
+    test("it is not reported as the peer being misconfigured", async () => {
+      const { client, server } = pair(true, true);
+      await sendDataWithoutHello(client, server);
+
+      const errors = server.app.error.mock.calls.map((c) => String(c[0])).join("\n");
+      // Both peers are configured identically. Saying otherwise sends the
+      // operator to change a setting that is already correct.
+      expect(errors).not.toMatch(/the sender is not using it/);
+      expect(errors).not.toMatch(/tampered or wrong key/);
+    });
+
+    test("delivery resumes once the HELLO completes", async () => {
+      const { client, server } = pair(true, true);
+      await sendDataWithoutHello(client, server);
+
+      // The whole reason this is transient rather than a fault.
+      await expect(handshakeAndSend(client, server)).resolves.toBe(true);
+    });
+  });
 });
