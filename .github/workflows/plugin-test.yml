@@ -28,7 +28,7 @@ on:
       test-command:
         description: Command to run tests
         required: false
-        default: npm test
+        default: npm run test
         type: string
       build-command:
         description: Command to build the plugin
@@ -48,17 +48,17 @@ on:
       node-versions:
         description: 'JSON array of Node versions, example: ["22","24"]'
         required: false
-        default: '["24"]'
+        default: '["22","24"]'
         type: string
       enable-armv7:
         description: Run armv7 (Cerbo GX) tests via QEMU
         required: false
-        default: false
+        default: true
         type: boolean
       enable-signalk-integration:
         description: Start SignalK server and install plugin for integration testing
         required: false
-        default: false
+        default: true
         type: boolean
       signalk-server-versions:
         description: 'JSON array of signalk-server versions for integration testing, e.g. ["2.23.0","latest"]'
