@@ -59,17 +59,23 @@ describe("npm audit (runtime dependencies)", () => {
   });
 
   test("no high severity vulnerabilities", () => {
-    if (unavailable) {return;}
+    if (unavailable) {
+      return;
+    }
     expect(report?.metadata?.vulnerabilities?.high ?? 0).toBe(0);
   });
 
   test("no critical severity vulnerabilities", () => {
-    if (unavailable) {return;}
+    if (unavailable) {
+      return;
+    }
     expect(report?.metadata?.vulnerabilities?.critical ?? 0).toBe(0);
   });
 
   test("total vulnerability count is zero", () => {
-    if (unavailable) {return;}
+    if (unavailable) {
+      return;
+    }
     const meta = report?.metadata?.vulnerabilities ?? {};
     const total = SEVERITIES.reduce((sum, key) => sum + (meta[key] ?? 0), 0);
     expect(total).toBe(0);

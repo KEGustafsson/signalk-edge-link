@@ -262,6 +262,8 @@ npm run test:v2
 npm run test:integration
 npm run lint
 npm run lint:fix
+npm run format
+npm run format:check
 npm run cli -- help
 npm run cli -- instances list --token=$EDGE_LINK_TOKEN --state=running --limit=10 --page=1 --format=table
 npm run cli -- instances show alpha --token=$EDGE_LINK_TOKEN --format=table

@@ -6,8 +6,14 @@
 #
 # It calls the shared SignalK workflow which tests your plugin
 # across Linux, macOS, and Windows (Node 22 + 24). armv7/Cerbo GX
-# and the Signal K integration test are opt-in — the auto-run job
-# below disables them; use the manual trigger to enable per-run.
+# and the Signal K integration test are enabled on the auto-run job
+# too, so every push and PR exercises the full matrix. The armv7 leg
+# runs under QEMU and takes ~13 minutes, which sets the floor for how
+# long a push takes to go green.
+#
+# node-versions must be a JSON array — '["22","24"]', not '22, 24'.
+# A bare list collapses to a single matrix leg named "Node 22, 24"
+# that fails in the Node setup step.
 #
 # On push/PR it runs with sensible defaults.
 # You can also trigger it manually from the GitHub Actions UI
@@ -36,12 +42,16 @@ on:
         default: npm run build --if-present
         type: string
       format-check-command:
-        description: 'Optional blocking format check, e.g. npm run prettier:check'
+        description: 'Blocking format check'
         required: false
-        default: ''
+        default: npm run format:check
         type: string
+      # Left empty on purpose: this input REPLACES the test run, and ci.yml
+      # already runs `npm run test:coverage` against the configured
+      # coverageThreshold. Setting it here would duplicate that enforcement
+      # while making every matrix leg slower.
       coverage-command:
-        description: 'Optional coverage command (replaces the test run), e.g. npm run coverage'
+        description: 'Coverage command (replaces the test run); normally empty, ci.yml gates coverage'
         required: false
         default: ''
         type: string
@@ -74,6 +84,7 @@ jobs:
     with:
       test-command: npm run test
       build-command: npm run build --if-present
+      format-check-command: npm run format:check
       node-versions: '["22","24"]'
       enable-armv7: true
       enable-signalk-integration: true

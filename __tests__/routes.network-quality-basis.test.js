@@ -21,8 +21,8 @@ function makeRouterCollector() {
   const routes = [];
   const push =
     (method) =>
-      (path, ...handlers) =>
-        routes.push({ method, path, handlers });
+    (path, ...handlers) =>
+      routes.push({ method, path, handlers });
   return {
     routes,
     get: push("get"),

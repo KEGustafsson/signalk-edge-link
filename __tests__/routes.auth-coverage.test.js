@@ -28,9 +28,9 @@ function makeRouterCollector() {
   const routes = [];
   const record =
     (method) =>
-      (path, ...handlers) => {
-        routes.push({ method, path, handlers });
-      };
+    (path, ...handlers) => {
+      routes.push({ method, path, handlers });
+    };
   return {
     routes,
     get: record("get"),
@@ -229,7 +229,9 @@ describe("cross-site form protection on bodyless mutating routes", () => {
       await handler(req, res, () => {
         advanced = true;
       });
-      if (!advanced) {break;}
+      if (!advanced) {
+        break;
+      }
     }
     return res;
   }

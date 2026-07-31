@@ -86,7 +86,9 @@ function makeWiredPair(options = {}) {
     socketUdp: {
       send: jest.fn((pkt, _port, _addr, cb) => {
         wire.push(Buffer.from(pkt));
-        if (cb) {cb(null);}
+        if (cb) {
+          cb(null);
+        }
       })
     },
     deltaTimerTime: 1000,

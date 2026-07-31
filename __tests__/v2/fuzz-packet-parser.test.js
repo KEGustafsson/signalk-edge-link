@@ -96,7 +96,9 @@ describe("PacketParser fuzz tests", () => {
       // the actual body length, so the outcome is deterministic.
       const actualPayloadLength = validPacket.length - 15;
       let bogus = Math.floor(rng.random() * 100000);
-      if (bogus === actualPayloadLength) {bogus += 1;}
+      if (bogus === actualPayloadLength) {
+        bogus += 1;
+      }
       corrupted.writeUInt32BE(bogus, 9);
       // Rewriting the length also invalidates the CRC, so either check may fire
       // first — but one of them must.
