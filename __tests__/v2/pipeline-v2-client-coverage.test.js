@@ -250,6 +250,23 @@ describe("receiveACK – Karn's algorithm", () => {
     expect(metricsApi.metrics.rtt).toBeGreaterThan(0);
   });
 
+  // The reliability metrics are seeded at construction, and the seed values are
+  // load-bearing: the whole "is this link measured?" gate rests on rttSamples
+  // being 0 and rtt being 0 until a real ACK is timed. Nothing asserted them,
+  // so the seeds could drift to any value and every test would stay green while
+  // a brand-new client reported a fabricated round trip.
+  test("a freshly built client reports no measurement, not a fake one", () => {
+    const { metricsApi } = makeClient();
+    const m = metricsApi.metrics;
+
+    expect(m.rtt).toBe(0);
+    expect(m.jitter).toBe(0);
+    expect(m.retransmissions).toBe(0);
+    expect(m.queueDepth).toBe(0);
+    // The field that distinguishes "measured 0 ms" from "never measured".
+    expect(m.rttSamples ?? 0).toBe(0);
+  });
+
   // Jitter was Math.round(stddev), so anything under half a millisecond
   // collapsed to exactly 0. A stable link produces precisely that, and the
   // published 0 is indistinguishable from "never measured" — a server

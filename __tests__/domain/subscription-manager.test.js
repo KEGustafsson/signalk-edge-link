@@ -347,4 +347,75 @@ describe("domain/subscription-manager", () => {
       expect(state.subscriptionRetryTimer).toBeNull();
     });
   });
+
+  // The escalation had no coverage at all: the backoff schedule, the cap, and
+  // the one-time transition into slow retry were all unasserted, so the
+  // threshold could move by one attempt — or the delay stop doubling — with the
+  // suite still green. This matters because the loop is what keeps an instance
+  // alive through a Signal K startup race; if it degrades to a tight loop it
+  // hammers the server, and if it gives up the instance is silently dead.
+  describe("retry backoff escalation", () => {
+    const BASE = 5000;
+    const MAX_ATTEMPTS = 10;
+    const SLOW = 5 * 60 * 1000;
+
+    afterEach(() => jest.useRealTimers());
+
+    function driveFailingSubscribe() {
+      jest.useFakeTimers();
+      const subscribe = jest.fn(() => {
+        throw new Error("signalk not ready");
+      });
+      const ctx = makeManager({ subscribe });
+      ctx.processConfig({ context: "*", subscribe: [{ path: "*" }] });
+      return ctx;
+    }
+
+    /** Delays the scheduler announced, in order, read from its own debug log. */
+    function scheduledDelays(app) {
+      return app.debug.mock.calls
+        .map((c) => /Scheduling subscription retry .*? in (\d+)ms/.exec(String(c[0])))
+        .filter(Boolean)
+        .map((m) => Number(m[1]));
+    }
+
+    test("doubles the delay per attempt, then saturates at the slow interval", () => {
+      const { state, app } = driveFailingSubscribe();
+
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS + 3; attempt++) {
+        if (!state.subscriptionRetryTimer) {
+          break;
+        }
+        jest.advanceTimersByTime(SLOW);
+      }
+
+      const delays = scheduledDelays(app);
+      // Exponential while inside the fast window...
+      expect(delays[0]).toBe(BASE);
+      expect(delays[1]).toBe(BASE * 2);
+      expect(delays[2]).toBe(BASE * 4);
+      // ...and pinned to the slow interval once past it, not growing forever.
+      expect(delays[MAX_ATTEMPTS]).toBe(SLOW);
+      expect(delays[MAX_ATTEMPTS + 1]).toBe(SLOW);
+    });
+
+    test("announces the switch to slow retry exactly once", () => {
+      const { state, app } = driveFailingSubscribe();
+
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS + 4; attempt++) {
+        if (!state.subscriptionRetryTimer) {
+          break;
+        }
+        jest.advanceTimersByTime(SLOW);
+      }
+
+      const announcements = app.error.mock.calls.filter(
+        (c) => typeof c[0] === "string" && c[0].includes("switching to slow retry")
+      );
+      // Once, not never (threshold moved past) and not repeatedly (the guard
+      // that makes it a transition rather than a per-attempt log).
+      expect(announcements).toHaveLength(1);
+      expect(announcements[0][0]).toContain(`after ${MAX_ATTEMPTS} attempts`);
+    });
+  });
 });

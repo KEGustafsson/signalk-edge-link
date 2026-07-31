@@ -611,6 +611,25 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
         abandonedSequences: metrics.abandonedSequences || 0,
         packetsAbandoned: metrics.packetsAbandoned || 0,
         rejectedControlPackets: metrics.rejectedControlPackets || 0,
+        // Counted since the beginning and read by nothing until now. Each is
+        // the only evidence of the condition it records, so leaving them
+        // unreadable made those conditions undiagnosable from outside the
+        // process — the same defect that hid rejectedControlPackets.
+        //
+        // replayedPackets is the sharpest of them: it counts datagrams the
+        // anti-replay guard refused, i.e. the security mechanism this release
+        // hardened actually doing something. A non-zero value is either an
+        // attack or a peer bug, and neither was visible.
+        replayedPackets: metrics.replayedPackets || 0,
+        // Fires when a client-mode instance forwards FULL_STATUS_REQUEST to the
+        // server instances beside it — the proxy cascade. In a chain this is
+        // how you tell a mid-node is relaying rather than terminating.
+        fullStatusCascadeFired: metrics.fullStatusCascadeFired || 0,
+        snapshotReplayDeltas: metrics.snapshotReplayDeltas || 0,
+        processDeltaCalls: metrics.processDeltaCalls || 0,
+        // Peak outbound buffer depth: the backpressure signal that precedes
+        // droppedDeltaBatches, and the one that could warn before loss starts.
+        deltasBufferHighWaterMark: metrics.deltasBufferHighWaterMark || 0,
         suppressedOutboundDuplicates: metrics.suppressedOutboundDuplicates || 0,
         errorCounts: { ...(metrics.errorCounts || {}) }
       },
