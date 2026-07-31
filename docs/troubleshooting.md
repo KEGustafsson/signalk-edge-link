@@ -96,6 +96,41 @@ the one the server sends from, or where a NAT rewrites it.
 
 ---
 
+## Relay / Proxy Chains
+
+A relay is **two independent connections in one instance**, so diagnose it one
+hop at a time. `vessel → relay → shore` is two links that share nothing but the
+Signal K tree between them: separate keys, separate handshakes and epochs,
+separate reliability settings, and separate `epochBoundAuth` values.
+
+| Symptom                                                    | Which hop          | Fix                                                                       |
+| ---------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------- |
+| Relay's **server** tab all `N/A`, **client** tab populated | Hop 1 (upstream)   | The vessel is not reporting — check the vessel's client, not the relay    |
+| Relay's **client** tab all `N/A`, **server** tab populated | Hop 2 (downstream) | The relay's own link to shore has not measured yet — check that hop       |
+| Shore receives nothing, relay's server tab looks healthy   | Hop 2              | Data is arriving at the relay but not leaving it — check the relay client |
+| Data arrives at the relay but never reaches shore          | Hop 2              | Check the relay client's key, address and port against the shore server   |
+
+```bash
+# Both connections on the relay, in one call — each has its own metrics.
+curl http://relay:3000/plugins/signalk-edge-link/connections | jq '.[].id'
+curl http://relay:3000/plugins/signalk-edge-link/connections/<id>/metrics \
+  | jq '{rtt:.networkQuality.rtt, src:.networkQuality.dataSource, rcvd:.stats.deltasReceived, sent:.stats.deltasSent}'
+```
+
+Both routes are auth-gated — include `-H "X-Edge-Link-Token: $TOKEN"` if
+management auth is enabled.
+
+`dataSource` tells you which side a figure came from: `remote-client` means it
+arrived as peer telemetry (the relay's server tab), `local` means the node
+measured it itself (the relay's client tab).
+
+**Both ends of each hop must run 4.0.0+** before that hop reports RTT and
+jitter — a receiver never computes them, it reports what its peer sends. A
+partially upgraded chain shows figures on the upgraded hops and `N/A` on the
+rest.
+
+---
+
 ## Epoch-Bound Authentication (`epochBoundAuth`)
 
 | Log message                                                       | Meaning                                                       | Fix                                                       |

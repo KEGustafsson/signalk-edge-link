@@ -191,6 +191,40 @@ growing retransmit queue displayed as the healthiest link on the dashboard.
 
 A `0` on this card is a measured zero and can be trusted as one.
 
+### Reading a relay (proxy) node
+
+A relay runs **two connections in one Signal K instance** — a server that
+receives the upstream hop and a client that forwards the downstream one — so it
+shows **two tabs**, and each dashboard describes **only its own hop**. Reading
+one tab and expecting it to describe the whole chain is the most common source
+of confusion here.
+
+```text
+  [Vessel]  ──hop 1──►  [ Relay ]  ──hop 2──►  [Shore]
+                        server tab   client tab
+                        (hop 1)      (hop 2)
+```
+
+- The **server tab** shows the vessel's link. Its RTT, jitter and link quality
+  all arrive as **telemetry from the vessel's client** — the relay measures no
+  latency of its own on that hop — so they read `N/A` until that client reports.
+- The **client tab** shows the relay's own link to shore, measured locally from
+  its own ACKs, exactly like any other client.
+- The two hops are **independent**: separate keys, separate handshakes and
+  epochs, separate reliability settings, and separate `epochBoundAuth` values.
+  Each hop must agree with itself; the hops need not agree with each other.
+- Both ends of **each hop** must run 4.0.0+ before that hop reports RTT and
+  jitter, since a receiver never computes them — it reports what its peer sends.
+
+So a healthy relay normally shows populated figures on **both** tabs. Figures on
+the client tab with `N/A` on the server tab means hop 2 is fine and hop 1 has
+not reported yet — look upstream at the vessel, not at the relay.
+
+When a connection has an instance ID configured, its Signal K paths are
+namespaced `networking.edgeLink.<instanceId>.*`, which is how the two
+connections on a relay stay distinct. See
+[metrics.md](metrics.md) for the full path list.
+
 ### Verifying a healthy link
 
 On the **client**, confirm `Deltas Sent` is increasing and encryption errors
