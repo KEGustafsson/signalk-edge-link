@@ -2,6 +2,19 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [4.0.2] - 2026-08-02
+
+Packaging only. **No runtime, protocol, schema or UI change** — `lib/` and
+`public/` are byte-for-byte what 4.0.1 shipped.
+
+### Changed
+
+- `CHANGELOG.md` is now included in the published npm tarball (`files` in
+  `package.json`), so it ships alongside the installed plugin instead of only
+  being visible on GitHub.
+- Added a `signalk.screenshots` entry to `package.json` so the Signal K App
+  Store can show a configuration screenshot on the plugin's listing page.
+
 ## [4.0.1] - 2026-08-02
 
 Test-suite and documentation only. **No runtime, protocol, schema or UI change**
