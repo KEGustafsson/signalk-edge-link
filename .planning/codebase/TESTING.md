@@ -101,6 +101,28 @@ describe("Module or behavior", () => {
 - Use mock Signal K `app` objects for plugin/runtime tests.
 - Use network simulators and fake sockets for reliability behavior instead of real external services.
 
+## Sandbox constraints (`npm test` must stay hermetic)
+
+`npm test` has a second consumer besides local runs and the plugin-ci matrix: the
+Signal K Plugin Registry harness, which scores the App Store "Plugin test suite"
+indicator. It runs the suite in a network-isolated, CPU-shared sandbox under a
+wall-clock cap, so the suite must be hermetic:
+
+- **Loopback only.** Real-socket tests over `127.0.0.1` are fine; DNS and every
+  remote host, including the npm registry, are unreachable.
+- **Bounded runtime.** The whole suite has to finish inside the harness cap, so
+  a new suite's cost is a design constraint, not an afterthought.
+- **No wall-clock schedules.** An assertion sampling state at a fixed offset
+  flakes on a loaded runner. Poll for the transition and treat any deadline as a
+  ceiling on a stall.
+- **Self-skipping for genuine network needs.** The harness exports an env var
+  marking a sandboxed run; a test that truly requires the network checks it and
+  skips rather than failing. Offline tool output should likewise be classified
+  as "evidence unavailable", never coerced into a pass.
+
+The exact commands, caps, and env var the harness uses are documented where the
+suite is declared to it, in `.github/workflows/plugin-test.yml`.
+
 ## Mocking
 
 **Framework:**

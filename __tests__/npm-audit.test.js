@@ -12,7 +12,20 @@ const ROOT = path.resolve(__dirname, "..");
 // `npm audit` queries the registry, so the report can be unavailable offline.
 // That case is reported explicitly rather than coerced to "zero
 // vulnerabilities" — a missing report is absent evidence, not a clean result.
+//
+// The Signal K plugin registry harness runs this suite inside `firejail
+// --net=none` and sets SIGNALK_REGISTRY_TEST=1 (documented contract, see
+// SignalK/signalk-plugin-registry README). There the registry is unreachable by
+// construction, so skip the audit outright instead of paying for a lookup that
+// can only fail. The harness scores npm audit itself; this test exists for
+// local runs and the plugin-ci matrix, which both have network.
 function runAudit() {
+  if (process.env.SIGNALK_REGISTRY_TEST === "1") {
+    return {
+      ok: false,
+      reason: "SIGNALK_REGISTRY_TEST=1 — sandboxed run has no registry access"
+    };
+  }
   try {
     return {
       ok: true,
@@ -41,11 +54,25 @@ describe("npm audit (runtime dependencies)", () => {
       unavailable = result.reason;
       return;
     }
+    let parsed;
     try {
-      report = JSON.parse(result.raw);
+      parsed = JSON.parse(result.raw);
     } catch (err) {
       unavailable = `npm audit did not return JSON: ${err.message}`;
+      return;
     }
+    // Offline, npm still exits with JSON on stdout — but it is an error
+    // envelope ({ message, error }), not an audit report. Treating that as a
+    // report turns a network condition into a test failure, so classify it as
+    // unavailable like any other missing report.
+    if (!parsed?.metadata?.vulnerabilities) {
+      unavailable =
+        parsed?.message ||
+        parsed?.error?.summary ||
+        "npm audit returned no metadata.vulnerabilities";
+      return;
+    }
+    report = parsed;
   });
 
   test("audit report is available", () => {

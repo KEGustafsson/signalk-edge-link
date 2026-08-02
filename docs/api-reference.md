@@ -2,7 +2,7 @@
 
 > **Base path:** `/plugins/signalk-edge-link`  
 > **Rate limit:** 120 requests/minute/IP → HTTP 429  
-> **API version tracked (current: 4.0.0)** — see CHANGELOG.md for endpoint changes between releases
+> **API version tracked (current: 4.0.1)** — see CHANGELOG.md for endpoint changes between releases
 
 ---
 

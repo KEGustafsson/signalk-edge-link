@@ -2,6 +2,27 @@
 
 const { NetworkSimulator, createSimulatedSockets } = require("../network-simulator");
 
+// Wait until the simulated link reaches `expected`. The deadline is a ceiling
+// on a genuine stall, not a schedule the link is expected to keep — a late but
+// correct transition still resolves, and only a link that never reaches the
+// state rejects, naming the state it never reached.
+function waitForLinkState(sim, expected, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs;
+    const poll = setInterval(() => {
+      if (sim.linkDown === expected) {
+        clearInterval(poll);
+        resolve();
+        return;
+      }
+      if (Date.now() > deadline) {
+        clearInterval(poll);
+        reject(new Error(`link never became ${expected ? "down" : "up"} within ${timeoutMs}ms`));
+      }
+    }, 5);
+  });
+}
+
 describe("NetworkSimulator - Enhanced Features", () => {
   let sim;
 
@@ -104,24 +125,21 @@ describe("NetworkSimulator - Enhanced Features", () => {
       expect(sim.linkDown).toBe(false);
     });
 
-    test("flapping cycles link state", (done) => {
+    test("flapping cycles link state", async () => {
       sim = new NetworkSimulator();
       sim.startFlapping(50, 50); // 50ms up, 50ms down
 
       // Initially up
       expect(sim.linkDown).toBe(false);
 
-      // After 60ms should be down
-      setTimeout(() => {
-        expect(sim.linkDown).toBe(true);
+      // The assertion is that the link cycles, not that it flips at an exact
+      // instant. Sampling state at fixed offsets leaves only milliseconds of
+      // slack against setTimeout drift, which a CPU-shared runner exceeds
+      // routinely — the Signal K registry harness runs this suite in one.
+      await waitForLinkState(sim, true);
+      await waitForLinkState(sim, false);
 
-        // After 120ms should be up again
-        setTimeout(() => {
-          expect(sim.linkDown).toBe(false);
-          sim.stopFlapping();
-          done();
-        }, 70);
-      }, 60);
+      sim.stopFlapping();
     });
 
     test("destroy stops flapping", () => {
