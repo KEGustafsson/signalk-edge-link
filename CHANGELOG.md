@@ -2,6 +2,25 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [4.0.3] - 2026-08-02
+
+Packaging only. **No runtime, protocol, schema or UI change** — `lib/` and
+`public/` are byte-for-byte what 4.0.2 shipped.
+
+### Fixed
+
+- `signalk.appIcon` pointed at `./icons/icon-72x72.png`, a path that has never
+  existed in the published tarball (the icon ships at `./public/icons/`). The
+  Signal K App Store fetches it from the tarball directly, so the listing
+  fell back to the monogram icon. Corrected the path to
+  `./public/icons/icon-72x72.png`.
+- `signalk.screenshots[0]` referenced a `raw.githubusercontent.com` URL
+  instead of a path inside the published package, and the file it pointed at
+  (`docs/`) isn't part of the tarball (`files` in `package.json`) anyway.
+  Added `docs/assets/edge-plugin-config.jpg` to `files` and changed the entry
+  to the relative path `./docs/assets/edge-plugin-config.jpg`, matching how
+  the App Store resolves plugin assets.
+
 ## [4.0.2] - 2026-08-02
 
 Packaging only. **No runtime, protocol, schema or UI change** — `lib/` and
