@@ -20,7 +20,7 @@ const ROOT = path.resolve(__dirname, "..");
 // can only fail. The harness scores npm audit itself; this test exists for
 // local runs and the plugin-ci matrix, which both have network.
 function runAudit() {
-  if (process.env.SIGNALK_REGISTRY_TEST) {
+  if (process.env.SIGNALK_REGISTRY_TEST === "1") {
     return {
       ok: false,
       reason: "SIGNALK_REGISTRY_TEST=1 — sandboxed run has no registry access"

@@ -105,27 +105,23 @@ describe("Module or behavior", () => {
 
 `npm test` has a second consumer besides local runs and the plugin-ci matrix: the
 Signal K Plugin Registry harness, which scores the App Store "Plugin test suite"
-indicator. It clones this repo, reads `test-command` from
-`.github/workflows/plugin-test.yml`, and runs it under `firejail --net=none`.
+indicator. It runs the suite in a network-isolated, CPU-shared sandbox under a
+wall-clock cap, so the suite must be hermetic:
 
-That environment gives the suite:
+- **Loopback only.** Real-socket tests over `127.0.0.1` are fine; DNS and every
+  remote host, including the npm registry, are unreachable.
+- **Bounded runtime.** The whole suite has to finish inside the harness cap, so
+  a new suite's cost is a design constraint, not an afterthought.
+- **No wall-clock schedules.** An assertion sampling state at a fixed offset
+  flakes on a loaded runner. Poll for the transition and treat any deadline as a
+  ceiling on a stall.
+- **Self-skipping for genuine network needs.** The harness exports an env var
+  marking a sandboxed run; a test that truly requires the network checks it and
+  skips rather than failing. Offline tool output should likewise be classified
+  as "evidence unavailable", never coerced into a pass.
 
-- **Loopback only.** `127.0.0.1` UDP works; DNS, npm registry, and every remote
-  host do not. Real-socket tests are fine, anything that reaches the internet is
-  not.
-- **A 120 s wall-clock cap** on the whole suite (300 s for the build command).
-  The suite currently runs in ~45 s, so keep new suites cheap.
-- **Shared, loaded CPU.** Assertions keyed to an exact `setTimeout` deadline
-  flake here; poll for the state transition instead (see
-  `waitForLinkState` in `__tests__/v2/network-simulator-enhanced.test.js`).
-- **`SIGNALK_REGISTRY_TEST=1`**, a documented opt-out contract. A test that
-  genuinely needs the network must check it and skip — `__tests__/npm-audit.test.js`
-  does, and also treats npm's offline error envelope as "report unavailable"
-  rather than a failure.
-
-A failing suite there costs 30 points (no `+25` "tested" badge, plus a `−5`
-"tests-failing" penalty), so a network-dependent test is expensive even when CI
-is green.
+The exact commands, caps, and env var the harness uses are documented where the
+suite is declared to it, in `.github/workflows/plugin-test.yml`.
 
 ## Mocking
 

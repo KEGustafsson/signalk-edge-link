@@ -2,9 +2,10 @@
 
 const { NetworkSimulator, createSimulatedSockets } = require("../network-simulator");
 
-// Wait until the simulated link reaches `expected`, sampling instead of
-// trusting a wall-clock deadline. Rejects with the observed state so a genuine
-// stall still fails the test rather than timing out anonymously.
+// Wait until the simulated link reaches `expected`. The deadline is a ceiling
+// on a genuine stall, not a schedule the link is expected to keep — a late but
+// correct transition still resolves, and only a link that never reaches the
+// state rejects, naming the state it never reached.
 function waitForLinkState(sim, expected, timeoutMs = 3000) {
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs;
@@ -132,10 +133,9 @@ describe("NetworkSimulator - Enhanced Features", () => {
       expect(sim.linkDown).toBe(false);
 
       // The assertion is that the link cycles, not that it flips at an exact
-      // instant: a sampled deadline (down at 60ms, up again at 130ms) leaves
-      // only 10ms of slack against setTimeout drift, which a loaded runner —
-      // the Signal K registry harness runs the suite in a CPU-shared sandbox —
-      // exceeds routinely. Poll for each transition instead.
+      // instant. Sampling state at fixed offsets leaves only milliseconds of
+      // slack against setTimeout drift, which a CPU-shared runner exceeds
+      // routinely — the Signal K registry harness runs this suite in one.
       await waitForLinkState(sim, true);
       await waitForLinkState(sim, false);
 
