@@ -101,6 +101,32 @@ describe("Module or behavior", () => {
 - Use mock Signal K `app` objects for plugin/runtime tests.
 - Use network simulators and fake sockets for reliability behavior instead of real external services.
 
+## Sandbox constraints (`npm test` must stay hermetic)
+
+`npm test` has a second consumer besides local runs and the plugin-ci matrix: the
+Signal K Plugin Registry harness, which scores the App Store "Plugin test suite"
+indicator. It clones this repo, reads `test-command` from
+`.github/workflows/plugin-test.yml`, and runs it under `firejail --net=none`.
+
+That environment gives the suite:
+
+- **Loopback only.** `127.0.0.1` UDP works; DNS, npm registry, and every remote
+  host do not. Real-socket tests are fine, anything that reaches the internet is
+  not.
+- **A 120 s wall-clock cap** on the whole suite (300 s for the build command).
+  The suite currently runs in ~45 s, so keep new suites cheap.
+- **Shared, loaded CPU.** Assertions keyed to an exact `setTimeout` deadline
+  flake here; poll for the state transition instead (see
+  `waitForLinkState` in `__tests__/v2/network-simulator-enhanced.test.js`).
+- **`SIGNALK_REGISTRY_TEST=1`**, a documented opt-out contract. A test that
+  genuinely needs the network must check it and skip — `__tests__/npm-audit.test.js`
+  does, and also treats npm's offline error envelope as "report unavailable"
+  rather than a failure.
+
+A failing suite there costs 30 points (no `+25` "tested" badge, plus a `−5`
+"tests-failing" penalty), so a network-dependent test is expensive even when CI
+is green.
+
 ## Mocking
 
 **Framework:**
