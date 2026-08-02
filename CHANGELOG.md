@@ -2,6 +2,42 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [4.0.1] - 2026-08-02
+
+Test-suite and documentation only. **No runtime, protocol, schema or UI change**
+— `lib/` and `public/` are byte-for-byte what 4.0.0 shipped, so upgrading is
+optional and changes nothing on a running link.
+
+The Signal K App Store's "Plugin test suite" indicator reported FAIL for 4.0.0.
+The plugin registry runs a plugin's own suite in a network-isolated sandbox,
+and two tests could not survive that environment. Both are fixed here.
+
+### Fixed
+
+- **`npm audit` test failed with no network.** The suite audits its runtime
+  dependency tree, which needs the npm registry. Offline, `npm audit --json`
+  exits non-zero but still prints JSON on stdout — an error envelope rather
+  than a report — so it parsed cleanly and then failed the assertion on
+  `metadata.vulnerabilities`. A payload without that field is now classified as
+  "report unavailable" (warn, don't fail), matching how the suite already
+  treated a missing or unparseable report. The audit is also skipped outright
+  when the harness marks the run as sandboxed, rather than paying for a lookup
+  that cannot succeed.
+- **Link-flapping test was timing-fragile.** It sampled link state at fixed
+  offsets against a 50 ms/50 ms flap, leaving milliseconds of slack against
+  `setTimeout` drift, and failed on a loaded runner. It now polls for each
+  transition, treating the timeout as a ceiling on a stall rather than a
+  schedule the link must keep.
+
+### Documentation
+
+- `.github/workflows/plugin-test.yml` records that the plugin registry reads
+  the `test-command` declared there and runs it sandboxed, so the constraint is
+  visible where the command is chosen.
+- `.planning/codebase/TESTING.md` gains a section on keeping `npm test`
+  hermetic: loopback-only networking, bounded runtime, no wall-clock schedules,
+  and self-skipping for tests that genuinely need the network.
+
 ## [4.0.0] - 2026-07-31
 
 Fixes every finding from the multi-aspect review in
