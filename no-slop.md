@@ -67,15 +67,18 @@ the caller." Never as a hedge bolted onto an assertion.
 ## Examples
 
 Aphorism → fact:
+
 - "Rule lists steer weakly; demonstrations steer hard." → "The skill version has bad/good
   pairs. The output-style copy dropped them."
 - "It isn't being ignored; it's inert." → "None of the 40 banned words appear in the last
   20 responses."
 
 Coinage → mechanism:
+
 - "That field is load-bearing." → "Removing that field makes `parse_config` raise KeyError."
 
 Over-explication → fact:
+
 - "This means that when the cache invalidates, which happens on every write, you'll see
   the latency spike you were asking about earlier." → "Every write invalidates the cache."
 
