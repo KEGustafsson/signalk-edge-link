@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## General guidance
+
+Read no-slop.md
+
 ## Purpose
 
 This guide tells AI and human contributors how to work safely and effectively in the Signal K Edge Link repository. It is intentionally model-agnostic: use it with ChatGPT, Claude, Gemini, Codex, Cursor, Copilot, or any other coding assistant by mapping the roles below to the agents, modes, personas, or prompts available in that tool.
