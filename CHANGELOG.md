@@ -163,6 +163,10 @@ healthy; all are fixed, with regression coverage.
 - `maxWorkers: 1` moved into the Jest config, so `test:watch` and a bare
   `npx jest` get the same serialisation as `npm test` instead of colliding on
   fixed UDP ports.
+- The armv7 (Cerbo GX) CI leg no longer runs on every push and pull request. It
+  emulates under QEMU and took ~13 minutes, setting the floor for how long a
+  push took to go green while the rest of the matrix finished in ~2. It remains
+  available on demand via `workflow_dispatch`.
 
 ### Documentation
 

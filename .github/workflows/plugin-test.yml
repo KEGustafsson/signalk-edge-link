@@ -5,11 +5,17 @@
 #   .github/workflows/signalk-ci.yml
 #
 # It calls the shared SignalK workflow which tests your plugin
-# across Linux, macOS, and Windows (Node 22 + 24). armv7/Cerbo GX
-# and the Signal K integration test are enabled on the auto-run job
-# too, so every push and PR exercises the full matrix. The armv7 leg
-# runs under QEMU and takes ~13 minutes, which sets the floor for how
-# long a push takes to go green.
+# across Linux, macOS, and Windows (Node 22 + 24). The Signal K
+# integration test is enabled on the auto-run job too, so every push
+# and PR exercises that matrix.
+#
+# armv7/Cerbo GX is NOT part of the automatic run. It executes under
+# QEMU emulation and took ~13 minutes, which set the floor for how long
+# every push took to go green — long after the rest of the matrix had
+# finished. Run it on demand instead: Actions → SignalK Plugin CI → Run
+# workflow → tick "Run armv7 (Cerbo GX) tests via QEMU". Worth doing
+# before a release, or when touching anything architecture-sensitive
+# (native deps, Buffer/endianness, timing).
 #
 # node-versions must be a JSON array — '["22","24"]', not '22, 24'.
 # A bare list collapses to a single matrix leg named "Node 22, 24"
@@ -71,9 +77,9 @@ on:
         default: '["22","24"]'
         type: string
       enable-armv7:
-        description: Run armv7 (Cerbo GX) tests via QEMU
+        description: Run armv7 (Cerbo GX) tests via QEMU (slow, ~13 min)
         required: false
-        default: true
+        default: false
         type: boolean
       enable-signalk-integration:
         description: Start SignalK server and install plugin for integration testing
@@ -96,7 +102,9 @@ jobs:
       build-command: npm run build --if-present
       format-check-command: npm run format:check
       node-versions: '["22","24"]'
-      enable-armv7: true
+      # Off by default — see the header note. Enable per-run via
+      # workflow_dispatch when architecture coverage actually matters.
+      enable-armv7: false
       enable-signalk-integration: true
       signalk-server-versions: '["latest"]'
 
