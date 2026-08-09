@@ -4,6 +4,7 @@ import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import { RJSFSchema, UiSchema, ValidatorType, getDefaultFormState } from "@rjsf/utils";
 import { apiFetch, MANAGEMENT_TOKEN_ERROR_MESSAGE } from "../utils/apiFetch";
+import { readErrorMessage } from "../hooks/useApi";
 import {
   buildWebappConnectionSchema,
   commonConnectionProperties
@@ -173,6 +174,9 @@ function connectionsEqual(a: Record<string, unknown>, b: Record<string, unknown>
 // silently drifting to the end.
 const uiSchemaClient: UiSchema = {
   "ui:order": [
+    // Hidden (see the connectionId ui:widget below), but ui:order must still
+    // list every schema property or RJSF throws.
+    "connectionId",
     "name",
     "serverType",
     "udpAddress",
@@ -203,6 +207,9 @@ const uiSchemaClient: UiSchema = {
     "alertThresholds",
     "*"
   ],
+  // Assigned automatically to keep a connection identifiable across saves;
+  // nothing for an operator to set, so it is not rendered.
+  connectionId: { "ui:widget": "hidden" },
   secretKey: {
     "ui:widget": "password",
     "ui:help": "Use 32-character ASCII, 64-character hex, or base64 (standard or URL-safe)"
@@ -229,6 +236,9 @@ const uiSchemaServer: UiSchema = {
   // server connection no longer offers them, so listing them here described a
   // form that cannot be rendered.
   "ui:order": [
+    // Hidden (see the connectionId ui:widget below), but ui:order must still
+    // list every schema property or RJSF throws.
+    "connectionId",
     "name",
     "serverType",
     "udpPort",
@@ -243,6 +253,9 @@ const uiSchemaServer: UiSchema = {
     "reliability",
     "*"
   ],
+  // Assigned automatically to keep a connection identifiable across saves;
+  // nothing for an operator to set, so it is not rendered.
+  connectionId: { "ui:widget": "hidden" },
   secretKey: {
     "ui:widget": "password",
     "ui:help": "Use 32-character ASCII, 64-character hex, or base64 (standard or URL-safe)"
@@ -260,29 +273,23 @@ const uiSchemaServer: UiSchema = {
 const SHARED_FIELDS = ["name", ...Object.keys(commonConnectionProperties)];
 
 // Boolean toggles that, when on, mean the connection is using advanced options.
+// Every advanced boolean the panel can render. `connectionUsesAdvanced` walks
+// this list to decide whether to open the Advanced section, so a key missing
+// here makes the panel claim a connection is at defaults when it is not —
+// which matters most for the two security/recovery flags, whose whole point is
+// that both peers agree about them.
 const ADVANCED_BOOL_KEYS = [
   "stretchAsciiKey",
   "authenticatedHeaders",
+  "epochBoundAuth",
   "useMsgpack",
   "useValueDedup",
   "useCompactDeltas",
   "usePathDictionary",
   "skipOwnData",
-  "enableNotifications"
+  "enableNotifications",
+  "requestFullStatusOnRestart"
 ];
-
-// Schema defaults for the advanced booleans. A value equal to its default was
-// filled in by `withSchemaDefaults` on load and does not indicate operator intent.
-const ADVANCED_BOOL_DEFAULTS: Record<string, boolean> = {
-  stretchAsciiKey: false,
-  authenticatedHeaders: true,
-  useMsgpack: false,
-  useValueDedup: false,
-  useCompactDeltas: false,
-  usePathDictionary: false,
-  skipOwnData: false,
-  enableNotifications: false
-};
 
 // Object groups that, when present and non-empty, mean advanced options are set.
 const ADVANCED_OBJECT_KEYS = [
@@ -295,16 +302,18 @@ const ADVANCED_OBJECT_KEYS = [
   "alertThresholds"
 ];
 
-// Numeric fields whose default value is considered "not advanced"; any other
-// value means the user tuned it and the Advanced section should open on load.
-const ADVANCED_NUMERIC_DEFAULTS: Record<string, number> = {
-  brotliQuality: 6,
-  helloMessageSender: 60,
-  heartbeatInterval: 25000,
-  testAddress: NaN, // handled as string below
-  testPort: 80,
-  pingIntervalTime: 1
-};
+// Scalar fields that count as advanced when they differ from the schema
+// default. Only the names matter: the comparison value comes from
+// `schemaDefaultsFor`, which derives it from the live schema, so listing
+// literals here would be a second copy free to drift out of step with it.
+const ADVANCED_SCALAR_KEYS = [
+  "brotliQuality",
+  "helloMessageSender",
+  "heartbeatInterval",
+  "testAddress",
+  "testPort",
+  "pingIntervalTime"
+];
 
 /**
  * Decide whether a loaded connection already uses advanced options, so the
@@ -351,7 +360,7 @@ function connectionUsesAdvanced(conn: ConnectionData): boolean {
   for (const key of ADVANCED_OBJECT_KEYS) {
     if (differsFromDefault(key)) return true;
   }
-  for (const key of Object.keys(ADVANCED_NUMERIC_DEFAULTS)) {
+  for (const key of ADVANCED_SCALAR_KEYS) {
     if (key === "testAddress") continue;
     if (differsFromDefault(key)) return true;
   }
@@ -768,7 +777,11 @@ function PluginConfigurationPanelInner(_props: Record<string, unknown>) {
           throw new Error(MANAGEMENT_TOKEN_ERROR_MESSAGE);
         }
         if (!res.ok) {
-          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          // Prefer the server's own explanation. A 403 here is the fail-closed
+          // lockout (`requireManagementApiToken` on, no token set) and its body
+          // says how to get back in; rendering "HTTP 403: Forbidden" instead
+          // left the operator who just locked themselves out with no next step.
+          throw new Error(await readErrorMessage(res, `HTTP ${res.status}: ${res.statusText}`));
         }
         const body = await res.json();
         if (!body.success) {

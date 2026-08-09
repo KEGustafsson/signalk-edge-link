@@ -119,7 +119,7 @@ describe("epochBoundAuth agreement between peers", () => {
   ])("matched configuration delivers data — %s", async (_label, c, s) => {
     const { client, server } = pair(c, s);
     await expect(handshakeAndSend(client, server)).resolves.toBe(true);
-    expect(server.metricsApi.metrics.epochAuthMismatches || 0).toBe(0);
+    expect(server.metricsApi.metrics.epochAuthMismatches).toBe(0);
   });
 
   // A receiver that does not require binding still verifies a sender that
@@ -128,7 +128,7 @@ describe("epochBoundAuth agreement between peers", () => {
   test("sender-only binding is accepted by a receiver that does not require it", async () => {
     const { client, server } = pair(true, false);
     await expect(handshakeAndSend(client, server)).resolves.toBe(true);
-    expect(server.metricsApi.metrics.epochAuthMismatches || 0).toBe(0);
+    expect(server.metricsApi.metrics.epochAuthMismatches).toBe(0);
   });
 
   describe("receiver requires it, sender does not", () => {
@@ -185,7 +185,7 @@ describe("epochBoundAuth agreement between peers", () => {
 
       await expect(sendDataWithoutHello(client, server)).resolves.toBe(false);
       expect(server.metricsApi.metrics.epochAuthPending).toBeGreaterThan(0);
-      expect(server.metricsApi.metrics.epochAuthMismatches || 0).toBe(0);
+      expect(server.metricsApi.metrics.epochAuthMismatches).toBe(0);
     });
 
     test("it is not reported as the peer being misconfigured", async () => {

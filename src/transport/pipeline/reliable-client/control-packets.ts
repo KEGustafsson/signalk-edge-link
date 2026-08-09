@@ -16,6 +16,8 @@ import type * as dgram from "dgram";
 import type { ClientContext } from "./context";
 import { receiveACK, receiveNAK } from "./reliability";
 import { confirmHelloAcknowledged } from "./lifecycle";
+import { resetValueDedupState } from "../../../codec/value-dedup";
+import { resetPathThrottleState } from "../../../codec/delta-sanitizer";
 
 /**
  * Hostname -> the addresses it resolves to.
@@ -245,6 +247,15 @@ export async function handleControlPacket(
     } else if (parsed.type === PacketType.FULL_STATUS_REQUEST) {
       // Server asks us to replay our full values snapshot (e.g. after a server
       // restart). Rate-limited in instance.ts.
+      //
+      // Clear the dedup and throttle baselines first. A server that asks for a
+      // full replay has lost its own state, so every path it wants back looks
+      // "unchanged" to us: dedup would encode the whole snapshot as sentinels
+      // the server cannot expand (it drops them), and pathThrottle would
+      // discard values it had already let through this interval. Both turn the
+      // replay into a no-op for exactly the stable paths it exists to restore.
+      resetValueDedupState(ctx.dedupState);
+      resetPathThrottleState(ctx.throttleState);
       invokeRequestHandler(ctx, mut.fullStatusRequestHandler, "FULL_STATUS_REQUEST");
     }
     // Ignore other packet types on client side

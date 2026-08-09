@@ -33,7 +33,12 @@ function quantizeValue(
   precisionMap: Record<string, number>
 ): unknown {
   if (typeof value === "number") {
-    const decimals = precisionMap[path];
+    // Own-property check: a bare lookup on this object literal also finds
+    // Object.prototype members, so a value on path "valueOf" was quantized
+    // with a function as its decimal count and became NaN -> null on the wire.
+    const decimals = Object.prototype.hasOwnProperty.call(precisionMap, path)
+      ? precisionMap[path]
+      : undefined;
     return decimals === undefined ? value : roundTo(value, decimals);
   }
   if (isObject(value)) {

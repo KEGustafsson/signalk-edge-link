@@ -1,6 +1,7 @@
 "use strict";
 
 import { getAllPaths, PATH_CATEGORIES } from "../codec/path-dictionary";
+import { CURRENT_CONFIG_SCHEMA_VERSION } from "../foundation/constants";
 import { RouteRequest, RouteResponse, Router, RouteContext, RouteHandler } from "./types";
 import type { ConnectionConfig } from "../foundation/types";
 import {
@@ -311,6 +312,18 @@ function register(router: Router, ctx: RouteContext): void {
         const finalConfig: Record<string, unknown> = {
           connections: connectionList
         };
+
+        // Carry the schema version forward. It is declared in the plugin schema
+        // and documented in example config bodies, but every save used to drop
+        // it — so the field it exists to support forward-compatibility
+        // migrations with never actually survived a round trip.
+        const persistedSchemaVersion = persistedConfig.schemaVersion;
+        finalConfig.schemaVersion =
+          typeof req.body.schemaVersion === "number"
+            ? req.body.schemaVersion
+            : typeof persistedSchemaVersion === "number"
+              ? persistedSchemaVersion
+              : CURRENT_CONFIG_SCHEMA_VERSION;
 
         if (resolvedManagementToken !== undefined) {
           finalConfig.managementApiToken = resolvedManagementToken;

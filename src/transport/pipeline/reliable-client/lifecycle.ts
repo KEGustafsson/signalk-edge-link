@@ -11,7 +11,11 @@
  */
 
 import { BondingManager } from "../../bonding";
-import { HELLO_RETRY_BASE_MS, HELLO_RETRY_MAX_MS } from "../../../foundation/constants";
+import {
+  HELLO_REHANDSHAKE_ACK_IDLE_MS,
+  HELLO_RETRY_BASE_MS,
+  HELLO_RETRY_MAX_MS
+} from "../../../foundation/constants";
 import { udpSendAsync as _udpSendAsyncShared } from "../../udp-socket-manager";
 import type * as dgram from "dgram";
 import type { ClientContext } from "./context";
@@ -154,6 +158,40 @@ export function confirmHelloAcknowledged(ctx: ClientContext): void {
   ctx.app.debug("v3 HELLO handshake confirmed");
 }
 
+/**
+ * Re-run the handshake when a previously confirmed session has gone silent.
+ *
+ * `confirmHelloAcknowledged` latches, which is right for the initial handshake
+ * but leaves no way back if the *peer* loses the session afterwards — a server
+ * restart drops its epoch and replay-guard state, and a NAT rebind moves us to
+ * a source port it never handshaked. Either way the server refuses every DATA
+ * packet and therefore never sends the ACK that would tell us something is
+ * wrong, so silence is the only signal available.
+ *
+ * Called from the metrics tick. Sending a redundant HELLO is cheap and
+ * idempotent server-side; staying silent is not recoverable.
+ */
+export function maybeRehandshake(ctx: ClientContext): void {
+  const { state, mut } = ctx;
+  if (state.stopped || !mut.helloAcknowledged) return;
+  if (ctx.protocolVersion < 3) return;
+
+  const options = state.options;
+  if (!options || !options.udpAddress) return;
+
+  // Only meaningful once we have actually sent something the peer owed an ACK
+  // for. An idle client with an empty queue has nothing to diagnose.
+  if (ctx.retransmitQueue.getSize() === 0) return;
+
+  if (Date.now() - mut.lastAckAt < HELLO_REHANDSHAKE_ACK_IDLE_MS) return;
+
+  ctx.app.debug(
+    `v3 no ACK for ${HELLO_REHANDSHAKE_ACK_IDLE_MS}ms with packets outstanding — re-running HELLO handshake`
+  );
+  // Resets `helloAcknowledged` and restarts the retry chain.
+  void sendHello(ctx, options.udpAddress, options.udpPort);
+}
+
 function scheduleHelloRetry(ctx: ClientContext, udpAddress: string, udpPort: number): void {
   const { app, state, packetBuilder, protocolVersion, connectionEpoch, mut } = ctx;
   if (mut.helloAcknowledged || state.stopped) return;
@@ -246,18 +284,15 @@ export async function initBonding(
   mut.bondingManager = bondingManager;
   bondingManager.setMetricsPublisher(metricsPublisher);
 
-  bondingManager.onControlPacket((linkName: string, msg: Buffer) => {
+  bondingManager.onControlPacket((_linkName: string, msg: Buffer, rinfo: dgram.RemoteInfo) => {
     if (!mut.bondingManager) {
       return;
     }
-    const linkHealth = mut.bondingManager.getLinkHealth();
-    const link = linkHealth[linkName];
-    handleControlPacket(ctx, msg, {
-      address: link?.address ?? "127.0.0.1",
-      port: link?.port ?? 0,
-      family: "IPv4",
-      size: msg.length
-    });
+    // Pass the datagram's actual source through. Deriving it from the link's
+    // configured address instead made `isExpectedPeer` compare the peer against
+    // itself, so it always matched and the off-path spoofing check silently did
+    // nothing on bonded connections.
+    handleControlPacket(ctx, msg, rinfo);
   });
 
   try {

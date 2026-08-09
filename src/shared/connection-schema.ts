@@ -56,6 +56,25 @@ export function serverConnectionProperties(): Record<string, SchemaFragment> {
 }
 
 export const commonConnectionProperties: Record<string, SchemaFragment> = {
+  /**
+   * Stable identity for a connection across saves.
+   *
+   * Declared here so connections authored in Signal K's built-in plugin UI get
+   * one too. Without it only the Edge Link panel minted IDs, and the redacted-
+   * secret restore on save had to fall back to matching by array index plus
+   * name — which a rename breaks, so renaming a built-in-UI connection failed
+   * with "has redacted secretKey, but no stored secretKey exists".
+   *
+   * Not operator-facing: hidden in the panel's ui:schema and assigned
+   * automatically.
+   */
+  connectionId: {
+    type: "string",
+    title: "Connection ID",
+    description:
+      "Internal identifier used to match this connection across saves. Assigned automatically — leave blank.",
+    maxLength: 64
+  },
   name: {
     type: "string",
     title: "Connection Name",

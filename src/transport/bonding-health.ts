@@ -361,3 +361,27 @@ export function shouldFailback(input: FailoverDecisionInput): boolean {
 }
 
 export { BONDING_HEALTH_WINDOW_SIZE };
+
+/**
+ * Send a heartbeat probe on a link's socket, reporting (but swallowing) an
+ * async send error or a synchronous send exception.
+ *
+ * A probe that cannot leave is not itself a link failure — the heartbeat
+ * timeout in `_maybeMarkLinkDown` is what decides that — so a failed send is
+ * logged and the health loop continues.
+ */
+export function sendHeartbeatProbe(
+  link: LinkState,
+  probe: Buffer,
+  report: (message: string) => void
+): void {
+  try {
+    link.socket!.send(probe, link.port, link.address, (err?: Error | null) => {
+      if (err) {
+        report(`heartbeat send error: ${err.message}`);
+      }
+    });
+  } catch (err: unknown) {
+    report(`heartbeat send exception: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}

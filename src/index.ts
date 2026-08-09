@@ -45,7 +45,7 @@ module.exports = function createPlugin(app: SignalKApp) {
   ) {
     // Lazy import, hoisted above the try so a module-load failure surfaces
     // distinctly instead of being folded into the generic start error.
-    const { sanitizeConnectionConfig } = require("./connection-config");
+    const { sanitizeConnectionConfig, VALID_CONNECTION_KEYS } = require("./connection-config");
 
     // signalk-server invokes plugin.start() without awaiting the returned
     // promise, so a rejection here would surface as an unhandled promise
@@ -65,7 +65,18 @@ module.exports = function createPlugin(app: SignalKApp) {
       } else if (options.serverType) {
         const { connections: _drop, ...rest } = options as Record<string, unknown>;
         const sanitized = sanitizeConnectionConfig({ ...rest });
-        plugin._currentOptions = { ...rest, ...sanitized };
+        // Carry over only the plugin-level keys. `sanitizeConnectionConfig`
+        // signals rejection by *omitting* a key, so spreading all of `rest`
+        // underneath put every stripped field straight back — leaving
+        // `_currentOptions` holding, say, client-only fields on a server
+        // connection despite the comment above promising a cleaned-up config.
+        const pluginLevel: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(rest)) {
+          if (!VALID_CONNECTION_KEYS.includes(key)) {
+            pluginLevel[key] = value;
+          }
+        }
+        plugin._currentOptions = { ...pluginLevel, ...sanitized };
       }
 
       routes.startRateLimitCleanup();

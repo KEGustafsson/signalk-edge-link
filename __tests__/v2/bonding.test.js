@@ -1,6 +1,7 @@
 "use strict";
 
 const { BondingManager, LinkStatus, BondingMode } = require("../../lib/bonding");
+const { calculateQuality, computeLossRatio } = require("../../lib/transport/bonding-health");
 const {
   BONDING_HEALTH_CHECK_INTERVAL,
   BONDING_RTT_THRESHOLD,
@@ -646,40 +647,40 @@ describe("BondingManager", () => {
   // Quality Calculation
   // ═══════════════════════════════════════════════
 
-  describe("Quality Calculation (_calculateQuality)", () => {
+  describe("Quality Calculation (calculateQuality)", () => {
     test("returns 100 for perfect metrics", () => {
-      const quality = bm._calculateQuality({ rtt: 0, loss: 0 });
+      const quality = calculateQuality({ rtt: 0, loss: 0 });
       expect(quality).toBe(100);
     });
 
     test("returns 0 for worst-case metrics", () => {
-      const quality = bm._calculateQuality({ rtt: 1000, loss: 1 });
+      const quality = calculateQuality({ rtt: 1000, loss: 1 });
       expect(quality).toBe(0);
     });
 
     test("decreases with higher RTT", () => {
-      const q1 = bm._calculateQuality({ rtt: 100, loss: 0 });
-      const q2 = bm._calculateQuality({ rtt: 500, loss: 0 });
+      const q1 = calculateQuality({ rtt: 100, loss: 0 });
+      const q2 = calculateQuality({ rtt: 500, loss: 0 });
       expect(q2).toBeLessThan(q1);
     });
 
     test("decreases with higher loss", () => {
-      const q1 = bm._calculateQuality({ rtt: 100, loss: 0 });
-      const q2 = bm._calculateQuality({ rtt: 100, loss: 0.5 });
+      const q1 = calculateQuality({ rtt: 100, loss: 0 });
+      const q2 = calculateQuality({ rtt: 100, loss: 0.5 });
       expect(q2).toBeLessThan(q1);
     });
 
     test("loss impacts quality more than RTT (60% vs 40% weight)", () => {
       // 50% loss, 0 RTT
-      const qLoss = bm._calculateQuality({ rtt: 0, loss: 0.5 });
+      const qLoss = calculateQuality({ rtt: 0, loss: 0.5 });
       // 0 loss, 500ms RTT (50% of 1000ms max)
-      const qRtt = bm._calculateQuality({ rtt: 500, loss: 0 });
+      const qRtt = calculateQuality({ rtt: 500, loss: 0 });
       // Loss of 0.5 should have more impact
       expect(qLoss).toBeLessThan(qRtt);
     });
 
     test("returns integer value", () => {
-      const quality = bm._calculateQuality({ rtt: 123, loss: 0.045 });
+      const quality = calculateQuality({ rtt: 123, loss: 0.045 });
       expect(Number.isInteger(quality)).toBe(true);
     });
   });
@@ -769,9 +770,17 @@ describe("BondingManager", () => {
       bm.onControlPacket(controlHandler);
 
       const controlMsg = Buffer.from("CONTROL_PKT");
-      bm._handleHeartbeatResponse("primary", controlMsg);
+      // The datagram's real source is forwarded so the control path can verify
+      // it against the configured peer.
+      const rinfo = {
+        address: "198.51.100.7",
+        port: 4446,
+        family: "IPv4",
+        size: controlMsg.length
+      };
+      bm._handleHeartbeatResponse("primary", controlMsg, rinfo);
 
-      expect(controlHandler).toHaveBeenCalledWith("primary", controlMsg);
+      expect(controlHandler).toHaveBeenCalledWith("primary", controlMsg, rinfo);
     });
 
     test("ignores heartbeat response with unknown sequence", async () => {
@@ -793,52 +802,31 @@ describe("BondingManager", () => {
   // Health Metrics Update
   // ═══════════════════════════════════════════════
 
-  describe("Health Metrics (_updateLinkMetrics)", () => {
-    test("calculates loss ratio from heartbeat stats", async () => {
-      await bm.initialize();
-      const link = bm.links.primary;
-      link.heartbeatsSent = 100;
-      link.heartbeatResponses = 90;
-
-      bm._updateLinkMetrics("primary", link);
-
-      expect(link.health.loss).toBeCloseTo(0.1, 2);
+  describe("Health Metrics (loss ratio and quality)", () => {
+    // These exercise the shared helpers the health tick composes, rather than
+    // driving a tick — a tick also sends a probe, which moves heartbeatsSent
+    // and would make the expected ratios drift.
+    test("calculates loss ratio from heartbeat stats", () => {
+      expect(computeLossRatio([], 100, 90)).toBeCloseTo(0.1, 2);
     });
 
-    test("loss is 0 when all heartbeats received", async () => {
-      await bm.initialize();
-      const link = bm.links.primary;
-      link.heartbeatsSent = 50;
-      link.heartbeatResponses = 50;
-
-      bm._updateLinkMetrics("primary", link);
-
-      expect(link.health.loss).toBe(0);
+    test("loss is 0 when all heartbeats received", () => {
+      expect(computeLossRatio([], 50, 50)).toBe(0);
     });
 
-    test("loss is clamped to [0, 1]", async () => {
-      await bm.initialize();
-      const link = bm.links.primary;
-      link.heartbeatsSent = 10;
-      link.heartbeatResponses = 15; // more responses than sent (defensive)
-
-      bm._updateLinkMetrics("primary", link);
-
-      expect(link.health.loss).toBeGreaterThanOrEqual(0);
-      expect(link.health.loss).toBeLessThanOrEqual(1);
+    test("loss is clamped to [0, 1]", () => {
+      // More responses than sent is defensive nonsense, but must not produce a
+      // negative ratio that then scores as better-than-perfect quality.
+      const loss = computeLossRatio([], 10, 15);
+      expect(loss).toBeGreaterThanOrEqual(0);
+      expect(loss).toBeLessThanOrEqual(1);
     });
 
-    test("updates quality score", async () => {
-      await bm.initialize();
-      const link = bm.links.primary;
-      link.heartbeatsSent = 100;
-      link.heartbeatResponses = 80;
-      link.health.rtt = 200;
-
-      bm._updateLinkMetrics("primary", link);
-
-      expect(link.health.quality).toBeGreaterThan(0);
-      expect(link.health.quality).toBeLessThanOrEqual(100);
+    test("quality reflects loss and RTT together", () => {
+      const loss = computeLossRatio([], 100, 80);
+      const quality = calculateQuality({ rtt: 200, loss });
+      expect(quality).toBeGreaterThan(0);
+      expect(quality).toBeLessThanOrEqual(100);
     });
   });
 
@@ -1106,9 +1094,10 @@ describe("BondingManager", () => {
       bm.onControlPacket(handler);
 
       const msg = Buffer.from("SK_DATA_PKT");
-      bm._handleHeartbeatResponse("primary", msg);
+      const rinfo = { address: "198.51.100.7", port: 4446, family: "IPv4", size: msg.length };
+      bm._handleHeartbeatResponse("primary", msg, rinfo);
 
-      expect(handler).toHaveBeenCalledWith("primary", msg);
+      expect(handler).toHaveBeenCalledWith("primary", msg, rinfo);
     });
 
     test("onFailover callback receives correct link names", async () => {

@@ -1,6 +1,7 @@
 "use strict";
 
 import fs from "node:fs/promises";
+import { CURRENT_CONFIG_SCHEMA_VERSION } from "../foundation/constants";
 import path from "node:path";
 
 import {
@@ -64,6 +65,9 @@ function migrateConfig(config: any): any {
 
   return {
     ...stripLegacyConnectionFields(config),
+    // Stamp the version the migrated file is written in, so the same field the
+    // plugin schema declares is actually present in a migrated config.
+    schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
     connections: [connection]
   };
 }

@@ -192,6 +192,43 @@ describe("server socket recovery", () => {
     expect(ctx.state.socketRecoveryInProgress).toBe(true);
   });
 
+  test("recovery reuses the existing v3 pipeline instead of building a second one", async () => {
+    // Sessions are keyed on address:port, not on the socket object, so the
+    // pipeline that was serving peers before the flap is still the right one
+    // afterwards. Constructing a replacement stranded the original: its
+    // per-session NAK timers stayed armed and kept flushing through the new
+    // socket, while the replacement started with no sessions, no epochs and no
+    // replay guards — silently dropping every peer back to the un-enforced
+    // anti-replay path.
+    const { makeMetricsApi } = require("../helpers/metrics-fixture");
+    const { ctx, sockets } = makeCtx();
+    ctx.options.protocolVersion = 3;
+    // The reliable pipeline needs a real metrics registry and enough instance
+    // state to construct; the v1 default above supplies neither.
+    ctx.metricsApi = makeMetricsApi();
+    ctx.state.options = ctx.options;
+    ctx.state.isServerMode = true;
+    ctx.state.instanceId = "srv";
+    ctx.state.deltas = [];
+    ctx.appProxy = ctx.app;
+
+    const first = await startListening(ctx, sockets);
+    const originalPipeline = ctx.state.pipelineServer;
+    expect(originalPipeline).toBeTruthy();
+
+    const restartAck = jest.spyOn(originalPipeline, "startACKTimer");
+
+    first.emit("error", Object.assign(new Error("network down"), { code: "ENETDOWN" }));
+    jest.advanceTimersByTime(SOCKET_RECOVERY_BASE_MS);
+    sockets[1].emit("listening");
+
+    // Same pipeline object, and the ACK/metrics timers the error handler
+    // stopped are restarted on it.
+    expect(ctx.state.pipelineServer).toBe(originalPipeline);
+    expect(restartAck).toHaveBeenCalled();
+    originalPipeline.stop();
+  });
+
   test("shutting down while a retry is pending creates no socket", async () => {
     const { ctx, sockets, shuttingDown } = makeCtx();
     const first = await startListening(ctx, sockets);

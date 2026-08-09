@@ -1351,29 +1351,32 @@ describe("SignalK Data Connector Plugin", () => {
     });
 
     test("config should not grow after multiple save cycles", async () => {
-      const initialSize = JSON.stringify(diskFile).length;
-
-      // Round-trip 1: read → save unchanged
+      // Round-trip 1: read → save unchanged.
+      //
+      // The first save of a config written before `schemaVersion` existed adds
+      // that one field, so it is measured against round 1 rather than against
+      // the fixture. What this test guards is unbounded growth — a field
+      // re-added or nested on every cycle — not a one-time stamp.
       const read1 = await readConfig();
       expect(read1.success).toBe(true);
       await saveConfig(read1.configuration);
 
       const sizeAfterRound1 = JSON.stringify(diskFile).length;
-      expect(sizeAfterRound1).toBe(initialSize);
+      expect(diskFile.configuration.schemaVersion).toBe(1);
 
       // Round-trip 2: read → save unchanged
       const read2 = await readConfig();
       await saveConfig(read2.configuration);
 
       const sizeAfterRound2 = JSON.stringify(diskFile).length;
-      expect(sizeAfterRound2).toBe(initialSize);
+      expect(sizeAfterRound2).toBe(sizeAfterRound1);
 
       // Round-trip 3: read → save unchanged
       const read3 = await readConfig();
       await saveConfig(read3.configuration);
 
       const sizeAfterRound3 = JSON.stringify(diskFile).length;
-      expect(sizeAfterRound3).toBe(initialSize);
+      expect(sizeAfterRound3).toBe(sizeAfterRound1);
     });
 
     test("config should never have nested configuration key", async () => {

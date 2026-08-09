@@ -31,7 +31,18 @@ interface QueueEntry {
 interface RetransmitQueueConfig {
   maxSize?: number;
   maxRetransmits?: number;
+  /**
+   * Called when a queued packet leaves the queue without having been
+   * acknowledged — capacity eviction, abandonment after `maxRetransmits`, or
+   * age expiry. The packet may never have reached the peer, so any sender
+   * state that assumes delivery (value-dedup baselines) has to resync.
+   *
+   * Acknowledged removals never fire this.
+   */
+  onPacketDropped?: (sequence: number, reason: DropReason) => void;
 }
+
+export type DropReason = "evicted" | "abandoned" | "expired";
 
 interface RetransmitPacket {
   sequence: number;
@@ -54,6 +65,7 @@ export class RetransmitQueue {
   abandonedCount: number;
   /** Most recent abandoned sequence, for operator diagnostics. */
   lastAbandonedSeq: number | null;
+  private onPacketDropped?: (sequence: number, reason: DropReason) => void;
 
   constructor(config: RetransmitQueueConfig = {}) {
     this.maxSize = config.maxSize ?? 5000;
@@ -61,6 +73,22 @@ export class RetransmitQueue {
     this.queue = new Map(); // sequence -> {packet, timestamp, attempts}
     this.abandonedCount = 0;
     this.lastAbandonedSeq = null;
+    this.onPacketDropped = config.onPacketDropped;
+  }
+
+  /**
+   * Report an unacknowledged drop without letting a listener's throw unwind
+   * the queue operation that triggered it.
+   */
+  private notifyDropped(sequence: number, reason: DropReason): void {
+    if (!this.onPacketDropped) {
+      return;
+    }
+    try {
+      this.onPacketDropped(sequence >>> 0, reason);
+    } catch {
+      // A failing observer must not corrupt queue bookkeeping.
+    }
   }
 
   /**
@@ -229,6 +257,7 @@ export class RetransmitQueue {
         this.queue.delete(seq);
         this.abandonedCount++;
         this.lastAbandonedSeq = seq >>> 0;
+        this.notifyDropped(seq, "abandoned");
         continue;
       }
 
@@ -329,6 +358,7 @@ export class RetransmitQueue {
     }
     for (const seq of toDelete) {
       this.queue.delete(seq);
+      this.notifyDropped(seq, "expired");
     }
 
     return toDelete.length;
@@ -355,6 +385,7 @@ export class RetransmitQueue {
     }
     if (oldestKey !== null) {
       this.queue.delete(oldestKey);
+      this.notifyDropped(oldestKey, "evicted");
     }
   }
 }

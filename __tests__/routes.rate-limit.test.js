@@ -147,7 +147,52 @@ describe("rate limit middleware client identity", () => {
     expect(json).toHaveBeenCalledWith({ error: "Too many requests, please try again later" });
   });
 
-  test("uses first x-forwarded-for IP when trust proxy is enabled", () => {
+  test("a spoofed leftmost x-forwarded-for cannot mint a fresh rate-limit bucket", () => {
+    const app = { get: jest.fn(() => false) };
+    const instanceRegistry = {
+      get: jest.fn(() => makeBundle()),
+      getFirst: jest.fn(() => makeBundle()),
+      getAll: jest.fn(() => [makeBundle()])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const metricsRoute = router.routes.find((r) => r.method === "get" && r.path === "/metrics");
+    const rateLimitMiddleware = metricsRoute.handlers[0];
+
+    // Same real peer (same req.ip, as Express resolves it under trust proxy),
+    // different client-supplied leftmost entry. Anything upstream only ever
+    // appends to this header, so the leftmost value is attacker-chosen — using
+    // it as the bucket key let a caller sidestep the limit indefinitely and
+    // brute-force the management token.
+    const reqA = {
+      headers: { "x-forwarded-for": "198.51.100.10, 10.0.0.5" },
+      ip: "10.0.0.5",
+      socket: { remoteAddress: "127.0.0.1" },
+      app: { get: (name) => name === "trust proxy" }
+    };
+    const reqB = {
+      headers: { "x-forwarded-for": "198.51.100.11, 10.0.0.5" },
+      ip: "10.0.0.5",
+      socket: { remoteAddress: "127.0.0.1" },
+      app: { get: (name) => name === "trust proxy" }
+    };
+    const nextA = jest.fn();
+    const nextB = jest.fn();
+    const res = { status: jest.fn(() => ({ json: jest.fn() })) };
+
+    for (let i = 0; i < RATE_LIMIT_MAX_REQUESTS; i++) {
+      rateLimitMiddleware(reqA, res, nextA);
+    }
+    rateLimitMiddleware(reqB, res, nextB);
+
+    expect(nextB).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(429);
+  });
+
+  test("distinct real clients still get independent buckets", () => {
     const app = { get: jest.fn(() => false) };
     const instanceRegistry = {
       get: jest.fn(() => makeBundle()),
@@ -163,15 +208,15 @@ describe("rate limit middleware client identity", () => {
     const rateLimitMiddleware = metricsRoute.handlers[0];
 
     const reqA = {
-      headers: { "x-forwarded-for": "198.51.100.10, 10.0.0.5" },
-      ip: "127.0.0.1",
-      socket: { remoteAddress: "127.0.0.1" },
+      headers: {},
+      ip: "198.51.100.10",
+      socket: { remoteAddress: "198.51.100.10" },
       app: { get: (name) => name === "trust proxy" }
     };
     const reqB = {
-      headers: { "x-forwarded-for": "198.51.100.11, 10.0.0.5" },
-      ip: "127.0.0.1",
-      socket: { remoteAddress: "127.0.0.1" },
+      headers: {},
+      ip: "198.51.100.11",
+      socket: { remoteAddress: "198.51.100.11" },
       app: { get: (name) => name === "trust proxy" }
     };
     const nextA = jest.fn();
@@ -186,7 +231,7 @@ describe("rate limit middleware client identity", () => {
     expect(nextB).toHaveBeenCalled();
   });
 
-  test("supports array-valued x-forwarded-for headers from upstream frameworks", () => {
+  test("falls back to the rightmost x-forwarded-for hop when req.ip is unavailable", () => {
     const app = { get: jest.fn(() => false) };
     const instanceRegistry = {
       get: jest.fn(() => makeBundle()),
@@ -201,16 +246,17 @@ describe("rate limit middleware client identity", () => {
     const metricsRoute = router.routes.find((r) => r.method === "get" && r.path === "/metrics");
     const rateLimitMiddleware = metricsRoute.handlers[0];
 
+    // Array-valued header, as some upstream frameworks deliver it. Both
+    // requests share the rightmost hop, so they must share a bucket even
+    // though the client-supplied leftmost entries differ.
     const reqA = {
       headers: { "x-forwarded-for": ["198.51.100.20, 10.0.0.5"] },
-      ip: "127.0.0.1",
-      socket: { remoteAddress: "127.0.0.1" },
+      socket: {},
       app: { get: (name) => name === "trust proxy" }
     };
     const reqB = {
       headers: { "x-forwarded-for": ["198.51.100.21, 10.0.0.5"] },
-      ip: "127.0.0.1",
-      socket: { remoteAddress: "127.0.0.1" },
+      socket: {},
       app: { get: (name) => name === "trust proxy" }
     };
 
@@ -223,7 +269,8 @@ describe("rate limit middleware client identity", () => {
     }
     rateLimitMiddleware(reqB, res, nextB);
 
-    expect(nextB).toHaveBeenCalled();
+    expect(nextB).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(429);
   });
 
   test("separates unknown-client buckets using stable header traits", () => {

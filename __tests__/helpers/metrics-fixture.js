@@ -1,57 +1,34 @@
 "use strict";
 
+const createMetrics = require("../../lib/metrics");
+
 /**
- * The metrics registry shape the v2 pipelines write into, for tests that drive
- * real pipelines rather than the real `createMetrics()` factory.
+ * The metrics registry the v2 pipelines write into, for tests that drive real
+ * pipelines but want the surrounding API functions stubbed.
  *
- * Shared because two end-to-end suites had grown their own copies and the
- * copies had already drifted: one omitted `rttSamples` and
- * `rejectedControlPackets`, so a pipeline incrementing either field wrote
- * `NaN` into it — silently, in the suite that exercises the same code path the
- * other suite covers correctly.
+ * Built from the real `createMetrics()` factory rather than a hand-written
+ * literal. Two end-to-end suites once kept their own copies, the copies drifted,
+ * and a pipeline incrementing a missing counter wrote `NaN` into it — silently,
+ * in the suite covering that very path. Replacing those copies with one shared
+ * literal only moved the problem: this file then drifted from the registry the
+ * same way, losing `packetLoss`, `acksSent`, `epochAuthMismatches`,
+ * `encryptionErrors` and ten more. Deriving the object removes the class of bug
+ * instead of relocating it — a counter added to the registry is present here the
+ * moment it exists.
+ *
+ * `updateBandwidthRates` and `trackPathStats` are stubbed because these suites
+ * assert on counters, not on derived rates; `recordError` is stubbed so a test
+ * can assert what was reported. The metrics object itself is real.
  *
  * @returns a fresh metrics API; never share one instance between pipelines.
  */
 function makeMetricsApi() {
+  const real = createMetrics();
   return {
-    metrics: {
-      startTime: Date.now(),
-      deltasSent: 0,
-      deltasReceived: 0,
-      udpRetries: 0,
-      udpSendErrors: 0,
-      duplicatePackets: 0,
-      rateLimitedPackets: 0,
-      malformedPackets: 0,
-      rejectedControlPackets: 0,
-      rtt: 0,
-      jitter: 0,
-      rttSamples: 0,
-      queueDepth: 0,
-      retransmissions: 0,
-      smartBatching: {
-        avgBytesPerDelta: 0,
-        maxDeltasPerBatch: 0,
-        oversizedPackets: 0,
-        earlySends: 0,
-        timerSends: 0
-      },
-      bandwidth: {
-        packetsOut: 0,
-        packetsIn: 0,
-        bytesOut: 0,
-        bytesIn: 0,
-        bytesOutRaw: 0,
-        bytesInRaw: 0,
-        lastBytesOut: 0,
-        lastBytesIn: 0,
-        lastRateCalcTime: Date.now(),
-        rateOut: 0,
-        rateIn: 0,
-        compressionRatio: 1,
-        history: { toArray: () => [] }
-      }
-    },
+    metrics: real.metrics,
+    formatBytes: real.formatBytes,
+    getTopNPaths: real.getTopNPaths,
+    resetMetrics: real.resetMetrics,
     recordError: jest.fn(),
     trackPathStats: jest.fn(),
     updateBandwidthRates: jest.fn()

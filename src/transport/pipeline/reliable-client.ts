@@ -21,6 +21,7 @@ import CircularBuffer from "../../foundation/circular-buffer";
 import * as nodeCrypto from "node:crypto";
 import { PacketBuilder, PacketParser } from "../../codec/packet-codec";
 import { RetransmitQueue } from "../reliability/retransmit-queue";
+import { resetValueDedupState } from "../../codec/value-dedup";
 import { MetricsPublisher } from "../metrics/publisher";
 import { CongestionControl } from "../congestion";
 import { BondingManager } from "../bonding";
@@ -165,11 +166,21 @@ function buildClientContext(
     connectionEpoch
   );
 
+  // Built before the queue so the drop listener below can capture it: a
+  // packet that leaves the queue unacknowledged may never have reached the
+  // peer, and the dedup baseline it established has to be dropped with it or
+  // every later sentinel for those paths expands to a stale value.
+  const dedupState = createDedupState();
+
   // Reliability: extract config once to avoid repetitive deep-access chains
   const reliabilityConfig = (state.options && state.options.reliability) || {};
   const retransmitQueue = new RetransmitQueue({
     maxSize: reliabilityConfig.retransmitQueueSize ?? 5000,
-    maxRetransmits: reliabilityConfig.maxRetransmits ?? 3
+    maxRetransmits: reliabilityConfig.maxRetransmits ?? 3,
+    onPacketDropped: (sequence, reason) => {
+      resetValueDedupState(dedupState);
+      app.debug(`v2 dedup baseline reset: seq=${sequence} ${reason} without delivery`);
+    }
   });
 
   // Reliability metrics
@@ -196,7 +207,7 @@ function buildClientContext(
     metricsApi,
     setStatus,
     throttleState: createThrottleState(),
-    dedupState: createDedupState(),
+    dedupState,
     protocolVersion,
     stretchAsciiKey,
     // Persisted monotonic epoch resolved at client start (survives an RTC-less

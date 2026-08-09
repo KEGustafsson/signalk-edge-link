@@ -205,9 +205,12 @@ For complete setting definitions and ranges, use `docs/configuration-reference.m
 
 Schema and migration helpers:
 
-- The runtime schema is defined inline as `plugin.schema` in `src/index.ts`
-  and served to the Signal K admin UI. `docs/configuration-reference.md` is
-  the authoritative human-readable reference.
+- The runtime schema is assembled by `buildPluginSchema()` in
+  `src/app/config/schema.ts` from the property definitions in
+  `src/shared/connection-schema.ts`, exposed as `plugin.schema` from
+  `src/index.ts`, and served to the Signal K admin UI.
+  `docs/configuration-reference.md` is the authoritative human-readable
+  reference.
 - `src/scripts/migrate-config.ts` (convert legacy flat config to `connections[]`)
 - `npm run migrate:config -- <input.json> [output.json]`
 
@@ -277,14 +280,24 @@ npm run cli -- status --token=$EDGE_LINK_TOKEN --format=table
 
 ## Management API security
 
-Set `managementApiToken` in plugin options (or the environment variable `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`). Protected routes include:
+Set `managementApiToken` in plugin options, or the environment variable
+`SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` (the environment variable takes
+precedence).
 
-- `/instances`, `/bonding`, `/status`, `/plugin-config`
-- `/config/*`, `/connections/:id/config/*`
+**Every route is protected.** There is no read-only subset that stays open once
+a token is configured — including the ones dashboards and scrapers use:
+
+- `/instances`, `/bonding`, `/status`, `/plugin-config`, `/plugin-schema`
+- `/metrics`, `/network-metrics`, `/prometheus`, `/sources`, `/paths`, `/congestion`
+- `/config/*`, `/connections/:id/config/*`, `/delta-timer`
 - `/connections/:id/metrics`, `/connections/:id/network-metrics`
 - `/connections/:id/bonding`, `/connections/:id/congestion`
-- `/connections/:id/monitoring/*`, `/monitoring/alerts`
-- `/capture/*`, `/delta-timer`
+- `/connections/:id/bonding/failover`
+- `/monitoring/*` (alerts, packet-loss, path-latency, retransmissions, inspector, simulation)
+- `/capture/*`
+
+So configuring a token means updating anything that polls the plugin —
+Prometheus scrape configs included. See [docs/metrics.md](docs/metrics.md).
 
 Send the token as either:
 

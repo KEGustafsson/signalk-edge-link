@@ -21,6 +21,8 @@ interface PrometheusExtra {
   linkQuality?: number;
   retransmitRate?: number;
   activeAlerts?: Record<string, { level: string }>;
+  /** Configured alert metrics, so cleared alerts can still publish a 0. */
+  alertThresholds?: Record<string, unknown>;
   bonding?: {
     activeLink: string;
     links?: Record<string, { status: string; rtt?: number; loss?: number; quality?: number }>;
@@ -113,9 +115,12 @@ function emitDeltaCounters(e: MetricEmitter, metrics: Metrics): void {
   // The per-(context, path, source) duplicate breakdown is intentionally NOT
   // exported to Prometheus. Those labels are arbitrary, identifying, and churn
   // over time (high cardinality), which both blows up Prometheus series counts
-  // and leaks source/path identity to any scraper. The detailed breakdown
-  // remains available via the JSON /metrics and /network-metrics endpoints
-  // (metrics.suppressedOutboundDuplicateStats).
+  // and leaks source/path identity to any scraper.
+  //
+  // `metrics.suppressedOutboundDuplicateStats` exists on the metrics object but
+  // is never populated or served by any endpoint, so this scalar is the only
+  // view of duplicate suppression there is — do not point operators at a JSON
+  // breakdown that does not exist.
 }
 
 function emitErrorCounters(e: MetricEmitter, metrics: Metrics): void {
@@ -230,12 +235,20 @@ function emitExtra(e: MetricEmitter, extra: PrometheusExtra): void {
     e.gauge("retransmit_rate", "Current retransmission rate (0-1)", extra.retransmitRate);
   }
 
-  if (extra.activeAlerts) {
-    for (const [name, alert] of Object.entries(extra.activeAlerts)) {
-      const level = alert.level === "critical" ? 2 : 1;
-      const safeName = sanitizeMetricNameComponent(name);
-      e.gauge(`alert_${safeName}`, `Alert state for ${name} (0=ok, 1=warning, 2=critical)`, level);
-    }
+  // Emit a series for every *configured* alert metric, not just the firing
+  // ones. A series that disappears when an alert clears never reads 0, so a
+  // `... == 0` rule can never fire and a dashboard shows "No data" where an
+  // operator expects green. `alertThresholds` is the set of metrics this
+  // instance can alert on, so a missing entry in `activeAlerts` means "ok".
+  const alertMetricNames = new Set([
+    ...Object.keys(extra.alertThresholds ?? {}),
+    ...Object.keys(extra.activeAlerts ?? {})
+  ]);
+  for (const name of alertMetricNames) {
+    const alert = extra.activeAlerts?.[name];
+    const level = alert === undefined ? 0 : alert.level === "critical" ? 2 : 1;
+    const safeName = sanitizeMetricNameComponent(name);
+    e.gauge(`alert_${safeName}`, `Alert state for ${name} (0=ok, 1=warning, 2=critical)`, level);
   }
 }
 

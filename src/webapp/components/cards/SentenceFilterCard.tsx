@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { SentenceFilterConfig } from "../../types";
 import { configPath } from "../../utils";
-import { useApi, ApiError } from "../../hooks/useApi";
+import { useApi, ApiError, readErrorMessage } from "../../hooks/useApi";
 import { Card } from "./shared";
 
 interface Props {
@@ -35,7 +35,10 @@ export function SentenceFilterCard({ connId, config, onNotify, onSaved }: Props)
         onSaved({ excludedSentences });
         onNotify("Sentence filter saved successfully!", "success");
       } else {
-        throw new Error("Failed to save sentence filter");
+        // Surface the server's own message: a 403 lockout, a 429 rate limit
+        // and a validation rejection are different problems with different
+        // fixes, and collapsing them into one string hides which one it is.
+        throw new Error(await readErrorMessage(res, "Failed to save sentence filter"));
       }
     } catch (err: unknown) {
       const e = err as ApiError;

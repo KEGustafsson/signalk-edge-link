@@ -205,6 +205,7 @@ When bonding is enabled, per-link metrics are included in `GET /bonding`:
 | `networking.edgeLink.linkQuality`               | number       | 0–100   | Composite link quality         |
 | `networking.edgeLink.queueDepth`                | number       | packets | Retransmit queue depth         |
 | `networking.edgeLink.retransmissions`           | number       | count   | Retransmitted packets          |
+| `networking.edgeLink.retransmitRate`            | number       | ratio   | Retransmissions / packets sent |
 | `networking.edgeLink.sequenceNumber`            | number       | —       | Last published sequence number |
 | `networking.edgeLink.bandwidth.upload`          | number       | B/s     | Outbound throughput            |
 | `networking.edgeLink.bandwidth.download`        | number       | B/s     | Inbound throughput             |
@@ -226,59 +227,61 @@ When an instance ID is configured, the `networking.edgeLink.*` paths are namespa
 
 Full list exported by `GET /prometheus`:
 
-| Metric                                                   | Type    | Description                                                                                                            |
-| -------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `signalk_edge_link_uptime_seconds`                       | gauge   | Plugin uptime                                                                                                          |
-| `signalk_edge_link_ready_to_send`                        | gauge   | Client ready-to-send flag (1/0)                                                                                        |
-| `signalk_edge_link_deltas_sent_total`                    | counter | Total deltas sent                                                                                                      |
-| `signalk_edge_link_deltas_received_total`                | counter | Total deltas received                                                                                                  |
-| `signalk_edge_link_deltas_buffered`                      | gauge   | Deltas currently buffered for send                                                                                     |
-| `signalk_edge_link_data_packets_received_total`          | counter | Data packets accepted (excludes duplicates)                                                                            |
-| `signalk_edge_link_dropped_delta_batches_total`          | counter | Delta batches dropped before send                                                                                      |
-| `signalk_edge_link_dropped_deltas_total`                 | counter | Deltas dropped before send                                                                                             |
-| `signalk_edge_link_suppressed_outbound_duplicates_total` | counter | Exact duplicate outbound deltas suppressed                                                                             |
-| `signalk_edge_link_rate_limited_packets_total`           | counter | Packets dropped by rate limiting                                                                                       |
-| `signalk_edge_link_malformed_packets_total`              | counter | Malformed packets dropped                                                                                              |
-| `signalk_edge_link_udp_send_errors_total`                | counter | UDP send errors                                                                                                        |
-| `signalk_edge_link_udp_retries_total`                    | counter | UDP send retries                                                                                                       |
-| `signalk_edge_link_compression_errors_total`             | counter | Compression errors                                                                                                     |
-| `signalk_edge_link_encryption_errors_total`              | counter | Encryption / authentication errors                                                                                     |
-| `signalk_edge_link_subscription_errors_total`            | counter | Signal K subscription errors                                                                                           |
-| `signalk_edge_link_errors_by_category_total`             | counter | Errors grouped by category (label: `category`)                                                                         |
-| `signalk_edge_link_bytes_out_total`                      | counter | Compressed bytes sent                                                                                                  |
-| `signalk_edge_link_bytes_in_total`                       | counter | Compressed bytes received                                                                                              |
-| `signalk_edge_link_bytes_out_raw_total`                  | counter | Raw bytes sent (before compression)                                                                                    |
-| `signalk_edge_link_bytes_in_raw_total`                   | counter | Raw bytes received (after decompression)                                                                               |
-| `signalk_edge_link_packets_out_total`                    | counter | Packets sent                                                                                                           |
-| `signalk_edge_link_packets_in_total`                     | counter | Packets received                                                                                                       |
-| `signalk_edge_link_bandwidth_rate_out_bytes`             | gauge   | Outbound bytes/s                                                                                                       |
-| `signalk_edge_link_bandwidth_rate_in_bytes`              | gauge   | Inbound bytes/s                                                                                                        |
-| `signalk_edge_link_compression_ratio_percent`            | gauge   | Compression ratio                                                                                                      |
-| `signalk_edge_link_acks_sent_total`                      | counter | ACK packets sent                                                                                                       |
-| `signalk_edge_link_naks_sent_total`                      | counter | NAK packets sent                                                                                                       |
-| `signalk_edge_link_retransmissions_total`                | counter | Retransmissions                                                                                                        |
-| `signalk_edge_link_queue_depth`                          | gauge   | Retransmit queue depth                                                                                                 |
-| `signalk_edge_link_rtt_milliseconds`                     | gauge   | Round-trip time                                                                                                        |
-| `signalk_edge_link_jitter_milliseconds`                  | gauge   | Jitter                                                                                                                 |
-| `signalk_edge_link_packet_loss_rate`                     | gauge   | Packet loss ratio                                                                                                      |
-| `signalk_edge_link_link_quality_score`                   | gauge   | Link quality (0–100)                                                                                                   |
-| `signalk_edge_link_metadata_bytes_out_total`             | counter | Metadata bytes sent                                                                                                    |
-| `signalk_edge_link_metadata_bytes_in_total`              | counter | Metadata bytes received                                                                                                |
-| `signalk_edge_link_metadata_packets_out_total`           | counter | Metadata packets sent                                                                                                  |
-| `signalk_edge_link_metadata_packets_in_total`            | counter | Metadata packets received                                                                                              |
-| `signalk_edge_link_metadata_snapshots_sent_total`        | counter | Metadata snapshots sent                                                                                                |
-| `signalk_edge_link_metadata_diffs_sent_total`            | counter | Metadata diffs sent                                                                                                    |
-| `signalk_edge_link_metadata_rate_limited_packets_total`  | counter | Metadata packets rate-limited                                                                                          |
-| `signalk_edge_link_smart_batch_early_sends_total`        | counter | Batches sent before the timer (size cap)                                                                               |
-| `signalk_edge_link_smart_batch_timer_sends_total`        | counter | Batches sent on the timer cadence                                                                                      |
-| `signalk_edge_link_smart_batch_oversized_total`          | counter | Oversized packets (should be 0)                                                                                        |
-| `signalk_edge_link_smart_batch_avg_bytes_per_delta`      | gauge   | Average compressed bytes per delta                                                                                     |
-| `signalk_edge_link_bonding_active_link`                  | gauge   | Active link indicator (1=primary, 2=backup)                                                                            |
-| `signalk_edge_link_bonding_link_status`                  | gauge   | Per-link status (label: `link`)                                                                                        |
-| `signalk_edge_link_bonding_link_rtt_milliseconds`        | gauge   | Per-link RTT (label: `link`)                                                                                           |
-| `signalk_edge_link_bonding_link_loss_rate`               | gauge   | Per-link loss (label: `link`)                                                                                          |
-| `signalk_edge_link_bonding_link_quality`                 | gauge   | Per-link quality (label: `link`)                                                                                       |
-| `signalk_edge_link_management_auth_requests_total`       | counter | Management auth decisions (labels: `decision`, `reason`, `action`); emitted only when a management token is configured |
+| Metric                                                   | Type    | Description                                                                                                                                                                   |
+| -------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signalk_edge_link_uptime_seconds`                       | gauge   | Plugin uptime                                                                                                                                                                 |
+| `signalk_edge_link_ready_to_send`                        | gauge   | Client ready-to-send flag (1/0)                                                                                                                                               |
+| `signalk_edge_link_deltas_sent_total`                    | counter | Total deltas sent                                                                                                                                                             |
+| `signalk_edge_link_deltas_received_total`                | counter | Total deltas received                                                                                                                                                         |
+| `signalk_edge_link_deltas_buffered`                      | gauge   | Deltas currently buffered for send                                                                                                                                            |
+| `signalk_edge_link_data_packets_received_total`          | counter | Data packets accepted (excludes duplicates)                                                                                                                                   |
+| `signalk_edge_link_dropped_delta_batches_total`          | counter | Delta batches dropped before send                                                                                                                                             |
+| `signalk_edge_link_dropped_deltas_total`                 | counter | Deltas dropped before send                                                                                                                                                    |
+| `signalk_edge_link_suppressed_outbound_duplicates_total` | counter | Exact duplicate outbound deltas suppressed                                                                                                                                    |
+| `signalk_edge_link_rate_limited_packets_total`           | counter | Packets dropped by rate limiting                                                                                                                                              |
+| `signalk_edge_link_malformed_packets_total`              | counter | Malformed packets dropped                                                                                                                                                     |
+| `signalk_edge_link_udp_send_errors_total`                | counter | UDP send errors                                                                                                                                                               |
+| `signalk_edge_link_udp_retries_total`                    | counter | UDP send retries                                                                                                                                                              |
+| `signalk_edge_link_compression_errors_total`             | counter | Compression errors                                                                                                                                                            |
+| `signalk_edge_link_encryption_errors_total`              | counter | Encryption / authentication errors                                                                                                                                            |
+| `signalk_edge_link_subscription_errors_total`            | counter | Signal K subscription errors                                                                                                                                                  |
+| `signalk_edge_link_errors_by_category_total`             | counter | Errors grouped by category (label: `category`)                                                                                                                                |
+| `signalk_edge_link_bytes_out_total`                      | counter | Compressed bytes sent                                                                                                                                                         |
+| `signalk_edge_link_bytes_in_total`                       | counter | Compressed bytes received                                                                                                                                                     |
+| `signalk_edge_link_bytes_out_raw_total`                  | counter | Raw bytes sent (before compression)                                                                                                                                           |
+| `signalk_edge_link_bytes_in_raw_total`                   | counter | Raw bytes received (after decompression)                                                                                                                                      |
+| `signalk_edge_link_packets_out_total`                    | counter | Packets sent                                                                                                                                                                  |
+| `signalk_edge_link_packets_in_total`                     | counter | Packets received                                                                                                                                                              |
+| `signalk_edge_link_bandwidth_rate_out_bytes`             | gauge   | Outbound bytes/s                                                                                                                                                              |
+| `signalk_edge_link_bandwidth_rate_in_bytes`              | gauge   | Inbound bytes/s                                                                                                                                                               |
+| `signalk_edge_link_compression_ratio_percent`            | gauge   | Compression ratio                                                                                                                                                             |
+| `signalk_edge_link_acks_sent_total`                      | counter | ACK packets sent                                                                                                                                                              |
+| `signalk_edge_link_naks_sent_total`                      | counter | NAK packets sent                                                                                                                                                              |
+| `signalk_edge_link_retransmissions_total`                | counter | Retransmissions                                                                                                                                                               |
+| `signalk_edge_link_queue_depth`                          | gauge   | Retransmit queue depth                                                                                                                                                        |
+| `signalk_edge_link_rtt_milliseconds`                     | gauge   | Round-trip time                                                                                                                                                               |
+| `signalk_edge_link_jitter_milliseconds`                  | gauge   | Jitter                                                                                                                                                                        |
+| `signalk_edge_link_packet_loss_rate`                     | gauge   | Packet loss ratio                                                                                                                                                             |
+| `signalk_edge_link_link_quality_score`                   | gauge   | Link quality (0–100)                                                                                                                                                          |
+| `signalk_edge_link_retransmit_rate`                      | gauge   | Current retransmission rate (0–1)                                                                                                                                             |
+| `signalk_edge_link_alert_<metric>`                       | gauge   | Alert state per configured threshold metric: 0=ok, 1=warning, 2=critical. One series per metric in `alertThresholds`, published even when not alerting, so `== 0` rules work. |
+| `signalk_edge_link_metadata_bytes_out_total`             | counter | Metadata bytes sent                                                                                                                                                           |
+| `signalk_edge_link_metadata_bytes_in_total`              | counter | Metadata bytes received                                                                                                                                                       |
+| `signalk_edge_link_metadata_packets_out_total`           | counter | Metadata packets sent                                                                                                                                                         |
+| `signalk_edge_link_metadata_packets_in_total`            | counter | Metadata packets received                                                                                                                                                     |
+| `signalk_edge_link_metadata_snapshots_sent_total`        | counter | Metadata snapshots sent                                                                                                                                                       |
+| `signalk_edge_link_metadata_diffs_sent_total`            | counter | Metadata diffs sent                                                                                                                                                           |
+| `signalk_edge_link_metadata_rate_limited_packets_total`  | counter | Metadata packets rate-limited                                                                                                                                                 |
+| `signalk_edge_link_smart_batch_early_sends_total`        | counter | Batches sent before the timer (size cap)                                                                                                                                      |
+| `signalk_edge_link_smart_batch_timer_sends_total`        | counter | Batches sent on the timer cadence                                                                                                                                             |
+| `signalk_edge_link_smart_batch_oversized_total`          | counter | Oversized packets (should be 0)                                                                                                                                               |
+| `signalk_edge_link_smart_batch_avg_bytes_per_delta`      | gauge   | Average compressed bytes per delta                                                                                                                                            |
+| `signalk_edge_link_bonding_active_link`                  | gauge   | Active link indicator (1=primary, 2=backup)                                                                                                                                   |
+| `signalk_edge_link_bonding_link_status`                  | gauge   | Per-link status (label: `link`)                                                                                                                                               |
+| `signalk_edge_link_bonding_link_rtt_milliseconds`        | gauge   | Per-link RTT (label: `link`)                                                                                                                                                  |
+| `signalk_edge_link_bonding_link_loss_rate`               | gauge   | Per-link loss (label: `link`)                                                                                                                                                 |
+| `signalk_edge_link_bonding_link_quality`                 | gauge   | Per-link quality (label: `link`)                                                                                                                                              |
+| `signalk_edge_link_management_auth_requests_total`       | counter | Management auth decisions (labels: `decision`, `reason`, `action`); emitted only when a management token is configured                                                        |
 
 Per-alert series (one per active alert, names derived from the alert name) are
 also emitted but are intentionally excluded from this static list.
@@ -288,14 +291,27 @@ instance ID is configured, each series additionally carries an `instance` label.
 
 ### Prometheus scrape configuration
 
+`/prometheus` is behind the management API token like every other route, so a
+scrape must authenticate. Configuring `managementApiToken` without updating the
+scrape config is the usual cause of dashboards going blank right after a
+security review — Prometheus receives 401 and reports the target as down.
+
 ```yaml
 scrape_configs:
   - job_name: "signalk-edge-link"
     scrape_interval: 15s
     metrics_path: "/plugins/signalk-edge-link/prometheus"
+    authorization:
+      type: Bearer
+      # Prefer credentials_file so the token is not stored in prometheus.yml.
+      credentials_file: /etc/prometheus/signalk-edge-link.token
     static_configs:
       - targets: ["signalk-server:3000"]
 ```
+
+If no token is configured and `requireManagementApiToken` is off, the scrape
+works without the `authorization` block — but see
+[security.md](security.md) for why leaving it that way is not recommended.
 
 Build a Grafana dashboard from the Prometheus metrics exposed at `/prometheus` (no dashboard JSON is bundled with the plugin).
 

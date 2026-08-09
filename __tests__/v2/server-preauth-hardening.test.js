@@ -88,6 +88,10 @@ describe("reliable server pre-auth hardening", () => {
     }
 
     // Never more than the per-IP cap of 5 sessions for one source IP.
-    expect(server.getMetrics().totalSessions).toBeLessThanOrEqual(5);
+    // Exactly 5, not "at most 5": HELLO is HMAC-authenticated and does
+    // allocate a session, so 0 is what you get if that authentication
+    // regresses and the link never comes up at all. An upper bound admits
+    // that failure as a pass.
+    expect(server.getMetrics().totalSessions).toBe(5);
   });
 });

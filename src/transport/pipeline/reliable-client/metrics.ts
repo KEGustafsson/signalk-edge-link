@@ -12,6 +12,7 @@
 import { METRICS_PUBLISH_INTERVAL } from "../../../foundation/constants";
 import type { ClientContext } from "./context";
 import { calculatePacketLoss, pruneRetransmitQueue } from "./reliability";
+import { maybeRehandshake } from "./lifecycle";
 import { sendDelta } from "./delta-sender";
 
 interface PeriodRates {
@@ -178,6 +179,7 @@ export function publishMetrics(ctx: ClientContext): void {
   updateBandwidthRates(false);
 
   pruneRetransmitQueue(ctx, "metrics");
+  maybeRehandshake(ctx);
 
   const now = Date.now();
   const elapsed = (now - mut.lastMetricsTime) / 1000; // seconds

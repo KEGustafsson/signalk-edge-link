@@ -47,16 +47,25 @@ export class PathLatencyTracker {
   record(path: string, latencyMs: number): void {
     let entry = this.paths.get(path);
     if (!entry) {
-      // Evict oldest if at capacity
+      // Evict the least-recently-recorded path at capacity.
+      //
+      // Map iteration is insertion-ordered, so taking the first key alone
+      // evicts the path inserted longest ago no matter how busy it is — on a
+      // vessel with more than `maxPaths` distinct paths that reliably threw
+      // away the hottest ones and restarted their p95/p99 windows from empty.
+      // The delete-then-set below moves a refreshed path to the tail, which
+      // makes insertion order a true LRU order.
       if (this.paths.size >= this.maxPaths) {
-        const firstKey = this.paths.keys().next().value;
-        if (firstKey !== undefined) {
-          this.paths.delete(firstKey);
+        const lruKey = this.paths.keys().next().value;
+        if (lruKey !== undefined) {
+          this.paths.delete(lruKey);
         }
       }
       entry = { samples: [], lastUpdate: 0 };
-      this.paths.set(path, entry);
+    } else {
+      this.paths.delete(path);
     }
+    this.paths.set(path, entry);
 
     entry.samples.push(latencyMs);
     if (entry.samples.length > this.windowSize) {

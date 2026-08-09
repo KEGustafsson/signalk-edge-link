@@ -21,6 +21,8 @@ import { createKeepaliveManager } from "../../domain/keepalive-manager";
 import { createSubscriptionManager } from "../../domain/subscription-manager";
 import {
   DEFAULT_DELTA_TIMER,
+  DELTA_TIMER_MAX_MS,
+  DELTA_TIMER_MIN_MS,
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch,
   OUTBOUND_DUPLICATE_SUPPRESS_MS,
@@ -133,7 +135,12 @@ function createConfigHandlers(
       const c = config as Record<string, unknown>;
       if (c?.deltaTimer) {
         const val = Number(c.deltaTimer);
-        if (Number.isFinite(val) && val >= 100 && val <= 10000 && state.deltaTimerTime !== val) {
+        if (
+          Number.isFinite(val) &&
+          val >= DELTA_TIMER_MIN_MS &&
+          val <= DELTA_TIMER_MAX_MS &&
+          state.deltaTimerTime !== val
+        ) {
           state.deltaTimerTime = val;
           clearTimeout(state.deltaTimer ?? undefined);
           scheduleDeltaTimer();

@@ -35,6 +35,7 @@ describe("migrate-config", () => {
     };
 
     expect(migrateConfig(legacy)).toEqual({
+      schemaVersion: 1,
       monitoringEnabled: true,
       connections: [
         {
@@ -66,6 +67,7 @@ describe("migrate-config", () => {
         secretKey: "12345678901234567890123456789012"
       })
     ).toEqual({
+      schemaVersion: 1,
       connections: [
         {
           name: "default",
@@ -87,6 +89,7 @@ describe("migrate-config", () => {
         secretKey: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
       })
     ).toEqual({
+      schemaVersion: 1,
       connections: [
         {
           name: "hex",
@@ -108,6 +111,7 @@ describe("migrate-config", () => {
         secretKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
       })
     ).toEqual({
+      schemaVersion: 1,
       connections: [
         {
           name: "base64",

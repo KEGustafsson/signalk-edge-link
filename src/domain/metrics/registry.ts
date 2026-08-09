@@ -2,18 +2,14 @@
 
 import CircularBuffer = require("../../foundation/circular-buffer");
 import {
+  BANDWIDTH_HISTORY_INTERVAL_MS,
   BANDWIDTH_HISTORY_MAX,
+  BANDWIDTH_RATE_MIN_INTERVAL_MS,
   PATH_STATS_MAX_SIZE,
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch
 } from "../../foundation/constants";
-import type { Metrics, MetricsApi, Delta } from "../../foundation/types";
-
-interface PathStat {
-  count: number;
-  bytes: number;
-  lastUpdate: number;
-}
+import type { Metrics, MetricsApi, Delta, PathStat } from "../../foundation/types";
 
 interface PathStatEntry {
   path: string;
@@ -140,6 +136,7 @@ function buildBandwidthMetrics() {
     lastBytesOut: 0,
     lastBytesIn: 0,
     lastRateCalcTime: Date.now(),
+    lastHistoryPushTime: 0,
     rateOut: 0,
     rateIn: 0,
     compressionRatio: 0,
@@ -232,36 +229,57 @@ function resetMetrics(metrics: Metrics): void {
   Object.assign(metrics.smartBatching, buildSmartBatchingMetrics());
 }
 
+/**
+ * Recompute the bandwidth rate gauges from the bytes seen since the last
+ * sample.
+ *
+ * Destructive by nature: it advances the byte cursors, so whoever calls it
+ * consumes that interval. Both the 1 s pipeline timers and the HTTP metrics
+ * handlers call it, and a scrape landing shortly after a tick used to divide
+ * a few milliseconds of traffic and report ~0 B/s on a busy link. Sampling
+ * windows shorter than {@link BANDWIDTH_RATE_MIN_INTERVAL_MS} are therefore
+ * left alone, so a reader sees the last properly-measured rate instead of an
+ * artefact of its own timing.
+ */
 function updateBandwidthRates(metrics: Metrics, isServerMode: boolean): void {
   const now = Date.now();
-  const elapsed = (now - metrics.bandwidth.lastRateCalcTime) / 1000;
+  const elapsedMs = now - metrics.bandwidth.lastRateCalcTime;
 
-  if (elapsed > 0) {
-    const bytesDeltaOut = metrics.bandwidth.bytesOut - metrics.bandwidth.lastBytesOut;
-    const bytesDeltaIn = metrics.bandwidth.bytesIn - metrics.bandwidth.lastBytesIn;
+  if (elapsedMs < BANDWIDTH_RATE_MIN_INTERVAL_MS) {
+    return;
+  }
 
-    // Clamp to >= 0: a counter reset (bytesOut dropping below lastBytesOut)
-    // must never publish a negative rate into history or the Prometheus gauge.
-    metrics.bandwidth.rateOut = Math.max(0, Math.round(bytesDeltaOut / elapsed));
-    metrics.bandwidth.rateIn = Math.max(0, Math.round(bytesDeltaIn / elapsed));
+  const elapsed = elapsedMs / 1000;
+  const bytesDeltaOut = metrics.bandwidth.bytesOut - metrics.bandwidth.lastBytesOut;
+  const bytesDeltaIn = metrics.bandwidth.bytesIn - metrics.bandwidth.lastBytesIn;
 
-    const compressed = isServerMode ? metrics.bandwidth.bytesIn : metrics.bandwidth.bytesOut;
-    const raw = isServerMode ? metrics.bandwidth.bytesInRaw : metrics.bandwidth.bytesOutRaw;
-    if (raw > 0) {
-      metrics.bandwidth.compressionRatio = Math.round((1 - compressed / raw) * 100);
-    }
+  // Clamp to >= 0: a counter reset (bytesOut dropping below lastBytesOut)
+  // must never publish a negative rate into history or the Prometheus gauge.
+  metrics.bandwidth.rateOut = Math.max(0, Math.round(bytesDeltaOut / elapsed));
+  metrics.bandwidth.rateIn = Math.max(0, Math.round(bytesDeltaIn / elapsed));
 
+  const compressed = isServerMode ? metrics.bandwidth.bytesIn : metrics.bandwidth.bytesOut;
+  const raw = isServerMode ? metrics.bandwidth.bytesInRaw : metrics.bandwidth.bytesOutRaw;
+  if (raw > 0) {
+    metrics.bandwidth.compressionRatio = Math.round((1 - compressed / raw) * 100);
+  }
+
+  // Append on a fixed cadence rather than once per sample, so the fixed-size
+  // buffer spans the documented 5 minutes regardless of how many readers are
+  // polling.
+  if (now - metrics.bandwidth.lastHistoryPushTime >= BANDWIDTH_HISTORY_INTERVAL_MS) {
     metrics.bandwidth.history.push({
       timestamp: now,
       rateOut: metrics.bandwidth.rateOut,
       rateIn: metrics.bandwidth.rateIn,
       compressionRatio: metrics.bandwidth.compressionRatio
     });
-
-    metrics.bandwidth.lastBytesOut = metrics.bandwidth.bytesOut;
-    metrics.bandwidth.lastBytesIn = metrics.bandwidth.bytesIn;
-    metrics.bandwidth.lastRateCalcTime = now;
+    metrics.bandwidth.lastHistoryPushTime = now;
   }
+
+  metrics.bandwidth.lastBytesOut = metrics.bandwidth.bytesOut;
+  metrics.bandwidth.lastBytesIn = metrics.bandwidth.bytesIn;
+  metrics.bandwidth.lastRateCalcTime = now;
 }
 
 // Evict the stalest path entry when the map is at capacity. Uses the cached
@@ -281,20 +299,37 @@ function evictStalestPathIfFull(metrics: Metrics, pathStats: Map<string, PathSta
     }
   }
 
+  // Remembered across evictions so the scan below is amortised rather than
+  // paid on every insertion past the cap. Track the runner-up too: after the
+  // stalest entry is deleted the runner-up *is* the next stalest, which is the
+  // only way the cached pointer above can ever be populated. Seeding it with
+  // `null` (the previous behaviour) made that fast path unreachable and left
+  // every insertion past PATH_STATS_MAX_SIZE doing a full linear scan.
+  let runnerUpPath: string | null = null;
+  let runnerUpTs = Infinity;
+
   if (!stalestPath) {
     let stalestTs = Infinity;
     for (const [existingPath, existingStats] of pathStats) {
       const ts = existingStats.lastUpdate || 0;
       if (ts < stalestTs) {
+        runnerUpTs = stalestTs;
+        runnerUpPath = stalestPath;
         stalestTs = ts;
         stalestPath = existingPath;
+      } else if (ts < runnerUpTs) {
+        runnerUpTs = ts;
+        runnerUpPath = existingPath;
       }
     }
   }
 
   if (stalestPath !== null) {
     pathStats.delete(stalestPath);
-    metrics._pathStatsStalest = null;
+    metrics._pathStatsStalest =
+      runnerUpPath !== null && runnerUpTs !== Infinity
+        ? { path: runnerUpPath, ts: runnerUpTs }
+        : null;
   }
 }
 
@@ -318,7 +353,8 @@ function trackPathValue(
   pathStats.set(path, {
     count: 1,
     bytes: bytesPerPath,
-    lastUpdate: now
+    lastUpdate: now,
+    firstSeen: now
   });
 
   // Do not cache the newly added path as "stalest" — it has lastUpdate = now
@@ -368,11 +404,30 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-function getTopNPaths(metrics: Metrics, n: number, uptimeSeconds: number): PathStatEntry[] {
+/**
+ * Update rate over the window this path has actually been tracked for.
+ *
+ * `stats.count` restarts at 1 when a path is first seen — or re-added after an
+ * LRU eviction — so process uptime is the wrong divisor for anything but a
+ * path present since startup.
+ */
+function computeUpdatesPerMinute(stats: PathStat, now: number): number {
+  const windowMs = now - stats.firstSeen;
+  // Below a second the sample is too short to extrapolate from; reporting the
+  // raw count is honest and avoids a single early update reading as thousands
+  // per minute.
+  if (windowMs < 1000) {
+    return stats.count;
+  }
+  return Math.round((stats.count / (windowMs / 1000)) * 60);
+}
+
+function getTopNPaths(metrics: Metrics, n: number, _uptimeSeconds: number): PathStatEntry[] {
   if (!Number.isInteger(n) || n <= 0) return [];
   const pathStats = metrics.pathStats;
   const entries = Array.from(pathStats.entries());
   const result: PathStatEntry[] = [];
+  const now = Date.now();
 
   for (const [path, stats] of entries) {
     const item: PathStatEntry = {
@@ -381,7 +436,7 @@ function getTopNPaths(metrics: Metrics, n: number, uptimeSeconds: number): PathS
       bytes: stats.bytes,
       bytesFormatted: formatBytes(stats.bytes),
       lastUpdate: stats.lastUpdate,
-      updatesPerMinute: uptimeSeconds > 0 ? Math.round((stats.count / uptimeSeconds) * 60) : 0
+      updatesPerMinute: computeUpdatesPerMinute(stats, now)
     };
 
     if (result.length < n) {

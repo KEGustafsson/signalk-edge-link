@@ -18,6 +18,29 @@
  * do not interfere. Cache state persists for the lifetime of the
  * pipeline (client) or session (server). On (re)connect, both caches
  * start empty so the first value for each path is sent absolutely.
+ *
+ * ## Keeping the two caches in agreement
+ *
+ * A sentinel means "the value you already have", so the sender's cache and
+ * the receiver's cache must agree or the receiver injects a stale value and
+ * keeps injecting it — the sender has no reason to send an absolute again.
+ * Two mechanisms hold the invariant:
+ *
+ * 1. **Sender-side resync.** Any event that means a DATA packet was built but
+ *    may never have been delivered — retransmit-queue eviction, abandonment
+ *    after `maxRetransmits`, age expiry, or a throw between dedup and send —
+ *    calls {@link resetValueDedupState}. The sender then re-sends every path
+ *    absolutely, which is the only way to re-establish a shared baseline.
+ *    The receiver needs no signal: absolute values simply overwrite.
+ * 2. **Receiver-side sequence guard.** Payloads are dispatched in arrival
+ *    order, so a reordered older packet can otherwise overwrite a newer
+ *    value in the receive cache and desynchronise it from the sender. The
+ *    receive path therefore records the DATA sequence that last wrote each
+ *    entry and ignores absolute values arriving from an older sequence.
+ *
+ * The sender also resets at link resync points (HELLO/epoch change, and the
+ * full-status replay a restarted server asks for), because a fresh server
+ * session starts with an empty cache; see `reliable-client/lifecycle`.
  */
 
 import type { Delta, DeltaValue } from "../foundation/types";
@@ -31,13 +54,41 @@ import { VALUE_DEDUP_CACHE_MAX } from "../foundation/constants";
  */
 export const DUP_SENTINEL = { $$: "dup" } as const;
 
+/**
+ * One cached value plus the DATA sequence that wrote it.
+ *
+ * `seq` is only meaningful on the receive path, where it orders concurrent
+ * writes to the same path; the send path has no sequence at dedup time
+ * (`buildDataPacket` allocates it later) and always stores {@link NO_SEQ}.
+ */
+interface DedupEntry {
+  value: unknown;
+  seq: number;
+}
+
+/** Sentinel "no sequence recorded" marker for send-side entries. */
+const NO_SEQ = -1;
+
 /** Per-(context, path) cache: last value sent or received. */
 export interface ValueDedupState {
-  cache: Map<string, unknown>;
+  cache: Map<string, DedupEntry>;
 }
 
 export function createValueDedupState(): ValueDedupState {
   return { cache: new Map() };
+}
+
+/**
+ * Drop every cached baseline so the next delta for each path is sent — and
+ * expected — as an absolute value.
+ *
+ * Call this on the sending side whenever a built packet may not have reached
+ * the peer, and on both sides at a link resync point. Clearing is always safe:
+ * the worst case is a few redundant absolute values, whereas a stale cache
+ * silently delivers wrong data for as long as the true value stays put.
+ */
+export function resetValueDedupState(state: ValueDedupState): void {
+  state.cache.clear();
 }
 
 function cacheKey(context: string | undefined, path: string): string {
@@ -51,14 +102,26 @@ function cacheKey(context: string | undefined, path: string): string {
  * first when the cache is full. Bounds memory for links that see a very
  * large number of distinct (context, path) pairs.
  */
-function cacheSet(cache: Map<string, unknown>, key: string, value: unknown): void {
+function cacheSet(cache: Map<string, DedupEntry>, key: string, entry: DedupEntry): void {
   if (cache.has(key)) {
     cache.delete(key);
   } else if (cache.size >= VALUE_DEDUP_CACHE_MAX) {
     const oldest = cache.keys().next();
     if (!oldest.done) cache.delete(oldest.value);
   }
-  cache.set(key, value);
+  cache.set(key, entry);
+}
+
+/**
+ * True when `candidate` is at or ahead of `reference` in uint32 serial space.
+ *
+ * Sequence numbers wrap, so a plain `>=` reports a freshly-wrapped sequence as
+ * ancient and would discard every value after a wrap. Comparing the forward
+ * distance against the half-space handles the wrap the same way the ACK and
+ * retransmit paths do.
+ */
+function serialAtOrAfter(candidate: number, reference: number): boolean {
+  return ((candidate >>> 0) - (reference >>> 0)) >>> 0 < 0x80000000;
 }
 
 function isSentinel(value: unknown): boolean {
@@ -123,17 +186,17 @@ export function dedupDelta(delta: Delta, state: ValueDedupState): Delta {
       if (typeof v.path !== "string" || v.path.length === 0) return entry;
       const key = cacheKey(context, v.path);
       const cached = state.cache.get(key);
-      const cachedRepr = cached === undefined ? undefined : stableRepr(cached);
+      const cachedRepr = cached === undefined ? undefined : stableRepr(cached.value);
       const currentRepr = stableRepr(v.value);
       if (cachedRepr !== undefined && cachedRepr === currentRepr) {
         valuesChanged = true;
         // Refresh LRU position so a stable path that only ever emits
         // sentinels is not evicted ahead of churnier ones.
-        cacheSet(state.cache, key, cached);
+        cacheSet(state.cache, key, cached!);
         return { ...v, value: DUP_SENTINEL };
       }
       // First occurrence or value changed — cache the absolute value
-      cacheSet(state.cache, key, v.value);
+      cacheSet(state.cache, key, { value: v.value, seq: NO_SEQ });
       return entry;
     });
     if (!valuesChanged) return update;
@@ -197,8 +260,13 @@ export function dedupDeltaPayload(payload: DeltaPayload, state: ValueDedupState)
  *
  * Robust to malformed entries (null/non-object/missing path) — they pass
  * through untouched so the downstream sanitize step can reject them.
+ *
+ * @param seq - Sequence of the DATA packet carrying this delta. When given,
+ *   an absolute value from a sequence older than the one that last wrote the
+ *   entry is delivered but not cached, so a reordered packet cannot roll the
+ *   receive cache backwards and desynchronise it from the sender.
  */
-export function undedupDelta(delta: Delta, state: ValueDedupState): Delta {
+export function undedupDelta(delta: Delta, state: ValueDedupState, seq?: number): Delta {
   if (!Array.isArray(delta.updates)) return delta;
   const context = delta.context;
   let deltaChanged = false;
@@ -220,8 +288,8 @@ export function undedupDelta(delta: Delta, state: ValueDedupState): Delta {
         continue;
       }
       const key = cacheKey(context, v.path);
+      const cached = state.cache.get(key);
       if (isSentinel(v.value)) {
-        const cached = state.cache.get(key);
         if (cached === undefined) {
           // Receiver missed the absolute baseline — skip rather than inject the sentinel.
           // The sender will resync on the next absolute value.
@@ -232,10 +300,21 @@ export function undedupDelta(delta: Delta, state: ValueDedupState): Delta {
         // Refresh LRU position so a stable path is not evicted ahead of
         // churnier ones (mirrors the sender-side dedup behaviour).
         cacheSet(state.cache, key, cached);
-        values.push({ ...v, value: cached });
+        values.push({ ...v, value: cached.value });
       } else {
-        // Absolute value — update cache and pass through
-        cacheSet(state.cache, key, v.value);
+        // Absolute value — always delivered, but only cached when it is the
+        // newest write for this path. Payloads are dispatched in arrival
+        // order, so without this a reordered older packet would leave the
+        // receive cache holding a value the sender has already moved past,
+        // and the next sentinel would expand to it.
+        const stale =
+          seq !== undefined &&
+          cached !== undefined &&
+          cached.seq !== NO_SEQ &&
+          !serialAtOrAfter(seq, cached.seq);
+        if (!stale) {
+          cacheSet(state.cache, key, { value: v.value, seq: seq ?? NO_SEQ });
+        }
         values.push(entry as DeltaValue);
       }
     }
@@ -248,10 +327,10 @@ export function undedupDelta(delta: Delta, state: ValueDedupState): Delta {
   return { ...delta, updates };
 }
 
-export function undedupDeltaArray(deltas: Delta[], state: ValueDedupState): Delta[] {
+export function undedupDeltaArray(deltas: Delta[], state: ValueDedupState, seq?: number): Delta[] {
   let anyChanged = false;
   const out = deltas.map((d) => {
-    const r = undedupDelta(d, state);
+    const r = undedupDelta(d, state, seq);
     if (r !== d) anyChanged = true;
     return r;
   });

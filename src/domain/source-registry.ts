@@ -30,6 +30,7 @@ import type {
   SourceRegistrySnapshot
 } from "../foundation/types";
 import { SOURCE_REGISTRY_MAX_RECORDS, SOURCE_REGISTRY_TTL_MS } from "../foundation/constants";
+import { toMergeHash } from "./source-registry/merge-hash";
 
 /** Wire schema version for source-replication snapshots. Bump on breaking changes. */
 export const SOURCE_REPLICATION_SCHEMA_VERSION = 1;
@@ -140,79 +141,6 @@ function createSourceKey(
     return `source-identity:${identityHash}`;
   }
   return "source-identity:unknown";
-}
-
-/**
- * Emit key-sorted JSON directly, without first building a canonicalized copy of
- * the object graph. `upsertSingleUpdate` runs for every update of every received
- * delta (hundreds per second on an NMEA2000 vessel), so the old
- * canonicalize-then-stringify pass allocated a full deep clone per update and
- * threw it away immediately.
- */
-function stableStringify(value: unknown, out: string[]): void {
-  if (value === null || value === undefined) {
-    out.push("null");
-    return;
-  }
-  if (Array.isArray(value)) {
-    out.push("[");
-    for (let i = 0; i < value.length; i++) {
-      if (i > 0) out.push(",");
-      stableStringify(value[i], out);
-    }
-    out.push("]");
-    return;
-  }
-  if (typeof value === "object") {
-    const input = value as Record<string, unknown>;
-    const keys = Object.keys(input).sort();
-    out.push("{");
-    for (let i = 0; i < keys.length; i++) {
-      if (i > 0) out.push(",");
-      out.push(JSON.stringify(keys[i]), ":");
-      stableStringify(input[keys[i]], out);
-    }
-    out.push("}");
-    return;
-  }
-  out.push(JSON.stringify(value));
-}
-
-/**
- * FNV-1a. Two independently-seeded 32-bit passes are concatenated into a 64-bit
- * digest, which is ample for distinguishing at most MAX_RECORDS entries.
- *
- * This replaced SHA-256: the comment on the old implementation already noted
- * this is "a content-addressable dedup hash, not a security boundary", and
- * OpenSSL context setup cost ~6us per call regardless of input size — the single
- * largest cost on the per-update receive path, and ~100% of it was discarded
- * because an instrument's identity is constant for the life of the link.
- */
-function fnv1a(input: string, seed: number): number {
-  let hash = seed >>> 0;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    // hash *= 16777619, in 32-bit space without overflowing to float.
-    hash = (hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24))) >>> 0;
-  }
-  return hash >>> 0;
-}
-
-function toMergeHash(record: Omit<SourceReplicationRecord, "mergeHash">): string {
-  const stablePayload = {
-    schemaVersion: record.schemaVersion,
-    key: record.key,
-    identity: record.identity,
-    metadata: record.metadata,
-    provenance: record.provenance,
-    raw: record.raw
-  };
-  const parts: string[] = [];
-  stableStringify(stablePayload, parts);
-  const canonical = parts.join("");
-  const a = fnv1a(canonical, 0x811c9dc5);
-  const b = fnv1a(canonical, 0x01000193);
-  return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
 }
 
 function chooseValue(

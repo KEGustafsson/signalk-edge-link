@@ -124,8 +124,18 @@ export class AlertManager {
       const effectiveCooldown = this._perMetricCooldown.get(metricName) ?? this.cooldown;
       const cooldownExpired = Date.now() - lastTime >= effectiveCooldown;
 
-      // Only alert if level changed or cooldown expired
-      if (!currentAlert || currentAlert.level !== level || cooldownExpired) {
+      // A change of severity is news regardless of cooldown; a re-raise at the
+      // same severity is not.
+      //
+      // The absence of an active alert deliberately does NOT bypass the
+      // cooldown. `checkAll` runs once a second, so a metric hovering at its
+      // threshold alternates raise/clear/raise/clear — and short-circuiting on
+      // `!currentAlert` let every one of those raises through, emitting a
+      // notification per second for as long as the value stayed marginal.
+      // `_lastAlertTime` is never cleared on the clear path precisely so it can
+      // brake the re-raise here.
+      const isEscalation = currentAlert !== undefined && currentAlert.level !== level;
+      if (isEscalation || cooldownExpired) {
         const alert = {
           metric: metricName,
           level,

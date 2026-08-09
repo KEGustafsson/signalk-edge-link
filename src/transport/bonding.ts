@@ -33,6 +33,7 @@ import {
   classifyHeartbeatResponse,
   expirePendingHeartbeats,
   computeLossRatio,
+  sendHeartbeatProbe,
   calculateQuality,
   updateRttEma,
   shouldFailover,
@@ -76,7 +77,9 @@ export class BondingManager {
   public metricsPublisher: LinkMetricsPublisher | null;
   private _onFailover: ((from: string, to: string) => void) | null;
   private _onFailback: ((from: string, to: string) => void) | null;
-  private _onControlPacket?: ((linkName: string, msg: Buffer) => void) | null;
+  private _onControlPacket?:
+    | ((linkName: string, msg: Buffer, rinfo: dgram.RemoteInfo) => void)
+    | null;
 
   /**
    * @param {Object} config - Bonding configuration
@@ -143,20 +146,30 @@ export class BondingManager {
    * @returns {Promise<void>}
    */
   async initialize(): Promise<void> {
-    if (this._initialized) {
+    if (this._initialized || this._stopped) {
       return;
     }
 
+    // `bindLinkInterface` is real async I/O, so a stop() can land part-way
+    // through. Re-check after every await: otherwise the remaining sockets are
+    // created and health monitoring is armed on a manager the caller has
+    // already torn down and dropped its reference to, leaving an interval and
+    // open sockets no one can close. `stop()` releases whatever was opened.
     for (const [name, link] of Object.entries(this.links)) {
+      if (this._stopped) {
+        this.stop();
+        return;
+      }
       link.socket = dgram.createSocket("udp4");
-
       if (link.interface) {
         await bindLinkInterface(link);
       }
-
       this._attachSocketHandlers(name, link, "socket error");
-
       link.health.status = LinkStatus.STANDBY;
+    }
+    if (this._stopped) {
+      this.stop();
+      return;
     }
 
     // Primary starts as active
@@ -234,14 +247,20 @@ export class BondingManager {
 
     link.pendingHeartbeats.set(seq, timestamp);
     link.heartbeatsSent++;
-    this._sendProbe(name, link, probe);
+    sendHeartbeatProbe(link, probe, (msg) => this.app.debug(`[Bonding] ${name} ${msg}`));
 
     // Clean up old pending heartbeats (older than timeout)
     const timeout = this.failoverThresholds.heartbeatTimeout;
     expirePendingHeartbeats(link.pendingHeartbeats, link.lossSamples, timestamp, timeout);
 
     // Calculate health metrics
-    this._updateLinkMetrics(name, link);
+    // Loss ratio from recent heartbeat outcomes (aggregate counters as a
+    // fallback for tests/diagnostics), then the composite quality score.
+    const loss = computeLossRatio(link.lossSamples, link.heartbeatsSent, link.heartbeatResponses);
+    if (loss !== null) {
+      link.health.loss = loss;
+    }
+    link.health.quality = calculateQuality(link.health);
 
     // Check if link is down (no responses for heartbeatTimeout)
     this._maybeMarkLinkDown(name, link, timestamp, timeout);
@@ -255,24 +274,6 @@ export class BondingManager {
         retransmitRate: 0,
         status: link.health.status
       });
-    }
-  }
-
-  /**
-   * Send a heartbeat probe on a link's socket, logging (but swallowing) any
-   * async send error or synchronous send exception.
-   * @private
-   */
-  private _sendProbe(name: string, link: LinkState, probe: Buffer): void {
-    try {
-      link.socket!.send(probe, link.port, link.address, (err?: Error | null) => {
-        if (err) {
-          this.app.debug(`[Bonding] ${name} heartbeat send error: ${err.message}`);
-        }
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.app.debug(`[Bonding] ${name} heartbeat send exception: ${msg}`);
     }
   }
 
@@ -302,7 +303,7 @@ export class BondingManager {
    * @param {string} name - Link name
    * @param {Buffer} msg - Response message
    */
-  private _handleHeartbeatResponse(name: string, msg: Buffer): void {
+  private _handleHeartbeatResponse(name: string, msg: Buffer, rinfo?: dgram.RemoteInfo): void {
     const link = this.links[name as keyof typeof this.links] as LinkState | undefined;
     if (!link) {
       return;
@@ -311,8 +312,8 @@ export class BondingManager {
     const classification = classifyHeartbeatResponse(msg, this.secretKey, this.stretchAsciiKey);
     if (classification === "not-heartbeat") {
       // Not a heartbeat response — might be a control packet, pass through.
-      if (this._onControlPacket) {
-        this._onControlPacket(name, msg);
+      if (this._onControlPacket && rinfo) {
+        this._onControlPacket(name, msg, rinfo);
       }
       return;
     }
@@ -352,34 +353,6 @@ export class BondingManager {
       link.health.status = this.activeLink === name ? LinkStatus.ACTIVE : LinkStatus.STANDBY;
       this.app.debug(`[Bonding] ${name} link recovered (RTT: ${rtt}ms)`);
     }
-  }
-
-  /**
-   * Update health metrics for a link based on heartbeat statistics
-   * @private
-   * @param {string} name - Link name
-   * @param {Object} link - Link object
-   */
-  private _updateLinkMetrics(name: string, link: LinkState): void {
-    // Calculate loss ratio from recent heartbeat outcomes (or aggregate
-    // counters as a fallback for tests/diagnostics).
-    const loss = computeLossRatio(link.lossSamples, link.heartbeatsSent, link.heartbeatResponses);
-    if (loss !== null) {
-      link.health.loss = loss;
-    }
-
-    // Calculate quality score
-    link.health.quality = this._calculateQuality(link.health);
-  }
-
-  /**
-   * Calculate link quality score (0-100) from a link's RTT and loss.
-   * @private
-   * @param {Object} health - Health metrics {rtt, loss}
-   * @returns {number} Quality score 0-100
-   */
-  private _calculateQuality(health: LinkHealth): number {
-    return calculateQuality(health);
   }
 
   /**
@@ -428,8 +401,13 @@ export class BondingManager {
    * @private
    */
   private _attachSocketHandlers(name: string, link: LinkState, errorContext: string): void {
-    link.socket!.on("message", (msg: Buffer, _rinfo: dgram.RemoteInfo) => {
-      this._handleHeartbeatResponse(name, msg);
+    link.socket!.on("message", (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+      // Forward the datagram's real source. The control-packet path validates
+      // it against the configured peer, and synthesising an rinfo from the
+      // link's own configured address downstream made that check pass
+      // unconditionally on bonded links — disabling off-path spoof rejection
+      // in exactly the multi-WAN deployments it was written for.
+      this._handleHeartbeatResponse(name, msg, rinfo);
     });
     link.socket!.on("error", (err: Error) => {
       this.app.debug(`[Bonding] ${name} ${errorContext}: ${err.message}`);
@@ -610,7 +588,7 @@ export class BondingManager {
    * (e.g., ACK/NAK packets that should be forwarded to the pipeline)
    * @param {Function} handler - (linkName, msg) handler
    */
-  onControlPacket(handler: (linkName: string, msg: Buffer) => void): void {
+  onControlPacket(handler: (linkName: string, msg: Buffer, rinfo: dgram.RemoteInfo) => void): void {
     this._onControlPacket = handler;
   }
 

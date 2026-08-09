@@ -2,7 +2,7 @@
 
 > **Base path:** `/plugins/signalk-edge-link`  
 > **Rate limit:** 120 requests/minute/IP → HTTP 429  
-> **API version tracked (current: 4.0.5)** — see CHANGELOG.md for endpoint changes between releases
+> **API version tracked (current: 4.1.0)** — see CHANGELOG.md for endpoint changes between releases
 
 ---
 
@@ -317,9 +317,21 @@ Returns packet-inspector statistics (a plain JSON snapshot from a `GET`; there i
 { "enabled": true, "packetsInspected": 5000, "clientsConnected": 1 }
 ```
 
+### GET /monitoring/simulation
+
+Reports whether network simulation (artificial loss/latency injection) is
+active. Simulation is a test-harness facility with no runtime toggle, so on a
+normal deployment this always returns `{ "enabled": false }`.
+
+```json
+{ "enabled": false }
+```
+
 ### GET /prometheus
 
-Prometheus text format. See [metrics.md](metrics.md#prometheus-metrics) for full metric list.
+Prometheus text format, token-protected like every other route — see
+[metrics.md](metrics.md#prometheus-scrape-configuration) for the scrape config
+and the full metric list.
 
 ---
 
@@ -479,16 +491,22 @@ List all active connections with status.
 
 These mirror the global endpoints but are scoped to a specific connection. `:id` is the slugified connection name (e.g., `shore-server`).
 
-| Endpoint                                          | Auth                         | Available in |
-| ------------------------------------------------- | ---------------------------- | ------------ |
-| `GET /connections/:id/metrics`                    | `connection-monitoring.read` | Both         |
-| `GET /connections/:id/network-metrics`            | `connection-monitoring.read` | Both         |
-| `GET /connections/:id/bonding`                    | `connection-bonding.read`    | Client only  |
-| `GET /connections/:id/congestion`                 | `connection-monitoring.read` | Client only  |
-| `GET /connections/:id/monitoring/alerts`          | `connection-monitoring.read` | Both         |
-| `GET /connections/:id/monitoring/packet-loss`     | `connection-monitoring.read` | Both         |
-| `GET /connections/:id/monitoring/retransmissions` | `connection-monitoring.read` | Both         |
-| `GET /connections/:id/config/:filename`           | `connection-config.read`     | Client only  |
-| `POST /connections/:id/config/:filename`          | `connection-config.update`   | Client only  |
+| Endpoint                                          | Auth                          | Available in |
+| ------------------------------------------------- | ----------------------------- | ------------ |
+| `GET /connections/:id/metrics`                    | `connection-monitoring.read`  | Both         |
+| `GET /connections/:id/network-metrics`            | `connection-monitoring.read`  | Both         |
+| `GET /connections/:id/bonding`                    | `connection-bonding.read`     | Client only  |
+| `GET /connections/:id/congestion`                 | `connection-monitoring.read`  | Client only  |
+| `GET /connections/:id/monitoring/alerts`          | `connection-monitoring.read`  | Both         |
+| `GET /connections/:id/monitoring/packet-loss`     | `connection-monitoring.read`  | Both         |
+| `GET /connections/:id/monitoring/retransmissions` | `connection-monitoring.read`  | Both         |
+| `GET /connections/:id/config/:filename`           | `connection-config.read`      | Client only  |
+| `POST /connections/:id/config/:filename`          | `connection-config.update`    | Client only  |
+| `POST /connections/:id/bonding/failover`          | `connection-bonding.failover` | Client only  |
 
-Response shapes are identical to the corresponding global endpoint.
+`POST /connections/:id/bonding/failover` forces the named connection onto its
+other bonding link — the per-connection form of the global
+`POST /bonding/failover`, and the only way to fail over one connection in a
+multi-connection deployment. It takes no body.
+
+Response shapes are otherwise identical to the corresponding global endpoint.

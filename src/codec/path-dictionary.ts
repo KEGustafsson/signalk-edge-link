@@ -119,7 +119,11 @@ const PATHS_BY_CATEGORY: Record<string, string[]> = Object.fromEntries(
  * @returns The numeric ID if found, otherwise the original path
  */
 export function encodePath(path: string): number | string {
-  if (PATH_TO_ID[path] !== undefined) {
+  // hasOwnProperty, not a bare lookup: `PATH_TO_ID` is an object literal, so
+  // `PATH_TO_ID[path]` also resolves Object.prototype members. A Signal K path
+  // of "toString" or "valueOf" is unusual but perfectly legal, and it returned
+  // the native function — which then serialised onto the wire as null.
+  if (Object.prototype.hasOwnProperty.call(PATH_TO_ID, path)) {
     return PATH_TO_ID[path];
   }
   // No exact match -- return original path string to preserve instance IDs
