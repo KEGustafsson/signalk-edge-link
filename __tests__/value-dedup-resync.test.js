@@ -43,14 +43,12 @@ describe("value dedup: sender/receiver cache agreement", () => {
     expect(
       isDupSentinel(firstValue(dedupDelta(delta("navigation.state", "sailing"), sender)))
     ).toBe(false);
-    // Unchanged → sentinel.
     expect(
       isDupSentinel(firstValue(dedupDelta(delta("navigation.state", "sailing"), sender)))
     ).toBe(true);
 
     resetValueDedupState(sender);
 
-    // Baseline dropped → absolute again.
     const afterReset = dedupDelta(delta("navigation.state", "sailing"), sender);
     expect(isDupSentinel(firstValue(afterReset))).toBe(false);
     expect(firstValue(afterReset)).toBe("sailing");

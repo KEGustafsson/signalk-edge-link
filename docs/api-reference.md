@@ -329,9 +329,11 @@ normal deployment this always returns `{ "enabled": false }`.
 
 ### GET /prometheus
 
-Prometheus text format, token-protected like every other route — see
-[metrics.md](metrics.md#prometheus-scrape-configuration) for the scrape config
-and the full metric list.
+Prometheus text format. Behind the same management-auth check as every other
+route, which requires a bearer token whenever one is configured (or
+`requireManagementApiToken` is enabled) and otherwise allows the scrape through.
+See [metrics.md](metrics.md#prometheus-scrape-configuration) for the scrape
+config and the full metric list.
 
 ---
 

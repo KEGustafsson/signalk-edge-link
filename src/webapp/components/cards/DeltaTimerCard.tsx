@@ -48,7 +48,7 @@ export function DeltaTimerCard({ connId, config, onNotify, onSaved }: Props) {
       const e = err as ApiError;
       onNotify(
         e.isUnauthorized
-          ? authMessage("saving delta timer")
+          ? authMessage("saving delta timer", e.message)
           : `Error saving delta timer: ${e.message}`,
         "error"
       );

@@ -249,11 +249,9 @@ export class BondingManager {
     link.heartbeatsSent++;
     sendHeartbeatProbe(link, probe, (msg) => this.app.debug(`[Bonding] ${name} ${msg}`));
 
-    // Clean up old pending heartbeats (older than timeout)
     const timeout = this.failoverThresholds.heartbeatTimeout;
     expirePendingHeartbeats(link.pendingHeartbeats, link.lossSamples, timestamp, timeout);
 
-    // Calculate health metrics
     // Loss ratio from recent heartbeat outcomes (aggregate counters as a
     // fallback for tests/diagnostics), then the composite quality score.
     const loss = computeLossRatio(link.lossSamples, link.heartbeatsSent, link.heartbeatResponses);

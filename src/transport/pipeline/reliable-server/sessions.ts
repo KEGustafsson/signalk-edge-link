@@ -112,19 +112,23 @@ export function getOrCreateSession(
     return existing;
   }
 
-  // Evict the oldest idle session if we are at capacity.
+  // Per-IP first, then global. When this address is already at its own cap and
+  // the table happens to be full, the per-IP eviction frees the slot this
+  // session will occupy — so running the global eviction first would throw an
+  // unrelated peer out for nothing.
+  if (!makeRoomForAddress(ctx, rinfo.address)) {
+    return null;
+  }
+
+  // Evict the oldest idle session if we are still at capacity.
   evictOldestSessionIfFull(ctx);
 
-  // Create new session. Guard against a re-entrant creation that may have
-  // already added the session during the eviction scan above.
+  // Guard against a re-entrant creation that may have added the session during
+  // either eviction scan above.
   if (clientSessions.has(key)) {
     const session = clientSessions.get(key)!;
     session.lastPacketTime = Date.now();
     return session;
-  }
-
-  if (!makeRoomForAddress(ctx, rinfo.address)) {
-    return null;
   }
 
   const session: ClientSession = {

@@ -45,6 +45,7 @@ describe("edge-link-cli", () => {
       schemaVersion: 1,
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "default",
           serverType: "client",
           udpPort: 4446,

@@ -192,6 +192,80 @@ describe("rate limit middleware client identity", () => {
     expect(res.status).toHaveBeenCalledWith(429);
   });
 
+  test("with unbounded trust proxy, spoofed identities share the connecting-address bucket", () => {
+    const app = { get: jest.fn(() => false) };
+    const instanceRegistry = {
+      get: jest.fn(() => makeBundle()),
+      getFirst: jest.fn(() => makeBundle()),
+      getAll: jest.fn(() => [makeBundle()])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const metricsRoute = router.routes.find((r) => r.method === "get" && r.path === "/metrics");
+    const rateLimitMiddleware = metricsRoute.handlers[0];
+
+    // `trust proxy: true` makes Express resolve req.ip from the LEFTMOST
+    // X-Forwarded-For entry, which the client supplies. Both the header and the
+    // resulting req.ip are therefore attacker-chosen; only the transport-level
+    // peer address is not, so both requests must land in the same bucket.
+    const spoofed = (n) => ({
+      headers: { "x-forwarded-for": `198.51.100.${n}, 10.0.0.5` },
+      ip: `198.51.100.${n}`,
+      socket: { remoteAddress: "10.0.0.5" },
+      app: { get: (name) => (name === "trust proxy" ? true : undefined) }
+    });
+
+    const res = { status: jest.fn(() => ({ json: jest.fn() })) };
+
+    for (let i = 0; i < RATE_LIMIT_MAX_REQUESTS; i++) {
+      rateLimitMiddleware(spoofed(i), res, jest.fn());
+    }
+    const nextAfterLimit = jest.fn();
+    rateLimitMiddleware(spoofed(999), res, nextAfterLimit);
+
+    expect(nextAfterLimit).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(429);
+  });
+
+  test("with bounded trust proxy, Express-resolved req.ip keys the bucket", () => {
+    const app = { get: jest.fn(() => false) };
+    const instanceRegistry = {
+      get: jest.fn(() => makeBundle()),
+      getFirst: jest.fn(() => makeBundle()),
+      getAll: jest.fn(() => [makeBundle()])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const metricsRoute = router.routes.find((r) => r.method === "get" && r.path === "/metrics");
+    const rateLimitMiddleware = metricsRoute.handlers[0];
+
+    // A hop count means Express walked the header right-to-left and stopped at
+    // the first untrusted hop, so req.ip genuinely identifies the peer and two
+    // different peers behind the same proxy must not share a bucket.
+    const behindProxy = (ip) => ({
+      headers: { "x-forwarded-for": `${ip}, 10.0.0.5` },
+      ip,
+      socket: { remoteAddress: "10.0.0.5" },
+      app: { get: (name) => (name === "trust proxy" ? 1 : undefined) }
+    });
+
+    const res = { status: jest.fn(() => ({ json: jest.fn() })) };
+    const nextB = jest.fn();
+
+    for (let i = 0; i < RATE_LIMIT_MAX_REQUESTS; i++) {
+      rateLimitMiddleware(behindProxy("198.51.100.10"), res, jest.fn());
+    }
+    rateLimitMiddleware(behindProxy("198.51.100.11"), res, nextB);
+
+    expect(nextB).toHaveBeenCalled();
+  });
+
   test("distinct real clients still get independent buckets", () => {
     const app = { get: jest.fn(() => false) };
     const instanceRegistry = {

@@ -1,6 +1,7 @@
 "use strict";
 
 import fs from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { CURRENT_CONFIG_SCHEMA_VERSION } from "../foundation/constants";
 import path from "node:path";
 
@@ -58,7 +59,14 @@ function migrateConfig(config: any): any {
   const connection = sanitizeConnectionConfig({
     ...config,
     name: config.name || "default",
-    protocolVersion: config.protocolVersion || 1
+    protocolVersion: config.protocolVersion || 1,
+    // Give the migrated connection a stable identity up front. Redacted-secret
+    // restore on later saves matches on this; without it a rename falls back to
+    // index+name matching and fails.
+    connectionId:
+      typeof config.connectionId === "string" && config.connectionId.trim()
+        ? config.connectionId.trim()
+        : `skel-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`
   });
 
   validateLegacyConfig(connection);

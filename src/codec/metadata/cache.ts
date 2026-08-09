@@ -57,7 +57,6 @@ export class MetaCache {
    */
   private static readonly MAX_ENTRIES = 5000;
 
-  /** Insert or refresh a hash, evicting the least-recently-written entry at capacity. */
   private setHash(key: string, hash: string): void {
     if (this.hashes.has(key)) {
       this.hashes.delete(key);

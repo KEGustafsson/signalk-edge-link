@@ -44,7 +44,7 @@ export function SentenceFilterCard({ connId, config, onNotify, onSaved }: Props)
       const e = err as ApiError;
       onNotify(
         e.isUnauthorized
-          ? authMessage("saving sentence filter")
+          ? authMessage("saving sentence filter", e.message)
           : `Error saving sentence filter: ${e.message}`,
         "error"
       );

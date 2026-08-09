@@ -205,7 +205,7 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
       const e = err as ApiError;
       onNotify(
         e.isUnauthorized
-          ? authMessage("saving subscription")
+          ? authMessage("saving subscription", e.message)
           : `Error saving subscription: ${e.message}`,
         "error"
       );

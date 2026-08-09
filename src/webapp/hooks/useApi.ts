@@ -42,11 +42,23 @@ export function useApi() {
     return res;
   }, []);
 
-  const authMessage = useCallback(
-    (context: string): string =>
-      `${MANAGEMENT_TOKEN_ERROR_MESSAGE} Failed while ${context}. ${getTokenHelpText()}`,
-    []
-  );
+  /**
+   * Build the operator-facing message for an auth failure.
+   *
+   * `serverMessage` carries the server's own explanation when it sent one — a
+   * 403 fail-closed lockout says exactly which setting to change, and that is
+   * the only part of the message that tells the operator how to get back in.
+   * It is omitted when it merely repeats the generic token error.
+   */
+  const authMessage = useCallback((context: string, serverMessage?: string): string => {
+    const detail =
+      serverMessage &&
+      serverMessage.trim() &&
+      serverMessage.trim() !== MANAGEMENT_TOKEN_ERROR_MESSAGE
+        ? ` ${serverMessage.trim()}`
+        : "";
+    return `${MANAGEMENT_TOKEN_ERROR_MESSAGE} Failed while ${context}.${detail} ${getTokenHelpText()}`;
+  }, []);
 
   return { request, authMessage };
 }

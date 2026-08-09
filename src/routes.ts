@@ -98,23 +98,35 @@ const ALLOWED_MANAGEMENT_ACTIONS = new Set([
 ]);
 
 /**
- * Interpret a boolean-ish configuration or environment value.
+ * Interpret a boolean-ish configuration or environment value as a tri-state.
  *
- * The plugin schema produces a real boolean, but the same flags are also set
- * by hand in JSON config files and by shell exports, where `"true"`, `"1"`,
- * `"yes"` and `"on"` are all natural spellings. Accepting only `true`/`"true"`/
- * `"1"` meant those silently read as "off" — a fail-open on an operator typo,
- * with no warning that the setting had been ignored.
+ * The plugin schema produces a real boolean, but the same flags are also set by
+ * hand in JSON config files and by shell exports, where `"true"`/`"1"`/`"yes"`/
+ * `"on"` (and their negatives) are all natural spellings. Accepting only
+ * `true`/`"true"`/`"1"` made every other spelling read as "off".
+ *
+ * `"invalid"` is returned rather than folded into `false`, because for a
+ * fail-closed security flag those two mean very different things: absent means
+ * "the operator never set this, keep the compatibility default", whereas an
+ * unparseable explicit value means "the operator intended something and we
+ * cannot tell what" — which must not silently grant access.
  */
-function isTruthyFlag(value: unknown): boolean {
-  if (value === true) return true;
+type FlagState = "absent" | "true" | "false" | "invalid";
+
+const TRUTHY_FLAGS = new Set(["true", "1", "yes", "on"]);
+const FALSY_FLAGS = new Set(["false", "0", "no", "off"]);
+
+function parseFlag(value: unknown): FlagState {
+  if (value === undefined || value === null || value === "") return "absent";
+  if (value === true) return "true";
+  if (value === false) return "false";
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
-    return (
-      normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on"
-    );
+    if (normalized === "") return "absent";
+    if (TRUTHY_FLAGS.has(normalized)) return "true";
+    if (FALSY_FLAGS.has(normalized)) return "false";
   }
-  return false;
+  return "invalid";
 }
 
 function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, pluginRef: PluginRef) {
@@ -245,11 +257,34 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
   function isTokenRequired(authOptions = getAuthOptions()): boolean {
     // Explicit opt-in to enforce token-based auth even when no token is set yet
     // (allows admins to lock the API before the token is provisioned).
-    const fromOptions = authOptions && authOptions.requireManagementApiToken;
-    if (isTruthyFlag(fromOptions)) {
-      return true;
+    //
+    // An unparseable explicit value fails CLOSED. The compatibility default
+    // (open access when no token is configured) is only for the case where the
+    // operator never expressed an intent at all; a typo like "treu" is an
+    // expressed intent we cannot read, and resolving that to "no protection"
+    // would hand out access on a spelling mistake.
+    for (const [source, raw] of [
+      ["requireManagementApiToken", authOptions && authOptions.requireManagementApiToken],
+      [
+        "SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN",
+        process.env.SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN
+      ]
+    ] as Array<[string, unknown]>) {
+      const state = parseFlag(raw);
+      if (state === "true") {
+        return true;
+      }
+      if (state === "invalid") {
+        if (app && typeof app.error === "function") {
+          app.error(
+            `[management-api] ${source} has an unrecognised value; treating it as enabled ` +
+              "(fail-closed). Set it to true or false."
+          );
+        }
+        return true;
+      }
     }
-    return isTruthyFlag(process.env.SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN);
+    return false;
   }
 
   function normalizeManagementAuthAction(action?: string): string {
@@ -444,6 +479,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
 
   // Rate limiting state
   const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+  /** Emit the unbounded-`trust proxy` warning once, not per request. */
+  let warnedUnboundedTrustProxy = false;
   let rateLimitCleanupInterval: ReturnType<typeof setInterval> | null = null;
   let stopMonitoringTimers: (() => void) | null = null;
 
@@ -914,26 +951,45 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
           ? req.socket.remoteAddress
           : null;
 
-      // Prefer Express's own `req.ip`, which already honours the app's
-      // `trust proxy` setting and picks the right hop.
+      // Choosing the rate-limit bucket key is security-relevant: whoever can
+      // pick their own key can request without limit, which lifts the only
+      // brake on management-token guessing and grows `rateLimitMap` by an entry
+      // per distinct value.
       //
-      // Reading `X-Forwarded-For` here and taking `split(",")[0]` took the
-      // LEFTMOST entry, which is the one the *client* supplied — anything
-      // upstream only ever appends. Behind a reverse proxy that let a caller
-      // choose its own rate-limit bucket by varying the header, lifting the
-      // 120 req/min brake off management-token guessing entirely and growing
-      // `rateLimitMap` by one entry per spoofed value. Express walks the
-      // header from the right, skipping trusted hops, which is the hop that
-      // actually identifies the peer.
-      const trustProxy =
-        req.app && typeof req.app.get === "function" && !!req.app.get("trust proxy");
-      const forwardedValue = trustProxy ? getFirstHeaderValue(headers["x-forwarded-for"]) : null;
-      // Fallback for hosts that expose the header but no parsed `req.ip`:
-      // rightmost entry, i.e. the hop closest to this server.
-      const rightmostForwardedIp = forwardedValue
-        ? (forwardedValue.split(",").pop() || "").trim() || null
-        : null;
-      const clientIp = req.ip || rightmostForwardedIp || remoteAddress || null;
+      // Never read `X-Forwarded-For` leftmost-first. That entry is supplied by
+      // the *client* — proxies only append — so it is attacker-chosen.
+      //
+      // `req.ip` is only trustworthy when `trust proxy` is BOUNDED (a hop
+      // count, a CIDR/named subnet, an array or a predicate). In that case
+      // Express walks the header right-to-left, stops at the first untrusted
+      // hop, and that address really does identify the peer.
+      //
+      // With `trust proxy: true` Express takes the leftmost entry verbatim, so
+      // `req.ip` is exactly the attacker-controlled value. There is no way to
+      // recover a trustworthy per-client identity in that configuration, so
+      // fall back to the transport-level peer address: behind a real proxy that
+      // collapses every client into one shared bucket, which throttles more
+      // aggressively than intended but cannot be bypassed.
+      const trustSetting =
+        req.app && typeof req.app.get === "function" ? req.app.get("trust proxy") : undefined;
+      const trustProxyEnabled = !!trustSetting;
+      const trustProxyUnbounded = trustSetting === true || trustSetting === "true";
+
+      if (trustProxyUnbounded && !warnedUnboundedTrustProxy) {
+        warnedUnboundedTrustProxy = true;
+        if (app && typeof app.error === "function") {
+          app.error(
+            "[management-api] 'trust proxy' is set to true (unbounded). X-Forwarded-For cannot be " +
+              "trusted to identify a client, so rate limiting falls back to the connecting address " +
+              "and may be shared across clients. Configure a hop count or trusted proxy list instead."
+          );
+        }
+      }
+
+      const clientIp =
+        trustProxyEnabled && !trustProxyUnbounded
+          ? req.ip || remoteAddress || null
+          : remoteAddress || req.ip || null;
 
       // Deterministic fallback key when IP cannot be determined.
       // Include a few stable request traits to reduce cross-client bucket sharing.

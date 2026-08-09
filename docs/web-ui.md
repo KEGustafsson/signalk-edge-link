@@ -37,8 +37,10 @@ admin page; it is not the same surface as the runtime dashboard.
      endpoints. Strongly recommended for production. Can also be set via the
      `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` environment variable, which takes
      precedence over this field when both are set — so a token can be rotated
-     by changing the environment and restarting. Leave both empty for open
-     access.
+     by changing the environment and restarting. For open access, leave both
+     empty **and** leave Require Management API Token unchecked; with that box
+     checked and no token configured, every management request is refused with
+     HTTP 403.
    - **Require Management API Token** — when checked, management requests are
      rejected if no token is configured (fail-closed). When unchecked, requests
      are allowed when no token is set (open access).

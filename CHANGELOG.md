@@ -52,6 +52,17 @@ healthy; all are fixed, with regression coverage.
 
 ### Fixed — security
 
+- Rate limiting no longer trusts `req.ip` under an unbounded `trust proxy: true`.
+  Express resolves `req.ip` from the _leftmost_ `X-Forwarded-For` entry in that
+  configuration — the one the client supplies — so the bucket key stayed
+  attacker-chosen. `req.ip` is now used only when `trust proxy` is bounded (a
+  hop count, CIDR, list or predicate), where Express walks the header
+  right-to-left; otherwise the connecting address is used and the operator is
+  warned once.
+- An unrecognised value for `requireManagementApiToken` (or its environment
+  variable) now fails closed instead of reading as "off". Absent still means
+  "use the compatibility default"; explicit `false`/`0`/`no`/`off` still means
+  off, so a deliberate opt-out cannot lock an operator out.
 - `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` now takes precedence over the stored
   `managementApiToken`, as the docs and the configuration panel have always
   stated. Previously the stored option won, so the documented rotation
@@ -72,6 +83,11 @@ healthy; all are fixed, with regression coverage.
 
 ### Fixed — observability
 
+- Alert _state_ and alert _notifications_ are now separate. Rate-limiting the
+  notification previously also suppressed the state, so a metric that cleared
+  and re-crossed its threshold inside the cooldown was reported as "ok" by
+  `/monitoring/alerts` and published `alert_<metric> 0` while the breach was
+  ongoing. State follows the live condition; only notifications are throttled.
 - Bandwidth rate gauges no longer read ~0 B/s on a loaded link. Sampling is
   destructive, and both the 1 s pipeline timer and every HTTP scrape called it,
   so a scrape shortly after a tick divided a few milliseconds of traffic. Rates
@@ -96,9 +112,17 @@ healthy; all are fixed, with regression coverage.
 - `epochBoundAuth` and `requestFullStatusOnRestart` are recognised as advanced
   settings, so a connection using them opens with the Advanced section expanded
   instead of claiming it is at defaults.
-- `connectionId` is part of the connection schema, so connections authored in
-  Signal K's built-in plugin UI get one. Renaming such a connection no longer
-  fails redacted-secret restore.
+- `connectionId` is part of the connection schema, and is now also minted
+  server-side on any save that omits one and stamped onto migrated configs — so
+  connections authored in Signal K's built-in plugin UI, via REST, or by
+  `migrate:config` all get one. Renaming such a connection no longer fails
+  redacted-secret restore.
+- `schemaVersion` supplied by a client is validated as a supported integer
+  rather than persisted verbatim.
+- The delta-timer file watcher reports every out-of-range value, including `0`,
+  instead of silently ignoring finite values outside the accepted range.
+- A 403 lockout now carries the server's recovery instructions all the way into
+  the card notifications, not just the panel.
 - `schemaVersion` survives a save and is stamped by `migrate:config`, instead of
   being declared in the schema and dropped by every write.
 - A 403 lockout surfaces the server's recovery instructions rather than
@@ -112,6 +136,13 @@ healthy; all are fixed, with regression coverage.
 
 ### Fixed — robustness
 
+- A `stop()` landing while a bonding link is mid-`bind()` no longer hangs
+  startup. The bind promise settled only on `listening` or `error`, and a closed
+  socket emits neither, so `initialize()` — and the client start awaiting it —
+  stayed pending for the life of the process.
+- The per-IP session eviction now runs before the global one. With both limits
+  reached, a single new source port evicted an unrelated peer _and_ this
+  address's own LRU session, when freeing the per-IP slot alone was enough.
 - `stop()` during client startup can no longer orphan a source-snapshot
   interval, and a stop during bonding initialisation no longer leaks sockets and
   a health-check timer.

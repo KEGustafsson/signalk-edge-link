@@ -7,6 +7,7 @@ describe("migrate-config", () => {
     const input = {
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "alpha",
           serverType: "server",
           udpPort: 4446,
@@ -39,6 +40,7 @@ describe("migrate-config", () => {
       monitoringEnabled: true,
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "legacy",
           serverType: "client",
           udpPort: 4447,
@@ -70,6 +72,7 @@ describe("migrate-config", () => {
       schemaVersion: 1,
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "default",
           serverType: "server",
           udpPort: 4446,
@@ -92,6 +95,7 @@ describe("migrate-config", () => {
       schemaVersion: 1,
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "hex",
           serverType: "server",
           udpPort: 4446,
@@ -114,6 +118,7 @@ describe("migrate-config", () => {
       schemaVersion: 1,
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "base64",
           serverType: "server",
           udpPort: 4446,

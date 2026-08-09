@@ -1350,6 +1350,71 @@ describe("SignalK Data Connector Plugin", () => {
       );
     });
 
+    test("a save without connectionId gets one minted server-side", async () => {
+      // The panel assigns IDs on load, but a direct REST save can omit them.
+      // `connectionId` is what redacted-secret restore matches on, so a
+      // connection persisted without one cannot later be renamed.
+      const response = await saveConfig({
+        connections: [
+          {
+            name: "no-id",
+            serverType: "client",
+            protocolVersion: 3,
+            udpAddress: "127.0.0.1",
+            udpPort: 4446,
+            secretKey: "Kx7mQ2vR9tLpZ4wN8sJ3bF6yH1cD5gT0"
+          }
+        ]
+      });
+
+      expect(response.success).toBe(true);
+      const saved = diskFile.configuration.connections.find((c) => c.name === "no-id");
+      expect(typeof saved.connectionId).toBe("string");
+      expect(saved.connectionId.length).toBeGreaterThan(0);
+    });
+
+    test("an existing connectionId is preserved across a save", async () => {
+      const response = await saveConfig({
+        connections: [
+          {
+            connectionId: "skel-fixed-id",
+            name: "keeps-id",
+            serverType: "client",
+            protocolVersion: 3,
+            udpAddress: "127.0.0.1",
+            udpPort: 4446,
+            secretKey: "Kx7mQ2vR9tLpZ4wN8sJ3bF6yH1cD5gT0"
+          }
+        ]
+      });
+
+      expect(response.success).toBe(true);
+      const saved = diskFile.configuration.connections.find((c) => c.name === "keeps-id");
+      expect(saved.connectionId).toBe("skel-fixed-id");
+    });
+
+    test("an unusable schemaVersion is rejected rather than persisted", async () => {
+      // It is a migration identifier, so a fraction or a future version would
+      // be meaningless to the migration code that later reads it.
+      for (const bad of [1.5, 0, -1, 2, Number.MAX_SAFE_INTEGER + 2, "1"]) {
+        const response = await saveConfig({
+          schemaVersion: bad,
+          connections: [
+            {
+              name: "sv",
+              serverType: "client",
+              protocolVersion: 3,
+              udpAddress: "127.0.0.1",
+              udpPort: 4446,
+              secretKey: "Kx7mQ2vR9tLpZ4wN8sJ3bF6yH1cD5gT0"
+            }
+          ]
+        });
+        expect(response.success).toBe(false);
+        expect(response.error).toContain("schemaVersion");
+      }
+    });
+
     test("config should not grow after multiple save cycles", async () => {
       // Round-trip 1: read → save unchanged.
       //

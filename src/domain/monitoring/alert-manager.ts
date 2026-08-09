@@ -72,6 +72,14 @@ export class AlertManager {
   notificationsEnabled: boolean;
   activeAlerts: Map<string, Alert>;
   _lastAlertTime: Map<string, number>;
+  /**
+   * Severity most recently *announced* to the operator, per metric.
+   *
+   * Distinct from `activeAlerts`, which tracks the live condition. Separating
+   * the two is what lets a breach stay visible in the API and the Prometheus
+   * gauge while notifications about it stay rate-limited.
+   */
+  _notifiedLevel: Map<string, string>;
 
   /**
    * @param {Object} app - Signal K app instance
@@ -95,6 +103,7 @@ export class AlertManager {
     // Track active alerts and last alert time for cooldown
     this.activeAlerts = new Map(); // metricName -> { level, timestamp, value }
     this._lastAlertTime = new Map(); // metricName -> timestamp
+    this._notifiedLevel = new Map(); // metricName -> last announced level
   }
 
   /**
@@ -118,40 +127,50 @@ export class AlertManager {
 
     const currentAlert = this.activeAlerts.get(metricName);
 
+    // Alert STATE and operator NOTIFICATIONS are deliberately decoupled.
+    //
+    // `activeAlerts` mirrors the live condition, because `/monitoring/alerts`
+    // and the `alert_<metric>` gauge read it — a breach that is real but
+    // un-announced must still show as a breach, not as "ok".
+    //
+    // Notifications are what get rate-limited. `checkAll` runs once a second,
+    // so a metric hovering at its threshold would otherwise emit an alert and
+    // a clear every second for as long as it stayed marginal.
     if (level) {
-      // Check cooldown (per-metric override or global default)
+      const alert = {
+        metric: metricName,
+        level,
+        value,
+        threshold: threshold[level as "warning" | "critical"] ?? 0,
+        timestamp: Date.now()
+      };
+      this.activeAlerts.set(metricName, alert);
+
       const lastTime = this._lastAlertTime.get(metricName) || 0;
       const effectiveCooldown = this._perMetricCooldown.get(metricName) ?? this.cooldown;
       const cooldownExpired = Date.now() - lastTime >= effectiveCooldown;
+      // Compare against what was last announced, not against the live state:
+      // a severity the operator has not been told about is still news.
+      const notified = this._notifiedLevel.get(metricName);
+      const isEscalation = notified !== undefined && notified !== level;
 
-      // A change of severity is news regardless of cooldown; a re-raise at the
-      // same severity is not.
-      //
-      // The absence of an active alert deliberately does NOT bypass the
-      // cooldown. `checkAll` runs once a second, so a metric hovering at its
-      // threshold alternates raise/clear/raise/clear — and short-circuiting on
-      // `!currentAlert` let every one of those raises through, emitting a
-      // notification per second for as long as the value stayed marginal.
-      // `_lastAlertTime` is never cleared on the clear path precisely so it can
-      // brake the re-raise here.
-      const isEscalation = currentAlert !== undefined && currentAlert.level !== level;
       if (isEscalation || cooldownExpired) {
-        const alert = {
-          metric: metricName,
-          level,
-          value,
-          threshold: threshold[level as "warning" | "critical"] ?? 0,
-          timestamp: Date.now()
-        };
-
-        this.activeAlerts.set(metricName, alert);
         this._lastAlertTime.set(metricName, Date.now());
+        this._notifiedLevel.set(metricName, level);
         this._emitAlert(alert);
         return alert;
       }
-    } else if (currentAlert) {
-      // Clear alert
+      return null;
+    }
+
+    if (currentAlert) {
       this.activeAlerts.delete(metricName);
+    }
+    // Only retract something the operator was actually told about. Without
+    // this, a marginal metric would emit a clear every second even while its
+    // alerts were being suppressed by the cooldown.
+    if (this._notifiedLevel.has(metricName)) {
+      this._notifiedLevel.delete(metricName);
       this._emitClear(metricName);
     }
 

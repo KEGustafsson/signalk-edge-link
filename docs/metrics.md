@@ -291,10 +291,12 @@ instance ID is configured, each series additionally carries an `instance` label.
 
 ### Prometheus scrape configuration
 
-`/prometheus` is behind the management API token like every other route, so a
-scrape must authenticate. Configuring `managementApiToken` without updating the
-scrape config is the usual cause of dashboards going blank right after a
-security review — Prometheus receives 401 and reports the target as down.
+`/prometheus` goes through the same management-auth check as every other route.
+That check only demands a token when one is configured (or when
+`requireManagementApiToken` is enabled), so an unsecured install can be scraped
+without credentials — but the moment a token is set, an unauthenticated scrape
+gets 401 and Prometheus reports the target as down. That is the usual cause of
+dashboards going blank right after a security review.
 
 ```yaml
 scrape_configs:
@@ -309,9 +311,9 @@ scrape_configs:
       - targets: ["signalk-server:3000"]
 ```
 
-If no token is configured and `requireManagementApiToken` is off, the scrape
-works without the `authorization` block — but see
-[security.md](security.md) for why leaving it that way is not recommended.
+With no token configured and `requireManagementApiToken` off, the scrape works
+without the `authorization` block — see [security.md](security.md) for why
+leaving an install in that state is not recommended.
 
 Build a Grafana dashboard from the Prometheus metrics exposed at `/prometheus` (no dashboard JSON is bundled with the plugin).
 
