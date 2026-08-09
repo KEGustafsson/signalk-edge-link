@@ -107,3 +107,54 @@ describe("per-IP session cap evicts rather than locking a client out", () => {
     expect(keys).toContain(`${address}:6005`);
   });
 });
+
+describe("session capacity: per-IP eviction runs before global eviction", () => {
+  const { getOrCreateSession } = require("../../lib/transport/pipeline/reliable-server/sessions");
+  const { MAX_CLIENT_SESSIONS } = require("../../lib/constants");
+
+  function makeCtx() {
+    return {
+      app: { debug: jest.fn(), error: jest.fn() },
+      metrics: {},
+      clientSessions: new Map(),
+      nakTimeout: 1000,
+      maxNakRounds: 3,
+      MAX_SESSIONS_PER_IP: 5
+    };
+  }
+
+  test("a full table plus an address at its per-IP cap evicts only that address's session", () => {
+    const ctx = makeCtx();
+    const busy = "203.0.113.50";
+
+    // 95 unrelated peers, deliberately the oldest entries in the table, plus 5
+    // ports from one address — exactly MAX_CLIENT_SESSIONS in total.
+    const unrelated = [];
+    for (let i = 0; i < MAX_CLIENT_SESSIONS - 5; i++) {
+      const session = getOrCreateSession(ctx, { address: `10.0.0.${i}`, port: 5000 });
+      session.lastPacketTime = 1000 + i; // oldest globally
+      unrelated.push(session.key);
+    }
+    for (let port = 6000; port < 6005; port++) {
+      const session = getOrCreateSession(ctx, { address: busy, port });
+      session.lastPacketTime = 900000 + port; // newest globally
+    }
+    expect(ctx.clientSessions.size).toBe(MAX_CLIENT_SESSIONS);
+
+    // A sixth port from the busy address. Freeing its own LRU slot is enough,
+    // so no unrelated peer should be touched. Evicting globally first would
+    // throw out the oldest unrelated peer *and* the busy address's LRU — two
+    // sessions destroyed to admit one.
+    const created = getOrCreateSession(ctx, { address: busy, port: 6005 });
+
+    expect(created).not.toBeNull();
+    expect(ctx.clientSessions.size).toBeLessThanOrEqual(MAX_CLIENT_SESSIONS);
+
+    const surviving = new Set(ctx.clientSessions.keys());
+    for (const key of unrelated) {
+      expect(surviving.has(key)).toBe(true);
+    }
+    expect(surviving.has(`${busy}:6005`)).toBe(true);
+    expect(surviving.has(`${busy}:6000`)).toBe(false);
+  });
+});
