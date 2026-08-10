@@ -184,8 +184,10 @@ Packaging only. No runtime, protocol, schema or UI change.
 ### Changed
 
 - Version bump. **Note:** this release also changed `signalk.appIcon` back to
-  `./icons/icon-72x72.png`. That is the correct, webroot-relative form — see
-  the 4.1.0 entry — so this undid 4.0.3 in the right direction, just silently.
+  `./icons/icon-72x72.png`. That is the correct form: `appIcon` resolves
+  against the served webroot, which is the package's `public/` directory, so
+  `./icons/icon-72x72.png` finds `public/icons/icon-72x72.png`. This undid
+  4.0.3 in the right direction, just silently.
 
 ## [4.0.4] - 2026-08-08
 
