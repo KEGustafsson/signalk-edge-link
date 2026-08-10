@@ -39,11 +39,13 @@ healthy; all are fixed, with regression coverage.
 
 ### Fixed — packaging
 
-- `signalk.appIcon` restored to `./public/icons/icon-72x72.png`. The 4.0.3 fix
-  was reverted in 4.0.4 (to a malformed `.icons/...`) and again in 4.0.5 (back
-  to the pre-fix `./icons/...`), neither of which shipped a changelog entry at
-  the time. `files` publishes `public/`, so the App Store
-  listing had fallen back to the monogram icon again.
+- `signalk.appIcon` set to `./icons/icon-72x72.png`, and the 4.0.3 entry's
+  reasoning corrected. `appIcon` resolves against the served webroot, which is
+  the package's `public/` directory — so `./icons/icon-72x72.png` finds
+  `public/icons/icon-72x72.png`, while the `./public/icons/...` form 4.0.3
+  introduced resolves to `public/public/icons/...` and 404s. 4.0.4 then set a
+  malformed `.icons/...` (no slash), which is wrong under any reading. The
+  value shipping here is the one that works; 4.0.5 already had it right.
 - `npm audit` now also covers devDependencies that webpack bundles into the
   published `public/` directory — `@rjsf/validator-ajv8` pulls `ajv` and
   `fast-uri` into the shipped browser bundle, where `--omit=dev` could not see
@@ -189,7 +191,8 @@ Packaging only. No runtime, protocol, schema or UI change.
 ### Changed
 
 - Version bump. **Note:** this release also changed `signalk.appIcon` back to
-  `./icons/icon-72x72.png`, undoing the 4.0.3 fix. Corrected in 4.1.0.
+  `./icons/icon-72x72.png`. That is the correct, webroot-relative form — see
+  the 4.1.0 entry — so this undid 4.0.3 in the right direction, just silently.
 
 ## [4.0.4] - 2026-08-08
 
@@ -198,7 +201,7 @@ Packaging only. No runtime, protocol, schema or UI change.
 ### Changed
 
 - Version bump. **Note:** this release changed `signalk.appIcon` to a malformed
-  `.icons/icon-72x72.png`. Corrected in 4.1.0.
+  `.icons/icon-72x72.png` (missing the leading slash). Fixed in 4.0.5.
 
 ## [4.0.3] - 2026-08-02
 
