@@ -83,19 +83,45 @@ export function recreateLinkSocket(
  */
 export function bindLinkInterface(link: LinkState): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const onBindError = (err: Error) => {
+    const socket = link.socket!;
+    let settled = false;
+
+    // Every exit path detaches both listeners. `bind()` is in flight, so a
+    // listener left attached fires against a socket the caller has moved on
+    // from.
+    const finish = (err?: Error): void => {
+      if (settled) return;
+      settled = true;
+      socket.removeListener("error", onBindError);
+      socket.removeListener("close", onClose);
+      if (err) reject(err);
+      else resolve();
+    };
+
+    const onBindError = (err: Error): void => {
       try {
-        link.socket!.close();
+        socket.close();
       } catch (_e) {
         /* already closed */
       }
       link.socket = null;
-      reject(err);
+      finish(err);
     };
-    link.socket!.once("error", onBindError);
-    link.socket!.bind({ address: link.interface!, port: 0 }, () => {
-      link.socket!.removeListener("error", onBindError);
-      resolve();
+
+    // A `stop()` landing mid-bind closes the socket, and a closed socket emits
+    // neither the bind callback nor "error" — so without this the promise never
+    // settles and `initialize()` (plus the client start that awaits it) hangs
+    // for the life of the process. Reject: the caller's teardown path already
+    // knows how to release a half-built manager.
+    const onClose = (): void => {
+      link.socket = null;
+      finish(new Error("bonding link socket closed before bind completed"));
+    };
+
+    socket.once("error", onBindError);
+    socket.once("close", onClose);
+    socket.bind({ address: link.interface!, port: 0 }, () => {
+      finish();
     });
   });
 }
@@ -361,3 +387,27 @@ export function shouldFailback(input: FailoverDecisionInput): boolean {
 }
 
 export { BONDING_HEALTH_WINDOW_SIZE };
+
+/**
+ * Send a heartbeat probe on a link's socket, reporting (but swallowing) an
+ * async send error or a synchronous send exception.
+ *
+ * A probe that cannot leave is not itself a link failure — the heartbeat
+ * timeout in `_maybeMarkLinkDown` is what decides that — so a failed send is
+ * logged and the health loop continues.
+ */
+export function sendHeartbeatProbe(
+  link: LinkState,
+  probe: Buffer,
+  report: (message: string) => void
+): void {
+  try {
+    link.socket!.send(probe, link.port, link.address, (err?: Error | null) => {
+      if (err) {
+        report(`heartbeat send error: ${err.message}`);
+      }
+    });
+  } catch (err: unknown) {
+    report(`heartbeat send exception: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}

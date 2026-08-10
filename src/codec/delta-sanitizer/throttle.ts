@@ -42,6 +42,18 @@ export function createPathThrottleState(): PathThrottleState {
 }
 
 /**
+ * Forget every last-sent record so the next value on each path is sent
+ * regardless of its throttle interval or deadband.
+ *
+ * Used at link resync points — notably a full-status replay, where the peer
+ * has lost its state and needs values that this side would otherwise consider
+ * "already sent recently".
+ */
+export function resetPathThrottleState(state: PathThrottleState): void {
+  state.lastSent.clear();
+}
+
+/**
  * Decide whether a value should be dropped under its throttle rule, given the
  * last-sent record (or undefined when none exists yet).
  */
@@ -116,7 +128,11 @@ function throttleUpdate(
   const kept: DeltaValue[] = [];
   for (const entry of update.values) {
     const v = entry as DeltaValue;
-    const rule = throttleMap[v.path];
+    // Own-property check — see the note in quantize.ts. A prototype member
+    // here would be treated as a throttle rule for a path that has none.
+    const rule = Object.prototype.hasOwnProperty.call(throttleMap, v.path)
+      ? throttleMap[v.path]
+      : undefined;
     if (!rule) {
       kept.push(v);
       continue;

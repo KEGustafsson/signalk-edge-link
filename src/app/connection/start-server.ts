@@ -150,13 +150,24 @@ function scheduleServerRecovery(ctx: ConnectionContext): void {
   state.socketRecoveryTimer = setTimeout(attempt, ctx.socketRecoveryBackoffMs);
 }
 
-/** Wire the reliable (v2/v3) or legacy (v1) server pipeline message handlers. */
+/**
+ * Wire the reliable (v2/v3) or legacy (v1) server pipeline message handlers.
+ *
+ * Called both on first start and on every socket recovery. Recovery replaces
+ * the *socket*, not the pipeline: sessions are keyed on `address:port`, so the
+ * existing pipeline is still the right one for every peer that was talking to
+ * us before the interface flapped. Building a second one would strand the
+ * first — its per-session NAK timers stay armed and keep flushing NAKs through
+ * whatever socket `state` now points at, while the replacement starts with no
+ * sessions, no epochs and no replay guards, silently dropping every peer back
+ * to the un-enforced anti-replay path until it happens to re-HELLO.
+ */
 function attachServerPipeline(ctx: ConnectionContext): void {
   const { state, app, instanceId, options, appProxy, metricsApi } = ctx;
   const useReliable = (options.protocolVersion ?? 0) >= 2;
   if (useReliable) {
     const { createPipelineV2Server } = require("../../transport/pipeline/reliable-server");
-    const srv = createPipelineV2Server(appProxy, state, metricsApi);
+    const srv = state.pipelineServer ?? createPipelineV2Server(appProxy, state, metricsApi);
     state.pipelineServer = srv;
     state.socketUdp?.on("message", (pkt: Buffer, rinfo: dgram.RemoteInfo) => {
       srv.receivePacket(pkt, options.secretKey, rinfo);

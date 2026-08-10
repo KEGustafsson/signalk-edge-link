@@ -21,6 +21,8 @@ import { createKeepaliveManager } from "../../domain/keepalive-manager";
 import { createSubscriptionManager } from "../../domain/subscription-manager";
 import {
   DEFAULT_DELTA_TIMER,
+  DELTA_TIMER_MAX_MS,
+  DELTA_TIMER_MIN_MS,
   SMART_BATCH_INITIAL_ESTIMATE,
   calculateMaxDeltasPerBatch,
   OUTBOUND_DUPLICATE_SUPPRESS_MS,
@@ -131,15 +133,24 @@ function createConfigHandlers(
     getFilePath: () => state.deltaTimerFile,
     processConfig: (config: unknown) => {
       const c = config as Record<string, unknown>;
-      if (c?.deltaTimer) {
+      // Presence, not truthiness: `deltaTimer: 0` is a value an operator can
+      // type and it is out of range, so it has to be reported rather than
+      // skipped. Every finite-but-out-of-range value is reported too — silently
+      // ignoring them left a hand-edited file invalid with no diagnostic while
+      // the runtime quietly kept the previous value.
+      if (c && Object.prototype.hasOwnProperty.call(c, "deltaTimer")) {
         const val = Number(c.deltaTimer);
-        if (Number.isFinite(val) && val >= 100 && val <= 10000 && state.deltaTimerTime !== val) {
+        const inRange =
+          Number.isFinite(val) && val >= DELTA_TIMER_MIN_MS && val <= DELTA_TIMER_MAX_MS;
+        if (inRange && state.deltaTimerTime !== val) {
           state.deltaTimerTime = val;
           clearTimeout(state.deltaTimer ?? undefined);
           scheduleDeltaTimer();
           app.debug(`[${instanceId}] Delta timer updated to ${val}ms`);
-        } else if (!Number.isFinite(val)) {
-          app.error(`[${instanceId}] Invalid delta timer value: ${c.deltaTimer}`);
+        } else if (!inRange) {
+          app.error(
+            `[${instanceId}] Invalid delta timer value: ${c.deltaTimer} (expected ${DELTA_TIMER_MIN_MS}-${DELTA_TIMER_MAX_MS}ms)`
+          );
         }
       }
     },

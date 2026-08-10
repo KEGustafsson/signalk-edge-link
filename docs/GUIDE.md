@@ -1352,7 +1352,7 @@ Build a Grafana dashboard from the Prometheus metrics exposed at `/prometheus` (
 
 **Base path:** `/plugins/signalk-edge-link`  
 **Rate limit:** 120 requests/minute/IP → HTTP 429  
-**API version tracked (current: 4.0.5)** — see CHANGELOG.md for endpoint changes between releases
+**API version tracked (current: 4.1.0)** — see CHANGELOG.md for endpoint changes between releases
 
 ### 14.1 Core data endpoints
 
@@ -2392,18 +2392,18 @@ npm run cli -- help
 
 ### Key functions
 
-| Function                        | File                  | What it does                                                                     |
-| ------------------------------- | --------------------- | -------------------------------------------------------------------------------- |
-| `processDelta()`                | `instance.ts`         | Receives a raw Signal K delta; filters, deduplicates, buffers, triggers batching |
-| `flushDeltaBatch()`             | `instance.ts`         | Takes buffered deltas, serializes, compresses, encrypts, sends via pipeline      |
-| `sendDelta()`                   | `reliable-client.ts`  | v3: builds DATA packet, adds to retransmit queue, sends via UDP                  |
-| `parsePacket()`                 | `reliable-server.ts`  | v3: validates header, decrypts, dispatches by packet type                        |
-| `onDataPacket()`                | `reliable-server.ts`  | Processes a decrypted DATA payload: sequence tracking, delta injection, ACK      |
-| `normalizeKey()`                | `crypto.ts`           | Converts any of the three key formats to a raw 32-byte Buffer                    |
-| `encodeDelta()`                 | `pathDictionary.ts`   | Replaces Signal K path strings with numeric IDs in a delta                       |
-| `decodeDelta()`                 | `pathDictionary.ts`   | Reverses path dictionary encoding back to path strings                           |
-| `RetransmitQueue.add()`         | `retransmit-queue.ts` | Stores a packet copy for potential retransmission                                |
-| `RetransmitQueue.acknowledge()` | `retransmit-queue.ts` | Removes all entries up to the cumulative ACK sequence                            |
+| Function                        | File                              | What it does                                                                     |
+| ------------------------------- | --------------------------------- | -------------------------------------------------------------------------------- |
+| `processDelta()`                | `app/connection/process-delta.ts` | Receives a raw Signal K delta; filters, deduplicates, buffers, triggers batching |
+| `flushDeltaBatch()`             | `domain/delta-batcher.ts`         | Takes buffered deltas, serializes, compresses, encrypts, sends via pipeline      |
+| `sendDelta()`                   | `reliable-client.ts`              | v3: builds DATA packet, adds to retransmit queue, sends via UDP                  |
+| `parsePacket()`                 | `reliable-server.ts`              | v3: validates header, decrypts, dispatches by packet type                        |
+| `onDataPacket()`                | `reliable-server.ts`              | Processes a decrypted DATA payload: sequence tracking, delta injection, ACK      |
+| `normalizeKey()`                | `crypto.ts`                       | Converts any of the three key formats to a raw 32-byte Buffer                    |
+| `encodeDelta()`                 | `pathDictionary.ts`               | Replaces Signal K path strings with numeric IDs in a delta                       |
+| `decodeDelta()`                 | `pathDictionary.ts`               | Reverses path dictionary encoding back to path strings                           |
+| `RetransmitQueue.add()`         | `retransmit-queue.ts`             | Stores a packet copy for potential retransmission                                |
+| `RetransmitQueue.acknowledge()` | `retransmit-queue.ts`             | Removes all entries up to the cumulative ACK sequence                            |
 
 ### Configuration validation rules
 

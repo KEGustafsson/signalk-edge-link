@@ -22,7 +22,11 @@ import {
   AlertManager
 } from "../../domain/monitoring";
 import { PacketCapture, PacketInspector } from "../../domain/monitoring/packet-capture";
-import { DEFAULT_DELTA_TIMER } from "../../foundation/constants";
+import {
+  DEFAULT_DELTA_TIMER,
+  DELTA_TIMER_MAX_MS,
+  DELTA_TIMER_MIN_MS
+} from "../../foundation/constants";
 import { loadConfigFileSafe } from "../../foundation/config-io";
 import { resolveMonotonicEpoch } from "../../transport/reliability/connection-epoch";
 import { createWatcherWithRecovery, initializePersistentStorage } from "../config/watcher";
@@ -46,7 +50,17 @@ async function loadDeltaTimer(ctx: ConnectionContext): Promise<void> {
   }
   const dtData = dtResult.status === "ok" ? (dtResult.data as Record<string, unknown>) : null;
   const rawDt = typeof dtData?.deltaTimer === "number" ? dtData.deltaTimer : NaN;
-  state.deltaTimerTime = Number.isFinite(rawDt) && rawDt >= 100 ? rawDt : DEFAULT_DELTA_TIMER;
+  // Same range the route validator and the file watcher enforce. Accepting a
+  // wider range here meant a hand-edited file drove the batch timer at a value
+  // the next file-change event would reject and revert.
+  const dtInRange =
+    Number.isFinite(rawDt) && rawDt >= DELTA_TIMER_MIN_MS && rawDt <= DELTA_TIMER_MAX_MS;
+  if (Number.isFinite(rawDt) && !dtInRange) {
+    app.error(
+      `[${instanceId}] Delta timer ${rawDt}ms is outside ${DELTA_TIMER_MIN_MS}-${DELTA_TIMER_MAX_MS}ms — using default ${DEFAULT_DELTA_TIMER}ms`
+    );
+  }
+  state.deltaTimerTime = dtInRange ? rawDt : DEFAULT_DELTA_TIMER;
 }
 
 /** Arm the v1 TCP ping monitor (protocol < 2 only). */
@@ -226,6 +240,10 @@ async function setupReliableClient(ctx: ConnectionContext): Promise<void> {
   registerBondingHandshakeHooks(ctx, v2);
 
   await v2.sendHello(options.udpAddress ?? "", options.udpPort);
+  // `sendHello` performs a real UDP send, so a stop() can land here. Arming the
+  // snapshot interval after teardown has already run leaks it permanently:
+  // `teardownTimers` has been and gone, and nothing else holds the handle.
+  if (lifecycle.isShuttingDown()) return;
   services.restartSourceSnapshotTimer();
   services.sendSourceSnapshot().catch((err: unknown) => {
     app.debug(

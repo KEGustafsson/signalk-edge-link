@@ -2,6 +2,18 @@
 
 // Delta and timing
 export const DEFAULT_DELTA_TIMER = 1000; // milliseconds
+
+/**
+ * Accepted range for an operator-supplied `deltaTimer`.
+ *
+ * Shared by the route validator, the config-file watcher, and the startup
+ * load so a value the runtime will accept is exactly the value the API and
+ * the watcher accept. They disagreed before: startup enforced only the lower
+ * bound, so a hand-edited file could drive the batch timer far outside the
+ * range and then get reverted by the very next file-change event.
+ */
+export const DELTA_TIMER_MIN_MS = 100;
+export const DELTA_TIMER_MAX_MS = 10000;
 export const PING_TIMEOUT_BUFFER = 10000; // milliseconds - extra buffer for ping timeout
 export const MILLISECONDS_PER_MINUTE = 60000;
 export const MAX_DELTAS_BUFFER_SIZE = 1000; // prevent memory leaks
@@ -96,6 +108,27 @@ export const MAX_PARSE_PAYLOAD_SIZE = 512 * 1024; // 512 KB
 // Metrics
 export const METRICS_PUBLISH_INTERVAL = 1000; // Interval (ms) for publishing metrics to Signal K
 export const BANDWIDTH_HISTORY_MAX = 60; // Keep 60 data points (5 minutes at 5s intervals)
+
+/**
+ * Shortest window a bandwidth rate may be computed over.
+ *
+ * Rate sampling is destructive — it advances the byte cursors — so every
+ * caller consumes the bytes seen since the previous call. The pipelines
+ * already sample on a 1 s timer; a metrics scrape or UI poll landing just
+ * after a tick would otherwise divide a few milliseconds of traffic and
+ * publish ~0 B/s on a fully loaded link. Below this window the last computed
+ * rate is returned unchanged instead.
+ */
+export const BANDWIDTH_RATE_MIN_INTERVAL_MS = 500;
+
+/**
+ * Spacing between {@link BANDWIDTH_HISTORY_MAX} history points.
+ *
+ * Fixed so the 60-slot buffer really does span 5 minutes. Appending on every
+ * sample instead let request traffic add points, which both shortened the
+ * window and made the UI chart's x-axis depend on how often it was polled.
+ */
+export const BANDWIDTH_HISTORY_INTERVAL_MS = 5000;
 export const PATH_STATS_MAX_SIZE = 500; // Max tracked paths in pathStats Map (prevent unbounded growth)
 
 // Outbound bandwidth-optimization per-(context,path) caches. Bounded with
@@ -150,6 +183,23 @@ export const HELLO_PAYLOAD_MAX_BYTES = 4096;
 export const HELLO_RETRY_BASE_MS = 1000;
 export const HELLO_RETRY_MAX_MS = 30000;
 
+/**
+ * ACK silence after which a confirmed handshake is treated as stale and the
+ * client re-HELLOs.
+ *
+ * Confirming the handshake once is not enough: the peer can lose the session
+ * it confirmed. A server restart clears its epoch and replay-guard state, and
+ * a NAT/CGNAT rebind moves the client to a source port the server has never
+ * handshaked. In both cases every DATA packet is then refused — on the
+ * epoch-bound path it fails authentication, on the legacy path it trips the
+ * unhandshaked-port rule — so no ACK is ever produced and nothing else would
+ * ever prompt another HELLO. The link stays dead until the process restarts.
+ *
+ * Sized well above the ACK cadence and the recovery-burst window so a merely
+ * quiet link is never mistaken for a lost session.
+ */
+export const HELLO_REHANDSHAKE_ACK_IDLE_MS = 30000;
+
 // Enhanced monitoring
 export const MONITORING_HEATMAP_BUCKETS = 60; // Number of time buckets for packet loss heatmap
 export const MONITORING_HEATMAP_BUCKET_DURATION = 5000; // Duration of each bucket (5 seconds)
@@ -186,3 +236,12 @@ export function clampBytesPerDeltaSample(bytesPerDelta: number): number {
   if (!Number.isFinite(bytesPerDelta) || bytesPerDelta < 1) return 1;
   return Math.min(MAX_SAFE_UDP_PAYLOAD, bytesPerDelta);
 }
+
+/**
+ * Version stamped into a saved plugin configuration.
+ *
+ * Exists so a future release can tell which shape a stored config was written
+ * in and migrate it. Bump it only alongside a migration that handles the
+ * previous value.
+ */
+export const CURRENT_CONFIG_SCHEMA_VERSION = 1;

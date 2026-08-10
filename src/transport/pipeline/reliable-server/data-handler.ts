@@ -171,7 +171,8 @@ function processDelta(
   index: number,
   session: ClientSession | null,
   decompressedLength: number,
-  totalDeltas: number
+  totalDeltas: number,
+  dataSeq: number
 ): void {
   const { app, trackPathStats, metrics } = ctx;
   let deltaMessage: Delta | null | undefined = rawDelta;
@@ -193,7 +194,10 @@ function processDelta(
     if (!session.valueDedupState) {
       session.valueDedupState = createValueDedupState();
     }
-    deltaMessage = undedupDelta(deltaMessage, session.valueDedupState);
+    // Pass the DATA sequence so a reordered older packet cannot roll the
+    // receive cache backwards: payloads are dispatched in arrival order, and a
+    // cache left holding a superseded value expands every later sentinel to it.
+    deltaMessage = undedupDelta(deltaMessage, session.valueDedupState, dataSeq);
   }
 
   const sanitizedDelta = sanitizeDeltaForSignalK(deltaMessage);
@@ -415,7 +419,15 @@ function decodeAndDispatchPayload(
   }
 
   for (let i = 0; i < deltaCount; i++) {
-    processDelta(ctx, deltas[i], i, session, decompressed.length, deltas.length);
+    processDelta(
+      ctx,
+      deltas[i],
+      i,
+      session,
+      decompressed.length,
+      deltas.length,
+      parsed.sequence >>> 0
+    );
   }
 
   app.debug(`v2 received: seq=${parsed.sequence}, ${deltaCount} deltas, ${packet.length} bytes`);

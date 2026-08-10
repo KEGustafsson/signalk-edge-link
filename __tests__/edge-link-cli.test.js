@@ -42,8 +42,10 @@ describe("edge-link-cli", () => {
 
     const migrated = JSON.parse(await fs.readFile(outPath, "utf8"));
     expect(migrated).toEqual({
+      schemaVersion: 1,
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "default",
           serverType: "client",
           udpPort: 4446,

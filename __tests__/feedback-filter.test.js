@@ -90,6 +90,26 @@ describe("Outbound delta forwarding", () => {
     throw new Error("Timed out waiting for client readiness");
   }
 
+  /**
+   * Poll until `reportOutputMessages` has been called exactly `count` times,
+   * then hold briefly to catch a late extra call.
+   *
+   * A fixed sleep followed by a hard assertion is what TESTING.md forbids: on a
+   * CPU-shared runner a missed 20 ms window is a false failure, and on a fast
+   * one it is 20 ms of dead time per assertion. Polling converges immediately
+   * when the work is already done and still fails loudly when it never happens.
+   */
+  async function expectOutputCalls(count, { settleMs = 50 } = {}) {
+    const deadline = Date.now() + 2000;
+    while (mockApp.reportOutputMessages.mock.calls.length < count && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    // Settle: an over-count is as much a bug as an under-count, so give a
+    // spurious extra call a chance to land before asserting.
+    await new Promise((resolve) => setTimeout(resolve, settleMs));
+    expect(mockApp.reportOutputMessages).toHaveBeenCalledTimes(count);
+  }
+
   async function startClientAndEnableSending() {
     await plugin.start({
       ...clientOptions,
@@ -122,8 +142,7 @@ describe("Outbound delta forwarding", () => {
       ]
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(mockApp.reportOutputMessages).toHaveBeenCalledTimes(1);
+    await expectOutputCalls(1);
   });
 
   test("allows non-edge-link deltas through", async () => {
@@ -142,8 +161,7 @@ describe("Outbound delta forwarding", () => {
       ]
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(mockApp.reportOutputMessages).toHaveBeenCalledTimes(1);
+    await expectOutputCalls(1);
   });
 
   test("forwards networking.modem.rtt without source metadata", async () => {
@@ -161,8 +179,7 @@ describe("Outbound delta forwarding", () => {
       ]
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(mockApp.reportOutputMessages).toHaveBeenCalledTimes(1);
+    await expectOutputCalls(1);
   });
 
   test("forwards instance-namespaced networking.modem.<instanceId>.rtt path", async () => {
@@ -180,8 +197,7 @@ describe("Outbound delta forwarding", () => {
       ]
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(mockApp.reportOutputMessages).toHaveBeenCalledTimes(1);
+    await expectOutputCalls(1);
   });
 
   test("forwards own instance notifications.signalk-edge-link.<instanceId>.*", async () => {
@@ -204,8 +220,7 @@ describe("Outbound delta forwarding", () => {
       ]
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(mockApp.reportOutputMessages).toHaveBeenCalledTimes(1);
+    await expectOutputCalls(1);
   });
 
   test("allows other instance notifications to pass through", async () => {
@@ -228,7 +243,6 @@ describe("Outbound delta forwarding", () => {
       ]
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(mockApp.reportOutputMessages).toHaveBeenCalled();
+    await expectOutputCalls(1);
   });
 });

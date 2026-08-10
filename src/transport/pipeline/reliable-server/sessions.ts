@@ -41,6 +41,63 @@ function evictOldestSessionIfFull(ctx: ServerContext): void {
   }
 }
 
+/**
+ * Make room for a new session from `address` when that address is already at
+ * its per-IP cap.
+ *
+ * The cap stops one spoofing source filling the global session table. Evicting
+ * that address's least-recently-used session preserves the cap — the address
+ * still holds at most `MAX_SESSIONS_PER_IP` slots — while letting a legitimate
+ * client through. Refusing outright punished the ordinary case: one client
+ * behind a NAT address that changes source port a few times inside
+ * SESSION_IDLE_TTL_MS (socket recovery, a CGNAT rebind) had its new port
+ * rejected, HELLO included, so it could not even handshake its way back, and
+ * stayed locked out until a dead session aged out minutes later.
+ *
+ * Counts in place rather than allocating: under a spoofed-port flood this runs
+ * on every new-key packet.
+ *
+ * @returns true when the caller may create the session.
+ */
+function makeRoomForAddress(ctx: ServerContext, address: string): boolean {
+  const { app, metrics, clientSessions, MAX_SESSIONS_PER_IP } = ctx;
+
+  let ipSessionCount = 0;
+  let staleKey: string | null = null;
+  let staleTime = Infinity;
+  for (const s of clientSessions.values()) {
+    if (s.address !== address) {
+      continue;
+    }
+    ipSessionCount++;
+    if (s.lastPacketTime < staleTime) {
+      staleTime = s.lastPacketTime;
+      staleKey = s.key;
+    }
+  }
+
+  if (ipSessionCount < MAX_SESSIONS_PER_IP) {
+    return true;
+  }
+
+  if (staleKey === null) {
+    // Unreachable in practice (the count only rises when a session for this
+    // address was seen), but never process a packet under an unstored session.
+    metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
+    return false;
+  }
+
+  const evicted = clientSessions.get(staleKey);
+  if (evicted) {
+    evicted.sequenceTracker.reset();
+  }
+  clientSessions.delete(staleKey);
+  app.debug(
+    `[v2-server] Per-IP session limit (${MAX_SESSIONS_PER_IP}) reached for ${address}: evicted LRU session ${staleKey}`
+  );
+  return true;
+}
+
 export function getOrCreateSession(
   ctx: ServerContext,
   rinfo: { address: string; port: number }
@@ -55,36 +112,23 @@ export function getOrCreateSession(
     return existing;
   }
 
-  // Evict the oldest idle session if we are at capacity.
+  // Per-IP first, then global. When this address is already at its own cap and
+  // the table happens to be full, the per-IP eviction frees the slot this
+  // session will occupy — so running the global eviction first would throw an
+  // unrelated peer out for nothing.
+  if (!makeRoomForAddress(ctx, rinfo.address)) {
+    return null;
+  }
+
+  // Evict the oldest idle session if we are still at capacity.
   evictOldestSessionIfFull(ctx);
 
-  // Create new session. Guard against a re-entrant creation that may have
-  // already added the session during the eviction scan above.
+  // Guard against a re-entrant creation that may have added the session during
+  // either eviction scan above.
   if (clientSessions.has(key)) {
     const session = clientSessions.get(key)!;
     session.lastPacketTime = Date.now();
     return session;
-  }
-
-  // Enforce per-source-IP session limit to prevent a single attacker from
-  // filling the global session table by spoofing many source ports. Count by
-  // iterating in place (no array allocation) and short-circuit as soon as the
-  // limit is reached — under a spoofed-port flood this runs on every new-key
-  // packet, so avoiding the per-packet spread/filter allocation matters.
-  let ipSessionCount = 0;
-  for (const s of clientSessions.values()) {
-    if (s.address === rinfo.address && ++ipSessionCount >= MAX_SESSIONS_PER_IP) {
-      break;
-    }
-  }
-  if (ipSessionCount >= MAX_SESSIONS_PER_IP) {
-    app.debug(
-      `[v2-server] Rejecting new session from ${rinfo.address}: per-IP limit (${MAX_SESSIONS_PER_IP}) reached`
-    );
-    // Drop the new session entirely. Returning null makes the caller drop the
-    // packet rather than processing it under an unstored "dummy" session.
-    metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
-    return null;
   }
 
   const session: ClientSession = {

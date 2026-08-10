@@ -11,6 +11,13 @@ export interface PathStat {
   count: number;
   bytes: number;
   lastUpdate: number;
+  /**
+   * When this path was first seen, or last re-added after an LRU eviction.
+   *
+   * `count` restarts from 1 at that moment, so any rate derived from it must
+   * be divided by the time since then rather than by process uptime.
+   */
+  firstSeen: number;
 }
 
 /** Bandwidth metrics. */
@@ -24,6 +31,8 @@ export interface BandwidthMetrics {
   lastBytesOut: number;
   lastBytesIn: number;
   lastRateCalcTime: number;
+  /** When the last point was appended to {@link BandwidthMetrics.history}. */
+  lastHistoryPushTime: number;
   rateOut: number;
   rateIn: number;
   compressionRatio: number;

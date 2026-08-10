@@ -90,13 +90,20 @@ export class ReplayWindow {
   }
 
   /**
-   * Drop sequences that have fallen out of the window. Pruning is amortized:
-   * it only runs once the set grows past the window size, so the common
-   * sequential-advance path stays O(1).
+   * Drop sequences that have fallen out of the window.
+   *
+   * Pruning is amortized by only running once the set has grown a whole window
+   * *past* its nominal size. Triggering at `size` instead does not amortize at
+   * all: under sequential arrival the set settles at exactly `size`, so every
+   * subsequent packet pushes it to `size + 1`, scans all of them, and deletes
+   * exactly one — an O(window) pass per packet on the receive hot path, which
+   * at the per-peer rate limit is ~200k set iterations a second. With a full
+   * window of slack each scan retires ~`size` entries, so the per-packet cost
+   * is O(1) amortized for at most 2x the memory.
    * @private
    */
   private _pruneIfNeeded(): void {
-    if (this.highest === null || this.seen.size <= this.size) {
+    if (this.highest === null || this.seen.size <= this.size * 2) {
       return;
     }
     // Collect-then-delete: mutating a Set mid-iteration can skip entries in V8.

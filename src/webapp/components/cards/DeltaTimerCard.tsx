@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { DeltaTimerConfig } from "../../types";
 import { configPath, DELTA_TIMER_MIN, DELTA_TIMER_MAX } from "../../utils";
-import { useApi, ApiError } from "../../hooks/useApi";
+import { useApi, ApiError, readErrorMessage } from "../../hooks/useApi";
 import { Card } from "./shared";
 
 interface Props {
@@ -39,13 +39,16 @@ export function DeltaTimerCard({ connId, config, onNotify, onSaved }: Props) {
         onSaved({ deltaTimer: value });
         onNotify("Delta timer configuration saved successfully!", "success");
       } else {
-        throw new Error("Failed to save configuration");
+        // Surface the server's own message: a 403 lockout, a 429 rate limit
+        // and a validation rejection are different problems with different
+        // fixes, and collapsing them into one string hides which one it is.
+        throw new Error(await readErrorMessage(res, "Failed to save configuration"));
       }
     } catch (err: unknown) {
       const e = err as ApiError;
       onNotify(
         e.isUnauthorized
-          ? authMessage("saving delta timer")
+          ? authMessage("saving delta timer", e.message)
           : `Error saving delta timer: ${e.message}`,
         "error"
       );

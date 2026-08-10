@@ -1,6 +1,8 @@
 "use strict";
 
+import crypto from "node:crypto";
 import { getAllPaths, PATH_CATEGORIES } from "../codec/path-dictionary";
+import { CURRENT_CONFIG_SCHEMA_VERSION } from "../foundation/constants";
 import { RouteRequest, RouteResponse, Router, RouteContext, RouteHandler } from "./types";
 import type { ConnectionConfig } from "../foundation/types";
 import {
@@ -69,6 +71,15 @@ function register(router: Router, ctx: RouteContext): void {
     }
 
     return [];
+  }
+
+  /**
+   * Stable, collision-resistant identifier for a newly-saved connection.
+   *
+   * Mirrors the web panel's format so IDs from either origin look the same.
+   */
+  function generateConnectionId(): string {
+    return `skel-${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
   }
 
   function normalizeConnectionId(value: unknown): string | null {
@@ -272,6 +283,20 @@ function register(router: Router, ctx: RouteContext): void {
           sanitizeConnectionConfig(connection as unknown as ConnectionConfig)
         );
 
+        // Mint a connectionId for any connection saved without one.
+        //
+        // The web panel assigns IDs on load, but a direct REST save or a
+        // migrated config can still arrive without them — and `connectionId` is
+        // what the redacted-secret restore above matches on. Without an ID it
+        // has to fall back to matching by array index plus name, which a rename
+        // breaks, so renaming such a connection failed with "has redacted
+        // secretKey, but no stored secretKey exists". Existing IDs are kept.
+        connectionList = connectionList.map((connection: Record<string, unknown>) =>
+          normalizeConnectionId(connection.connectionId)
+            ? connection
+            : { ...connection, connectionId: generateConnectionId() }
+        );
+
         for (let index = 0; index < connectionList.length; index++) {
           const prefix = connectionList.length > 1 ? `connections[${index}].` : "";
           const validationError = validateConnectionConfig(connectionList[index], prefix);
@@ -311,6 +336,39 @@ function register(router: Router, ctx: RouteContext): void {
         const finalConfig: Record<string, unknown> = {
           connections: connectionList
         };
+
+        // Carry the schema version forward. It is declared in the plugin schema
+        // and documented in example config bodies, but every save used to drop
+        // it — so the field it exists to support forward-compatibility
+        // migrations with never actually survived a round trip.
+        // Only accept a version this build actually understands. It is a
+        // migration identifier, so a fraction, a non-safe integer or a version
+        // from the future would all be meaningless to the migration code that
+        // later reads it — and persisting one would misdescribe the file on
+        // disk. Anything unusable falls back to the persisted value, then to
+        // the current version.
+        const isSupportedSchemaVersion = (value: unknown): value is number =>
+          typeof value === "number" &&
+          Number.isSafeInteger(value) &&
+          value >= 1 &&
+          value <= CURRENT_CONFIG_SCHEMA_VERSION;
+
+        if (
+          req.body.schemaVersion !== undefined &&
+          !isSupportedSchemaVersion(req.body.schemaVersion)
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: `schemaVersion must be an integer between 1 and ${CURRENT_CONFIG_SCHEMA_VERSION}`
+          });
+        }
+
+        const persistedSchemaVersion = persistedConfig.schemaVersion;
+        finalConfig.schemaVersion = isSupportedSchemaVersion(req.body.schemaVersion)
+          ? req.body.schemaVersion
+          : isSupportedSchemaVersion(persistedSchemaVersion)
+            ? persistedSchemaVersion
+            : CURRENT_CONFIG_SCHEMA_VERSION;
 
         if (resolvedManagementToken !== undefined) {
           finalConfig.managementApiToken = resolvedManagementToken;

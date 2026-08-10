@@ -1,4 +1,5 @@
 import { isLikelyUnsafePathFilter } from "../codec/metadata-codec";
+import { DELTA_TIMER_MAX_MS, DELTA_TIMER_MIN_MS } from "../foundation/constants";
 
 /** Upper bound on meta.includePathsMatching length. Same constant as the
  *  metadata runtime — mirrored here so the validator rejects patterns at
@@ -17,10 +18,10 @@ function validateRuntimeConfigBody(filename: string, body: Record<string, unknow
       body.deltaTimer !== undefined &&
       (typeof body.deltaTimer !== "number" ||
         !Number.isFinite(body.deltaTimer) ||
-        body.deltaTimer < 100 ||
-        body.deltaTimer > 10000)
+        body.deltaTimer < DELTA_TIMER_MIN_MS ||
+        body.deltaTimer > DELTA_TIMER_MAX_MS)
     ) {
-      return "deltaTimer must be a number between 100 and 10000";
+      return `deltaTimer must be a number between ${DELTA_TIMER_MIN_MS} and ${DELTA_TIMER_MAX_MS}`;
     }
   } else if (filename === "subscription.json") {
     if (body.subscribe !== undefined && !Array.isArray(body.subscribe)) {

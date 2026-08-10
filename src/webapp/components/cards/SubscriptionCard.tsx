@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { SubscriptionConfig } from "../../types";
 import { configPath } from "../../utils";
-import { useApi, ApiError } from "../../hooks/useApi";
+import { useApi, ApiError, readErrorMessage } from "../../hooks/useApi";
 import { Card } from "./shared";
 
 const DEBOUNCE_MS = 300;
@@ -196,13 +196,16 @@ export function SubscriptionCard({ connId, config, onNotify, onSaved }: Props) {
         onSaved(cfg);
         onNotify("Subscription configuration saved successfully!", "success");
       } else {
-        throw new Error("Failed to save configuration");
+        // Surface the server's own message: a 403 lockout, a 429 rate limit
+        // and a validation rejection are different problems with different
+        // fixes, and collapsing them into one string hides which one it is.
+        throw new Error(await readErrorMessage(res, "Failed to save configuration"));
       }
     } catch (err: unknown) {
       const e = err as ApiError;
       onNotify(
         e.isUnauthorized
-          ? authMessage("saving subscription")
+          ? authMessage("saving subscription", e.message)
           : `Error saving subscription: ${e.message}`,
         "error"
       );

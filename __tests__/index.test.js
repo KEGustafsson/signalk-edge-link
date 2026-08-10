@@ -1350,30 +1350,98 @@ describe("SignalK Data Connector Plugin", () => {
       );
     });
 
-    test("config should not grow after multiple save cycles", async () => {
-      const initialSize = JSON.stringify(diskFile).length;
+    test("a save without connectionId gets one minted server-side", async () => {
+      // The panel assigns IDs on load, but a direct REST save can omit them.
+      // `connectionId` is what redacted-secret restore matches on, so a
+      // connection persisted without one cannot later be renamed.
+      const response = await saveConfig({
+        connections: [
+          {
+            name: "no-id",
+            serverType: "client",
+            protocolVersion: 3,
+            udpAddress: "127.0.0.1",
+            udpPort: 4446,
+            secretKey: "Kx7mQ2vR9tLpZ4wN8sJ3bF6yH1cD5gT0"
+          }
+        ]
+      });
 
-      // Round-trip 1: read → save unchanged
+      expect(response.success).toBe(true);
+      const saved = diskFile.configuration.connections.find((c) => c.name === "no-id");
+      expect(typeof saved.connectionId).toBe("string");
+      expect(saved.connectionId.length).toBeGreaterThan(0);
+    });
+
+    test("an existing connectionId is preserved across a save", async () => {
+      const response = await saveConfig({
+        connections: [
+          {
+            connectionId: "skel-fixed-id",
+            name: "keeps-id",
+            serverType: "client",
+            protocolVersion: 3,
+            udpAddress: "127.0.0.1",
+            udpPort: 4446,
+            secretKey: "Kx7mQ2vR9tLpZ4wN8sJ3bF6yH1cD5gT0"
+          }
+        ]
+      });
+
+      expect(response.success).toBe(true);
+      const saved = diskFile.configuration.connections.find((c) => c.name === "keeps-id");
+      expect(saved.connectionId).toBe("skel-fixed-id");
+    });
+
+    test("an unusable schemaVersion is rejected rather than persisted", async () => {
+      // It is a migration identifier, so a fraction or a future version would
+      // be meaningless to the migration code that later reads it.
+      for (const bad of [1.5, 0, -1, 2, Number.MAX_SAFE_INTEGER + 2, "1"]) {
+        const response = await saveConfig({
+          schemaVersion: bad,
+          connections: [
+            {
+              name: "sv",
+              serverType: "client",
+              protocolVersion: 3,
+              udpAddress: "127.0.0.1",
+              udpPort: 4446,
+              secretKey: "Kx7mQ2vR9tLpZ4wN8sJ3bF6yH1cD5gT0"
+            }
+          ]
+        });
+        expect(response.success).toBe(false);
+        expect(response.error).toContain("schemaVersion");
+      }
+    });
+
+    test("config should not grow after multiple save cycles", async () => {
+      // Round-trip 1: read → save unchanged.
+      //
+      // The first save of a config written before `schemaVersion` existed adds
+      // that one field, so it is measured against round 1 rather than against
+      // the fixture. What this test guards is unbounded growth — a field
+      // re-added or nested on every cycle — not a one-time stamp.
       const read1 = await readConfig();
       expect(read1.success).toBe(true);
       await saveConfig(read1.configuration);
 
       const sizeAfterRound1 = JSON.stringify(diskFile).length;
-      expect(sizeAfterRound1).toBe(initialSize);
+      expect(diskFile.configuration.schemaVersion).toBe(1);
 
       // Round-trip 2: read → save unchanged
       const read2 = await readConfig();
       await saveConfig(read2.configuration);
 
       const sizeAfterRound2 = JSON.stringify(diskFile).length;
-      expect(sizeAfterRound2).toBe(initialSize);
+      expect(sizeAfterRound2).toBe(sizeAfterRound1);
 
       // Round-trip 3: read → save unchanged
       const read3 = await readConfig();
       await saveConfig(read3.configuration);
 
       const sizeAfterRound3 = JSON.stringify(diskFile).length;
-      expect(sizeAfterRound3).toBe(initialSize);
+      expect(sizeAfterRound3).toBe(sizeAfterRound1);
     });
 
     test("config should never have nested configuration key", async () => {

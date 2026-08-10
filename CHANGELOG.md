@@ -2,6 +2,202 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [4.1.0] - 2026-08-09
+
+Correctness release from a full-codebase review. Three independent defects
+could each stop a running link delivering data while the plugin still reported
+healthy; all are fixed, with regression coverage.
+
+### Fixed — data delivery
+
+- **A client never re-handshook after the peer lost its session.** The HELLO
+  handshake latched on first acknowledgement and nothing re-armed it. After a
+  server restart (its epoch and replay-guard state gone) or a NAT/CGNAT source-
+  port rebind, the server refused every DATA packet and therefore never sent the
+  ACK that would have signalled trouble — so the link stayed dead until the
+  client process restarted. The client now re-runs the handshake after
+  `HELLO_REHANDSHAKE_ACK_IDLE_MS` (30 s) of ACK silence with packets
+  outstanding.
+- **A full-status replay delivered nothing for the paths it exists to restore.**
+  The client's value-dedup and path-throttle state was never cleared, so a
+  restarted server asking for a full replay received sentinels it had no
+  baseline to expand (and dropped them) plus values the throttle discarded.
+  Both are now reset on `FULL_STATUS_REQUEST`.
+- **A lost packet could pin the receiver to a stale value indefinitely.**
+  Value-dedup marked a value delivered at send time, so any packet that never
+  arrived left the two caches disagreeing — and the sender had no reason to send
+  an absolute again. The sender now resyncs whenever a queued packet leaves the
+  retransmit queue unacknowledged (eviction, abandonment, age expiry) or a send
+  throws after dedup, and the receiver ignores absolute values from a sequence
+  older than the one that last wrote the path, so reordering cannot roll its
+  cache backwards.
+- **Server socket recovery built a second pipeline.** A transient interface
+  fault left the original pipeline stranded with its sessions, epochs, replay
+  guards and armed NAK timers, while its replacement started empty — dropping
+  every existing peer back to the un-enforced anti-replay path. Recovery now
+  re-attaches the existing pipeline to the new socket.
+
+### Fixed — packaging
+
+- `npm audit` now also covers devDependencies that webpack bundles into the
+  published `public/` directory — `@rjsf/validator-ajv8` pulls `ajv` and
+  `fast-uri` into the shipped browser bundle, where `--omit=dev` could not see
+  them. `fast-uri` is pinned to `^3.1.5` to clear three high-severity
+  host-confusion advisories that were reaching operators' browsers.
+
+### Fixed — security
+
+- Rate limiting no longer trusts `req.ip` under an unbounded `trust proxy: true`.
+  Express resolves `req.ip` from the _leftmost_ `X-Forwarded-For` entry in that
+  configuration — the one the client supplies — so the bucket key stayed
+  attacker-chosen. `req.ip` is now used only when `trust proxy` is bounded (a
+  hop count, CIDR, list or predicate), where Express walks the header
+  right-to-left; otherwise the connecting address is used and the operator is
+  warned once.
+- An unrecognised value for `requireManagementApiToken` (or its environment
+  variable) now fails closed instead of reading as "off". Absent still means
+  "use the compatibility default"; explicit `false`/`0`/`no`/`off` still means
+  off, so a deliberate opt-out cannot lock an operator out.
+- `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` now takes precedence over the stored
+  `managementApiToken`, as the docs and the configuration panel have always
+  stated. Previously the stored option won, so the documented rotation
+  procedure kept a leaked token live while rejecting its replacement.
+- The rate limiter no longer keys on the client-supplied leftmost
+  `X-Forwarded-For` entry. Behind a trusted proxy a caller could mint a fresh
+  bucket per request, removing the only brake on management-token guessing and
+  growing the rate-limit map without bound.
+- Management authorization resolves the plugin config once per request. Three
+  separate reads meant a config rewrite landing mid-request could satisfy the
+  fail-closed probe and then degrade to open access.
+- `requireManagementApiToken` now accepts the common truthy spellings
+  (`"true"`, `"1"`, `"yes"`, `"on"`) instead of silently reading a hand-written
+  string as "off".
+- Control-packet source validation works on bonded links again: the real
+  datagram source is forwarded instead of a synthesised one, which had made the
+  off-path spoofing check pass unconditionally.
+
+### Fixed — observability
+
+- Alert _state_ and alert _notifications_ are now separate. Rate-limiting the
+  notification previously also suppressed the state, so a metric that cleared
+  and re-crossed its threshold inside the cooldown was reported as "ok" by
+  `/monitoring/alerts` and published `alert_<metric> 0` while the breach was
+  ongoing. State follows the live condition; only notifications are throttled.
+- Bandwidth rate gauges no longer read ~0 B/s on a loaded link. Sampling is
+  destructive, and both the 1 s pipeline timer and every HTTP scrape called it,
+  so a scrape shortly after a tick divided a few milliseconds of traffic. Rates
+  are now recomputed at most every 500 ms, and history points are appended on a
+  fixed 5 s cadence so the 60-slot buffer really spans the documented 5 minutes.
+- Alerts no longer flap. A metric hovering at its threshold produced a
+  raise/clear pair every second because an absent active alert bypassed the
+  cooldown; escalation to a higher severity is still reported immediately.
+- `alert_<metric>` is published for every configured threshold metric, including
+  0 when not alerting, so a cleared alert reads as green instead of "No data".
+- Source-registry no-op detection works: the per-sample timestamp is excluded
+  from the merge hash, so `noops` is no longer permanently 0 and the receive
+  path stops reallocating a record per update.
+- `updatesPerMinute` is computed over the window a path has actually been
+  tracked, not process uptime — a path started a minute ago on a node up for a
+  month no longer reports 0.
+- `PathLatencyTracker` evicts least-recently-used rather than first-inserted, so
+  the busiest paths keep their latency windows.
+
+### Fixed — configuration and UI
+
+- `epochBoundAuth` and `requestFullStatusOnRestart` are recognised as advanced
+  settings, so a connection using them opens with the Advanced section expanded
+  instead of claiming it is at defaults.
+- `connectionId` is part of the connection schema, and is now also minted
+  server-side on any save that omits one and stamped onto migrated configs — so
+  connections authored in Signal K's built-in plugin UI, via REST, or by
+  `migrate:config` all get one. Renaming such a connection no longer fails
+  redacted-secret restore.
+- `schemaVersion` supplied by a client is validated as a supported integer
+  rather than persisted verbatim.
+- The delta-timer file watcher reports every out-of-range value, including `0`,
+  instead of silently ignoring finite values outside the accepted range.
+- A 403 lockout now carries the server's recovery instructions all the way into
+  the card notifications, not just the panel.
+- `schemaVersion` survives a save and is stamped by `migrate:config`, instead of
+  being declared in the schema and dropped by every write.
+- A 403 lockout surfaces the server's recovery instructions rather than
+  "HTTP 403: Forbidden", and the delta-timer, sentence-filter and subscription
+  cards surface the server's error message instead of a generic failure.
+- An empty connection list is rendered as "no connections" instead of leaving
+  stale tabs on screen polling dead instance IDs.
+- `deltaTimer` is range-checked identically at startup, on file change and via
+  the API; a hand-edited out-of-range value is rejected at boot rather than
+  accepted and then reverted.
+
+### Fixed — robustness
+
+- A `stop()` landing while a bonding link is mid-`bind()` no longer hangs
+  startup. The bind promise settled only on `listening` or `error`, and a closed
+  socket emits neither, so `initialize()` — and the client start awaiting it —
+  stayed pending for the life of the process.
+- The per-IP session eviction now runs before the global one. With both limits
+  reached, a single new source port evicted an unrelated peer _and_ this
+  address's own LRU session, when freeing the per-IP slot alone was enough.
+- `stop()` during client startup can no longer orphan a source-snapshot
+  interval, and a stop during bonding initialisation no longer leaks sockets and
+  a health-check timer.
+- Per-IP session limit evicts that address's least-recently-used session instead
+  of refusing the new one, so a client rotating source ports can handshake again
+  immediately rather than waiting out the 5-minute idle TTL.
+- Anti-replay window pruning is genuinely amortised; it previously scanned the
+  whole window on every packet in the steady state.
+- Path lookups on the dictionary, precision and throttle maps use own-property
+  checks, so a Signal K path named after an `Object.prototype` member cannot
+  produce a function or `NaN` on the wire.
+- `MetaCache` is bounded like every sibling cache.
+
+### Changed
+
+- Coverage thresholds raised from 60–65% to 72–83%, matching what the suite
+  actually delivers, so a real regression fails CI.
+- `maxWorkers: 1` moved into the Jest config, so `test:watch` and a bare
+  `npx jest` get the same serialisation as `npm test` instead of colliding on
+  fixed UDP ports.
+- The armv7 (Cerbo GX) CI leg no longer runs on every push and pull request. It
+  emulates under QEMU and took ~13 minutes, setting the floor for how long a
+  push took to go green while the rest of the matrix finished in ~2. It remains
+  available on demand via `workflow_dispatch`.
+
+### Documentation
+
+- Prometheus scrape config now shows the required bearer token, and the README
+  states plainly that every route is protected — there is no open read-only
+  subset once a token is set.
+- `pathPrecision` and `pathThrottle` documented as exact-path maps, not globs,
+  and `pathThrottle`'s example corrected to the rule-object shape the validator
+  actually accepts.
+- `useValueDedup`, `useCompactDeltas`, `POST /connections/:id/bonding/failover`
+  and `GET /monitoring/simulation` documented; `retransmitRate` and
+  `alert_<metric>` added to the metrics reference.
+- Stale module paths in `AGENTS.md` and `docs/GUIDE.md` updated to the current
+  layout.
+
+## [4.0.5] - 2026-08-08
+
+Packaging only. No runtime, protocol, schema or UI change.
+
+### Changed
+
+- Version bump. **Note:** this release also changed `signalk.appIcon` back to
+  `./icons/icon-72x72.png`. That is the correct form: `appIcon` resolves
+  against the served webroot, which is the package's `public/` directory, so
+  `./icons/icon-72x72.png` finds `public/icons/icon-72x72.png`. This undid
+  4.0.3 in the right direction, just silently.
+
+## [4.0.4] - 2026-08-08
+
+Packaging only. No runtime, protocol, schema or UI change.
+
+### Changed
+
+- Version bump. **Note:** this release changed `signalk.appIcon` to a malformed
+  `.icons/icon-72x72.png` (missing the leading slash). Fixed in 4.0.5.
+
 ## [4.0.3] - 2026-08-02
 
 Packaging only. **No runtime, protocol, schema or UI change** — `lib/` and

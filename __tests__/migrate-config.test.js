@@ -7,6 +7,7 @@ describe("migrate-config", () => {
     const input = {
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "alpha",
           serverType: "server",
           udpPort: 4446,
@@ -35,9 +36,11 @@ describe("migrate-config", () => {
     };
 
     expect(migrateConfig(legacy)).toEqual({
+      schemaVersion: 1,
       monitoringEnabled: true,
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "legacy",
           serverType: "client",
           udpPort: 4447,
@@ -66,8 +69,10 @@ describe("migrate-config", () => {
         secretKey: "12345678901234567890123456789012"
       })
     ).toEqual({
+      schemaVersion: 1,
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "default",
           serverType: "server",
           udpPort: 4446,
@@ -87,8 +92,10 @@ describe("migrate-config", () => {
         secretKey: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
       })
     ).toEqual({
+      schemaVersion: 1,
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "hex",
           serverType: "server",
           udpPort: 4446,
@@ -108,8 +115,10 @@ describe("migrate-config", () => {
         secretKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
       })
     ).toEqual({
+      schemaVersion: 1,
       connections: [
         {
+          connectionId: expect.stringMatching(/^skel-/),
           name: "base64",
           serverType: "server",
           udpPort: 4446,

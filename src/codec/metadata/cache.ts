@@ -45,6 +45,27 @@ function hashMeta(meta: Record<string, unknown>): string {
 export class MetaCache {
   private hashes = new Map<string, string>();
   private gen = 0;
+  /**
+   * Cap on tracked `context+path` pairs.
+   *
+   * Every sibling cache in the codec is bounded; this one was not. Entries are
+   * only created from locally-observed meta, so in practice it is bounded by
+   * fleet size rather than by anything a peer controls — but an unbounded map
+   * on a long-lived process is a leak waiting for an unusual deployment.
+   * Least-recently-written entries are evicted first; the cost of evicting one
+   * that is still live is a single redundant meta re-send.
+   */
+  private static readonly MAX_ENTRIES = 5000;
+
+  private setHash(key: string, hash: string): void {
+    if (this.hashes.has(key)) {
+      this.hashes.delete(key);
+    } else if (this.hashes.size >= MetaCache.MAX_ENTRIES) {
+      const oldest = this.hashes.keys().next();
+      if (!oldest.done) this.hashes.delete(oldest.value);
+    }
+    this.hashes.set(key, hash);
+  }
 
   /**
    * Monotonic generation counter — bumped by every `clear()` so a caller can
@@ -71,7 +92,7 @@ export class MetaCache {
       const key = this.keyFor(entry);
       const h = hashMeta(entry.meta);
       if (this.hashes.get(key) !== h) {
-        this.hashes.set(key, h);
+        this.setHash(key, h);
         changed.push(entry);
       }
     }
@@ -104,7 +125,7 @@ export class MetaCache {
    */
   commit(entries: MetaEntry[]): void {
     for (const entry of entries) {
-      this.hashes.set(this.keyFor(entry), hashMeta(entry.meta));
+      this.setHash(this.keyFor(entry), hashMeta(entry.meta));
     }
   }
 
@@ -116,7 +137,7 @@ export class MetaCache {
   replaceAll(entries: MetaEntry[]): void {
     this.hashes.clear();
     for (const entry of entries) {
-      this.hashes.set(this.keyFor(entry), hashMeta(entry.meta));
+      this.setHash(this.keyFor(entry), hashMeta(entry.meta));
     }
   }
 

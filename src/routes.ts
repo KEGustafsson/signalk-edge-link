@@ -97,6 +97,38 @@ const ALLOWED_MANAGEMENT_ACTIONS = new Set([
   "instances.delete"
 ]);
 
+/**
+ * Interpret a boolean-ish configuration or environment value as a tri-state.
+ *
+ * The plugin schema produces a real boolean, but the same flags are also set by
+ * hand in JSON config files and by shell exports, where `"true"`/`"1"`/`"yes"`/
+ * `"on"` (and their negatives) are all natural spellings. Accepting only
+ * `true`/`"true"`/`"1"` made every other spelling read as "off".
+ *
+ * `"invalid"` is returned rather than folded into `false`, because for a
+ * fail-closed security flag those two mean very different things: absent means
+ * "the operator never set this, keep the compatibility default", whereas an
+ * unparseable explicit value means "the operator intended something and we
+ * cannot tell what" — which must not silently grant access.
+ */
+type FlagState = "absent" | "true" | "false" | "invalid";
+
+const TRUTHY_FLAGS = new Set(["true", "1", "yes", "on"]);
+const FALSY_FLAGS = new Set(["false", "0", "no", "off"]);
+
+function parseFlag(value: unknown): FlagState {
+  if (value === undefined || value === null || value === "") return "absent";
+  if (value === true) return "true";
+  if (value === false) return "false";
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "") return "absent";
+    if (TRUTHY_FLAGS.has(normalized)) return "true";
+    if (FALSY_FLAGS.has(normalized)) return "false";
+  }
+  return "invalid";
+}
+
 function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, pluginRef: PluginRef) {
   const REMOTE_TELEMETRY_TTL_MS = 15000;
   const managementAuthTelemetry = {
@@ -182,16 +214,29 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     return resolveAuthOptions().options;
   }
 
-  function getManagementToken(): string | null {
-    const authOptions = getAuthOptions();
-    const fromOptions = authOptions && authOptions.managementApiToken;
-    if (typeof fromOptions === "string" && fromOptions.trim()) {
-      return fromOptions.trim();
-    }
-
+  /**
+   * The token a request must present, or null when none is configured.
+   *
+   * The environment variable wins over the stored plugin option. That is the
+   * order `docs/web-ui.md` and the configuration panel have always described,
+   * and it is the order that makes the documented rotation procedure work: an
+   * operator who exports a new token and restarts must end up enforcing the
+   * new one. With the option taking precedence, a stale value left in the
+   * plugin config kept a leaked token live while rejecting the replacement.
+   *
+   * @param authOptions - Already-resolved options, so a caller that has to
+   *   fail closed on a read error resolves once and reuses the result rather
+   *   than re-reading (and possibly getting a different answer) per lookup.
+   */
+  function getManagementToken(authOptions = getAuthOptions()): string | null {
     const fromEnv = process.env.SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN;
     if (typeof fromEnv === "string" && fromEnv.trim()) {
       return fromEnv.trim();
+    }
+
+    const fromOptions = authOptions && authOptions.managementApiToken;
+    if (typeof fromOptions === "string" && fromOptions.trim()) {
+      return fromOptions.trim();
     }
 
     return null;
@@ -201,16 +246,45 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     // Retained as a no-op for compatibility with older route consumers.
   }
 
-  function isTokenRequired(): boolean {
+  /**
+   * Whether a token must be presented even if none is configured yet.
+   *
+   * Accepts the boolean `true` from the schema, plus the common truthy string
+   * spellings an operator may hand-write into a config file or an env var.
+   * Anything unrecognised is treated as "not required" — the pre-existing
+   * default — so a typo cannot silently lock an operator out.
+   */
+  function isTokenRequired(authOptions = getAuthOptions()): boolean {
     // Explicit opt-in to enforce token-based auth even when no token is set yet
     // (allows admins to lock the API before the token is provisioned).
-    const authOptions = getAuthOptions();
-    const fromOptions = authOptions && authOptions.requireManagementApiToken;
-    if (fromOptions === true) {
-      return true;
+    //
+    // An unparseable explicit value fails CLOSED. The compatibility default
+    // (open access when no token is configured) is only for the case where the
+    // operator never expressed an intent at all; a typo like "treu" is an
+    // expressed intent we cannot read, and resolving that to "no protection"
+    // would hand out access on a spelling mistake.
+    for (const [source, raw] of [
+      ["requireManagementApiToken", authOptions && authOptions.requireManagementApiToken],
+      [
+        "SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN",
+        process.env.SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN
+      ]
+    ] as Array<[string, unknown]>) {
+      const state = parseFlag(raw);
+      if (state === "true") {
+        return true;
+      }
+      if (state === "invalid") {
+        if (app && typeof app.error === "function") {
+          app.error(
+            `[management-api] ${source} has an unrecognised value; treating it as enabled ` +
+              "(fail-closed). Set it to true or false."
+          );
+        }
+        return true;
+      }
     }
-    const fromEnv = process.env.SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN;
-    return fromEnv === "true" || fromEnv === "1";
+    return false;
   }
 
   function normalizeManagementAuthAction(action?: string): string {
@@ -279,9 +353,19 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
   }
 
   function authorizeManagement(req: RouteRequest, res: RouteResponse, action?: string): boolean {
+    // Resolve once and thread the result through both lookups below.
+    //
+    // Reading three times meant the `readError` gate and the decisions it
+    // guards could disagree: a read that succeeded for the probe and then
+    // failed — which is exactly what happens while `savePluginOptions` is
+    // rewriting the file — yielded `options: null` for the token and the
+    // require-flag, and the request was served as `open_access` despite the
+    // fail-closed rule above.
+    const resolved = resolveAuthOptions();
+
     // Fail closed when the auth configuration cannot be read: an undetermined
     // config must never silently degrade to open access.
-    if (resolveAuthOptions().readError) {
+    if (resolved.readError) {
       recordManagementAuthDecision("denied", "config_read_error", action);
       res
         .status(503)
@@ -289,12 +373,12 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
       return false;
     }
 
-    const expectedToken = getManagementToken();
+    const expectedToken = getManagementToken(resolved.options);
     if (!expectedToken) {
       // No token configured → allow open access unless the admin explicitly
       // requires one.  This preserves backwards-compatible behaviour for
       // existing deployments.
-      if (!isTokenRequired()) {
+      if (!isTokenRequired(resolved.options)) {
         recordManagementAuthDecision("allowed", "open_access", action);
         return true;
       }
@@ -395,6 +479,8 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
 
   // Rate limiting state
   const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+  /** Emit the unbounded-`trust proxy` warning once, not per request. */
+  let warnedUnboundedTrustProxy = false;
   let rateLimitCleanupInterval: ReturnType<typeof setInterval> | null = null;
   let stopMonitoringTimers: (() => void) | null = null;
 
@@ -860,16 +946,50 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
      */
     const rateLimitMiddleware: RouteHandler = (req, res, next) => {
       const headers = req.headers || {};
-      const trustProxy =
-        req.app && typeof req.app.get === "function" && !!req.app.get("trust proxy");
-      const forwarded = trustProxy ? headers["x-forwarded-for"] : null;
-      const forwardedValue = getFirstHeaderValue(forwarded);
-      const forwardedIp = forwardedValue ? forwardedValue.split(",")[0].trim() : null;
       const remoteAddress =
         req.socket && typeof req.socket.remoteAddress === "string"
           ? req.socket.remoteAddress
           : null;
-      const clientIp = forwardedIp || req.ip || remoteAddress || null;
+
+      // Choosing the rate-limit bucket key is security-relevant: whoever can
+      // pick their own key can request without limit, which lifts the only
+      // brake on management-token guessing and grows `rateLimitMap` by an entry
+      // per distinct value.
+      //
+      // Never read `X-Forwarded-For` leftmost-first. That entry is supplied by
+      // the *client* — proxies only append — so it is attacker-chosen.
+      //
+      // `req.ip` is only trustworthy when `trust proxy` is BOUNDED (a hop
+      // count, a CIDR/named subnet, an array or a predicate). In that case
+      // Express walks the header right-to-left, stops at the first untrusted
+      // hop, and that address really does identify the peer.
+      //
+      // With `trust proxy: true` Express takes the leftmost entry verbatim, so
+      // `req.ip` is exactly the attacker-controlled value. There is no way to
+      // recover a trustworthy per-client identity in that configuration, so
+      // fall back to the transport-level peer address: behind a real proxy that
+      // collapses every client into one shared bucket, which throttles more
+      // aggressively than intended but cannot be bypassed.
+      const trustSetting =
+        req.app && typeof req.app.get === "function" ? req.app.get("trust proxy") : undefined;
+      const trustProxyEnabled = !!trustSetting;
+      const trustProxyUnbounded = trustSetting === true || trustSetting === "true";
+
+      if (trustProxyUnbounded && !warnedUnboundedTrustProxy) {
+        warnedUnboundedTrustProxy = true;
+        if (app && typeof app.error === "function") {
+          app.error(
+            "[management-api] 'trust proxy' is set to true (unbounded). X-Forwarded-For cannot be " +
+              "trusted to identify a client, so rate limiting falls back to the connecting address " +
+              "and may be shared across clients. Configure a hop count or trusted proxy list instead."
+          );
+        }
+      }
+
+      const clientIp =
+        trustProxyEnabled && !trustProxyUnbounded
+          ? req.ip || remoteAddress || null
+          : remoteAddress || req.ip || null;
 
       // Deterministic fallback key when IP cannot be determined.
       // Include a few stable request traits to reduce cross-client bucket sharing.

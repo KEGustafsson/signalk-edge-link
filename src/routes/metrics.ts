@@ -121,6 +121,10 @@ function register(router: Router, ctx: RouteContext): void {
           if (state.monitoring && state.monitoring.alertManager) {
             const alertState = state.monitoring.alertManager.getState();
             extra.activeAlerts = alertState.activeAlerts;
+            // Also pass the configured thresholds so metrics that are not
+            // currently alerting still publish `alert_<metric> 0` rather than
+            // dropping their series entirely.
+            extra.alertThresholds = alertState.thresholds;
           }
           // One source for loss and retransmit rate, shared with /metrics,
           // /network-metrics and the web UI.

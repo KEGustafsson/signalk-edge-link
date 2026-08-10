@@ -72,6 +72,14 @@ export class AlertManager {
   notificationsEnabled: boolean;
   activeAlerts: Map<string, Alert>;
   _lastAlertTime: Map<string, number>;
+  /**
+   * Severity most recently *announced* to the operator, per metric.
+   *
+   * Distinct from `activeAlerts`, which tracks the live condition. Separating
+   * the two is what lets a breach stay visible in the API and the Prometheus
+   * gauge while notifications about it stay rate-limited.
+   */
+  _notifiedLevel: Map<string, string>;
 
   /**
    * @param {Object} app - Signal K app instance
@@ -95,6 +103,7 @@ export class AlertManager {
     // Track active alerts and last alert time for cooldown
     this.activeAlerts = new Map(); // metricName -> { level, timestamp, value }
     this._lastAlertTime = new Map(); // metricName -> timestamp
+    this._notifiedLevel = new Map(); // metricName -> last announced level
   }
 
   /**
@@ -118,30 +127,50 @@ export class AlertManager {
 
     const currentAlert = this.activeAlerts.get(metricName);
 
+    // Alert STATE and operator NOTIFICATIONS are deliberately decoupled.
+    //
+    // `activeAlerts` mirrors the live condition, because `/monitoring/alerts`
+    // and the `alert_<metric>` gauge read it — a breach that is real but
+    // un-announced must still show as a breach, not as "ok".
+    //
+    // Notifications are what get rate-limited. `checkAll` runs once a second,
+    // so a metric hovering at its threshold would otherwise emit an alert and
+    // a clear every second for as long as it stayed marginal.
     if (level) {
-      // Check cooldown (per-metric override or global default)
+      const alert = {
+        metric: metricName,
+        level,
+        value,
+        threshold: threshold[level as "warning" | "critical"] ?? 0,
+        timestamp: Date.now()
+      };
+      this.activeAlerts.set(metricName, alert);
+
       const lastTime = this._lastAlertTime.get(metricName) || 0;
       const effectiveCooldown = this._perMetricCooldown.get(metricName) ?? this.cooldown;
       const cooldownExpired = Date.now() - lastTime >= effectiveCooldown;
+      // Compare against what was last announced, not against the live state:
+      // a severity the operator has not been told about is still news.
+      const notified = this._notifiedLevel.get(metricName);
+      const isEscalation = notified !== undefined && notified !== level;
 
-      // Only alert if level changed or cooldown expired
-      if (!currentAlert || currentAlert.level !== level || cooldownExpired) {
-        const alert = {
-          metric: metricName,
-          level,
-          value,
-          threshold: threshold[level as "warning" | "critical"] ?? 0,
-          timestamp: Date.now()
-        };
-
-        this.activeAlerts.set(metricName, alert);
+      if (isEscalation || cooldownExpired) {
         this._lastAlertTime.set(metricName, Date.now());
+        this._notifiedLevel.set(metricName, level);
         this._emitAlert(alert);
         return alert;
       }
-    } else if (currentAlert) {
-      // Clear alert
+      return null;
+    }
+
+    if (currentAlert) {
       this.activeAlerts.delete(metricName);
+    }
+    // Only retract something the operator was actually told about. Without
+    // this, a marginal metric would emit a clear every second even while its
+    // alerts were being suppressed by the cooldown.
+    if (this._notifiedLevel.has(metricName)) {
+      this._notifiedLevel.delete(metricName);
       this._emitClear(metricName);
     }
 

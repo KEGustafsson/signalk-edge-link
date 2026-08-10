@@ -125,7 +125,7 @@ describe("Session eviction at capacity (MAX_CLIENT_SESSIONS = 100)", () => {
 // ── 2. Per-IP session limit ──────────────────────────────────────────────────
 
 describe("Per-IP session limit (MAX_SESSIONS_PER_IP = 5)", () => {
-  test("6th session from same IP gets an ephemeral (non-stored) session", async () => {
+  test("6th session from same IP evicts that IP's LRU session and is served", async () => {
     const { pipeline, app } = makeServer();
     const sameIP = "172.16.0.1";
 
@@ -148,9 +148,17 @@ describe("Per-IP session limit (MAX_SESSIONS_PER_IP = 5)", () => {
     );
     await pipeline.receivePacket(pkt6, SECRET_KEY, { address: sameIP, port: 5005 });
 
-    // Session count should still be 5 (ephemeral session not stored)
+    // The cap still holds — the address never exceeds MAX_SESSIONS_PER_IP —
+    // but the new port is admitted rather than locked out. A legitimate client
+    // that rotates source ports (socket recovery, CGNAT rebind) must be able to
+    // handshake again immediately instead of waiting out SESSION_IDLE_TTL_MS.
     expect(pipeline.getMetrics().totalSessions).toBe(5);
-    expect(app.debug).toHaveBeenCalledWith(expect.stringContaining("per-IP limit"));
+    expect(app.debug).toHaveBeenCalledWith(expect.stringContaining("evicted LRU session"));
+
+    // The newest port is the one that survived; the oldest was evicted.
+    const sessionKeys = pipeline.getMetrics().sessions.map((s) => s.address);
+    expect(sessionKeys).toContain(`${sameIP}:5005`);
+    expect(sessionKeys).not.toContain(`${sameIP}:5000`);
   });
 });
 
