@@ -39,13 +39,6 @@ healthy; all are fixed, with regression coverage.
 
 ### Fixed — packaging
 
-- `signalk.appIcon` set to `./icons/icon-72x72.png`, and the 4.0.3 entry's
-  reasoning corrected. `appIcon` resolves against the served webroot, which is
-  the package's `public/` directory — so `./icons/icon-72x72.png` finds
-  `public/icons/icon-72x72.png`, while the `./public/icons/...` form 4.0.3
-  introduced resolves to `public/public/icons/...` and 404s. 4.0.4 then set a
-  malformed `.icons/...` (no slash), which is wrong under any reading. The
-  value shipping here is the one that works; 4.0.5 already had it right.
 - `npm audit` now also covers devDependencies that webpack bundles into the
   published `public/` directory — `@rjsf/validator-ajv8` pulls `ajv` and
   `fast-uri` into the shipped browser bundle, where `--omit=dev` could not see
