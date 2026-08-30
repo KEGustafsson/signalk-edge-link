@@ -10,16 +10,17 @@
   --border-color: #dee2e6;
   --text-color: #212529;
   --background-color: #ffffff;
-  --card-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --card-shadow: 0 2px 4px rgba(0,0,0,0.1);
   --metric-bg: #f0f4f8;
 }
+
 
 * {
   box-sizing: border-box;
 }
 
 body {
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   line-height: 1.6;
   color: var(--text-color);
   background-color: var(--light-color);
@@ -32,7 +33,7 @@ body {
   color: white;
   text-align: center;
   padding: 2rem 1rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .header h1 {
@@ -50,7 +51,7 @@ body {
 /* Connection Tabs */
 .connection-tabs {
   background: var(--dark-color);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
   position: sticky;
   top: 0;
   z-index: 100;
@@ -77,9 +78,7 @@ body {
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
-  transition:
-    background 0.2s,
-    color 0.2s;
+  transition: background 0.2s, color 0.2s;
   border-bottom: 3px solid transparent;
 }
 
@@ -176,6 +175,7 @@ body {
 .page-group-content .config-section:last-child {
   margin-bottom: 0;
 }
+
 
 .mode-banner-card {
   border: 2px solid var(--primary-color);
@@ -372,7 +372,7 @@ body {
 }
 
 .json-editor textarea {
-  font-family: "Courier New", monospace;
+  font-family: 'Courier New', monospace;
   background-color: #f8f9fa;
   border: 2px solid var(--border-color);
 }
@@ -420,7 +420,7 @@ body {
   transition: transform 0.3s ease;
   z-index: 1000;
   min-width: 300px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
 }
 
 .notification.show {
@@ -445,7 +445,7 @@ body {
   .header h1 {
     font-size: 2rem;
   }
-
+  
   .container {
     padding: 1rem;
   }
@@ -461,21 +461,21 @@ body {
   .mode-banner-grid {
     grid-template-columns: 1fr;
   }
-
+  
   .card-content {
     padding: 1rem;
   }
-
+  
   .btn {
     width: 100%;
     margin-right: 0;
   }
-
+  
   .path-item {
     flex-direction: column;
     align-items: stretch;
   }
-
+  
   .path-item input {
     margin: 0 0 0.5rem 0;
   }
@@ -531,14 +531,8 @@ body {
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Server Mode Styles */
@@ -755,7 +749,7 @@ body {
 }
 
 .error-message {
-  font-family: "Courier New", monospace;
+  font-family: 'Courier New', monospace;
   font-size: 0.9rem;
   margin-bottom: 0.5rem;
   word-break: break-word;
@@ -806,14 +800,12 @@ body {
   border-radius: 12px;
   text-align: center;
   border: 2px solid var(--border-color);
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .hero-stat:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
 .hero-stat.primary {
@@ -1004,7 +996,7 @@ body {
 }
 
 .path-name {
-  font-family: "Courier New", monospace;
+  font-family: 'Courier New', monospace;
   color: var(--primary-color);
   max-width: 300px;
   overflow: hidden;
@@ -1231,7 +1223,7 @@ body {
 
 .recent-error-msg {
   flex: 1;
-  font-family: "Courier New", monospace;
+  font-family: 'Courier New', monospace;
   word-break: break-word;
   color: var(--text-color);
 }
