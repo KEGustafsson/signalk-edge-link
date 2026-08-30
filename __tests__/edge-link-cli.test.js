@@ -341,6 +341,8 @@ describe("edge-link-cli", () => {
 
     try {
       http.request = (url, options, callback) => {
+        // The plugin path prefix from --baseUrl must survive endpoint resolution.
+        expect(url.toString()).toBe("http://localhost:3000/plugins/signalk-edge-link/status");
         expect(options.headers["x-edge-link-token"]).toBe("secret-token");
         expect(options.headers.authorization).toBe("Bearer secret-token");
 
@@ -415,7 +417,7 @@ describe("edge-link-cli", () => {
 
       await expect(pending).rejects.toThrow(/timed out after 30000ms/);
       expect(destroyedWith).toBeInstanceOf(Error);
-      expect(destroyedWith.message).toContain("localhost:3000/status");
+      expect(destroyedWith.message).toContain("localhost:3000/plugins/signalk-edge-link/status");
     } finally {
       http.request = originalRequest;
     }
