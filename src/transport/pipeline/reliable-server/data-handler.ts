@@ -225,8 +225,20 @@ async function rejectReplayedDataPacket(
   if (fresh || guard.epoch === 0) {
     return false;
   }
-  ctx.app.debug(`v2 replay/too-old DATA rejected: seq=${parsed.sequence >>> 0}`);
-  ctx.metrics.replayedPackets = (ctx.metrics.replayedPackets ?? 0) + 1;
+  // Classify before counting: this gate runs ahead of processSequence, so an
+  // ordinary in-window duplicate (a retransmit crossing an ACK, still in the
+  // live session's seen-set) is a duplicate, not a suspected replay. Only a
+  // sequence the session has no record of counts against replayedPackets.
+  const knownDuplicate =
+    session !== null && session.sequenceTracker.receivedSeqs.has(parsed.sequence >>> 0);
+  ctx.app.debug(
+    `v2 ${knownDuplicate ? "duplicate" : "replay/too-old"} DATA rejected: seq=${parsed.sequence >>> 0}`
+  );
+  if (knownDuplicate) {
+    ctx.metrics.duplicatePackets = (ctx.metrics.duplicatePackets ?? 0) + 1;
+  } else {
+    ctx.metrics.replayedPackets = (ctx.metrics.replayedPackets ?? 0) + 1;
+  }
   if (session && session.sequenceTracker.expectedSeq !== null) {
     await ackDuplicate(ctx, session, rinfo);
   }

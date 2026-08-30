@@ -135,7 +135,12 @@ describe("H3 anti-replay", () => {
     await receivePacket(ctx, pkt, SECRET, client);
     await receivePacket(ctx, pkt, SECRET, client); // immediate replay
     expect(app.handleMessage).toHaveBeenCalledTimes(1);
-    expect(ctx.metrics.replayedPackets).toBe(1);
+    // While the live session still remembers the sequence, an identical
+    // datagram is indistinguishable from a retransmit crossing an ACK, so it
+    // counts as a duplicate; replayedPackets is reserved for sequences the
+    // session has no record of (see the post-expiry tests).
+    expect(ctx.metrics.duplicatePackets).toBe(1);
+    expect(ctx.metrics.replayedPackets ?? 0).toBe(0);
   });
 
   test("rejects a replay from a rotated source port while the session is live", async () => {

@@ -74,12 +74,11 @@ _Runtime defects are tracked as issues and fixed in the commit that finds them; 
 - Cause: Alert updates are persisted immediately for durability.
 - Improvement path: Debounce or coalesce alert persistence per connection, then add tests for persistence ordering and failure responses.
 
-**Linear scans on the retransmit-queue hot paths:**
+**Linear scans on the retransmit-queue hot paths (eviction fixed; oldest-N sort remains):**
 
-- Problem: `_evictOldest()` and `getOldestSequences()` in `src/transport/reliability/retransmit-queue.ts` scan or sort the whole queue by `originalTimestamp`. `_evictOldest()` runs on every `add()` once the queue reaches `maxSize` (5000), i.e. on every outbound DATA packet during sustained loss.
-- Cause: ordering by true send time rather than Map insertion order is required for correctness — concurrent sends and UDP retries reorder insertion relative to send time — and the correct ordering has no O(1) shortcut.
-- Evidence: the scans are bounded by `maxSize`, so this is a constant-factor cost in an already-degraded regime, not unbounded growth.
-- Improvement path: maintain an auxiliary min-heap or sorted index keyed on `originalTimestamp` to make eviction O(log n) and oldest-N retrieval allocation-free. Establish a baseline in `test/benchmarks/` first; the index must stay in sync with `add`, `acknowledge`, `acknowledgeRange`, and eviction, so it carries real correctness risk in the retransmit path.
+- Status: `_evictOldest()` now uses a lazy-deletion min-heap over `originalTimestamp` (stale nodes skipped on pop, compacted once they outnumber live entries 2:1), making per-add eviction O(log n) amortized — measured 41.3µs → 0.79µs per add at a full 5000-entry queue. The old full scan remains only as an unreachable-path fallback.
+- Remaining: `getOldestSequences()` still sorts eligible entries per call, but it runs on the 200 ms recovery-burst tick (≤5/s), not per packet; re-benchmark before touching it.
+- Cause (why a heap, not insertion order): ordering by true send time is required for correctness — concurrent sends and UDP retries reorder Map insertion relative to send time.
 
 **Brotli, MessagePack, path dictionary, and reliable transport overhead tradeoffs:**
 

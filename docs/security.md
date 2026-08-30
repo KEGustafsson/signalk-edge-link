@@ -49,7 +49,7 @@ The AES-256-GCM auth tag covers the encrypted payload but **not** the cleartext 
 
 **v3 authenticates DATA/METADATA headers by default** (`authenticatedHeaders`, default `true`). It appends a **16-byte truncated HMAC-SHA256 tag** to every DATA/METADATA packet — the same construction already used for control packets — binding the header to the encrypted payload. A receiver with header authentication enabled rejects any DATA/METADATA packet that lacks the `AUTHENTICATED_HEADER` flag (downgrade protection) or carries an invalid tag. Because the **DATA** sequence number is then authenticated, the server's sequence-based de-duplication becomes a meaningful anti-replay defence for DATA.
 
-> **Scope note:** header authentication is integrity/tamper protection. DATA replay is additionally limited by the anti-replay window below; METADATA uses a separate, unacknowledged envelope sequence de-duplicated on the inner envelope `seq`/`idx`, so a captured authenticated METADATA packet can still be replayed within the dedup window.
+> **Scope note:** header authentication is integrity/tamper protection. Replay is additionally limited by the per-peer anti-replay windows below: DATA and METADATA each have their own sliding window (the two carry independent sequence spaces), both surviving session idle expiry and eviction.
 
 Cost: 16 extra bytes per DATA/METADATA packet plus one HMAC per packet. **Both peers must have the same `authenticatedHeaders` setting** — a mismatch fails authentication and drops every DATA packet. A receiver with the setting _off_ that receives authenticated packets logs an explicit `authenticatedHeaders mismatch` error (rather than a misleading key-mismatch hint). Since 3.0.0 the default is `true`, so two default-configured v3 peers authenticate headers automatically. To interoperate with a peer that cannot enable it, set `authenticatedHeaders: false` on **both** ends — that restores the legacy CRC-only header (byte-for-byte the pre-3.0.0 wire format).
 
@@ -70,6 +70,8 @@ This closes the deterministic idle-expiry and eviction replay vectors with no pe
 - **Post-server-restart race** — the replay window is in-memory, so it does not persist across a _server_ restart; an attacker who beats the legitimate client's reconnect in that brief window could replay once. The client re-establishes a higher epoch on reconnect, so it self-heals.
 
 For pre-H3 peers that do not advertise an epoch, the strict window is not enforced (backward compatibility); those peers retain the previous behavior.
+
+The **METADATA channel is covered by a second per-peer window** over the METADATA header sequence (its own sequence space), enforced under the same rules — epoch-armed peers only, re-baselined only on a strictly higher epoch, fail-closed for unhandshaked ports of handshaked addresses. Without it, the envelope `seq`/`idx` dedup lives in the evictable session, so a captured authentic METADATA datagram replayed after session expiry would re-inject stale meta entries or a stale source snapshot.
 
 ### Epoch-bound packet authentication (`epochBoundAuth`)
 
@@ -127,6 +129,7 @@ hunting for a key problem that does not exist.
 | Data integrity                 | ✓ Strong        | GCM auth tag (16 bytes)                                                                                                          |
 | DATA/METADATA header integrity | Default on (v3) | HMAC-SHA256 by default; CRC16-only with `authenticatedHeaders: false`                                                            |
 | DATA replay protection         | Strong (v3)     | Per-peer sliding window survives idle/eviction; epoch-gated reset; `epochBoundAuth` closes cross-epoch and spoofed-source replay |
+| METADATA replay protection     | Strong (v3)     | Second per-peer window over the META header sequence, same epoch rules; envelope `seq`/`idx` dedup within the live session       |
 | Control packet authentication  | v3 only         | HMAC-SHA256; v1 uses no control layer                                                                                            |
 | Forward secrecy                | ✗ None          | Same pre-shared key for lifetime of connection                                                                                   |
 | Client authentication          | ✗ None          | Any holder of the key can connect                                                                                                |

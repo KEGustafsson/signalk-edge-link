@@ -121,7 +121,15 @@ Payload: JSON string with connection metadata, followed by a 16-byte HMAC-SHA256
 }
 ```
 
-Sent once at connection establishment to identify the client and negotiate protocol version.
+Sent at connection establishment to identify the client and negotiate
+protocol version, retried with exponential backoff until any control packet
+proves the server holds a session for this source port. The client also
+re-sends HELLO on a fixed cadence (every 5 minutes) on a live link: a server
+that restarts faster than the ACK-idle rehandshake threshold under continuous
+traffic re-mints its session from the first DATA packet — with no client
+identity and no epoch — and resumes ACKing immediately, so no silence-based
+trigger ever fires. HELLO is idempotent server-side, so the refresh bounds
+that identity/anti-replay loss to one cadence interval.
 
 ### METADATA Packet (0x06)
 
@@ -143,6 +151,13 @@ application level by:
   `seq == 0` as a sender-lifecycle reset (clear any per-session
   `lastMetaEnvSeq` / chunk-replay state) rather than dropping it as stale,
   so a freshly-restarted sender's first envelope is accepted.
+- Anti-replay: the receiver keeps a per-peer sliding window over the METADATA
+  **header** sequence (a separate window from DATA, since the sequence spaces
+  are independent) that survives session idle expiry and eviction. It is
+  enforced under the same rules as the DATA window — only once the peer's
+  epoch handshake has armed the guard, re-baselined only on a strictly higher
+  epoch — so a captured authentic METADATA datagram cannot be replayed after
+  the live session (and its envelope-dedup state) is gone.
 
 **Payload pipeline** (mirrors DATA):
 
@@ -218,8 +233,13 @@ seconds to protect against malformed or hostile receivers spamming requests.
 
 Control packet. Server → Client. Payload: a 16-byte HMAC-SHA256 tag (see §5).
 
-Sent by the server **once per session** when the operator enabled
-`requestFullStatusOnRestart` and a HELLO from a client arrives. The client
+Sent by the server **at most once per session**, on either trigger:
+when the operator enabled `requestFullStatusOnRestart` and a HELLO (or first
+DATA) from a client arrives, or — independent of that option — when a
+value-dedup sentinel arrives for a path the session has no cached baseline
+for, which is the signature of a receiver that lost its dedup cache (server
+restart, session expiry/eviction) while the sender kept deduping; without the
+replay those paths would stay absent until their values actually changed. The client
 walks the current Signal K tree and replays every leaf as a synthetic
 delta through the normal DATA pipeline — so a server that lost in-flight
 state across a restart can rebuild it without waiting for the next live
