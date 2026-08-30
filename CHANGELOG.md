@@ -2,6 +2,201 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [4.2.0] - 2026-08-30
+
+Correctness and availability release from a second full-codebase review. No wire
+format change: 4.2.0 interoperates with 4.1.0 and 4.0.x peers in both directions.
+
+### Fixed — data delivery
+
+- **A dedup sentinel with no baseline left paths silently absent.** The client's
+  value-dedup cache has no TTL, but the server's expansion cache dies with its
+  session. After a server restart or a session idle-expiry/eviction, every
+  stable path kept arriving as a sentinel the new session could not expand, and
+  those values stayed missing from the receiving tree until they next changed —
+  with `requestFullStatusOnRestart` off (the default), indefinitely. The server
+  now sends one `FULL_STATUS_REQUEST` per session when a sentinel arrives
+  without a baseline, regardless of `requestFullStatusOnRestart`.
+- **A fast server restart under continuous traffic left the session
+  unidentified.** A server that came back inside `HELLO_REHANDSHAKE_ACK_IDLE_MS`
+  (30 s) re-minted the session from the first DATA packet — no client identity,
+  epoch 0 — and resumed ACKing immediately, so neither idle re-handshake trigger
+  ever fired: telemetry stayed unattributed and anti-replay stayed disarmed for
+  the life of the connection. The heartbeat now re-sends HELLO (idempotent
+  server-side) once `HELLO_REFRESH_INTERVAL_MS` (5 min) has passed since the
+  last one.
+- **An undelivered value could suppress every later value in its deadband.**
+  The path-throttle deadband recorded values as sent at the same point as the
+  dedup baseline but was reset only on `FULL_STATUS_REQUEST`. It now resets
+  alongside the dedup state on send failure and on retransmit-queue drop.
+- **One malformed entry dropped the rest of its packet.** `transformDelta` and
+  `(un)dedupDelta` dereferenced `update.values` on null or non-object update
+  entries, so a single malformed entry in a decrypted DATA payload threw
+  mid-batch and silently discarded every already-ACKed delta after it. Malformed
+  shapes now pass through to the sanitize stage that rejects them.
+- **A nested `NaN` or `Infinity` collapsed distinct values into one baseline.**
+  `stableRepr` special-cased only a top-level non-finite number; deeper ones
+  serialized to `"null"`, so dedup suppressed a genuine change and the receiver
+  kept the stale cached value. Non-finite numbers are now tagged at any depth.
+- **A resubscribe after a subscription error left the connection paused.** The
+  successful resubscribe cancelled the pending error retry — the only path that
+  reopened `readyToSend` — so the connection stayed paused until a plugin
+  restart. The success path now reopens the send gate when a subscription error
+  closed it.
+
+### Fixed — availability
+
+- **One connection's start failure took down every other connection.** A single
+  failed `start()` cascade-stopped all instances in the plugin, with no retry —
+  a bad server port also killed an unrelated shore uplink, and the
+  socket-recovery machinery only covers errors after Ready. Now only the failed
+  instances are stopped (still registered, so the UI shows them unhealthy and
+  the plugin status reports `N/M active — <name>: <error>`), the healthy ones
+  keep running, and the failed ones are retried with 30 s → 300 s backoff. An
+  `EADDRINUSE` that clears brings the connection up without operator action.
+  Total failure keeps the existing `Startup failed` plugin error.
+- **Teardown is failure-isolated at every level.** One throwing unsubscribe,
+  pipeline stop, or instance `stop()` no longer aborts the remaining teardown
+  phases or the teardown of sibling connections, which leaked sockets, timers
+  and watchers. `teardownPipelines` clears each handle before its `stop()` and
+  contains each `stop()` individually.
+- **Startup edges.** The lazy `require` in `plugin.start` moved inside its own
+  catch (signalk-server never awaits `start()`, so a module-load failure
+  surfaced as an unhandled rejection); a client socket error during Starting is
+  recorded and rethrown by `start()` instead of yielding a Ready connection on a
+  dead socket; `bindAndAwaitListening` settles when `stop()` closes the socket
+  mid-bind; the config watcher retries a failed initial creation with the same
+  backoff as every later recreate, and re-reads once after a recreate so a save
+  landing in the watcherless window is not silently dropped.
+- **Timers are owned by `stop()`.** `startHeartbeat` is idempotent and
+  `pipeline.stop()` clears the interval even when the caller discarded the
+  returned handle; pending start-retry timers are cancelled by `stop()` and by a
+  replacement `start()`; an in-flight heartbeat tick that lost ownership no
+  longer runs the HELLO refresh and cannot re-arm the retry chain.
+- **`/sources` could grow without bound.** `mergeSourceSnapshot` enforced its
+  provider cap per merge call only, so rotating provider names accumulated in
+  the live tree. The cap now also holds against the target, while merges into
+  existing providers stay allowed.
+- **A failed default-config write is reported.** `initializePersistentStorage`
+  checks `saveConfigFile`'s return value instead of proceeding without the file.
+
+### Fixed — security
+
+- The anti-replay guard now covers the METADATA channel. The H3 guard covered
+  DATA only, and METADATA/source-snapshot dedup lives in the evictable,
+  idle-expiring session — so a captured authentic METADATA datagram replayed
+  after session expiry re-injected stale metadata or a stale source snapshot,
+  and a replayed seq-0 chunk also reset restart detection. A second
+  `ReplayWindow` over the META header sequence is enforced under the same rules
+  as DATA: epoch-armed peers only, reset on a legitimate epoch increase,
+  fail-closed for unhandshaked ports of handshaked addresses. No wire change.
+- METADATA entries get the structural bounds the sibling source-snapshot channel
+  already enforced (`meta-bounds.ts`): context and path length caps, depth,
+  width and string limits, and prototype-pollution key rejection, applied before
+  entries reach `app.handleMessage`.
+- Management 500 responses no longer carry server detail. `POST /plugin-config`,
+  `POST/PUT/DELETE /instances`, and every handler wrapped by `wrap()` return a
+  fixed generic message with the detail logged server-side; the module-load
+  failure status no longer includes loader filesystem paths.
+- The rate-limit map is bounded. `checkRateLimit` evicts expired and oldest
+  entries past `RATE_LIMIT_MAX_KEYS` (10 000): the cleanup interval runs only
+  between `start()` and `stop()`, but the routes keep serving while the plugin
+  is stopped, so every distinct client key seen in that state stayed in the map
+  forever.
+- A genuine string value cannot impersonate a value-dedup control tag. Real
+  NUL-prefixed strings are escaped into a disjoint namespace, so no string can
+  collide with the non-finite tags and suppress a real update.
+
+### Fixed — management API and CLI
+
+- `edge-link-cli` reached the wrong URL for every command.
+  `new URL(endpoint, baseUrl)` resolves an absolute-path endpoint against the
+  origin only, so requests went to `http://host/instances` instead of
+  `http://host/plugins/signalk-edge-link/instances`, and no `--baseUrl` value
+  could work around it.
+- `POST/PUT/DELETE /instances` are async and await `restartWithConnections`.
+  Returning the promise from a synchronous handler let a rejection escape both
+  the handler's `try/catch` and Express, hanging the request and surfacing as an
+  unhandled rejection.
+- `GET /connections/:id/monitoring/retransmissions` clamps `limit` to a positive,
+  capped value, matching its singleton twin.
+- `/paths`, `/plugin-schema` and `GET /connections/:id/metrics` gain error
+  containment: a sync throw or rejected promise becomes a 500 JSON response
+  instead of an unhandled rejection or a hung request.
+
+### Changed — metrics
+
+- An in-window duplicate rejected by the replay guard now counts against
+  `duplicatePackets`, not `replayedPackets`. A retransmit crossing an ACK is
+  still in the live session's seen-set and is an ordinary duplicate;
+  `replayedPackets` is left to sequences the session has no record of, which
+  keeps it usable as replay evidence.
+- The source-snapshot debug drop count reports `N+` when the provider inspection
+  cap cut the scan short, instead of scanning every remaining key to make the
+  total exact — the scan the cap exists to avoid.
+
+### Changed — performance
+
+- Retransmit-queue eviction is O(log n) amortised. `_evictOldest` ran a full
+  5 000-entry scan on every `add()` once the queue hit `maxSize` — i.e. per
+  outbound DATA packet during sustained loss, exactly when the link is already
+  saturated. A lazy-deletion min-heap over the immutable `originalTimestamp`
+  (stale nodes skipped on pop, compacted at a 2:1 stale-to-live ratio) brings a
+  full-queue `add` from 41.3 µs to 0.79 µs in a like-for-like benchmark, with
+  the old scan kept as an unreachable-path fallback.
+- `mergeSourceSnapshot` caps providers _inspected_, not just accepted, so a wide
+  snapshot against a full target no longer deep-validates every entry.
+- Server metrics publishing no longer allocates a throwaway `SequenceTracker`
+  per tick.
+
+### Changed — internal
+
+- `sanitize`, `filter`, `quantize`, `throttle` and `dedup` each re-implemented
+  the `Delta | Delta[] | Record<string, Delta>` dispatch with diverging
+  reference-preservation and null semantics (~120 lines). One `mapDeltaPayload`
+  now carries it for all five, making drop-vs-unchanged behaviour uniform.
+- The per-connection monitoring and failover route bodies were byte-for-byte
+  copies of their singleton twins except for bundle resolution, and the drift
+  had already produced a real bug (the lost retransmissions clamp). The four
+  view bodies live once in `routes/monitoring-views.ts`.
+- Six hand-rolled RFC-1982 half-space comparisons (sequence tracker, replay
+  window, retransmit queue, client reliability, server data handler, value
+  dedup) share `foundation/serial.ts`.
+- The per-session pre-auth UDP rate limiter that the data handler and the
+  METADATA dispatch each implemented lives once in `sessions.ts`; the manager's
+  weaker `findDuplicateServerPorts` is replaced by the normalization-aware
+  `validateUniqueServerPorts` the routes already use.
+- Dead code removed: `MetaCache.diff` (the send pipeline uses
+  `computeDiff` + `commit`), `teardownPipelines`' unreachable fallbacks for
+  `stop()`-less pipelines, the `isShuttingDown` check after
+  `validateStartPreconditions`, the unread `state.pingTimeout`, the no-op
+  `warnIfOpenAccess`, and the unused `NetworkQualityResponse` and duplicated
+  `ManagementAuthSnapshot`.
+
+### Documentation
+
+- `{"$": "dup"}` is documented as a reserved value shape in the v3 dedup
+  encoding. A receiver cannot distinguish a genuine value of exactly that shape
+  from the marker, and an escaping representation would change what existing
+  receivers decode — a wire change the compatibility policy forbids. The sender
+  transmits such a value verbatim and does not cache it, keeping both caches in
+  agreement.
+- The periodic HELLO refresh, the dedup-triggered `FULL_STATUS_REQUEST` and the
+  METADATA anti-replay window are described in `docs/protocol-v3-spec.md`, and
+  the METADATA window also in `docs/security.md`.
+- Start-failure isolation and the start-retry backoff are documented in
+  `docs/GUIDE.md` §11, `docs/troubleshooting.md` and `docs/web-ui.md`.
+- `docs/metrics.md` and `docs/GUIDE.md` §13.2 state which rejections land in
+  `duplicatePackets` and which in `replayedPackets`.
+
+### Dependencies
+
+- `@typescript-eslint/parser` and `@typescript-eslint/eslint-plugin` both moved
+  to `^8.66.0`. The parser alone was bumped first, which broke `npm install`
+  with an `ERESOLVE` conflict against the plugin's `^7.0.0` peer requirement.
+- Dev dependencies: `webpack` 5.109.2, `@testing-library/jest-dom` 7.0.0,
+  `ts-jest` 29.4.12, `html-webpack-plugin` 5.6.8.
+
 ## [4.1.0] - 2026-08-09
 
 Correctness release from a full-codebase review. Three independent defects

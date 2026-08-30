@@ -1013,6 +1013,19 @@ A single plugin instance runs multiple connections concurrently. Each runs indep
 
 Each connection has its own encryption key, UDP port, retransmit queue, congestion state, metrics, alert thresholds, and runtime config files under `<dataDir>/signalk-edge-link/<connectionName>/`.
 
+### Partial startup failure
+
+A connection whose `start()` fails — an `EADDRINUSE` on its `udpPort`, an
+interface that is not up yet — does not stop the others. Only the failed
+connection is stopped, and it stays registered so the web UI still shows it as
+unhealthy; the plugin status becomes `N/M active — <name>: <error>` and the
+remaining connections keep running.
+
+Failed connections are retried on their own, with exponential backoff starting
+at 30 s and capping at 300 s, so a port conflict that clears brings the
+connection up without operator action. If every connection fails, the plugin
+reports the error state `Startup failed: <first error>`.
+
 ---
 
 ## 12. Encryption and Key Management
@@ -1157,9 +1170,11 @@ Under `stats`:
 - `retransmissions / dataPacketsReceived` < 1% is healthy — the ratio is only
   meaningful while `dataPacketsReceived` is greater than zero; with a zero
   denominator report it as N/A rather than 0%
-- `replayedPackets > 0` means the anti-replay guard rejected a datagram: a replay
-  attempt or a peer bug, never routine. This counter is the only external
-  evidence that either occurred
+- `replayedPackets > 0` means the anti-replay guard rejected a datagram the live
+  session has no record of: a replay attempt or a peer bug, never routine. This
+  counter is the only external evidence that either occurred. A retransmit that
+  crosses an ACK is rejected by the same window but counts against
+  `duplicatePackets`, because its sequence is still in the session's seen-set
 - `epochAuthMismatches > 0` means this receiver requires `epochBoundAuth` and the
   sender is not using it, so every DATA packet is refused. It is a configuration
   mismatch, not an attack — set the same value on both peers
@@ -1352,7 +1367,7 @@ Build a Grafana dashboard from the Prometheus metrics exposed at `/prometheus` (
 
 **Base path:** `/plugins/signalk-edge-link`  
 **Rate limit:** 120 requests/minute/IP → HTTP 429  
-**API version tracked (current: 4.1.0)** — see CHANGELOG.md for endpoint changes between releases
+**API version tracked (current: 4.2.0)** — see CHANGELOG.md for endpoint changes between releases
 
 ### 14.1 Core data endpoints
 
@@ -2197,6 +2212,10 @@ Also add `sentence_filter.json` excluding `GSV`, `GSA`, `VTG`.
 | `testAddress is only supported on v1 clients` | v1-only fields in v3 config        | Remove `testAddress`, `testPort`, `pingIntervalTime` |
 | `Invalid magic bytes`                         | v1 client sending to v3 server     | Set same `protocolVersion` on both ends              |
 | Protocol version mismatch warning             | Mismatched `protocolVersion`       | Set same version on both ends and restart            |
+
+A plugin status of `N/M active — <name>: <error>` means only the named
+connection failed to start; it is retried with 30 s → 300 s backoff while the
+others keep running (see [Partial startup failure](#partial-startup-failure)).
 
 ### No data flowing
 

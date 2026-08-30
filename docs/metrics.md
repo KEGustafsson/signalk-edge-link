@@ -70,9 +70,12 @@ Under `stats`:
 - `retransmissions / dataPacketsReceived` < 1% is healthy — the ratio is only
   meaningful while `dataPacketsReceived` is greater than zero; with a zero
   denominator report it as N/A rather than 0%
-- `replayedPackets > 0` means the anti-replay guard rejected a datagram. That is
-  either a replay attempt or a peer bug; it is never routine, and this counter is
-  the only external evidence either happened
+- `replayedPackets > 0` means the anti-replay guard rejected a datagram the live
+  session has no record of. That is either a replay attempt or a peer bug; it is
+  never routine, and this counter is the only external evidence either happened.
+  A retransmit that crosses an ACK is rejected by the same window but counts
+  against `duplicatePackets`, because its sequence is still in the session's
+  seen-set
 - `epochAuthMismatches > 0` means this receiver requires `epochBoundAuth` and the
   sender is not using it, so every DATA packet is refused. It is a configuration
   mismatch, not an attack — set the same value on both peers
