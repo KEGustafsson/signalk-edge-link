@@ -206,12 +206,14 @@ export function mergeSourceSnapshot(
 
   const target = root.sources as Record<string, unknown>;
   const before = Object.keys(target).length;
-  const { limited, dropped } = filterAcceptableProviders(
+  const { limited, dropped, truncated } = filterAcceptableProviders(
     sources as Record<string, unknown>,
     target
   );
-  if (dropped > 0) {
-    app.debug(`[source-snapshot] rejected ${dropped} provider key(s) (validation/cap)`);
+  if (dropped > 0 || truncated) {
+    app.debug(
+      `[source-snapshot] rejected ${dropped}${truncated ? "+" : ""} provider key(s) (validation/cap)`
+    );
   }
   mergePlain(target, limited);
   return Object.keys(target).length - before;
@@ -229,7 +231,7 @@ export function mergeSourceSnapshot(
 function filterAcceptableProviders(
   sources: Record<string, unknown>,
   target: Record<string, unknown>
-): { limited: Record<string, unknown>; dropped: number } {
+): { limited: Record<string, unknown>; dropped: number; truncated: boolean } {
   const limited: Record<string, unknown> = {};
   // Cap the entries INSPECTED, not the entries accepted: gating on accepted
   // providers alone let a wide snapshot against an already-full target run
@@ -237,15 +239,17 @@ function filterAcceptableProviders(
   // counter.
   let inspected = 0;
   let dropped = 0;
+  let truncated = false;
   let targetSize = Object.keys(target).length;
   for (const key in sources) {
     if (!Object.prototype.hasOwnProperty.call(sources, key)) {
       continue;
     }
     if (inspected >= SOURCE_SNAPSHOT_MAX_PROVIDERS) {
-      // Count every uninspected own key so the reported total stays exact —
-      // a shallow key count, not the per-entry deep validation the cap avoids.
-      dropped += Object.keys(sources).length - inspected;
+      // Don't count the remaining keys — even a shallow Object.keys() scan of
+      // a pathologically wide decoded envelope is work the cap exists to skip.
+      // The flag marks the drop count as a lower bound instead.
+      truncated = true;
       break;
     }
     inspected++;
@@ -264,5 +268,5 @@ function filterAcceptableProviders(
     }
     limited[key] = value;
   }
-  return { limited, dropped };
+  return { limited, dropped, truncated };
 }
