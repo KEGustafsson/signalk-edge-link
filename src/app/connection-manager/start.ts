@@ -13,7 +13,11 @@
 
 import { createConnection, slugify } from "../connection";
 import type { ConnectionApi } from "../connection";
-import { validateConnectionConfig, sanitizeConnectionConfig } from "../../connection-config";
+import {
+  validateConnectionConfig,
+  sanitizeConnectionConfig,
+  validateUniqueServerPorts
+} from "../../connection-config";
 import type { SignalKApp, ConnectionConfig } from "../../foundation/types";
 
 /** Shared state + dependencies for the connection-manager helpers. */
@@ -49,13 +53,6 @@ function generateInstanceId(name: string | undefined, usedIds: Set<string>): str
   return `${base}-${n}`;
 }
 
-function findDuplicateServerPorts(connections: ConnectionConfig[]): number[] {
-  const ports = connections
-    .filter((c) => c.serverType === "server" || (c.serverType as unknown) === true)
-    .map((c) => c.udpPort);
-  return ports.filter((p, i) => ports.indexOf(p) !== i);
-}
-
 /**
  * Parse the options payload into a connection list, applying both the new
  * array format and the flat legacy single-connection form. Returns `null` (and
@@ -84,12 +81,11 @@ function prepareConnectionList(
   ctx: ManagerContext,
   connectionList: ConnectionConfig[]
 ): ConnectionConfig[] | null {
-  const dupes = findDuplicateServerPorts(connectionList);
-  if (dupes.length > 0) {
-    ctx.app.error(
-      `Duplicate server ports detected: ${[...new Set(dupes)].join(", ")}. ` +
-        "Each server instance must use a unique UDP port."
-    );
+  // Same normalization-aware check the routes use, rather than a weaker local
+  // re-implementation that missed string-typed serverType spellings.
+  const portError = validateUniqueServerPorts(connectionList);
+  if (portError) {
+    ctx.app.error(`${portError}. Each server instance must use a unique UDP port.`);
     ctx.setError("Configuration error: duplicate server ports");
     return null;
   }

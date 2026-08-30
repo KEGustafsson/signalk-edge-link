@@ -20,7 +20,12 @@ import { createValueDedupState, undedupDelta } from "../../../codec/value-dedup"
 import { isCompactDeltaArray, decodeCompactDeltaArray } from "../../../codec/compact-delta";
 import { handleMessageBySource, normalizeDeltaSourceRefs } from "../../../codec/source-dispatch";
 import { ParsedPacket } from "../../../codec/packet-codec";
-import { getOrCreateSession, sendUDP, sendFullStatusRequest } from "./sessions";
+import {
+  getOrCreateSession,
+  sendUDP,
+  sendFullStatusRequest,
+  udpPacketRateLimited
+} from "./sessions";
 import { ingestRemoteTelemetry } from "./telemetry";
 import type { ServerContext, ClientSession } from "./context";
 import type { Delta } from "../../../foundation/types";
@@ -28,53 +33,14 @@ import type { Delta } from "../../../foundation/types";
 import {
   MAX_DECOMPRESSED_SIZE,
   MAX_PARSE_PAYLOAD_SIZE,
-  MAX_DELTAS_PER_PACKET,
-  UDP_RATE_LIMIT_WINDOW,
-  UDP_RATE_LIMIT_MAX_PACKETS
+  MAX_DELTAS_PER_PACKET
 } from "../../../foundation/constants";
 
-import {
-  preAuthRateLimited,
-  getReplayGuard,
-  handshakedPeerAddress,
-  bindBuilderEpochForPeer
-} from "./context";
+import { getReplayGuard, handshakedPeerAddress, bindBuilderEpochForPeer } from "./context";
 
 import { serialAhead as isAhead } from "../../../foundation/serial";
 
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
-
-/**
- * Rate-limit a DATA packet before the (relatively expensive) decrypt. Returns
- * true when the packet should be dropped. An established session uses its own
- * per-session limiter; a new peer uses the per-IP pre-auth limiter.
- */
-function dataRateLimited(
-  ctx: ServerContext,
-  existingDataSession: ClientSession | null,
-  rinfo?: { address: string; port: number }
-): boolean {
-  const { app, metrics } = ctx;
-  if (existingDataSession) {
-    const now = Date.now();
-    if (now - existingDataSession.rateLimitWindowStart >= UDP_RATE_LIMIT_WINDOW) {
-      existingDataSession.rateLimitCount = 0;
-      existingDataSession.rateLimitWindowStart = now;
-    }
-    existingDataSession.rateLimitCount++;
-    if (existingDataSession.rateLimitCount > UDP_RATE_LIMIT_MAX_PACKETS) {
-      metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
-      app.debug(
-        `[v2-server] rate limited ${existingDataSession.key}: ${existingDataSession.rateLimitCount} packets in window`
-      );
-      return true;
-    }
-  } else if (rinfo && preAuthRateLimited(ctx, rinfo.address)) {
-    metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
-    return true;
-  }
-  return false;
-}
 
 /**
  * Send an immediate ACK in response to a duplicate DATA packet so the client
@@ -486,7 +452,7 @@ export async function handleDataPacket(
   const existingDataSession = rinfo
     ? (clientSessions.get(`${rinfo.address}:${rinfo.port}`) ?? null)
     : null;
-  if (dataRateLimited(ctx, existingDataSession, rinfo)) {
+  if (udpPacketRateLimited(ctx, existingDataSession, rinfo, "DATA")) {
     return;
   }
 

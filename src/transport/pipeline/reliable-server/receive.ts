@@ -12,17 +12,19 @@
 
 import { DecryptError } from "../../../foundation/result";
 import { PacketType, ParsedPacket } from "../../../codec/packet-codec";
-import { getOrCreateSession, sendUDP, sendMetaRequest, sendFullStatusRequest } from "./sessions";
+import {
+  getOrCreateSession,
+  sendUDP,
+  sendMetaRequest,
+  sendFullStatusRequest,
+  udpPacketRateLimited
+} from "./sessions";
 import { handleMetadataPacket } from "./metadata";
 import { handleDataPacket } from "./data-handler";
 import { preAuthRateLimited, verifyHbProbe, applyHelloEpoch, markPeerHandshaked } from "./context";
 import type { ServerContext, ClientSession } from "./context";
 
-import {
-  UDP_RATE_LIMIT_WINDOW,
-  UDP_RATE_LIMIT_MAX_PACKETS,
-  HELLO_PAYLOAD_MAX_BYTES
-} from "../../../foundation/constants";
+import { HELLO_PAYLOAD_MAX_BYTES } from "../../../foundation/constants";
 
 /**
  * Handle a verified bonding heartbeat probe (HBPROBE). Returns true when the
@@ -224,29 +226,13 @@ async function handleMetadataDispatch(
   secretKey: string,
   rinfo?: { address: string; port: number }
 ): Promise<void> {
-  const { metrics, clientSessions } = ctx;
+  const { clientSessions } = ctx;
   // METADATA is decrypted+authenticated inside handleMetadataPacket before any
   // envelope/session state is mutated, so only ever look up an EXISTING session.
   const session = rinfo ? (clientSessions.get(`${rinfo.address}:${rinfo.port}`) ?? null) : null;
   // Apply the same rate limit used for DATA. Per-session limiter when a session
   // exists, otherwise a per-IP pre-auth limiter.
-  if (session) {
-    const now = Date.now();
-    if (now - session.rateLimitWindowStart >= UDP_RATE_LIMIT_WINDOW) {
-      session.rateLimitCount = 0;
-      session.rateLimitWindowStart = now;
-    }
-    session.rateLimitCount++;
-    if (session.rateLimitCount > UDP_RATE_LIMIT_MAX_PACKETS) {
-      metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
-      metrics.bandwidth.metaRateLimitedPackets =
-        (metrics.bandwidth.metaRateLimitedPackets || 0) + 1;
-      ctx.app.debug(`[v2-server] rate limited META from ${session.key}`);
-      return;
-    }
-  } else if (rinfo && preAuthRateLimited(ctx, rinfo.address)) {
-    metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
-    metrics.bandwidth.metaRateLimitedPackets = (metrics.bandwidth.metaRateLimitedPackets || 0) + 1;
+  if (udpPacketRateLimited(ctx, session, rinfo, "META")) {
     return;
   }
   await handleMetadataPacket(ctx, parsed, secretKey, session, rinfo);

@@ -983,12 +983,8 @@ describe("createConnection", () => {
     const state = inst.getState();
     const heartbeatStop = jest.fn();
     const watcherClose = jest.fn();
-    const pipelineStopMetrics = jest.fn();
-    const pipelineStopCongestion = jest.fn();
-    const pipelineStopBonding = jest.fn();
-    const serverStopAck = jest.fn();
-    const serverStopMetrics = jest.fn();
-    const sequenceReset = jest.fn();
+    const pipelineStop = jest.fn();
+    const serverStop = jest.fn();
 
     state.stopped = false;
     state.subscriptionRetryTimer = setTimeout(jest.fn(), 1000);
@@ -1005,16 +1001,10 @@ describe("createConnection", () => {
     state.configContentHashes = { Subscription: "abc" };
     state.configWatcherObjects = [{ close: watcherClose }];
     state.heartbeatHandle = { stop: heartbeatStop };
-    state.pipeline = {
-      stopBonding: pipelineStopBonding,
-      stopMetricsPublishing: pipelineStopMetrics,
-      stopCongestionControl: pipelineStopCongestion
-    };
-    state.pipelineServer = {
-      stopACKTimer: serverStopAck,
-      stopMetricsPublishing: serverStopMetrics,
-      getSequenceTracker: () => ({ reset: sequenceReset })
-    };
+    // Real pipelines always implement full stop(); the legacy partial-teardown
+    // fallbacks for stop()-less pipelines were removed as dead code.
+    state.pipeline = { stop: pipelineStop };
+    state.pipelineServer = { stop: serverStop };
 
     inst.stop();
 
@@ -1027,12 +1017,10 @@ describe("createConnection", () => {
     expect(state.configDebounceTimers).toEqual({});
     expect(heartbeatStop).toHaveBeenCalledTimes(1);
     expect(watcherClose).toHaveBeenCalledTimes(1);
-    expect(pipelineStopMetrics).toHaveBeenCalledTimes(1);
-    expect(pipelineStopCongestion).toHaveBeenCalledTimes(1);
-    expect(pipelineStopBonding).toHaveBeenCalledTimes(1);
-    expect(serverStopAck).toHaveBeenCalledTimes(1);
-    expect(serverStopMetrics).toHaveBeenCalledTimes(1);
-    expect(sequenceReset).toHaveBeenCalledTimes(1);
+    expect(pipelineStop).toHaveBeenCalledTimes(1);
+    expect(serverStop).toHaveBeenCalledTimes(1);
+    expect(state.pipeline).toBeNull();
+    expect(state.pipelineServer).toBeNull();
     expect(jest.getTimerCount()).toBe(0);
     jest.useRealTimers();
   });

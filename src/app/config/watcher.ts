@@ -267,8 +267,15 @@ export async function initializePersistentStorage({
   for (const { file, data, name } of defaults) {
     const existing = await loadConfigFileSafe(file, app);
     if (existing.status === "not_found") {
-      await saveConfigFile(file, data);
-      app.debug(`[${instanceId}] Initialized ${name} with defaults`);
+      // saveConfigFile reports failure by returning false, not by throwing —
+      // e.g. a full or read-only SD card at first start. Say so: the watcher
+      // for a file that was never written fails at creation and only its
+      // recovery loop keeps retrying.
+      if (await saveConfigFile(file, data)) {
+        app.debug(`[${instanceId}] Initialized ${name} with defaults`);
+      } else {
+        app.error(`[${instanceId}] Failed to write default ${name} (disk full or read-only?)`);
+      }
     } else if (existing.status === "ok" && name === "sentence_filter.json") {
       const sentenceConfig =
         existing.data && typeof existing.data === "object" && !Array.isArray(existing.data)

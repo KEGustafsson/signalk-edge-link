@@ -10,9 +10,14 @@
 
 import { SequenceTracker } from "../../reliability/sequence";
 import type { ServerContext, ClientSession } from "./context";
-import { bindBuilderEpochForPeer } from "./context";
+import { bindBuilderEpochForPeer, preAuthRateLimited } from "./context";
 
-import { MAX_CLIENT_SESSIONS, MAX_NAK_SEQUENCES_PER_PACKET } from "../../../foundation/constants";
+import {
+  MAX_CLIENT_SESSIONS,
+  MAX_NAK_SEQUENCES_PER_PACKET,
+  UDP_RATE_LIMIT_WINDOW,
+  UDP_RATE_LIMIT_MAX_PACKETS
+} from "../../../foundation/constants";
 
 /**
  * Get or create a session object for the given rinfo.
@@ -358,4 +363,49 @@ export async function sendMetaRequest(
   const packet = ctx.packetBuilder.buildMetaRequestPacket({ secretKey });
   await sendUDP(ctx, packet, { address: session.address, port: session.port });
   ctx.app.debug(`[v2-server] META_REQUEST sent to ${session.key}`);
+}
+
+/**
+ * Shared UDP rate limit for authenticated channels (DATA and METADATA).
+ * An established session uses its own per-session window; a new peer falls
+ * back to the per-IP pre-auth limiter. Returns true when the packet must be
+ * dropped (metrics already recorded).
+ */
+export function udpPacketRateLimited(
+  ctx: ServerContext,
+  session: ClientSession | null,
+  rinfo: { address: string; port: number } | undefined,
+  channel: "DATA" | "META"
+): boolean {
+  const { app, metrics } = ctx;
+  const recordLimited = (): true => {
+    metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
+    if (channel === "META") {
+      metrics.bandwidth.metaRateLimitedPackets =
+        (metrics.bandwidth.metaRateLimitedPackets || 0) + 1;
+    }
+    return true;
+  };
+
+  if (session) {
+    const now = Date.now();
+    if (now - session.rateLimitWindowStart >= UDP_RATE_LIMIT_WINDOW) {
+      session.rateLimitCount = 0;
+      session.rateLimitWindowStart = now;
+    }
+    session.rateLimitCount++;
+    if (session.rateLimitCount > UDP_RATE_LIMIT_MAX_PACKETS) {
+      app.debug(
+        channel === "META"
+          ? `[v2-server] rate limited META from ${session.key}`
+          : `[v2-server] rate limited ${session.key}: ${session.rateLimitCount} packets in window`
+      );
+      return recordLimited();
+    }
+    return false;
+  }
+  if (rinfo && preAuthRateLimited(ctx, rinfo.address)) {
+    return recordLimited();
+  }
+  return false;
 }

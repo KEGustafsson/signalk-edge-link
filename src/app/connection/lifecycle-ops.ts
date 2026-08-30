@@ -17,11 +17,11 @@ import { OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS } from "../../foundation/constants"
 import { SOCKET_RECOVERY_BASE_MS, type ConnectionContext } from "./context";
 import { startServer } from "./start-server";
 import { startClient } from "./start-client";
+import { isServer as isServerOptions } from "./build-context";
 
 /** Derive server mode from options (supports legacy boolean and string forms). */
 function isServer(ctx: ConnectionContext): boolean {
-  const { options } = ctx;
-  return (options.serverType as unknown) === true || options.serverType === "server";
+  return isServerOptions(ctx.options);
 }
 
 /**
@@ -65,9 +65,9 @@ export async function start(ctx: ConnectionContext): Promise<void> {
   state.options = options;
   state.isServerMode = isServer(ctx);
 
+  // Throws (after forcing Stopped) on an invalid key or port, so nothing
+  // below runs for a config that cannot start.
   validateStartPreconditions(ctx);
-
-  if (lifecycle.isShuttingDown()) return;
 
   // Clear before re-arming: a repeated start() would otherwise orphan the
   // previous 1s interval with no handle left to clear it.
@@ -174,28 +174,17 @@ function teardownTimers(ctx: ConnectionContext): void {
 /** Tear down the transport pipelines (client + server) and heartbeat. */
 function teardownPipelines(ctx: ConnectionContext): void {
   const { state } = ctx;
-  if (state.pipeline?.stop) {
-    state.pipeline.stop();
-  } else {
-    state.pipeline?.stopBonding?.();
-    state.pipeline?.stopMetricsPublishing?.();
-    state.pipeline?.stopCongestionControl?.();
-  }
+  // Only the v2/v3 pipelines are ever stored on state (v1 lives behind
+  // getV1Pipeline and holds no timers), and both implement full stop(); the
+  // old partial-teardown fallbacks for stop()-less pipelines were dead — and
+  // subtly wrong, missing stopHelloRetry.
+  state.pipeline?.stop?.();
   state.pipeline = null;
   if (state.heartbeatHandle) {
     state.heartbeatHandle.stop();
     state.heartbeatHandle = null;
   }
-
-  // Prefer the full teardown (resets every per-session tracker, clears the
-  // session map). Fall back to the legacy calls for pipelines without stop().
-  if (state.pipelineServer?.stop) {
-    state.pipelineServer.stop();
-  } else {
-    state.pipelineServer?.stopACKTimer?.();
-    state.pipelineServer?.stopMetricsPublishing?.();
-    state.pipelineServer?.getSequenceTracker?.()?.reset();
-  }
+  state.pipelineServer?.stop?.();
   state.pipelineServer = null;
 }
 
@@ -243,7 +232,6 @@ export function stop(ctx: ConnectionContext): void {
     );
   }
 
-  const wasShuttingDown = lifecycle.isShuttingDown();
   lifecycle.forceStop();
   state.stopped = true;
   state.readyToSend = false;
@@ -259,5 +247,4 @@ export function stop(ctx: ConnectionContext): void {
   runTeardownPhase(ctx, "monitoring/socket", () => teardownMonitoringAndSocket(ctx));
 
   ctx.setStatus("Stopped", false);
-  void wasShuttingDown; // satisfies linter if unused
 }
