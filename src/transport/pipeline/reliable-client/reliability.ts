@@ -14,11 +14,10 @@ import type * as dgram from "dgram";
 import type { ClientContext } from "./context";
 import { udpSendAsync } from "./lifecycle";
 
+import { serialAhead } from "../../../foundation/serial";
+
 /** Returns true when seq is strictly ahead of reference in uint32 sequence space. */
-export function isSeqAhead(seq: number, reference: number): boolean {
-  const distance = (seq - reference) >>> 0;
-  return distance !== 0 && distance < 0x80000000;
-}
+export const isSeqAhead = serialAhead;
 
 /** Calculate recent packet loss ratio using the sliding loss window. */
 export function calculatePacketLoss(ctx: ClientContext): number {

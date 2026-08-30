@@ -46,6 +46,7 @@
 import type { Delta, DeltaValue } from "../foundation/types";
 import type { DeltaPayload } from "./delta-sanitizer";
 import { VALUE_DEDUP_CACHE_MAX } from "../foundation/constants";
+import { serialAtOrAfter } from "../foundation/serial";
 
 /**
  * Sentinel object that replaces unchanged values on the wire.
@@ -110,18 +111,6 @@ function cacheSet(cache: Map<string, DedupEntry>, key: string, entry: DedupEntry
     if (!oldest.done) cache.delete(oldest.value);
   }
   cache.set(key, entry);
-}
-
-/**
- * True when `candidate` is at or ahead of `reference` in uint32 serial space.
- *
- * Sequence numbers wrap, so a plain `>=` reports a freshly-wrapped sequence as
- * ancient and would discard every value after a wrap. Comparing the forward
- * distance against the half-space handles the wrap the same way the ACK and
- * retransmit paths do.
- */
-function serialAtOrAfter(candidate: number, reference: number): boolean {
-  return ((candidate >>> 0) - (reference >>> 0)) >>> 0 < 0x80000000;
 }
 
 function isSentinel(value: unknown): boolean {

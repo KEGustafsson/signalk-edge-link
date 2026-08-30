@@ -40,12 +40,9 @@ import {
   bindBuilderEpochForPeer
 } from "./context";
 
-const brotliDecompressAsync = promisify(zlib.brotliDecompress);
+import { serialAhead as isAhead } from "../../../foundation/serial";
 
-function isAhead(seq: number, reference: number): boolean {
-  const distance = (seq - reference) >>> 0;
-  return distance !== 0 && distance < 0x80000000;
-}
+const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
 /**
  * Rate-limit a DATA packet before the (relatively expensive) decrypt. Returns

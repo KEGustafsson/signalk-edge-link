@@ -334,6 +334,51 @@ describe("RetransmitQueue", () => {
       expect(queue.get(0)).toBeUndefined();
       expect(queue.get(1)).toBeDefined();
     });
+
+    test("eviction stays correct after ACKs leave stale heap nodes behind", () => {
+      // The age heap deletes lazily: ACKed entries leave nodes behind that
+      // eviction must skip rather than double-drop or evict the wrong entry.
+      const dropped = [];
+      const queue = new RetransmitQueue({
+        maxSize: 4,
+        onPacketDropped: (seq, reason) => dropped.push([seq, reason])
+      });
+
+      for (let i = 0; i < 4; i++) {
+        queue.add(i, Buffer.from(`p${i}`));
+      }
+      // ACK the two oldest — their heap nodes go stale.
+      queue.acknowledge(1);
+      expect(queue.getSize()).toBe(2);
+
+      queue.add(4, Buffer.from("p4"));
+      queue.add(5, Buffer.from("p5"));
+      expect(queue.getSize()).toBe(4);
+      expect(dropped).toEqual([]); // room came from the ACKs, not eviction
+
+      // Next add is over capacity: the stale nodes for 0 and 1 must be
+      // skipped and the true oldest live entry (2) evicted.
+      queue.add(6, Buffer.from("p6"));
+      expect(queue.getSize()).toBe(4);
+      expect(queue.get(2)).toBeUndefined();
+      expect(dropped).toEqual([[2, "evicted"]]);
+    });
+
+    test("sustained churn far past capacity keeps size, order, and memory bounded", () => {
+      const queue = new RetransmitQueue({ maxSize: 50 });
+      for (let i = 0; i < 5000; i++) {
+        queue.add(i, Buffer.from([i & 0xff]));
+        if (i % 7 === 0 && i > 100) {
+          queue.acknowledge(i - 20);
+        }
+      }
+      expect(queue.getSize()).toBeLessThanOrEqual(50);
+      // Only the newest entries survive.
+      expect(queue.get(4999)).toBeDefined();
+      expect(queue.get(4000)).toBeUndefined();
+      // Compaction bounds the heap despite every ACK leaving stale nodes.
+      expect(queue.ageHeap.length).toBeLessThanOrEqual(50 * 2 + 64);
+    });
   });
 
   describe("Expiration", () => {

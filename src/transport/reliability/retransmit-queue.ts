@@ -9,6 +9,25 @@
  * @module transport/reliability/retransmit-queue
  */
 
+import { serialAtOrAfter } from "../../foundation/serial";
+
+/**
+ * Min-heap node ordering queue entries by true send age.
+ *
+ * `at` mirrors the entry's immutable `originalTimestamp`; `order` is a
+ * monotonic add counter that breaks same-millisecond ties in add order and
+ * lets a stale node (whose entry was re-added) be told apart from a live one.
+ */
+interface AgeHeapNode {
+  at: number;
+  order: number;
+  seq: number;
+}
+
+function heapNodeBefore(a: AgeHeapNode, b: AgeHeapNode): boolean {
+  return a.at < b.at || (a.at === b.at && a.order < b.order);
+}
+
 interface QueueEntry {
   packet: Buffer;
   timestamp: number;
@@ -26,6 +45,8 @@ interface QueueEntry {
    */
   sentAtHr: number;
   attempts: number;
+  /** Add counter matching this entry's live node in the age heap. */
+  heapOrder: number;
 }
 
 interface RetransmitQueueConfig {
@@ -66,6 +87,15 @@ export class RetransmitQueue {
   /** Most recent abandoned sequence, for operator diagnostics. */
   lastAbandonedSeq: number | null;
   private onPacketDropped?: (sequence: number, reason: DropReason) => void;
+  /**
+   * Lazy-deletion min-heap over `originalTimestamp`, so `_evictOldest` — which
+   * runs on every `add()` once the queue is full, i.e. per outbound packet
+   * during sustained loss — is O(log n) amortized instead of a full-queue
+   * scan. Removals (ACK, abandon, expiry) leave stale nodes behind; they are
+   * skipped when popped and bounded by `_compactHeapIfNeeded`.
+   */
+  private ageHeap: AgeHeapNode[];
+  private addCounter: number;
 
   constructor(config: RetransmitQueueConfig = {}) {
     this.maxSize = config.maxSize ?? 5000;
@@ -74,6 +104,8 @@ export class RetransmitQueue {
     this.abandonedCount = 0;
     this.lastAbandonedSeq = null;
     this.onPacketDropped = config.onPacketDropped;
+    this.ageHeap = [];
+    this.addCounter = 0;
   }
 
   /**
@@ -104,13 +136,18 @@ export class RetransmitQueue {
     }
 
     const now = Date.now();
+    const order = ++this.addCounter;
     this.queue.set(sequence, {
       packet: packet,
       timestamp: now,
       originalTimestamp: now,
       sentAtHr: performance.now(),
-      attempts: 0
+      attempts: 0,
+      heapOrder: order
     });
+    // Store the raw sequence — it must match the Map key for the stale check.
+    this._heapPush({ at: now, order, seq: sequence });
+    this._compactHeapIfNeeded();
   }
 
   /**
@@ -144,13 +181,12 @@ export class RetransmitQueue {
     if (oldestOutstanding === null) {
       return 0;
     }
-    const distanceStartToEnd = (cumulativeSeq - oldestOutstanding) >>> 0;
-
     // If ACK is "behind" the oldest outstanding packet in serial space,
     // treat it as stale and avoid deleting the queue.
-    if (distanceStartToEnd >= 0x80000000) {
+    if (!serialAtOrAfter(cumulativeSeq, oldestOutstanding)) {
       return 0;
     }
+    const distanceStartToEnd = (cumulativeSeq - oldestOutstanding) >>> 0;
 
     // Collect keys to delete first, then delete — avoids modifying the Map
     // during iteration, which can cause entries to be silently skipped in V8.
@@ -181,7 +217,7 @@ export class RetransmitQueue {
       }
       // candidate is behind `oldest` when the forward distance from candidate
       // to oldest is in the near half of the sequence space.
-      if ((oldest - candidate) >>> 0 < 0x80000000) {
+      if (serialAtOrAfter(oldest, candidate)) {
         oldest = candidate;
       }
     }
@@ -209,12 +245,12 @@ export class RetransmitQueue {
       return 0;
     }
 
-    const distanceStartToEnd = (cumulativeSeq - prevSeq) >>> 0;
     // If cumulative ACK is behind the previous ACK in serial space,
     // it's stale/out-of-order and should not remove queued packets.
-    if (distanceStartToEnd >= 0x80000000) {
+    if (!serialAtOrAfter(cumulativeSeq, prevSeq)) {
       return 0;
     }
+    const distanceStartToEnd = (cumulativeSeq - prevSeq) >>> 0;
     // Collect keys to delete first, then delete — avoids modifying the Map
     // during iteration, which can cause entries to be silently skipped in V8.
     // Scan the whole queue: entries are enqueued in send-completion order, which
@@ -339,6 +375,7 @@ export class RetransmitQueue {
    */
   clear(): void {
     this.queue.clear();
+    this.ageHeap.length = 0;
   }
 
   /**
@@ -365,16 +402,31 @@ export class RetransmitQueue {
   }
 
   /**
-   * Evict the oldest entry from the queue
+   * Evict the oldest entry from the queue.
+   *
+   * Evicts by true age rather than Map insertion order: entries are enqueued
+   * in send order, which concurrent sends and UDP retries can reorder. The
+   * age heap makes this O(log n) amortized; stale nodes (entries already
+   * removed by ACK/abandon/expiry) are popped and skipped here.
    * @private
    */
   private _evictOldest(): void {
-    if (this.queue.size === 0) {
+    while (this.ageHeap.length > 0) {
+      const top = this.ageHeap[0];
+      const entry = this.queue.get(top.seq);
+      if (!entry || entry.heapOrder !== top.order) {
+        this._heapPop(); // stale — its entry left the queue by another path
+        continue;
+      }
+      this._heapPop();
+      this.queue.delete(top.seq);
+      this.notifyDropped(top.seq, "evicted");
       return;
     }
 
-    // Evict by true age rather than Map insertion order: entries are enqueued
-    // in send order, which concurrent sends and UDP retries can reorder.
+    // Heap exhausted with entries still queued should be unreachable; fall
+    // back to the scan so a bookkeeping bug degrades to the old cost, not to
+    // an unbounded queue.
     let oldestKey: number | null = null;
     let oldestAt = Infinity;
     for (const [seq, entry] of this.queue.entries()) {
@@ -386,6 +438,69 @@ export class RetransmitQueue {
     if (oldestKey !== null) {
       this.queue.delete(oldestKey);
       this.notifyDropped(oldestKey, "evicted");
+    }
+  }
+
+  // ── Age-heap plumbing ──────────────────────────────────────────────────────
+
+  private _heapPush(node: AgeHeapNode): void {
+    const heap = this.ageHeap;
+    heap.push(node);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (!heapNodeBefore(heap[i], heap[parent])) {
+        break;
+      }
+      [heap[i], heap[parent]] = [heap[parent], heap[i]];
+      i = parent;
+    }
+  }
+
+  private _heapPop(): void {
+    const heap = this.ageHeap;
+    const last = heap.pop();
+    if (last === undefined || heap.length === 0) {
+      return;
+    }
+    heap[0] = last;
+    let i = 0;
+    for (;;) {
+      const left = 2 * i + 1;
+      const right = left + 1;
+      let smallest = i;
+      if (left < heap.length && heapNodeBefore(heap[left], heap[smallest])) {
+        smallest = left;
+      }
+      if (right < heap.length && heapNodeBefore(heap[right], heap[smallest])) {
+        smallest = right;
+      }
+      if (smallest === i) {
+        break;
+      }
+      [heap[i], heap[smallest]] = [heap[smallest], heap[i]];
+      i = smallest;
+    }
+  }
+
+  /**
+   * Rebuild the heap from live entries once stale nodes dominate. ACKed
+   * entries leave their nodes behind; without this bound a long healthy run
+   * would grow the heap with every packet ever sent.
+   * @private
+   */
+  private _compactHeapIfNeeded(): void {
+    if (this.ageHeap.length <= this.queue.size * 2 + 64) {
+      return;
+    }
+    const nodes: AgeHeapNode[] = [];
+    for (const [seq, entry] of this.queue.entries()) {
+      nodes.push({ at: entry.originalTimestamp, order: entry.heapOrder, seq });
+    }
+    // Nodes come out in Map insertion order, not age order — heapify.
+    this.ageHeap = [];
+    for (const node of nodes) {
+      this._heapPush(node);
     }
   }
 }
