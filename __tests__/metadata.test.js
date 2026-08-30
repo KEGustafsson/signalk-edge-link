@@ -12,33 +12,41 @@ const {
 } = require("../lib/metadata");
 
 describe("MetaCache", () => {
-  test("diff returns every entry on first call", () => {
+  // diff() was removed (dead in production): the send pipeline computes the
+  // changed set first and commits only after a successful transmission. The
+  // pair is exercised here the way metadata-streamer uses it.
+  function diffAndCommit(cache, entries) {
+    const changed = cache.computeDiff(entries);
+    cache.commit(entries);
+    return changed;
+  }
+  test("computeDiff+commit returns every entry on first call", () => {
     const cache = new MetaCache();
     const entries = [
       { context: "vessels.self", path: "navigation.speedOverGround", meta: { units: "m/s" } },
       { context: "vessels.self", path: "environment.wind.speedApparent", meta: { units: "m/s" } }
     ];
-    expect(cache.diff(entries)).toHaveLength(2);
+    expect(diffAndCommit(cache, entries)).toHaveLength(2);
     expect(cache.size()).toBe(2);
   });
 
-  test("diff returns empty array on unchanged replay", () => {
+  test("computeDiff+commit returns empty array on unchanged replay", () => {
     const cache = new MetaCache();
     const entries = [
       { context: "vessels.self", path: "navigation.speedOverGround", meta: { units: "m/s" } }
     ];
-    cache.diff(entries);
-    expect(cache.diff(entries)).toEqual([]);
+    diffAndCommit(cache, entries);
+    expect(diffAndCommit(cache, entries)).toEqual([]);
   });
 
-  test("diff returns only changed entries on partial change", () => {
+  test("computeDiff+commit returns only changed entries on partial change", () => {
     const cache = new MetaCache();
     const initial = [
       { context: "vessels.self", path: "a", meta: { units: "m/s" } },
       { context: "vessels.self", path: "b", meta: { units: "rad" } }
     ];
-    cache.diff(initial);
-    const changed = cache.diff([
+    diffAndCommit(cache, initial);
+    const changed = diffAndCommit(cache, [
       { context: "vessels.self", path: "a", meta: { units: "m/s" } },
       { context: "vessels.self", path: "b", meta: { units: "deg" } }
     ]);
@@ -46,10 +54,12 @@ describe("MetaCache", () => {
     expect(changed[0].path).toBe("b");
   });
 
-  test("diff is stable across meta-object key ordering", () => {
+  test("computeDiff+commit is stable across meta-object key ordering", () => {
     const cache = new MetaCache();
-    cache.diff([{ context: "vessels.self", path: "a", meta: { units: "m/s", description: "x" } }]);
-    const replay = cache.diff([
+    diffAndCommit(cache, [
+      { context: "vessels.self", path: "a", meta: { units: "m/s", description: "x" } }
+    ]);
+    const replay = diffAndCommit(cache, [
       { context: "vessels.self", path: "a", meta: { description: "x", units: "m/s" } }
     ]);
     expect(replay).toEqual([]);
@@ -57,14 +67,16 @@ describe("MetaCache", () => {
 
   test("replaceAll resets the cache to exactly the supplied entries", () => {
     const cache = new MetaCache();
-    cache.diff([
+    diffAndCommit(cache, [
       { context: "vessels.self", path: "a", meta: { units: "m/s" } },
       { context: "vessels.self", path: "b", meta: { units: "rad" } }
     ]);
     cache.replaceAll([{ context: "vessels.self", path: "c", meta: { units: "deg" } }]);
     expect(cache.size()).toBe(1);
     // "a" is no longer in the cache, so sending it again should be treated as new.
-    const next = cache.diff([{ context: "vessels.self", path: "a", meta: { units: "m/s" } }]);
+    const next = diffAndCommit(cache, [
+      { context: "vessels.self", path: "a", meta: { units: "m/s" } }
+    ]);
     expect(next).toHaveLength(1);
   });
 });
@@ -81,13 +93,13 @@ describe("MetaCache non-mutating helpers", () => {
     expect(cache.computeDiff(entries)).toHaveLength(1);
   });
 
-  test("commit updates the cache so subsequent diff returns []", () => {
+  test("commit updates the cache so a subsequent computeDiff returns []", () => {
     const cache = new MetaCache();
     const entries = [{ context: "vessels.self", path: "a", meta: { units: "m" } }];
     expect(cache.computeDiff(entries)).toHaveLength(1);
     cache.commit(entries);
     expect(cache.size()).toBe(1);
-    expect(cache.diff(entries)).toEqual([]);
+    expect(cache.computeDiff(entries)).toEqual([]);
   });
 });
 

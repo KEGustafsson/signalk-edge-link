@@ -10,7 +10,7 @@ import type {
   PathFilterConfig
 } from "../../foundation/types";
 import type { DeltaPayload } from "./internal";
-import { isDeltaLike } from "./internal";
+import { mapDeltaPayload } from "./internal";
 
 // ── Path filtering (allowlist / blocklist) ────────────────────────────────────
 
@@ -166,26 +166,5 @@ export function filterDeltaPayload(
   config: PathFilterConfig | undefined | null
 ): DeltaPayload | null {
   if (!config || (!config.allow?.length && !config.deny?.length)) return payload;
-
-  if (Array.isArray(payload)) {
-    const out: Delta[] = [];
-    for (const d of payload) {
-      const f = filterDelta(d, config);
-      if (f !== null) out.push(f);
-    }
-    return out.length > 0 ? out : null;
-  }
-  if (isDeltaLike(payload)) {
-    return filterDelta(payload, config);
-  }
-  const out: Record<string, Delta> = {};
-  let anyKept = false;
-  for (const [k, v] of Object.entries(payload as Record<string, Delta>)) {
-    const f = filterDelta(v, config);
-    if (f !== null) {
-      out[k] = f;
-      anyKept = true;
-    }
-  }
-  return anyKept ? out : null;
+  return mapDeltaPayload(payload, (d) => filterDelta(d, config));
 }

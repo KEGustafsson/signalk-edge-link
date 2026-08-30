@@ -45,6 +45,7 @@
 
 import type { Delta, DeltaValue } from "../foundation/types";
 import type { DeltaPayload } from "./delta-sanitizer";
+import { mapDeltaPayload } from "./delta-sanitizer/internal";
 import { VALUE_DEDUP_CACHE_MAX } from "../foundation/constants";
 import { serialAtOrAfter } from "../foundation/serial";
 
@@ -224,33 +225,12 @@ export function dedupDeltaArray(deltas: Delta[], state: ValueDedupState): Delta[
   return anyChanged ? out : deltas;
 }
 
-function isDeltaLike(value: unknown): value is Delta {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Array.isArray((value as { updates?: unknown }).updates)
-  );
-}
-
 /**
  * Apply {@link dedupDelta} to a Delta, Delta[], or Record<string, Delta>.
  */
 export function dedupDeltaPayload(payload: DeltaPayload, state: ValueDedupState): DeltaPayload {
-  if (Array.isArray(payload)) {
-    return dedupDeltaArray(payload, state);
-  }
-  if (isDeltaLike(payload)) {
-    return dedupDelta(payload, state);
-  }
-  const out: Record<string, Delta> = {};
-  let anyChanged = false;
-  for (const [k, v] of Object.entries(payload)) {
-    const r = dedupDelta(v, state);
-    if (r !== v) anyChanged = true;
-    out[k] = r;
-  }
-  return anyChanged ? out : payload;
+  // dedupDelta never returns null, so the payload survives.
+  return mapDeltaPayload(payload, (d) => dedupDelta(d, state)) as DeltaPayload;
 }
 
 // ── Inbound: expand sentinel back to the cached value ────────────────────────

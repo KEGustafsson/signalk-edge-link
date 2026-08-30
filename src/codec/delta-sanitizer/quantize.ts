@@ -4,7 +4,7 @@
 
 import type { Delta, DeltaUpdate, DeltaValue } from "../../foundation/types";
 import type { DeltaPayload } from "./internal";
-import { isObject, isDeltaLike } from "./internal";
+import { isObject, mapDeltaPayload } from "./internal";
 
 // ── Numeric precision quantization ───────────────────────────────────────────
 
@@ -104,15 +104,6 @@ export function quantizeDeltaPayload(
   precisionMap: Record<string, number> | undefined
 ): DeltaPayload {
   if (!precisionMap || Object.keys(precisionMap).length === 0) return payload;
-  if (Array.isArray(payload)) {
-    return payload.map((d) => quantizeDelta(d, precisionMap));
-  }
-  if (isDeltaLike(payload)) {
-    return quantizeDelta(payload, precisionMap);
-  }
-  const out: Record<string, Delta> = {};
-  for (const [k, v] of Object.entries(payload)) {
-    out[k] = quantizeDelta(v, precisionMap);
-  }
-  return out;
+  // quantizeDelta never returns null, so the payload survives.
+  return mapDeltaPayload(payload, (d) => quantizeDelta(d, precisionMap)) as DeltaPayload;
 }
