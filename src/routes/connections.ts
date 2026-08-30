@@ -407,7 +407,7 @@ function register(router: Router, ctx: RouteContext): void {
       const data = buildFullMetricsResponse(bundle);
       data.instanceId = req.params.id;
       res.json(data);
-    })
+    }, app)
   );
 
   router.get(
@@ -551,7 +551,7 @@ function register(router: Router, ctx: RouteContext): void {
     wrap((req, res) => {
       const state = resolveConnectionState(req, res);
       if (state) sendAlertsState(state, res);
-    })
+    }, app)
   );
 
   router.get(
@@ -561,7 +561,7 @@ function register(router: Router, ctx: RouteContext): void {
     wrap((req, res) => {
       const state = resolveConnectionState(req, res);
       if (state) sendPacketLossView(state, res);
-    })
+    }, app)
   );
 
   router.get(
@@ -571,7 +571,7 @@ function register(router: Router, ctx: RouteContext): void {
     wrap((req, res) => {
       const state = resolveConnectionState(req, res);
       if (state) sendRetransmissionsView(state, req, res);
-    })
+    }, app)
   );
 
   router.post(
@@ -586,7 +586,7 @@ function register(router: Router, ctx: RouteContext): void {
         return res.status(404).json({ error: "Not available in server mode" });
       }
       sendBondingFailover(state, res);
-    })
+    }, app)
   );
 }
 

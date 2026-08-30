@@ -54,9 +54,11 @@ module.exports = function createPlugin(app: SignalKApp) {
     try {
       ({ sanitizeConnectionConfig, VALID_CONNECTION_KEYS } = require("./connection-config"));
     } catch (err: unknown) {
+      // Full detail to the server log only: a loader error message carries
+      // absolute filesystem paths that must not reach the status surface.
       const msg = err instanceof Error ? err.message : String(err);
       app.error(`Plugin module load failed: ${msg}`);
-      setError(`Module load failed: ${msg}`);
+      setError("Module load failed — see server log");
       return;
     }
 

@@ -347,10 +347,10 @@ describe("SignalK Data Connector Plugin", () => {
       // Regression: a single failed bind used to cascade-stop EVERY
       // connection — a bad server port also killed an unrelated shore uplink.
       const { EventEmitter } = require("node:events");
-      const realCreateSocket = dgram.createSocket.bind(dgram);
-      const createSocketSpy = jest.spyOn(dgram, "createSocket").mockImplementation((...args) => {
-        // Server sockets bind(); make the bind fail. Client sockets never
-        // bind, so they get a real socket and start normally.
+      const createSocketSpy = jest.spyOn(dgram, "createSocket").mockImplementation(() => {
+        // Every socket is a fake EventEmitter — enough to isolate startup
+        // behavior: server sockets bind() and fail; client sockets never
+        // bind, so the same fake lets the client start normally.
         const socket = new EventEmitter();
         socket.bind = jest.fn(() => {
           process.nextTick(() => {
@@ -363,8 +363,6 @@ describe("SignalK Data Connector Plugin", () => {
         socket.close = jest.fn();
         socket.address = jest.fn(() => ({ address: "0.0.0.0", port: 4446 }));
         socket.removeAllListeners = EventEmitter.prototype.removeAllListeners;
-        void realCreateSocket;
-        void args;
         return socket;
       });
 
@@ -401,8 +399,57 @@ describe("SignalK Data Connector Plugin", () => {
         expect(mockApp.setPluginStatus).not.toHaveBeenCalledWith(
           expect.stringContaining("Startup failed")
         );
+        // The failed instance stays registered so the aggregated status
+        // surfaces the degraded state.
+        expect(mockApp.setPluginStatus).toHaveBeenCalledWith(expect.stringContaining("1/2 active"));
       } finally {
         createSocketSpy.mockRestore();
+      }
+    });
+
+    test("stopping the plugin cancels a pending start retry", async () => {
+      // Regression: a failed start arms a 30s retry; stop() must cancel it so
+      // the callback and its captured manager context are released instead of
+      // lingering (and re-arming) for up to the max backoff.
+      jest.useFakeTimers({ doNotFake: ["nextTick", "setImmediate", "queueMicrotask"] });
+      const { EventEmitter } = require("node:events");
+      const createSocketSpy = jest.spyOn(dgram, "createSocket").mockImplementation(() => {
+        const socket = new EventEmitter();
+        socket.bind = jest.fn(() => {
+          process.nextTick(() => {
+            const err = new Error("bind EADDRINUSE 0.0.0.0:4446");
+            err.code = "EADDRINUSE";
+            socket.emit("error", err);
+          });
+        });
+        socket.send = jest.fn((msg, port, addr, cb) => cb && cb(null));
+        socket.close = jest.fn();
+        socket.address = jest.fn(() => ({ address: "0.0.0.0", port: 4446 }));
+        socket.removeAllListeners = EventEmitter.prototype.removeAllListeners;
+        return socket;
+      });
+
+      try {
+        await plugin.start({
+          secretKey: "12345678901234567890123456789012",
+          udpPort: 4446,
+          serverType: "server",
+          protocolVersion: 3
+        });
+        expect(mockApp.setPluginStatus).toHaveBeenCalledWith(
+          expect.stringContaining("Startup failed")
+        );
+
+        plugin.stop();
+        expect(jest.getTimerCount()).toBe(0);
+
+        // Nothing fires after the retry delay would have elapsed.
+        mockApp.error.mockClear();
+        jest.advanceTimersByTime(31000);
+        expect(mockApp.error).not.toHaveBeenCalled();
+      } finally {
+        createSocketSpy.mockRestore();
+        jest.useRealTimers();
       }
     });
   });

@@ -215,7 +215,7 @@ function register(router: Router, ctx: RouteContext): void {
       }
 
       res.json({ total: paths.length, categories: categorized });
-    })
+    }, app)
   );
 
   router.get(
@@ -434,7 +434,7 @@ function register(router: Router, ctx: RouteContext): void {
         schema: pluginRef.schema,
         currentMode: bundle ? (bundle.state.isServerMode ? "server" : "client") : "unknown"
       });
-    })
+    }, app)
   );
 
   const clientModeMiddleware: RouteHandler = (req, res, next) => {

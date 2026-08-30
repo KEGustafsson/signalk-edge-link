@@ -74,11 +74,12 @@ _Runtime defects are tracked as issues and fixed in the commit that finds them; 
 - Cause: Alert updates are persisted immediately for durability.
 - Improvement path: Debounce or coalesce alert persistence per connection, then add tests for persistence ordering and failure responses.
 
-**Linear scans on the retransmit-queue hot paths (eviction fixed; oldest-N sort remains):**
+**Ordering cost on the retransmit-queue oldest-N path:**
 
-- Status: `_evictOldest()` now uses a lazy-deletion min-heap over `originalTimestamp` (stale nodes skipped on pop, compacted once they outnumber live entries 2:1), making per-add eviction O(log n) amortized — measured 41.3µs → 0.79µs per add at a full 5000-entry queue. The old full scan remains only as an unreachable-path fallback.
-- Remaining: `getOldestSequences()` still sorts eligible entries per call, but it runs on the 200 ms recovery-burst tick (≤5/s), not per packet; re-benchmark before touching it.
-- Cause (why a heap, not insertion order): ordering by true send time is required for correctness — concurrent sends and UDP retries reorder Map insertion relative to send time.
+- Problem: `getOldestSequences()` in `src/transport/reliability/retransmit-queue.ts` sorts the eligible entries on every recovery-burst tick.
+- Why it cannot be free: ordering by true send time rather than Map insertion order is required for correctness — concurrent sends and UDP retries reorder insertion relative to send time.
+- Evidence: the sort runs at the burst-tick cadence (a few times per second), not per outbound packet, and is bounded by `maxSize`.
+- Improvement path: benchmark before changing anything here; any auxiliary index must stay in sync with add, acknowledge, and eviction, which carries real correctness risk in the retransmit path.
 
 **Brotli, MessagePack, path dictionary, and reliable transport overhead tradeoffs:**
 

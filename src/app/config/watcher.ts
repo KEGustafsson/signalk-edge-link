@@ -91,6 +91,7 @@ function scheduleWatcherRecreate(ctx: WatcherContext): void {
   }, delay);
 }
 
+/** Invoke the change handler with a throw contained to an error log. */
 function onChangeSafe(ctx: WatcherContext): void {
   const { onChange, name, instanceId, app } = ctx.opts;
   try {
@@ -103,7 +104,7 @@ function onChangeSafe(ctx: WatcherContext): void {
 }
 
 function createWatcher(ctx: WatcherContext): boolean {
-  const { filePath, onChange, name, instanceId, app } = ctx.opts;
+  const { filePath, name, instanceId, app } = ctx.opts;
   const { watcherObj } = ctx;
   try {
     if (watcherObj.watcher) {
@@ -116,7 +117,9 @@ function createWatcher(ctx: WatcherContext): boolean {
     watcherObj.watcher = watch(filePath, (eventType) => {
       if (eventType === "change" || eventType === "rename") {
         app.debug(`[${instanceId}] ${name} file changed`);
-        onChange();
+        // Contained: a throw inside an fs.watch listener is otherwise an
+        // uncaught exception, and a rename must still reach the recreate.
+        onChangeSafe(ctx);
         if (eventType === "rename") {
           scheduleWatcherRecreate(ctx);
         }

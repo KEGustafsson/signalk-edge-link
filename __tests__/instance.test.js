@@ -1001,8 +1001,7 @@ describe("createConnection", () => {
     state.configContentHashes = { Subscription: "abc" };
     state.configWatcherObjects = [{ close: watcherClose }];
     state.heartbeatHandle = { stop: heartbeatStop };
-    // Real pipelines always implement full stop(); the legacy partial-teardown
-    // fallbacks for stop()-less pipelines were removed as dead code.
+    // Pipelines implement full stop(); teardown calls it and nulls the handle.
     state.pipeline = { stop: pipelineStop };
     state.pipelineServer = { stop: serverStop };
 
@@ -1023,5 +1022,37 @@ describe("createConnection", () => {
     expect(state.pipelineServer).toBeNull();
     expect(jest.getTimerCount()).toBe(0);
     jest.useRealTimers();
+  });
+
+  test("a throwing client-pipeline stop does not skip heartbeat or server cleanup", () => {
+    // Regression: one throwing stop() used to abort the rest of the pipeline
+    // teardown, leaving the heartbeat sending and the server pipeline armed.
+    const app = makeMockApp();
+    const inst = createConnection(
+      app,
+      makeClientOptions({ protocolVersion: 2 }),
+      "throwing-teardown",
+      "plugin",
+      jest.fn()
+    );
+    const state = inst.getState();
+    const heartbeatStop = jest.fn();
+    const serverStop = jest.fn();
+    state.heartbeatHandle = { stop: heartbeatStop };
+    state.pipeline = {
+      stop: jest.fn(() => {
+        throw new Error("pipeline stop failed");
+      })
+    };
+    state.pipelineServer = { stop: serverStop };
+
+    expect(() => inst.stop()).not.toThrow();
+
+    expect(heartbeatStop).toHaveBeenCalledTimes(1);
+    expect(serverStop).toHaveBeenCalledTimes(1);
+    expect(state.pipeline).toBeNull();
+    expect(state.pipelineServer).toBeNull();
+    expect(state.heartbeatHandle).toBeNull();
+    expect(app.error).toHaveBeenCalledWith(expect.stringContaining("client pipeline teardown"));
   });
 });

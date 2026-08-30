@@ -341,7 +341,8 @@ describe("edge-link-cli", () => {
 
     try {
       http.request = (url, options, callback) => {
-        // The plugin path prefix from --baseUrl must survive endpoint resolution.
+        // Regression: new URL(endpoint, baseUrl) resolved absolute-path
+        // endpoints against the origin, dropping /plugins/signalk-edge-link.
         expect(url.toString()).toBe("http://localhost:3000/plugins/signalk-edge-link/status");
         expect(options.headers["x-edge-link-token"]).toBe("secret-token");
         expect(options.headers.authorization).toBe("Bearer secret-token");

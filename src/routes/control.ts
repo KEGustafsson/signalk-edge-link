@@ -10,6 +10,7 @@ import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } fro
  */
 function register(router: Router, ctx: RouteContext): void {
   const {
+    app,
     rateLimitMiddleware,
     requireJson,
     blockCrossSiteForm,
@@ -226,7 +227,7 @@ function register(router: Router, ctx: RouteContext): void {
         return;
       }
       sendBondingFailover(bundle.state, res);
-    })
+    }, app)
   );
 }
 

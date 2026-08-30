@@ -414,6 +414,7 @@ export function buildConnectionContext(args: BuildContextArgs): ConnectionContex
     reportPendingCount: 0,
     v1Pipeline: null,
     socketRecoveryBackoffMs: SOCKET_RECOVERY_BASE_MS,
+    startingSocketError: null,
     fullStatusCascadeHandler: null
   };
 

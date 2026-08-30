@@ -272,7 +272,7 @@ function register(router: Router, ctx: RouteContext): () => void {
         return res.status(503).json({ error: "Plugin not started" });
       }
       sendPacketLossView(bundle.state, res);
-    })
+    }, app)
   );
 
   router.get(
@@ -309,7 +309,7 @@ function register(router: Router, ctx: RouteContext): () => void {
         return res.status(503).json({ error: "Plugin not started" });
       }
       sendRetransmissionsView(bundle.state, req, res);
-    })
+    }, app)
   );
 
   router.get(
@@ -322,7 +322,7 @@ function register(router: Router, ctx: RouteContext): () => void {
         return res.status(503).json({ error: "Plugin not started" });
       }
       sendAlertsState(bundle.state, res);
-    })
+    }, app)
   );
 
   router.post(

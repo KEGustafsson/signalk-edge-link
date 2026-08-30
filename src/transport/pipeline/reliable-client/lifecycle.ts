@@ -257,7 +257,7 @@ export function startHeartbeat(
   // Idempotent, and owned by `mut` so pipeline.stop() clears it even when the
   // caller discards the returned handle.
   stopHeartbeat(ctx);
-  mut.heartbeatTimer = setInterval(async () => {
+  const timer = setInterval(async () => {
     // A stop() that raced this interval's creation would otherwise leave it
     // sending real UDP traffic with no handle left to clear it.
     if (state.stopped) {
@@ -272,8 +272,14 @@ export function startHeartbeat(
     } catch (err: unknown) {
       app.debug(`v3 heartbeat send failed: ${err instanceof Error ? err.message : String(err)}`);
     }
+    // A stop can land while this tick was awaiting the send; a HELLO refresh
+    // from a disowned tick would re-arm the retry chain after pipeline.stop().
+    if (mut.heartbeatTimer !== timer) {
+      return;
+    }
     maybeRefreshHello(ctx, udpAddress, udpPort);
   }, HEARTBEAT_INTERVAL);
+  mut.heartbeatTimer = timer;
 
   return {
     stop() {

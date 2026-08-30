@@ -38,6 +38,21 @@ export interface ManagerContext {
    * holding no registry entry, unreachable by any later stop().
    */
   startGeneration: number;
+  /**
+   * Pending start-retry timers. Generation checks already make a superseded
+   * retry a no-op, but the timer itself would keep its callback and captured
+   * context alive for up to START_RETRY_MAX_MS; stop() and each new start()
+   * clear these so repeated reconfiguration cannot accumulate them.
+   */
+  startRetryTimers: Set<ReturnType<typeof setTimeout>>;
+}
+
+/** Cancel every pending start-retry timer (safe no-op when none exist). */
+export function cancelStartRetries(ctx: ManagerContext): void {
+  for (const timer of ctx.startRetryTimers) {
+    clearTimeout(timer);
+  }
+  ctx.startRetryTimers.clear();
 }
 
 /** True when a newer start(), or a stop(), superseded this start attempt. */
@@ -240,6 +255,7 @@ function wireFullStatusCascade(ctx: ManagerContext): void {
 export async function start(ctx: ManagerContext, options: Record<string, unknown>): Promise<void> {
   // Claim this start attempt; any concurrent start() or stop() supersedes it.
   const generation = ++ctx.startGeneration;
+  cancelStartRetries(ctx);
 
   // Tear down any existing instances (restart case).
   if (ctx.instances.size > 0) teardownAll(ctx);
@@ -304,6 +320,7 @@ export async function start(ctx: ManagerContext, options: Record<string, unknown
 const START_RETRY_BASE_MS = 30000;
 const START_RETRY_MAX_MS = 300000;
 
+/** Arm (and track) the next start-retry attempt for the given instances. */
 function scheduleStartRetry(
   ctx: ManagerContext,
   failedIds: string[],
@@ -311,8 +328,10 @@ function scheduleStartRetry(
   delay: number
 ): void {
   const timer = setTimeout(() => {
+    ctx.startRetryTimers.delete(timer);
     void retryFailedInstances(ctx, failedIds, generation, delay);
   }, delay);
+  ctx.startRetryTimers.add(timer);
   // Never hold the process open for a retry.
   if (typeof timer.unref === "function") {
     timer.unref();

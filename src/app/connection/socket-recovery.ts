@@ -117,9 +117,13 @@ export function handleClientSocketError(ctx: ConnectionContext, err: NodeJS.Errn
   // startClient is still mid-initialization (Starting) must not close the
   // socket under it or schedule a recovery that would declare Ready — and
   // open the send gate — before config watchers and the subscription exist.
-  // The startup path owns failures until Ready; a genuinely broken socket
-  // errors again afterwards and recovery handles it then.
+  // Record it instead: start() rethrows it before declaring Ready, so the
+  // failure lands in the manager's start-retry machinery rather than a Ready
+  // connection with a dead socket.
   if (!lifecycle.is("Ready")) {
+    if (lifecycle.is("Starting") && !ctx.startingSocketError) {
+      ctx.startingSocketError = err instanceof Error ? err : new Error(String(err));
+    }
     app.debug(
       `[${instanceId}] Socket error during ${lifecycle.state} — leaving handling to the startup path`
     );

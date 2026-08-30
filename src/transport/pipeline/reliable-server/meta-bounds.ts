@@ -19,6 +19,7 @@ const META_MAX_ARRAY_LENGTH = 256;
 const META_MAX_STRING_LENGTH = 4096;
 const META_BLOCKED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+/** Recursively enforce depth, width, and string-length caps on a meta value. */
 function isBoundedMetaValue(value: unknown, depth: number): boolean {
   if (depth > META_MAX_DEPTH) {
     return false;

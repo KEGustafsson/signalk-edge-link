@@ -93,6 +93,7 @@ export function resetValueDedupState(state: ValueDedupState): void {
   state.cache.clear();
 }
 
+/** Cache key for a (context, path) pair; contexts default to `*`. */
 function cacheKey(context: string | undefined, path: string): string {
   return `${context || "*"}\u0000${path}`;
 }
@@ -114,6 +115,7 @@ function cacheSet(cache: Map<string, DedupEntry>, key: string, entry: DedupEntry
   cache.set(key, entry);
 }
 
+/** True when `value` is exactly the dup sentinel object shape. */
 function isSentinel(value: unknown): boolean {
   return (
     value !== null &&
@@ -141,6 +143,7 @@ function isSentinel(value: unknown): boolean {
  * value containing those exact tags would collide, but NUL characters do not
  * occur in real Signal K values.
  */
+/** JSON.stringify replacer tagging non-finite numbers at any depth. */
 function nonFiniteReplacer(_key: string, value: unknown): unknown {
   if (typeof value === "number" && !Number.isFinite(value)) {
     if (Number.isNaN(value)) return "\0nan";

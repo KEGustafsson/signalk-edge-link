@@ -24,6 +24,7 @@ interface AgeHeapNode {
   seq: number;
 }
 
+/** Min-heap ordering: older send time first, add order breaking ties. */
 function heapNodeBefore(a: AgeHeapNode, b: AgeHeapNode): boolean {
   return a.at < b.at || (a.at === b.at && a.order < b.order);
 }
@@ -443,6 +444,7 @@ export class RetransmitQueue {
 
   // ── Age-heap plumbing ──────────────────────────────────────────────────────
 
+  /** Push a node and sift it up to restore the min-heap invariant. */
   private _heapPush(node: AgeHeapNode): void {
     const heap = this.ageHeap;
     heap.push(node);
@@ -457,6 +459,7 @@ export class RetransmitQueue {
     }
   }
 
+  /** Remove the heap root and sift the last node down into place. */
   private _heapPop(): void {
     const heap = this.ageHeap;
     const last = heap.pop();

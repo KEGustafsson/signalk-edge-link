@@ -61,6 +61,7 @@ export async function start(ctx: ConnectionContext): Promise<void> {
     return;
   }
   ctx.socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS;
+  ctx.startingSocketError = null;
   state.stopped = false;
   state.options = options;
   state.isServerMode = isServer(ctx);
@@ -85,6 +86,14 @@ export async function start(ctx: ConnectionContext): Promise<void> {
       await startServer(ctx);
     } else {
       await startClient(ctx);
+    }
+    // A socket "error" that fired mid-startup was only recorded (recovery must
+    // not touch a socket the startup path still owns); surface it now instead
+    // of declaring Ready on a possibly dead socket.
+    if (ctx.startingSocketError) {
+      const socketError = ctx.startingSocketError;
+      ctx.startingSocketError = null;
+      throw socketError;
     }
     if (!lifecycle.isShuttingDown()) {
       lifecycle.transition("Ready", (msg) => ctx.app.error(msg));
@@ -171,21 +180,28 @@ function teardownTimers(ctx: ConnectionContext): void {
   state.configWatcherObjects = [];
 }
 
-/** Tear down the transport pipelines (client + server) and heartbeat. */
+/**
+ * Tear down the transport pipelines (client + server) and heartbeat.
+ *
+ * Each handle is cleared before its stop() runs, and every stop() is
+ * individually contained, so one throwing teardown can neither leave a stale
+ * handle behind nor skip the remaining cleanups. Only the v2/v3 pipelines are
+ * ever stored on state (v1 lives behind getV1Pipeline and holds no timers),
+ * and both implement full stop().
+ */
 function teardownPipelines(ctx: ConnectionContext): void {
   const { state } = ctx;
-  // Only the v2/v3 pipelines are ever stored on state (v1 lives behind
-  // getV1Pipeline and holds no timers), and both implement full stop(); the
-  // old partial-teardown fallbacks for stop()-less pipelines were dead — and
-  // subtly wrong, missing stopHelloRetry.
-  state.pipeline?.stop?.();
+  const pipeline = state.pipeline;
   state.pipeline = null;
-  if (state.heartbeatHandle) {
-    state.heartbeatHandle.stop();
-    state.heartbeatHandle = null;
-  }
-  state.pipelineServer?.stop?.();
+  runTeardownPhase(ctx, "client pipeline", () => pipeline?.stop?.());
+
+  const heartbeatHandle = state.heartbeatHandle;
+  state.heartbeatHandle = null;
+  runTeardownPhase(ctx, "heartbeat", () => heartbeatHandle?.stop());
+
+  const pipelineServer = state.pipelineServer;
   state.pipelineServer = null;
+  runTeardownPhase(ctx, "server pipeline", () => pipelineServer?.stop?.());
 }
 
 /** Reset enhanced monitoring, the ping monitor, and release the socket. */

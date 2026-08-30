@@ -130,6 +130,14 @@ export interface ConnectionContext {
   reportPendingCount: number;
   v1Pipeline: V1PipelineLike | null;
   socketRecoveryBackoffMs: number;
+  /**
+   * A socket "error" that surfaced while the lifecycle was still Starting.
+   * Recovery must not touch the socket then (startClient still owns it), so
+   * the handler records the error here and start() rethrows it before
+   * declaring Ready — routing the failure into the manager's start-retry
+   * machinery instead of transitioning to Ready on a possibly dead socket.
+   */
+  startingSocketError: Error | null;
   fullStatusCascadeHandler: (() => void) | null;
 }
 

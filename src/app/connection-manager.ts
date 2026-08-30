@@ -16,6 +16,7 @@ import type { InstanceRegistry } from "../foundation/types/instance";
 import {
   start as startManager,
   safeStopInstance,
+  cancelStartRetries,
   type ManagerContext
 } from "./connection-manager/start";
 
@@ -117,7 +118,8 @@ export function createConnectionManager({
     setError,
     instances,
     updateAggregatedStatus,
-    startGeneration: 0
+    startGeneration: 0,
+    startRetryTimers: new Set()
   };
 
   // ── stop ──────────────────────────────────────────────────────────────────
@@ -125,6 +127,7 @@ export function createConnectionManager({
     // Invalidate any start() still in flight so it cannot go on to start
     // instances into a registry we are about to clear.
     ctx.startGeneration++;
+    cancelStartRetries(ctx);
     for (const inst of instances.values()) safeStopInstance(ctx, inst);
     instances.clear();
     setStatus("Stopped");

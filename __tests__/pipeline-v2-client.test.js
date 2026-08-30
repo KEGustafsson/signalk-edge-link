@@ -356,6 +356,11 @@ describe("periodic HELLO refresh", () => {
     jest.useFakeTimers();
     const { pipeline, state } = makeClient();
     await pipeline.sendHello("127.0.0.1", 12345);
+    // Confirm the handshake with a real ACK so the HELLO retry chain is
+    // cancelled — otherwise its retries would also send HELLOs while the fake
+    // clock advances and this test would pass without the cadence refresh.
+    const ack = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET_KEY }).buildACKPacket(0);
+    await pipeline.handleControlPacket(ack, { address: "127.0.0.1", port: 12345 });
     pipeline.startHeartbeat("127.0.0.1", 12345, { heartbeatInterval: 100 });
     state.socketUdp.send.mockClear();
 
@@ -363,12 +368,16 @@ describe("periodic HELLO refresh", () => {
     jest.advanceTimersByTime(100);
     await Promise.resolve();
     await Promise.resolve();
+    expect(sentTypes(state)).toContain(0x04);
     expect(sentTypes(state)).not.toContain(HELLO);
 
-    // Past the cadence (fake timers advance Date.now too): HELLO re-sent.
+    // Past the cadence (fake timers advance Date.now too): HELLO re-sent. The
+    // refresh runs after the tick's awaited heartbeat send, so flush a few
+    // microtask turns for it to reach the socket.
     jest.advanceTimersByTime(300000);
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve();
+    }
     expect(sentTypes(state)).toContain(HELLO);
 
     pipeline.stop();

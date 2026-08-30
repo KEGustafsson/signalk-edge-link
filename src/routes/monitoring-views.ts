@@ -13,6 +13,7 @@
 
 import type { InstanceState, RouteRequest, RouteResponse } from "./types";
 
+/** Respond with the alert manager's thresholds and active alerts. */
 export function sendAlertsState(state: InstanceState, res: RouteResponse): void {
   if (!state.monitoring || !state.monitoring.alertManager) {
     res.json({ thresholds: {}, activeAlerts: {} });
@@ -21,6 +22,7 @@ export function sendAlertsState(state: InstanceState, res: RouteResponse): void 
   res.json(state.monitoring.alertManager.getState());
 }
 
+/** Respond with the packet-loss heatmap and summary. */
 export function sendPacketLossView(state: InstanceState, res: RouteResponse): void {
   if (!state.monitoring || !state.monitoring.packetLossTracker) {
     res.json({
@@ -35,6 +37,7 @@ export function sendPacketLossView(state: InstanceState, res: RouteResponse): vo
   });
 }
 
+/** Respond with retransmission chart data, clamping the limit to [1, 1000]. */
 export function sendRetransmissionsView(
   state: InstanceState,
   req: RouteRequest,
@@ -55,6 +58,7 @@ export function sendRetransmissionsView(
   });
 }
 
+/** Force a bonding failover and respond with the resulting link state. */
 export function sendBondingFailover(state: InstanceState, res: RouteResponse): void {
   if (!state.pipeline || !state.pipeline.getBondingManager) {
     res.status(503).json({ error: "Bonding not available" });

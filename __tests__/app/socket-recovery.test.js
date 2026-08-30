@@ -44,6 +44,7 @@ function makeCtx({ createImpl } = {}) {
     instanceId: "test",
     recordError: jest.fn(),
     socketRecoveryBackoffMs: SOCKET_RECOVERY_BASE_MS,
+    startingSocketError: null,
     socketManager: {
       create: createImpl || jest.fn(() => socket),
       close: jest.fn()
@@ -202,19 +203,19 @@ describe("client socket recovery", () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
-  test("an error during Starting is left to the startup path", () => {
+  test("an error during Starting is recorded for the startup path, not recovered", () => {
     // Regression: recovery scheduled from a mid-startup error closed the
     // socket under startClient and later declared Ready — opening the send
-    // gate — before config watchers and the subscription existed.
+    // gate — before config watchers and the subscription existed. The error
+    // is recorded instead; start() rethrows it before declaring Ready.
     const { ctx, state, lifecycleState } = makeCtx();
     lifecycleState.value = "Starting";
     state.socketUdp = { on: jest.fn() };
 
-    handleClientSocketError(
-      ctx,
-      Object.assign(new Error("EHOSTUNREACH"), { code: "EHOSTUNREACH" })
-    );
+    const err = Object.assign(new Error("EHOSTUNREACH"), { code: "EHOSTUNREACH" });
+    handleClientSocketError(ctx, err);
 
+    expect(ctx.startingSocketError).toBe(err);
     expect(state.socketRecoveryInProgress).toBe(false);
     expect(state.socketUdp).not.toBeNull();
     expect(jest.getTimerCount()).toBe(0);

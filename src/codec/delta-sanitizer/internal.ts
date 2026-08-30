@@ -57,6 +57,7 @@ export function mapDeltaPayload(
   return anyChanged ? out : payload;
 }
 
+/** Array variant of {@link mapDeltaPayload}; null when every delta drops. */
 function mapDeltaArray(payload: Delta[], perDelta: (delta: Delta) => Delta | null): Delta[] | null {
   // `out` is allocated lazily on the first drop or change, so an untouched
   // batch passes through by reference.

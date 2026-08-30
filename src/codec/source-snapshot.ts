@@ -231,17 +231,22 @@ function filterAcceptableProviders(
   target: Record<string, unknown>
 ): { limited: Record<string, unknown>; dropped: number } {
   const limited: Record<string, unknown> = {};
-  let count = 0;
+  // Cap the entries INSPECTED, not the entries accepted: gating on accepted
+  // providers alone let a wide snapshot against an already-full target run
+  // deep validation on every entry, since rejected entries never advanced the
+  // counter.
+  let inspected = 0;
   let dropped = 0;
   let targetSize = Object.keys(target).length;
   for (const key in sources) {
     if (!Object.prototype.hasOwnProperty.call(sources, key)) {
       continue;
     }
-    if (count >= SOURCE_SNAPSHOT_MAX_PROVIDERS) {
+    if (inspected >= SOURCE_SNAPSHOT_MAX_PROVIDERS) {
       dropped++;
       break;
     }
+    inspected++;
     const value = sources[key];
     if (!isAcceptableKey(key) || !isAcceptableValue(value, 1)) {
       dropped++;
@@ -256,7 +261,6 @@ function filterAcceptableProviders(
       targetSize++;
     }
     limited[key] = value;
-    count++;
   }
   return { limited, dropped };
 }
