@@ -142,12 +142,23 @@ function isSentinel(value: unknown): boolean {
  * sender so insertion order will match across consecutive emissions.
  *
  * Non-finite numbers (`NaN`, `Infinity`, `-Infinity`) must be encoded
- * distinctly: `JSON.stringify` serializes all of them — and `null` — to
- * the literal `"null"`, which would make them compare equal. The MessagePack
- * transport preserves non-finite numbers on the wire, so a path that
- * switches between e.g. `NaN` and `null` would otherwise be deduped to the
- * wrong cached value and silently delivered as the stale one.
+ * distinctly at any nesting depth: `JSON.stringify` serializes all of them —
+ * and `null` — to the literal `"null"`, which would make them compare equal.
+ * The MessagePack transport preserves non-finite numbers on the wire, so a
+ * path that switches between e.g. `{a: NaN}` and `{a: null}` would otherwise
+ * be deduped to the wrong cached value and silently delivered as the stale
+ * one. The replacer maps them to NUL-prefixed tag strings; a genuine string
+ * value containing those exact tags would collide, but NUL characters do not
+ * occur in real Signal K values.
  */
+function nonFiniteReplacer(_key: string, value: unknown): unknown {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    if (Number.isNaN(value)) return "\0nan";
+    return value > 0 ? "\0+inf" : "\0-inf";
+  }
+  return value;
+}
+
 function stableRepr(value: unknown): string {
   if (value === undefined) return "undefined";
   if (typeof value === "number" && !Number.isFinite(value)) {
@@ -155,7 +166,7 @@ function stableRepr(value: unknown): string {
     return value > 0 ? "\0+inf" : "\0-inf";
   }
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value, nonFiniteReplacer);
   } catch {
     return String(value);
   }
@@ -177,13 +188,18 @@ export function dedupDelta(delta: Delta, state: ValueDedupState): Delta {
   let deltaChanged = false;
 
   const updates = delta.updates.map((update) => {
-    if (!Array.isArray(update.values)) return update;
+    // Pass malformed updates through — sanitize is responsible for them.
+    if (!update || typeof update !== "object" || !Array.isArray(update.values)) return update;
     let valuesChanged = false;
     const values = update.values.map((entry) => {
       // Pass malformed entries through — sanitize is responsible for them.
       if (entry === null || typeof entry !== "object") return entry;
       const v = entry as DeltaValue;
       if (typeof v.path !== "string" || v.path.length === 0) return entry;
+      // A genuine value identical to the sentinel cannot be told apart by the
+      // receiver, which never caches sentinels — send it verbatim without
+      // caching so the two caches stay in agreement.
+      if (isSentinel(v.value)) return entry;
       const key = cacheKey(context, v.path);
       const cached = state.cache.get(key);
       const cachedRepr = cached === undefined ? undefined : stableRepr(cached.value);
@@ -266,13 +282,38 @@ export function dedupDeltaPayload(payload: DeltaPayload, state: ValueDedupState)
  *   entry is delivered but not cached, so a reordered packet cannot roll the
  *   receive cache backwards and desynchronise it from the sender.
  */
+/**
+ * Cache an absolute value unless it arrived from a sequence older than the
+ * one that last wrote the entry. Payloads are dispatched in arrival order, so
+ * without this a reordered older packet would leave the receive cache holding
+ * a value the sender has already moved past, and the next sentinel would
+ * expand to it.
+ */
+function cacheAbsoluteIfNewest(
+  state: ValueDedupState,
+  key: string,
+  cached: DedupEntry | undefined,
+  value: unknown,
+  seq: number | undefined
+): void {
+  const stale =
+    seq !== undefined &&
+    cached !== undefined &&
+    cached.seq !== NO_SEQ &&
+    !serialAtOrAfter(seq, cached.seq);
+  if (!stale) {
+    cacheSet(state.cache, key, { value, seq: seq ?? NO_SEQ });
+  }
+}
+
 export function undedupDelta(delta: Delta, state: ValueDedupState, seq?: number): Delta {
   if (!Array.isArray(delta.updates)) return delta;
   const context = delta.context;
   let deltaChanged = false;
 
   const updates = delta.updates.map((update) => {
-    if (!Array.isArray(update.values)) return update;
+    // Pass malformed updates through — sanitize is responsible for them.
+    if (!update || typeof update !== "object" || !Array.isArray(update.values)) return update;
     let valuesChanged = false;
     const values: DeltaValue[] = [];
     for (const entry of update.values) {
@@ -303,18 +344,8 @@ export function undedupDelta(delta: Delta, state: ValueDedupState, seq?: number)
         values.push({ ...v, value: cached.value });
       } else {
         // Absolute value — always delivered, but only cached when it is the
-        // newest write for this path. Payloads are dispatched in arrival
-        // order, so without this a reordered older packet would leave the
-        // receive cache holding a value the sender has already moved past,
-        // and the next sentinel would expand to it.
-        const stale =
-          seq !== undefined &&
-          cached !== undefined &&
-          cached.seq !== NO_SEQ &&
-          !serialAtOrAfter(seq, cached.seq);
-        if (!stale) {
-          cacheSet(state.cache, key, { value: v.value, seq: seq ?? NO_SEQ });
-        }
+        // newest write for this path (see cacheAbsoluteIfNewest).
+        cacheAbsoluteIfNewest(state, key, cached, v.value, seq);
         values.push(entry as DeltaValue);
       }
     }

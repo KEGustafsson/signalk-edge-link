@@ -206,12 +206,35 @@ export function mergeSourceSnapshot(
 
   const target = root.sources as Record<string, unknown>;
   const before = Object.keys(target).length;
-  // Stop scanning incoming providers once the cap is reached so a
-  // pathologically wide snapshot never gets fully iterated.
+  const { limited, dropped } = filterAcceptableProviders(
+    sources as Record<string, unknown>,
+    target
+  );
+  if (dropped > 0) {
+    app.debug(`[source-snapshot] rejected ${dropped} provider key(s) (validation/cap)`);
+  }
+  mergePlain(target, limited);
+  return Object.keys(target).length - before;
+}
+
+/**
+ * Validate incoming providers and enforce SOURCE_SNAPSHOT_MAX_PROVIDERS.
+ *
+ * Stops scanning incoming providers once the cap is reached so a
+ * pathologically wide snapshot never gets fully iterated. The cap is also
+ * enforced against the live tree: without that, each snapshot could add up to
+ * the cap in new keys and rotating provider names would grow /sources without
+ * bound. Merging into existing providers stays allowed at the cap.
+ */
+function filterAcceptableProviders(
+  sources: Record<string, unknown>,
+  target: Record<string, unknown>
+): { limited: Record<string, unknown>; dropped: number } {
   const limited: Record<string, unknown> = {};
   let count = 0;
   let dropped = 0;
-  for (const key in sources as Record<string, unknown>) {
+  let targetSize = Object.keys(target).length;
+  for (const key in sources) {
     if (!Object.prototype.hasOwnProperty.call(sources, key)) {
       continue;
     }
@@ -219,17 +242,21 @@ export function mergeSourceSnapshot(
       dropped++;
       break;
     }
-    const value = (sources as Record<string, unknown>)[key];
+    const value = sources[key];
     if (!isAcceptableKey(key) || !isAcceptableValue(value, 1)) {
       dropped++;
       continue;
     }
+    const isNewProvider = !Object.prototype.hasOwnProperty.call(target, key);
+    if (isNewProvider && targetSize >= SOURCE_SNAPSHOT_MAX_PROVIDERS) {
+      dropped++;
+      continue;
+    }
+    if (isNewProvider) {
+      targetSize++;
+    }
     limited[key] = value;
     count++;
   }
-  if (dropped > 0) {
-    app.debug(`[source-snapshot] rejected ${dropped} provider key(s) (validation/cap)`);
-  }
-  mergePlain(target, limited);
-  return Object.keys(target).length - before;
+  return { limited, dropped };
 }

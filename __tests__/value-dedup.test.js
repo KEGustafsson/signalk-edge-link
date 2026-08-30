@@ -280,3 +280,65 @@ describe("cache is bounded (LRU eviction)", () => {
     expect(isDupSentinel(out.updates[0].values[0].value)).toBe(true);
   });
 });
+
+// ── Robustness regressions ───────────────────────────────────────────────────
+
+describe("nested non-finite numbers", () => {
+  test("objects differing only in a nested non-finite member are not deduped", () => {
+    // Regression: stableRepr special-cased only a top-level non-finite number;
+    // JSON.stringify serializes a nested NaN/Infinity — and null — all to
+    // "null", collapsing distinct values into the same baseline. The receiver
+    // then expanded the sentinel to the stale cached value.
+    const cases = [
+      [{ a: NaN }, { a: null }],
+      [{ a: null }, { a: NaN }],
+      [{ a: Infinity }, { a: -Infinity }],
+      [{ a: [1, NaN] }, { a: [1, null] }]
+    ];
+    for (const [first, second] of cases) {
+      const state = createValueDedupState();
+      dedupDelta(makeDelta([{ path: "environment.depth", value: first }]), state);
+      const out = dedupDelta(makeDelta([{ path: "environment.depth", value: second }]), state);
+      expect(isDupSentinel(out.updates[0].values[0].value)).toBe(false);
+      expect(out.updates[0].values[0].value).toBe(second);
+    }
+  });
+
+  test("a repeated object with a nested non-finite member still dedups", () => {
+    const state = createValueDedupState();
+    dedupDelta(makeDelta([{ path: "p", value: { a: NaN, b: 1 } }]), state);
+    const dup = dedupDelta(makeDelta([{ path: "p", value: { a: NaN, b: 1 } }]), state);
+    expect(isDupSentinel(dup.updates[0].values[0].value)).toBe(true);
+  });
+});
+
+describe("malformed update entries", () => {
+  test("dedupDelta passes null and non-object updates through unchanged", () => {
+    const state = createValueDedupState();
+    const delta = { context: "vessels.self", updates: [null, 42, { values: "nope" }] };
+    expect(dedupDelta(delta, state)).toBe(delta);
+  });
+
+  test("undedupDelta passes null and non-object updates through unchanged", () => {
+    // Regression: a null update entry inside a decrypted payload threw
+    // mid-batch, dropping every already-ACKed delta after it in the packet.
+    const state = createValueDedupState();
+    const delta = { context: "vessels.self", updates: [null, 42, { values: "nope" }] };
+    expect(undedupDelta(delta, state)).toBe(delta);
+  });
+});
+
+describe("sentinel-shaped genuine value", () => {
+  test("is sent verbatim and never cached as a baseline", () => {
+    const state = createValueDedupState();
+    const first = dedupDelta(makeDelta([{ path: "p", value: { $$: "dup" } }]), state);
+    expect(first.updates[0].values[0].value).toEqual({ $$: "dup" });
+    // The sender must not have cached it: the receiver never caches sentinels,
+    // so caching here would desynchronize the two caches.
+    expect(state.cache.size).toBe(0);
+    // A repeat is likewise sent verbatim, not treated as a duplicate.
+    const second = dedupDelta(makeDelta([{ path: "p", value: { $$: "dup" } }]), state);
+    expect(second.updates[0].values[0].value).toEqual({ $$: "dup" });
+    expect(state.cache.size).toBe(0);
+  });
+});

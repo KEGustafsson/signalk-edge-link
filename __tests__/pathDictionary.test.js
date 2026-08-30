@@ -385,3 +385,33 @@ describe("Path Dictionary", () => {
     });
   });
 });
+
+describe("malformed delta shapes", () => {
+  // Regression: a null update entry (or a truthy non-array `updates`) inside a
+  // decrypted payload threw mid-batch in transformDelta, dropping every
+  // already-ACKed delta after it in the same packet. Malformed shapes must
+  // pass through so the downstream sanitize step rejects them instead.
+  test("decodeDelta passes null and non-object update entries through", () => {
+    const delta = { context: "vessels.self", updates: [null, 42] };
+    const out = decodeDelta(delta);
+    expect(out.updates[0]).toBe(null);
+    expect(out.updates[1]).toBe(42);
+  });
+
+  test("encodeDelta passes null update entries through", () => {
+    const delta = { context: "vessels.self", updates: [null] };
+    expect(encodeDelta(delta).updates[0]).toBe(null);
+  });
+
+  test("a truthy non-array updates field is returned unchanged", () => {
+    const delta = { context: "vessels.self", updates: {} };
+    expect(decodeDelta(delta)).toBe(delta);
+    expect(encodeDelta(delta)).toBe(delta);
+  });
+
+  test("a truthy non-array values field is preserved, not replaced", () => {
+    const delta = { context: "vessels.self", updates: [{ values: "nope" }] };
+    const out = decodeDelta(delta);
+    expect(out.updates[0].values).toBe("nope");
+  });
+});

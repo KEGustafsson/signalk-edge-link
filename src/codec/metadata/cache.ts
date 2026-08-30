@@ -7,7 +7,7 @@
  */
 
 import { createHash } from "crypto";
-import type { MetaEntry, MetaEnvelope } from "../../foundation/types";
+import type { MetaEntry } from "../../foundation/types";
 
 /**
  * Produces a stable JSON representation of a meta object for change detection.
