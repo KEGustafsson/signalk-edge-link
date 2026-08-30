@@ -44,6 +44,8 @@ export interface RouteResponse {
   /** Sets the Content-Type response header. Alias for res.set('Content-Type', ...). */
   contentType(type: string): this;
   end(): void;
+  /** True once a response has been written (express sets this; mocks may not). */
+  headersSent?: boolean;
 }
 
 /** Express next() callback passed to middleware functions. */

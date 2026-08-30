@@ -11,6 +11,7 @@ import {
   validateUniqueServerPorts
 } from "../connection-config";
 import { validateRuntimeConfigBody } from "./config-validation";
+import { wrap } from "./handler-utils";
 
 /**
  * Registers config routes: /paths, /plugin-config (GET+POST), /plugin-schema,
@@ -199,7 +200,7 @@ function register(router: Router, ctx: RouteContext): void {
     "/paths",
     rateLimitMiddleware,
     managementAuthMiddleware("paths.read"),
-    (req: RouteRequest, res: RouteResponse) => {
+    wrap((req, res) => {
       const paths = getAllPaths();
 
       const categorized: Record<string, unknown> = {};
@@ -214,7 +215,7 @@ function register(router: Router, ctx: RouteContext): void {
       }
 
       res.json({ total: paths.length, categories: categorized });
-    }
+    })
   );
 
   router.get(
@@ -427,13 +428,13 @@ function register(router: Router, ctx: RouteContext): void {
     "/plugin-schema",
     rateLimitMiddleware,
     managementAuthMiddleware("plugin-schema.read"),
-    (req: RouteRequest, res: RouteResponse) => {
+    wrap((req, res) => {
       const bundle = getFirstBundle();
       res.json({
         schema: pluginRef.schema,
         currentMode: bundle ? (bundle.state.isServerMode ? "server" : "client") : "unknown"
       });
-    }
+    })
   );
 
   const clientModeMiddleware: RouteHandler = (req, res, next) => {

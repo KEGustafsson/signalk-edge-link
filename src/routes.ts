@@ -245,10 +245,6 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     return null;
   }
 
-  function warnIfOpenAccess(): void {
-    // Retained as a no-op for compatibility with older route consumers.
-  }
-
   /**
    * Whether a token must be presented even if none is configured yet.
    *
@@ -1106,8 +1102,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     loadConfigFile,
     saveConfigFile,
     startRateLimitCleanup,
-    stopRateLimitCleanup,
-    warnIfOpenAccess
+    stopRateLimitCleanup
   };
 }
 

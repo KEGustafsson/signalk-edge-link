@@ -1,3 +1,5 @@
+import { wrap } from "./handler-utils";
+import { sendBondingFailover } from "./monitoring-views";
 import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
 
 /**
@@ -218,34 +220,13 @@ function register(router: Router, ctx: RouteContext): void {
     rateLimitMiddleware,
     blockCrossSiteForm,
     managementAuthMiddleware("bonding.failover"),
-    (req: RouteRequest, res: RouteResponse) => {
-      try {
-        const bundle = resolveClientBundle(res);
-        if (!bundle) {
-          return;
-        }
-        const { state } = bundle;
-
-        if (!state.pipeline || !state.pipeline.getBondingManager) {
-          return res.status(503).json({ error: "Bonding not available" });
-        }
-
-        const bonding = state.pipeline.getBondingManager();
-        if (!bonding) {
-          return res.status(503).json({ error: "Bonding not enabled" });
-        }
-
-        bonding.forceFailover();
-
-        res.json({
-          success: true,
-          activeLink: bonding.getActiveLinkName(),
-          links: bonding.getLinkHealth()
-        });
-      } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    wrap((req, res) => {
+      const bundle = resolveClientBundle(res);
+      if (!bundle) {
+        return;
       }
-    }
+      sendBondingFailover(bundle.state, res);
+    })
   );
 }
 

@@ -1,4 +1,6 @@
 import { findConnectionIndexByInstanceId } from "../connection-config";
+import { wrap } from "./handler-utils";
+import { sendAlertsState, sendPacketLossView, sendRetransmissionsView } from "./monitoring-views";
 import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
 import type { ConnectionConfig } from "../foundation/types";
 
@@ -264,27 +266,13 @@ function register(router: Router, ctx: RouteContext): () => void {
     "/monitoring/packet-loss",
     rateLimitMiddleware,
     managementAuthMiddleware("monitoring.read"),
-    (req: RouteRequest, res: RouteResponse) => {
-      try {
-        const bundle = getFirstBundle();
-        if (!bundle) {
-          return res.status(503).json({ error: "Plugin not started" });
-        }
-        const { state } = bundle;
-        if (!state.monitoring || !state.monitoring.packetLossTracker) {
-          return res.json({
-            heatmap: [],
-            summary: { overallLossRate: 0, maxLossRate: 0, trend: "stable", bucketCount: 0 }
-          });
-        }
-        res.json({
-          heatmap: state.monitoring.packetLossTracker.getHeatmapData(),
-          summary: state.monitoring.packetLossTracker.getSummary()
-        });
-      } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    wrap((req, res) => {
+      const bundle = getFirstBundle();
+      if (!bundle) {
+        return res.status(503).json({ error: "Plugin not started" });
       }
-    }
+      sendPacketLossView(bundle.state, res);
+    })
   );
 
   router.get(
@@ -315,51 +303,26 @@ function register(router: Router, ctx: RouteContext): () => void {
     "/monitoring/retransmissions",
     rateLimitMiddleware,
     managementAuthMiddleware("monitoring.read"),
-    (req: RouteRequest, res: RouteResponse) => {
-      try {
-        const bundle = getFirstBundle();
-        if (!bundle) {
-          return res.status(503).json({ error: "Plugin not started" });
-        }
-        const { state } = bundle;
-        if (!state.monitoring || !state.monitoring.retransmissionTracker) {
-          return res.json({
-            chartData: [],
-            summary: { avgRate: 0, maxRate: 0, currentRate: 0, entries: 0 }
-          });
-        }
-        const rawLimit = parseInt(String(req.query.limit ?? ""), 10);
-        const limit =
-          Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 1000) : undefined;
-        res.json({
-          chartData: state.monitoring.retransmissionTracker.getChartData(limit),
-          summary: state.monitoring.retransmissionTracker.getSummary()
-        });
-      } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    wrap((req, res) => {
+      const bundle = getFirstBundle();
+      if (!bundle) {
+        return res.status(503).json({ error: "Plugin not started" });
       }
-    }
+      sendRetransmissionsView(bundle.state, req, res);
+    })
   );
 
   router.get(
     "/monitoring/alerts",
     rateLimitMiddleware,
     managementAuthMiddleware("monitoring.alerts.read"),
-    (req: RouteRequest, res: RouteResponse) => {
-      try {
-        const bundle = getFirstBundle();
-        if (!bundle) {
-          return res.status(503).json({ error: "Plugin not started" });
-        }
-        const { state } = bundle;
-        if (!state.monitoring || !state.monitoring.alertManager) {
-          return res.json({ thresholds: {}, activeAlerts: {} });
-        }
-        res.json(state.monitoring.alertManager.getState());
-      } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    wrap((req, res) => {
+      const bundle = getFirstBundle();
+      if (!bundle) {
+        return res.status(503).json({ error: "Plugin not started" });
       }
-    }
+      sendAlertsState(bundle.state, res);
+    })
   );
 
   router.post(
