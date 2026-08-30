@@ -52,6 +52,11 @@ export const RATE_LIMIT_WINDOW = 60000; // 1 minute
 // Web UI polls multiple endpoints in v2 mode, so this must allow
 // normal dashboard usage without triggering false-positive 429s.
 export const RATE_LIMIT_MAX_REQUESTS = 120; // 120 requests per minute per IP
+// Cap on distinct rate-limit identities held in memory. The periodic cleanup
+// only runs while the plugin is started, but the routes keep serving while it
+// is stopped; without a cap each distinct client key seen in that state would
+// stay in the map forever.
+export const RATE_LIMIT_MAX_KEYS = 10000;
 
 // Congestion control (AIMD algorithm)
 export const CONGESTION_MIN_DELTA_TIMER = 100; // Minimum delta timer (ms)
@@ -199,6 +204,20 @@ export const HELLO_RETRY_MAX_MS = 30000;
  * quiet link is never mistaken for a lost session.
  */
 export const HELLO_REHANDSHAKE_ACK_IDLE_MS = 30000;
+
+/**
+ * Cadence for re-sending HELLO on a live link.
+ *
+ * HELLO_REHANDSHAKE_ACK_IDLE_MS only covers the silent-failure case. A server
+ * that restarts in under that threshold while client traffic keeps flowing
+ * re-mints the session from the first DATA packet — with no client identity
+ * and epoch 0 — and resumes ACKing immediately, so the idle trigger never
+ * fires. Telemetry then stays unattributed and anti-replay stays disarmed for
+ * the remaining life of the connection. A periodic HELLO (idempotent
+ * server-side) bounds that window to this cadence at the cost of one small
+ * packet.
+ */
+export const HELLO_REFRESH_INTERVAL_MS = 300000;
 
 // Enhanced monitoring
 export const MONITORING_HEATMAP_BUCKETS = 60; // Number of time buckets for packet loss heatmap

@@ -415,8 +415,10 @@ function register(router: Router, ctx: RouteContext): void {
         });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
+        // Log the detail, return a generic message: save errors carry
+        // filesystem paths that must not reach API clients.
         app.error(`Error saving plugin config: ${msg}`);
-        res.status(500).json({ success: false, error: msg });
+        res.status(500).json({ success: false, error: "Failed to save configuration" });
       }
     }
   );

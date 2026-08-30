@@ -78,23 +78,6 @@ export interface Router {
   delete(path: string, ...handlers: RouteHandler[]): void;
 }
 
-/** Network quality data assembled for HTTP responses. */
-export interface NetworkQualityResponse {
-  rtt: number;
-  jitter: number;
-  packetLoss: number;
-  retransmissions: number;
-  queueDepth: number;
-  acksSent: number;
-  naksSent: number;
-  dataSource: string;
-  lastRemoteUpdate?: number;
-  activeLink?: string;
-  linkQuality?: number;
-  retransmitRate?: number;
-  timestamp?: number;
-}
-
 /** Shared context object passed to every route sub-module. */
 export interface RouteContext {
   app: SignalKApp;

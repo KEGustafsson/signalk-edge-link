@@ -243,7 +243,7 @@ function register(router: Router, ctx: RouteContext): void {
     "/instances",
     rateLimitMiddleware,
     requireJson,
-    (req: RouteRequest, res: RouteResponse) => {
+    async (req: RouteRequest, res: RouteResponse) => {
       try {
         if (!authorizeManagement(req, res, "instances.create")) {
           return;
@@ -270,7 +270,7 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(400).json({ error: portError });
         }
 
-        return restartWithConnections(res, connections, 201);
+        return await restartWithConnections(res, connections, 201);
       } catch (err: unknown) {
         res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
@@ -281,7 +281,7 @@ function register(router: Router, ctx: RouteContext): void {
     "/instances/:id",
     rateLimitMiddleware,
     requireJson,
-    (req: RouteRequest, res: RouteResponse) => {
+    async (req: RouteRequest, res: RouteResponse) => {
       try {
         if (!authorizeManagement(req, res, "instances.update")) {
           return;
@@ -353,36 +353,40 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(400).json({ error: portError });
         }
 
-        return restartWithConnections(res, connections, 200);
+        return await restartWithConnections(res, connections, 200);
       } catch (err: unknown) {
         res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
 
-  router.delete("/instances/:id", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
-    try {
-      if (!authorizeManagement(req, res, "instances.delete")) {
-        return;
-      }
-      const bundle = getBundleById(req.params.id);
-      if (!bundle) {
-        return res.status(404).json({ error: `Instance '${req.params.id}' not found` });
-      }
+  router.delete(
+    "/instances/:id",
+    rateLimitMiddleware,
+    async (req: RouteRequest, res: RouteResponse) => {
+      try {
+        if (!authorizeManagement(req, res, "instances.delete")) {
+          return;
+        }
+        const bundle = getBundleById(req.params.id);
+        if (!bundle) {
+          return res.status(404).json({ error: `Instance '${req.params.id}' not found` });
+        }
 
-      const connections = getCurrentConnectionsConfig();
-      const idx = findConnectionIndexByInstanceId(connections, req.params.id);
-      if (idx === -1) {
-        return res
-          .status(404)
-          .json({ error: `Configuration for instance '${req.params.id}' not found` });
+        const connections = getCurrentConnectionsConfig();
+        const idx = findConnectionIndexByInstanceId(connections, req.params.id);
+        if (idx === -1) {
+          return res
+            .status(404)
+            .json({ error: `Configuration for instance '${req.params.id}' not found` });
+        }
+        const next = [...connections.slice(0, idx), ...connections.slice(idx + 1)];
+        return await restartWithConnections(res, next, 200);
+      } catch (err: unknown) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
-      const next = [...connections.slice(0, idx), ...connections.slice(idx + 1)];
-      return restartWithConnections(res, next, 200);
-    } catch (err: unknown) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
-  });
+  );
 
   router.get(
     "/connections/:id/metrics",
@@ -579,7 +583,9 @@ function register(router: Router, ctx: RouteContext): void {
           summary: { avgRate: 0, maxRate: 0, currentRate: 0, entries: 0 }
         });
       }
-      const limit = parseInt(String(req.query.limit ?? ""), 10) || undefined;
+      const rawLimit = parseInt(String(req.query.limit ?? ""), 10);
+      const limit =
+        Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 1000) : undefined;
       res.json({
         chartData: state.monitoring.retransmissionTracker.getChartData(limit),
         summary: state.monitoring.retransmissionTracker.getSummary()
