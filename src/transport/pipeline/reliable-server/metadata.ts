@@ -19,6 +19,8 @@ import { EDGE_LINK_PROVIDER_ID } from "../../../codec/source-dispatch";
 import { mergeSourceSnapshot } from "../../../codec/source-snapshot";
 import { ParsedPacket } from "../../../codec/packet-codec";
 import { getOrCreateSession } from "./sessions";
+import { getReplayGuard, handshakedPeerAddress } from "./context";
+import { metaEntryWithinBounds } from "./meta-bounds";
 import type { ServerContext, ClientSession } from "./context";
 import type { Delta } from "../../../foundation/types";
 
@@ -290,7 +292,8 @@ type RawMetaEntry = NonNullable<MetaEnvelope["entries"]>[number];
 
 /**
  * Validate and (path-dictionary) decode one raw META entry. Returns the
- * destination context and the meta item, or null when the entry is malformed.
+ * destination context and the meta item, or null when the entry is malformed
+ * or exceeds the structural bounds (see meta-bounds).
  */
 function decodeMetaItem(
   parsed: ParsedPacket,
@@ -315,6 +318,9 @@ function decodeMetaItem(
     return null;
   }
   const context = typeof rawEntry.context === "string" ? rawEntry.context : "vessels.self";
+  if (!metaEntryWithinBounds(path, context, entry.meta)) {
+    return null;
+  }
   return { context, item: { path, value: entry.meta as Record<string, unknown> } };
 }
 
@@ -356,6 +362,48 @@ function dispatchMetaEntries(ctx: ServerContext, parsed: ParsedPacket, env: Meta
   app.debug(
     `v2 meta received: kind=${env.kind ?? "?"}, entries=${entries.length}, contexts=${byContext.size}, envSeq=${env.seq ?? "?"}`
   );
+}
+
+/**
+ * Persistent anti-replay gate for the METADATA/source-snapshot channel,
+ * mirroring the DATA gate. The envelope dedup below lives in the evictable,
+ * idle-expiring session, so a captured METADATA datagram replays cleanly once
+ * the session is gone — re-injecting stale meta entries or a stale source
+ * snapshot, and a replayed seq-0 chunk also resets restart detection. The
+ * per-peer guard survives sessions; like DATA it is enforced only once the
+ * peer's epoch handshake armed it (pre-H3 peers keep legacy behavior), and a
+ * legitimate peer restart resets the window through the epoch increase.
+ *
+ * @returns true when the packet is a replay and must be dropped.
+ */
+function rejectReplayedMetaPacket(
+  ctx: ServerContext,
+  parsed: ParsedPacket,
+  rinfo?: { address: string; port: number }
+): boolean {
+  if (!rinfo) {
+    return false;
+  }
+  const guard = getReplayGuard(ctx, `${rinfo.address}:${rinfo.port}`);
+
+  // Same fail-closed rule as DATA: an unhandshaked source port on an address
+  // that has completed a handshake is either a rotated-port replay or a packet
+  // that overtook its own HELLO; the client re-snapshots periodically.
+  if (!guard.handshaked && handshakedPeerAddress(ctx, rinfo.address)) {
+    ctx.app.debug(
+      `v2 replay rejected: unhandshaked source port ${rinfo.port} for known peer ${rinfo.address} (META seq=${parsed.sequence >>> 0})`
+    );
+    ctx.metrics.replayedPackets = (ctx.metrics.replayedPackets ?? 0) + 1;
+    return true;
+  }
+
+  const fresh = guard.metaWindow.accept(parsed.sequence >>> 0);
+  if (fresh || guard.epoch === 0) {
+    return false;
+  }
+  ctx.app.debug(`v2 replay/too-old META rejected: seq=${parsed.sequence >>> 0}`);
+  ctx.metrics.replayedPackets = (ctx.metrics.replayedPackets ?? 0) + 1;
+  return true;
 }
 
 /** Dispatch a decoded META envelope: dedup, then source-snapshot OR entries. */
@@ -431,6 +479,11 @@ export async function handleMetadataPacket(
   try {
     const env = await decodeMetaEnvelope(ctx, parsed, secretKey);
     if (!env) {
+      return;
+    }
+    // Decode (and therefore authenticate) before the replay gate mutates any
+    // guard state; the gate itself must run before any session state does.
+    if (rejectReplayedMetaPacket(ctx, parsed, rinfo)) {
       return;
     }
     processMetaEnvelope(ctx, parsed, env, session, rinfo);
