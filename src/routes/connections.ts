@@ -7,6 +7,13 @@ import {
   findConnectionIndexByInstanceId
 } from "../connection-config";
 import { validateRuntimeConfigBody } from "./config-validation";
+import { wrap } from "./handler-utils";
+import {
+  sendAlertsState,
+  sendPacketLossView,
+  sendRetransmissionsView,
+  sendBondingFailover
+} from "./monitoring-views";
 import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
 import type { ConnectionConfig } from "../foundation/types";
 
@@ -93,6 +100,15 @@ function register(router: Router, ctx: RouteContext): void {
     await pluginRef._restartPlugin(nextOptions);
     pluginRef._currentOptions = nextOptions as typeof pluginRef._currentOptions;
     return res.status(successStatus).json({ success: true });
+  }
+
+  // Restart rejections carry configuration, filesystem, and transport detail
+  // that must not reach management clients; keep it in the server log.
+  function respondInstancesError(res: RouteResponse, err: unknown): void {
+    app.error(`Instance route failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error" });
+    }
   }
   router.get(
     "/connections",
@@ -243,7 +259,7 @@ function register(router: Router, ctx: RouteContext): void {
     "/instances",
     rateLimitMiddleware,
     requireJson,
-    (req: RouteRequest, res: RouteResponse) => {
+    async (req: RouteRequest, res: RouteResponse) => {
       try {
         if (!authorizeManagement(req, res, "instances.create")) {
           return;
@@ -270,9 +286,9 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(400).json({ error: portError });
         }
 
-        return restartWithConnections(res, connections, 201);
+        return await restartWithConnections(res, connections, 201);
       } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        respondInstancesError(res, err);
       }
     }
   );
@@ -281,7 +297,7 @@ function register(router: Router, ctx: RouteContext): void {
     "/instances/:id",
     rateLimitMiddleware,
     requireJson,
-    (req: RouteRequest, res: RouteResponse) => {
+    async (req: RouteRequest, res: RouteResponse) => {
       try {
         if (!authorizeManagement(req, res, "instances.update")) {
           return;
@@ -353,42 +369,46 @@ function register(router: Router, ctx: RouteContext): void {
           return res.status(400).json({ error: portError });
         }
 
-        return restartWithConnections(res, connections, 200);
+        return await restartWithConnections(res, connections, 200);
       } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        respondInstancesError(res, err);
       }
     }
   );
 
-  router.delete("/instances/:id", rateLimitMiddleware, (req: RouteRequest, res: RouteResponse) => {
-    try {
-      if (!authorizeManagement(req, res, "instances.delete")) {
-        return;
-      }
-      const bundle = getBundleById(req.params.id);
-      if (!bundle) {
-        return res.status(404).json({ error: `Instance '${req.params.id}' not found` });
-      }
+  router.delete(
+    "/instances/:id",
+    rateLimitMiddleware,
+    async (req: RouteRequest, res: RouteResponse) => {
+      try {
+        if (!authorizeManagement(req, res, "instances.delete")) {
+          return;
+        }
+        const bundle = getBundleById(req.params.id);
+        if (!bundle) {
+          return res.status(404).json({ error: `Instance '${req.params.id}' not found` });
+        }
 
-      const connections = getCurrentConnectionsConfig();
-      const idx = findConnectionIndexByInstanceId(connections, req.params.id);
-      if (idx === -1) {
-        return res
-          .status(404)
-          .json({ error: `Configuration for instance '${req.params.id}' not found` });
+        const connections = getCurrentConnectionsConfig();
+        const idx = findConnectionIndexByInstanceId(connections, req.params.id);
+        if (idx === -1) {
+          return res
+            .status(404)
+            .json({ error: `Configuration for instance '${req.params.id}' not found` });
+        }
+        const next = [...connections.slice(0, idx), ...connections.slice(idx + 1)];
+        return await restartWithConnections(res, next, 200);
+      } catch (err: unknown) {
+        respondInstancesError(res, err);
       }
-      const next = [...connections.slice(0, idx), ...connections.slice(idx + 1)];
-      return restartWithConnections(res, next, 200);
-    } catch (err: unknown) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
-  });
+  );
 
   router.get(
     "/connections/:id/metrics",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req: RouteRequest, res: RouteResponse) => {
+    wrap((req, res) => {
       const bundle = getBundleById(req.params.id);
       if (!bundle) {
         return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
@@ -396,7 +416,7 @@ function register(router: Router, ctx: RouteContext): void {
       const data = buildFullMetricsResponse(bundle);
       data.instanceId = req.params.id;
       res.json(data);
-    }
+    }, app)
   );
 
   router.get(
@@ -523,68 +543,44 @@ function register(router: Router, ctx: RouteContext): void {
     }
   );
 
+  /** Resolve the addressed bundle's state, or send the 404 and return null. */
+  function resolveConnectionState(req: RouteRequest, res: RouteResponse) {
+    const bundle = getBundleById(req.params.id);
+    if (!bundle) {
+      res.status(404).json({ error: `Connection '${req.params.id}' not found` });
+      return null;
+    }
+    return bundle.state;
+  }
+
   router.get(
     "/connections/:id/monitoring/alerts",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req: RouteRequest, res: RouteResponse) => {
-      const bundle = getBundleById(req.params.id);
-      if (!bundle) {
-        return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
-      }
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.alertManager) {
-        return res.json({ thresholds: {}, activeAlerts: {} });
-      }
-      res.json(state.monitoring.alertManager.getState());
-    }
+    wrap((req, res) => {
+      const state = resolveConnectionState(req, res);
+      if (state) sendAlertsState(state, res);
+    }, app)
   );
 
   router.get(
     "/connections/:id/monitoring/packet-loss",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req: RouteRequest, res: RouteResponse) => {
-      const bundle = getBundleById(req.params.id);
-      if (!bundle) {
-        return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
-      }
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.packetLossTracker) {
-        return res.json({
-          heatmap: [],
-          summary: { overallLossRate: 0, maxLossRate: 0, trend: "stable", bucketCount: 0 }
-        });
-      }
-      res.json({
-        heatmap: state.monitoring.packetLossTracker.getHeatmapData(),
-        summary: state.monitoring.packetLossTracker.getSummary()
-      });
-    }
+    wrap((req, res) => {
+      const state = resolveConnectionState(req, res);
+      if (state) sendPacketLossView(state, res);
+    }, app)
   );
 
   router.get(
     "/connections/:id/monitoring/retransmissions",
     rateLimitMiddleware,
     managementAuthMiddleware("connection-monitoring.read"),
-    (req: RouteRequest, res: RouteResponse) => {
-      const bundle = getBundleById(req.params.id);
-      if (!bundle) {
-        return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
-      }
-      const { state } = bundle;
-      if (!state.monitoring || !state.monitoring.retransmissionTracker) {
-        return res.json({
-          chartData: [],
-          summary: { avgRate: 0, maxRate: 0, currentRate: 0, entries: 0 }
-        });
-      }
-      const limit = parseInt(String(req.query.limit ?? ""), 10) || undefined;
-      res.json({
-        chartData: state.monitoring.retransmissionTracker.getChartData(limit),
-        summary: state.monitoring.retransmissionTracker.getSummary()
-      });
-    }
+    wrap((req, res) => {
+      const state = resolveConnectionState(req, res);
+      if (state) sendRetransmissionsView(state, req, res);
+    }, app)
   );
 
   router.post(
@@ -592,29 +588,14 @@ function register(router: Router, ctx: RouteContext): void {
     rateLimitMiddleware,
     blockCrossSiteForm,
     managementAuthMiddleware("connection-bonding.failover"),
-    (req: RouteRequest, res: RouteResponse) => {
-      const bundle = getBundleById(req.params.id);
-      if (!bundle) {
-        return res.status(404).json({ error: `Connection '${req.params.id}' not found` });
-      }
-      const { state } = bundle;
+    wrap((req, res) => {
+      const state = resolveConnectionState(req, res);
+      if (!state) return;
       if (state.isServerMode) {
         return res.status(404).json({ error: "Not available in server mode" });
       }
-      if (!state.pipeline || !state.pipeline.getBondingManager) {
-        return res.status(503).json({ error: "Bonding not available" });
-      }
-      const bonding = state.pipeline.getBondingManager();
-      if (!bonding) {
-        return res.status(503).json({ error: "Bonding not enabled" });
-      }
-      bonding.forceFailover();
-      res.json({
-        success: true,
-        activeLink: bonding.getActiveLinkName(),
-        links: bonding.getLinkHealth()
-      });
-    }
+      sendBondingFailover(state, res);
+    }, app)
   );
 }
 

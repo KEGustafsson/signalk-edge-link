@@ -1,7 +1,7 @@
 "use strict";
 
 const createRoutes = require("../lib/routes");
-const { RATE_LIMIT_MAX_REQUESTS } = require("../lib/constants");
+const { RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_MAX_KEYS } = require("../lib/constants");
 
 function makeRouterCollector() {
   const routes = [];
@@ -145,6 +145,44 @@ describe("rate limit middleware client identity", () => {
 
     expect(res.status).toHaveBeenCalledWith(429);
     expect(json).toHaveBeenCalledWith({ error: "Too many requests, please try again later" });
+  });
+
+  test("new clients are still admitted once the identity map is at capacity", () => {
+    // Regression: the cleanup interval only runs while the plugin is started,
+    // so the map is bounded by eviction inside checkRateLimit; admission of a
+    // new key must keep working at (and past) RATE_LIMIT_MAX_KEYS.
+    const app = { get: jest.fn(() => false) };
+    const instanceRegistry = {
+      get: jest.fn(() => makeBundle()),
+      getFirst: jest.fn(() => makeBundle()),
+      getAll: jest.fn(() => [makeBundle()])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const metricsRoute = router.routes.find((r) => r.method === "get" && r.path === "/metrics");
+    const rateLimitMiddleware = metricsRoute.handlers[0];
+
+    const res = { status: jest.fn(() => ({ json: jest.fn() })) };
+    const next = jest.fn();
+    for (let i = 0; i < RATE_LIMIT_MAX_KEYS + 50; i++) {
+      const req = {
+        headers: {},
+        ip: `10.0.${i >> 8}.${i & 0xff}`,
+        socket: {},
+        app: { get: () => false }
+      };
+      rateLimitMiddleware(req, res, next);
+    }
+
+    expect(next).toHaveBeenCalledTimes(RATE_LIMIT_MAX_KEYS + 50);
+    expect(res.status).not.toHaveBeenCalled();
+    const early = { headers: {}, ip: "10.0.0.0", socket: {}, app: { get: () => false } };
+    rateLimitMiddleware(early, res, next);
+    expect(next).toHaveBeenCalledTimes(RATE_LIMIT_MAX_KEYS + 51);
+    expect(res.status).not.toHaveBeenCalled();
   });
 
   test("a spoofed leftmost x-forwarded-for cannot mint a fresh rate-limit bucket", () => {

@@ -170,7 +170,14 @@ function attachServerPipeline(ctx: ConnectionContext): void {
     const srv = state.pipelineServer ?? createPipelineV2Server(appProxy, state, metricsApi);
     state.pipelineServer = srv;
     state.socketUdp?.on("message", (pkt: Buffer, rinfo: dgram.RemoteInfo) => {
-      srv.receivePacket(pkt, options.secretKey, rinfo);
+      // receivePacket catches internally today, but a floating promise here
+      // would turn any future throw in its error reporting into an unhandled
+      // rejection that takes down the server process.
+      Promise.resolve(srv.receivePacket(pkt, options.secretKey, rinfo)).catch((err: unknown) => {
+        app.error(
+          `[${instanceId}] v3 receivePacket failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      });
     });
     state.socketUdp?.on("listening", () => {
       if (!state.socketUdp) return;
@@ -195,6 +202,7 @@ function bindAndAwaitListening(ctx: ConnectionContext): Promise<void> {
     const cleanup = () => {
       startupSocket?.removeListener("listening", onListen);
       startupSocket?.removeListener("error", onError);
+      startupSocket?.removeListener("close", onClose);
     };
     const onListen = () => {
       if (!settled) {
@@ -212,8 +220,19 @@ function bindAndAwaitListening(ctx: ConnectionContext): Promise<void> {
         );
       }
     };
+    // A stop() landing between bind() and "listening" closes the socket,
+    // which emits only "close" — without this the promise never settles and
+    // the caller's rollback bookkeeping is skipped for the attempt.
+    const onClose = () => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        reject(new Error(`[${instanceId}] Socket closed before bind to port ${options.udpPort}`));
+      }
+    };
     startupSocket?.once("listening", onListen);
     startupSocket?.once("error", onError);
+    startupSocket?.once("close", onClose);
     socketManager.bind(options.udpPort);
   });
 }

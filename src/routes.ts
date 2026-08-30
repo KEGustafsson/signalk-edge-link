@@ -3,7 +3,11 @@
 import crypto from "node:crypto";
 
 import { PATH_CATEGORIES } from "./codec/path-dictionary";
-import { RATE_LIMIT_WINDOW, RATE_LIMIT_MAX_REQUESTS } from "./foundation/constants";
+import {
+  RATE_LIMIT_WINDOW,
+  RATE_LIMIT_MAX_REQUESTS,
+  RATE_LIMIT_MAX_KEYS
+} from "./foundation/constants";
 import {
   loadConfigFile as loadConfigFileShared,
   saveConfigFile as saveConfigFileShared
@@ -18,7 +22,14 @@ import type {
   EffectiveNetworkQuality,
   PathStatEntry
 } from "./foundation/types";
-import type { RouteRequest, RouteResponse, NextFn, RouteHandler, Router } from "./routes/types";
+import type {
+  RouteRequest,
+  RouteResponse,
+  NextFn,
+  RouteHandler,
+  Router,
+  ManagementAuthSnapshot
+} from "./routes/types";
 
 type ManagementAuthDecision = "allowed" | "denied";
 type ManagementAuthReason =
@@ -35,14 +46,6 @@ interface ManagementAuthActionCounters {
   denied: number;
   reasons: Record<string, number>;
   byDecision: { allowed: Record<string, number>; denied: Record<string, number> };
-}
-
-interface ManagementAuthSnapshot {
-  total: number;
-  allowed: number;
-  denied: number;
-  byReason: Record<string, number>;
-  byAction: Record<string, ManagementAuthActionCounters>;
 }
 
 // Route sub-modules
@@ -240,10 +243,6 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     }
 
     return null;
-  }
-
-  function warnIfOpenAccess(): void {
-    // Retained as a no-op for compatibility with older route consumers.
   }
 
   /**
@@ -497,6 +496,22 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     // relying on interval alignment.  This prevents a 2× burst that would
     // otherwise be possible when two requests straddle the cleanup boundary.
     if (!clientData || now >= clientData.resetTime) {
+      // Bound the map even when the periodic cleanup is not running (the
+      // routes keep serving while the plugin is stopped): drop expired
+      // entries first, then the oldest, before admitting a new key.
+      if (!clientData && rateLimitMap.size >= RATE_LIMIT_MAX_KEYS) {
+        for (const [k, data] of rateLimitMap.entries()) {
+          if (now >= data.resetTime) {
+            rateLimitMap.delete(k);
+            break;
+          }
+        }
+        while (rateLimitMap.size >= RATE_LIMIT_MAX_KEYS) {
+          const oldest = rateLimitMap.keys().next();
+          if (oldest.done) break;
+          rateLimitMap.delete(oldest.value);
+        }
+      }
       rateLimitMap.set(key, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
       return true;
     }
@@ -1087,8 +1102,7 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
     loadConfigFile,
     saveConfigFile,
     startRateLimitCleanup,
-    stopRateLimitCleanup,
-    warnIfOpenAccess
+    stopRateLimitCleanup
   };
 }
 

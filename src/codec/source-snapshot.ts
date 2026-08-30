@@ -206,30 +206,67 @@ export function mergeSourceSnapshot(
 
   const target = root.sources as Record<string, unknown>;
   const before = Object.keys(target).length;
-  // Stop scanning incoming providers once the cap is reached so a
-  // pathologically wide snapshot never gets fully iterated.
+  const { limited, dropped, truncated } = filterAcceptableProviders(
+    sources as Record<string, unknown>,
+    target
+  );
+  if (dropped > 0 || truncated) {
+    app.debug(
+      `[source-snapshot] rejected ${dropped}${truncated ? "+" : ""} provider key(s) (validation/cap)`
+    );
+  }
+  mergePlain(target, limited);
+  return Object.keys(target).length - before;
+}
+
+/**
+ * Validate incoming providers and enforce SOURCE_SNAPSHOT_MAX_PROVIDERS.
+ *
+ * Stops scanning incoming providers once the cap is reached so a
+ * pathologically wide snapshot never gets fully iterated. The cap is also
+ * enforced against the live tree: without that, each snapshot could add up to
+ * the cap in new keys and rotating provider names would grow /sources without
+ * bound. Merging into existing providers stays allowed at the cap.
+ */
+function filterAcceptableProviders(
+  sources: Record<string, unknown>,
+  target: Record<string, unknown>
+): { limited: Record<string, unknown>; dropped: number; truncated: boolean } {
   const limited: Record<string, unknown> = {};
-  let count = 0;
+  // Cap the entries INSPECTED, not the entries accepted: gating on accepted
+  // providers alone let a wide snapshot against an already-full target run
+  // deep validation on every entry, since rejected entries never advanced the
+  // counter.
+  let inspected = 0;
   let dropped = 0;
-  for (const key in sources as Record<string, unknown>) {
+  let truncated = false;
+  let targetSize = Object.keys(target).length;
+  for (const key in sources) {
     if (!Object.prototype.hasOwnProperty.call(sources, key)) {
       continue;
     }
-    if (count >= SOURCE_SNAPSHOT_MAX_PROVIDERS) {
-      dropped++;
+    if (inspected >= SOURCE_SNAPSHOT_MAX_PROVIDERS) {
+      // Don't count the remaining keys — even a shallow Object.keys() scan of
+      // a pathologically wide decoded envelope is work the cap exists to skip.
+      // The flag marks the drop count as a lower bound instead.
+      truncated = true;
       break;
     }
-    const value = (sources as Record<string, unknown>)[key];
+    inspected++;
+    const value = sources[key];
     if (!isAcceptableKey(key) || !isAcceptableValue(value, 1)) {
       dropped++;
       continue;
     }
+    const isNewProvider = !Object.prototype.hasOwnProperty.call(target, key);
+    if (isNewProvider && targetSize >= SOURCE_SNAPSHOT_MAX_PROVIDERS) {
+      dropped++;
+      continue;
+    }
+    if (isNewProvider) {
+      targetSize++;
+    }
     limited[key] = value;
-    count++;
   }
-  if (dropped > 0) {
-    app.debug(`[source-snapshot] rejected ${dropped} provider key(s) (validation/cap)`);
-  }
-  mergePlain(target, limited);
-  return Object.keys(target).length - before;
+  return { limited, dropped, truncated };
 }

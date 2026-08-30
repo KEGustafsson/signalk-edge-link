@@ -13,7 +13,11 @@
 
 import { createConnection, slugify } from "../connection";
 import type { ConnectionApi } from "../connection";
-import { validateConnectionConfig, sanitizeConnectionConfig } from "../../connection-config";
+import {
+  validateConnectionConfig,
+  sanitizeConnectionConfig,
+  validateUniqueServerPorts
+} from "../../connection-config";
 import type { SignalKApp, ConnectionConfig } from "../../foundation/types";
 
 /** Shared state + dependencies for the connection-manager helpers. */
@@ -34,6 +38,21 @@ export interface ManagerContext {
    * holding no registry entry, unreachable by any later stop().
    */
   startGeneration: number;
+  /**
+   * Pending start-retry timers. Generation checks already make a superseded
+   * retry a no-op, but the timer itself would keep its callback and captured
+   * context alive for up to START_RETRY_MAX_MS; stop() and each new start()
+   * clear these so repeated reconfiguration cannot accumulate them.
+   */
+  startRetryTimers: Set<ReturnType<typeof setTimeout>>;
+}
+
+/** Cancel every pending start-retry timer (safe no-op when none exist). */
+export function cancelStartRetries(ctx: ManagerContext): void {
+  for (const timer of ctx.startRetryTimers) {
+    clearTimeout(timer);
+  }
+  ctx.startRetryTimers.clear();
 }
 
 /** True when a newer start(), or a stop(), superseded this start attempt. */
@@ -47,13 +66,6 @@ function generateInstanceId(name: string | undefined, usedIds: Set<string>): str
   let n = 1;
   while (usedIds.has(`${base}-${n}`)) n++;
   return `${base}-${n}`;
-}
-
-function findDuplicateServerPorts(connections: ConnectionConfig[]): number[] {
-  const ports = connections
-    .filter((c) => c.serverType === "server" || (c.serverType as unknown) === true)
-    .map((c) => c.udpPort);
-  return ports.filter((p, i) => ports.indexOf(p) !== i);
 }
 
 /**
@@ -84,12 +96,11 @@ function prepareConnectionList(
   ctx: ManagerContext,
   connectionList: ConnectionConfig[]
 ): ConnectionConfig[] | null {
-  const dupes = findDuplicateServerPorts(connectionList);
-  if (dupes.length > 0) {
-    ctx.app.error(
-      `Duplicate server ports detected: ${[...new Set(dupes)].join(", ")}. ` +
-        "Each server instance must use a unique UDP port."
-    );
+  // Same normalization-aware check the routes use, rather than a weaker local
+  // re-implementation that missed string-typed serverType spellings.
+  const portError = validateUniqueServerPorts(connectionList);
+  if (portError) {
+    ctx.app.error(`${portError}. Each server instance must use a unique UDP port.`);
     ctx.setError("Configuration error: duplicate server ports");
     return null;
   }
@@ -141,29 +152,48 @@ function createInstances(
   return owned;
 }
 
-/** Start every instance in a group, capturing the first error encountered. */
+/** One instance whose start() rejected, with the error it rejected with. */
+interface StartFailure {
+  id: string;
+  inst: ConnectionApi;
+  err: unknown;
+}
+
+/** Start every instance in a group, collecting the failures. */
 async function startGroup(
   ctx: ManagerContext,
-  group: ConnectionApi[],
-  onError: (err: unknown) => void
+  group: Array<[string, ConnectionApi]>,
+  failures: StartFailure[]
 ): Promise<void> {
   await Promise.all(
-    group.map(async (inst) => {
+    group.map(async ([id, inst]) => {
       try {
         await inst.start();
       } catch (err: unknown) {
-        onError(err);
+        failures.push({ id, inst, err });
         ctx.app.error(
-          `Failed to start connection: ${err instanceof Error ? err.message : String(err)}`
+          `Failed to start connection '${inst.getName()}': ${err instanceof Error ? err.message : String(err)}`
         );
       }
     })
   );
 }
 
+/** Stop one instance, containing a throwing teardown so it cannot abort the
+ *  teardown of sibling connections. */
+export function safeStopInstance(ctx: ManagerContext, inst: ConnectionApi): void {
+  try {
+    inst.stop();
+  } catch (err: unknown) {
+    ctx.app.error(
+      `Error stopping connection '${inst.getName()}': ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
 /** Stop and clear every registered instance. */
 function teardownAll(ctx: ManagerContext): void {
-  for (const inst of ctx.instances.values()) inst.stop();
+  for (const inst of ctx.instances.values()) safeStopInstance(ctx, inst);
   ctx.instances.clear();
 }
 
@@ -178,35 +208,31 @@ function teardownAll(ctx: ManagerContext): void {
  */
 function teardownOwned(ctx: ManagerContext, owned: Map<string, ConnectionApi>): void {
   for (const [id, inst] of owned) {
-    inst.stop();
+    safeStopInstance(ctx, inst);
     if (ctx.instances.get(id) === inst) ctx.instances.delete(id);
   }
 }
 
 /**
- * Start servers (before clients), in ordered groups. Returns the first startup
- * error, or `null` if all instances started successfully.
+ * Start servers (before clients), in ordered groups. Returns the instances
+ * whose start() rejected (empty when all started successfully).
  */
 async function startAllInstances(
   ctx: ManagerContext,
   owned: Map<string, ConnectionApi>,
   generation: number
-): Promise<unknown> {
-  const all = [...owned.values()];
-  const servers = all.filter((inst) => inst.isServerMode());
-  const clients = all.filter((inst) => !inst.isServerMode());
+): Promise<StartFailure[]> {
+  const all = [...owned.entries()];
+  const servers = all.filter(([, inst]) => inst.isServerMode());
+  const clients = all.filter(([, inst]) => !inst.isServerMode());
 
-  let startError: unknown = null;
-  const onError = (err: unknown): void => {
-    if (!startError) startError = err;
-  };
-
-  await startGroup(ctx, servers, onError);
+  const failures: StartFailure[] = [];
+  await startGroup(ctx, servers, failures);
   // A stop() (or a newer start()) during the server group must not go on to
   // start the client group against a registry that has already been cleared.
-  if (superseded(ctx, generation)) return startError;
-  await startGroup(ctx, clients, onError);
-  return startError;
+  if (superseded(ctx, generation)) return failures;
+  await startGroup(ctx, clients, failures);
+  return failures;
 }
 
 /**
@@ -229,6 +255,7 @@ function wireFullStatusCascade(ctx: ManagerContext): void {
 export async function start(ctx: ManagerContext, options: Record<string, unknown>): Promise<void> {
   // Claim this start attempt; any concurrent start() or stop() supersedes it.
   const generation = ++ctx.startGeneration;
+  cancelStartRetries(ctx);
 
   // Tear down any existing instances (restart case).
   if (ctx.instances.size > 0) teardownAll(ctx);
@@ -242,7 +269,7 @@ export async function start(ctx: ManagerContext, options: Record<string, unknown
   logLegacyProtocolUsage(ctx, connectionList);
   const owned = createInstances(ctx, connectionList);
 
-  const startError = await startAllInstances(ctx, owned, generation);
+  const failures = await startAllInstances(ctx, owned, generation);
 
   // Superseded mid-start: whatever did supersede us owns the registry now.
   // Stop anything this attempt managed to start and leave the rest alone.
@@ -252,20 +279,109 @@ export async function start(ctx: ManagerContext, options: Record<string, unknown
     return;
   }
 
-  if (startError) {
-    ctx.app.error("Failed to start one or more connections — stopping all instances");
-    // Stop EVERY instance in the registry, not just the ones that started
-    // successfully. An instance whose start() threw may have allocated
-    // sockets/timers/heartbeat/pipeline state before failing; its full
-    // teardown (stop()) is idempotent and safe to call even after a partial
-    // start, so this releases resources that would otherwise leak.
-    teardownAll(ctx);
-    ctx.setError(
-      `Startup failed: ${startError instanceof Error ? startError.message : String(startError)}`
+  if (failures.length > 0) {
+    // Stop ONLY the failed instances — an instance whose start() threw may
+    // have allocated sockets/timers/pipeline state before failing, and its
+    // full teardown is idempotent — but keep them registered so operators see
+    // them as unhealthy and the retry below can bring them up. Healthy
+    // connections keep running: one instance's bad port must not take down an
+    // unrelated shore uplink.
+    for (const { inst } of failures) {
+      safeStopInstance(ctx, inst);
+    }
+    if (failures.length === owned.size) {
+      const first = failures[0].err;
+      ctx.app.error("Failed to start one or more connections — no instance is running");
+      ctx.setError(`Startup failed: ${first instanceof Error ? first.message : String(first)}`);
+    } else {
+      ctx.app.error(
+        `Failed to start ${failures.length} of ${owned.size} connections — ` +
+          "healthy connections keep running"
+      );
+      ctx.updateAggregatedStatus();
+    }
+    scheduleStartRetry(
+      ctx,
+      failures.map((f) => f.id),
+      generation,
+      START_RETRY_BASE_MS
     );
-    return;
+  } else {
+    ctx.updateAggregatedStatus();
+  }
+
+  wireFullStatusCascade(ctx);
+}
+
+// Retry cadence for instances whose start() rejected. EADDRINUSE and similar
+// environmental failures commonly clear on their own (the conflicting process
+// exits, an interface comes up), and nothing else re-attempts a start-time
+// failure — the socket-recovery machinery only covers errors after Ready.
+const START_RETRY_BASE_MS = 30000;
+const START_RETRY_MAX_MS = 300000;
+
+/** Arm (and track) the next start-retry attempt for the given instances. */
+function scheduleStartRetry(
+  ctx: ManagerContext,
+  failedIds: string[],
+  generation: number,
+  delay: number
+): void {
+  const timer = setTimeout(() => {
+    ctx.startRetryTimers.delete(timer);
+    void retryFailedInstances(ctx, failedIds, generation, delay);
+  }, delay);
+  ctx.startRetryTimers.add(timer);
+  // Never hold the process open for a retry.
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
+}
+
+/**
+ * Re-attempt start() for instances that failed at startup. Runs under the
+ * generation that scheduled it: a newer start() or stop() supersedes the
+ * retry, and an instance it raced is stopped again rather than left running
+ * unregistered.
+ */
+async function retryFailedInstances(
+  ctx: ManagerContext,
+  failedIds: string[],
+  generation: number,
+  lastDelay: number
+): Promise<void> {
+  if (superseded(ctx, generation)) return;
+
+  const stillFailed: string[] = [];
+  for (const id of failedIds) {
+    const inst = ctx.instances.get(id);
+    if (!inst) continue;
+    let failed = false;
+    try {
+      await inst.start();
+      ctx.app.debug(`Connection '${inst.getName()}' started on retry`);
+    } catch (err: unknown) {
+      failed = true;
+      ctx.app.error(
+        `Retry failed for connection '${inst.getName()}': ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    if (superseded(ctx, generation)) {
+      // A newer start()/stop() took over mid-attempt; it has already swept the
+      // registry, so only this in-flight instance needs stopping.
+      safeStopInstance(ctx, inst);
+      if (ctx.instances.get(id) === inst) ctx.instances.delete(id);
+      return;
+    }
+    if (failed) {
+      safeStopInstance(ctx, inst);
+      stillFailed.push(id);
+    }
   }
 
   wireFullStatusCascade(ctx);
   ctx.updateAggregatedStatus();
+  if (stillFailed.length > 0) {
+    scheduleStartRetry(ctx, stillFailed, generation, Math.min(lastDelay * 2, START_RETRY_MAX_MS));
+  }
 }

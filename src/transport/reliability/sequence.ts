@@ -9,6 +9,8 @@
  * @module transport/reliability/sequence
  */
 
+import { serialAhead, serialDistance } from "../../foundation/serial";
+
 interface SequenceTrackerConfig {
   maxOutOfOrder?: number;
   nakTimeout?: number;
@@ -127,12 +129,10 @@ export class SequenceTracker {
 
   /**
    * Returns true if seq is ahead of reference in uint32 serial number space.
-   * Uses half-range comparison (RFC-style serial arithmetic).
    * @private
    */
   private _isAhead(seq: number, reference: number): boolean {
-    const distance = (seq - reference) >>> 0;
-    return distance !== 0 && distance < 0x80000000;
+    return serialAhead(seq, reference);
   }
 
   /**
@@ -140,8 +140,7 @@ export class SequenceTracker {
    * @private
    */
   private _isBehind(seq: number, reference: number): boolean {
-    const distance = (reference - seq) >>> 0;
-    return distance !== 0 && distance < 0x80000000;
+    return serialAhead(reference, seq);
   }
 
   /**
@@ -149,7 +148,7 @@ export class SequenceTracker {
    * @private
    */
   private _distanceForward(from: number, to: number): number {
-    return (to - from) >>> 0;
+    return serialDistance(from, to);
   }
 
   /**

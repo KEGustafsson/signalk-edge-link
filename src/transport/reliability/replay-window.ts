@@ -25,6 +25,7 @@
  */
 
 import { REPLAY_WINDOW_SIZE } from "../../foundation/constants";
+import { serialAhead, serialDistance } from "../../foundation/serial";
 
 export class ReplayWindow {
   /** Highest accepted sequence, or null until the first packet establishes it. */
@@ -68,16 +69,15 @@ export class ReplayWindow {
       return true;
     }
 
-    const forward = (seq - this.highest) >>> 0;
     // Strictly ahead of the current high-water mark: advance the window.
-    if (forward !== 0 && forward < 0x80000000) {
+    if (serialAhead(seq, this.highest)) {
       this.highest = seq;
       this.seen.add(seq);
       this._pruneIfNeeded();
       return true;
     }
 
-    const behind = (this.highest - seq) >>> 0;
+    const behind = serialDistance(seq, this.highest);
     if (behind >= this.size) {
       // Older than the window — freshness cannot be proven, so reject as replay.
       return false;
@@ -109,7 +109,7 @@ export class ReplayWindow {
     // Collect-then-delete: mutating a Set mid-iteration can skip entries in V8.
     const stale: number[] = [];
     for (const s of this.seen) {
-      if ((this.highest - s) >>> 0 >= this.size) {
+      if (serialDistance(s, this.highest) >= this.size) {
         stale.push(s);
       }
     }

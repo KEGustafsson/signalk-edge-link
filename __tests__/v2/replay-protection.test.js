@@ -135,7 +135,12 @@ describe("H3 anti-replay", () => {
     await receivePacket(ctx, pkt, SECRET, client);
     await receivePacket(ctx, pkt, SECRET, client); // immediate replay
     expect(app.handleMessage).toHaveBeenCalledTimes(1);
-    expect(ctx.metrics.replayedPackets).toBe(1);
+    // While the live session still remembers the sequence, an identical
+    // datagram is indistinguishable from a retransmit crossing an ACK, so it
+    // counts as a duplicate; replayedPackets is reserved for sequences the
+    // session has no record of (see the post-expiry tests).
+    expect(ctx.metrics.duplicatePackets).toBe(1);
+    expect(ctx.metrics.replayedPackets ?? 0).toBe(0);
   });
 
   test("rejects a replay from a rotated source port while the session is live", async () => {
@@ -264,5 +269,128 @@ describe("H3 anti-replay", () => {
     await receivePacket(ctx, pkt, SECRET, client);
     expect(ctx.metrics.replayedPackets).toBe(0);
     expect(app.handleMessage).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("METADATA anti-replay", () => {
+  async function metaPacket(builder, envSeq) {
+    const envelope = {
+      v: 1,
+      kind: "snapshot",
+      seq: envSeq,
+      idx: 0,
+      total: 1,
+      entries: [
+        { context: "vessels.self", path: "navigation.speedOverGround", meta: { units: "m/s" } }
+      ]
+    };
+    const compressed = await brotliCompress(Buffer.from(JSON.stringify(envelope)));
+    const encrypted = encryptBinary(compressed, SECRET);
+    return builder.buildMetadataPacket(encrypted, { compressed: true, encrypted: true });
+  }
+
+  test("rejects a META replay after the live session is gone (idle/eviction)", async () => {
+    // Regression: envelope dedup lives in the evictable session, so a captured
+    // METADATA datagram replayed after session expiry re-injected stale meta
+    // (and a replayed seq-0 chunk reset restart detection). The per-peer guard
+    // must cover the META channel like it covers DATA.
+    const app = makeApp();
+    const ctx = makeCtx(app);
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET });
+
+    await receivePacket(ctx, helloPacket(1000), SECRET, client);
+    const pkt = await metaPacket(builder, 0);
+    await receivePacket(ctx, pkt, SECRET, client);
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+
+    ctx.clientSessions.clear();
+    expect(ctx.replayGuards.size).toBe(1);
+
+    await receivePacket(ctx, pkt, SECRET, client);
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+    expect(ctx.metrics.replayedPackets).toBe(1);
+  });
+
+  test("accepts META from a legitimately restarted peer (higher epoch)", async () => {
+    const app = makeApp();
+    const ctx = makeCtx(app);
+
+    await receivePacket(ctx, helloPacket(1000), SECRET, client);
+    const oldBuilder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET });
+    // Advance the old process's META sequence past META_RESTART_THRESHOLD so
+    // the session-level restart detection accepts the post-restart envSeq 0.
+    for (let i = 0; i < 10; i++) {
+      await receivePacket(ctx, await metaPacket(oldBuilder, i), SECRET, client);
+    }
+    const dispatchedBefore = app.handleMessage.mock.calls.length;
+
+    // Peer restarts: higher epoch resets the guard windows, and its fresh
+    // builder restarts the META header sequence at 0.
+    await receivePacket(ctx, helloPacket(2000), SECRET, client);
+    const newBuilder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET });
+    await receivePacket(ctx, await metaPacket(newBuilder, 0), SECRET, client);
+    expect(app.handleMessage.mock.calls.length).toBe(dispatchedBefore + 1);
+  });
+
+  test("a pre-H3 peer (no epoch) keeps legacy META behavior", async () => {
+    const app = makeApp();
+    const ctx = makeCtx(app);
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET });
+
+    await receivePacket(ctx, helloPacket(undefined), SECRET, client);
+    const pkt = await metaPacket(builder, 0);
+    await receivePacket(ctx, pkt, SECRET, client);
+    ctx.clientSessions.clear();
+    // Unenforced without an epoch: the replay is dropped by nothing at the
+    // guard level (session-level dedup state is gone), matching DATA.
+    await receivePacket(ctx, pkt, SECRET, client);
+    expect(app.handleMessage).toHaveBeenCalledTimes(2);
+    expect(ctx.metrics.replayedPackets || 0).toBe(0);
+  });
+});
+
+describe("META entry structural bounds", () => {
+  async function customMetaPacket(builder, entries, envSeq = 0) {
+    const envelope = { v: 1, kind: "snapshot", seq: envSeq, idx: 0, total: 1, entries };
+    const compressed = await brotliCompress(Buffer.from(JSON.stringify(envelope)));
+    const encrypted = encryptBinary(compressed, SECRET);
+    return builder.buildMetadataPacket(encrypted, { compressed: true, encrypted: true });
+  }
+
+  test("drops entries that exceed depth/size bounds, keeps real Signal K meta", async () => {
+    const app = makeApp();
+    const ctx = makeCtx(app);
+    const builder = new PacketBuilder({ protocolVersion: 3, secretKey: SECRET });
+    await receivePacket(ctx, helloPacket(1000), SECRET, client);
+
+    let deep = { end: true };
+    for (let i = 0; i < 12; i++) {
+      deep = { nest: deep };
+    }
+    const entries = [
+      // Realistic meta: units, description, zones — must pass.
+      {
+        context: "vessels.self",
+        path: "electrical.batteries.0.voltage",
+        meta: {
+          units: "V",
+          description: "House battery voltage",
+          zones: [{ lower: 11.5, state: "alarm", message: "Low voltage" }]
+        }
+      },
+      // Structurally unbounded / hostile shapes — must be dropped.
+      { context: "vessels.self", path: "a.b", meta: deep },
+      { context: "vessels.self", path: "a.c", meta: { ["x".repeat(5000)]: 1 } },
+      { context: "vessels.self", path: "x".repeat(1000), meta: { units: "V" } },
+      { context: "vessels.self", path: "a.d", meta: { __proto__2: 1, constructor: {} } }
+    ];
+    await receivePacket(ctx, await customMetaPacket(builder, entries), SECRET, client);
+
+    expect(app.handleMessage).toHaveBeenCalledTimes(1);
+    const delta = app.handleMessage.mock.calls[0][1];
+    const metaItems = delta.updates[0].meta;
+    expect(metaItems).toHaveLength(1);
+    expect(metaItems[0].path).toBe("electrical.batteries.0.voltage");
+    expect(metaItems[0].value.units).toBe("V");
   });
 });

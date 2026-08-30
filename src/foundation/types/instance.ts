@@ -74,8 +74,6 @@ export interface InstanceState {
   localSubscription: unknown | null;
   /** Periodic HELLO retransmit timer handle; null when not active. */
   helloMessageSender: ReturnType<typeof setInterval> | null;
-  /** Ping-response watchdog timer handle; null when not active. */
-  pingTimeout: ReturnType<typeof setTimeout> | null;
   /** Pending subscription retry timer; null when not scheduled. */
   subscriptionRetryTimer: ReturnType<typeof setTimeout> | null;
   /** True while `app.subscriptionmanager.subscribe()` is executing. signalk-

@@ -22,6 +22,7 @@ import {
   type DeltaPayload
 } from "../../../codec/delta-sanitizer";
 import { dedupDeltaPayload, resetValueDedupState } from "../../../codec/value-dedup";
+import { resetPathThrottleState } from "../../../codec/delta-sanitizer";
 import { encodeCompactPayload } from "../../../codec/compact-delta";
 import { deltaBuffer, compressPayload } from "../../../codec/compression";
 import {
@@ -185,8 +186,11 @@ function reportSendDeltaError(ctx: ClientContext, error: unknown): void {
   // `prepareDeltaPayload` has already recorded these values as sent. If the
   // failure happened before the packet was queued (compress/encrypt/encode),
   // nothing will ever carry them, and the cached baseline would silently
-  // suppress the same values from the next delta. Resync rather than lose them.
+  // suppress the same values from the next delta. Resync rather than lose
+  // them — the throttle deadband state records "sent" at the same point and
+  // fails the same way, so it resets alongside.
   resetValueDedupState(ctx.dedupState);
+  resetPathThrottleState(ctx.throttleState);
   const msg = error instanceof Error ? error.message : String(error);
   if (msg.includes("compress")) {
     app.error(`v2 compression error: ${msg}`);

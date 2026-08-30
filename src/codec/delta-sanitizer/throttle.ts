@@ -5,7 +5,7 @@
 import type { Delta, DeltaUpdate, DeltaValue } from "../../foundation/types";
 import { PATH_THROTTLE_STATE_MAX } from "../../foundation/constants";
 import type { DeltaPayload } from "./internal";
-import { isDeltaLike } from "./internal";
+import { mapDeltaPayload } from "./internal";
 
 // ── Per-path throttle / deadband filtering ──────────────────────────────────
 
@@ -202,25 +202,5 @@ export function throttleDeltaPayload(
   nowMs: number = Date.now()
 ): DeltaPayload | null {
   if (!throttleMap || Object.keys(throttleMap).length === 0) return payload;
-  if (Array.isArray(payload)) {
-    const out: Delta[] = [];
-    for (const d of payload) {
-      const t = throttleDelta(d, throttleMap, state, nowMs);
-      if (t !== null) out.push(t);
-    }
-    return out.length > 0 ? out : null;
-  }
-  if (isDeltaLike(payload)) {
-    return throttleDelta(payload, throttleMap, state, nowMs);
-  }
-  const out: Record<string, Delta> = {};
-  let anyKept = false;
-  for (const [k, v] of Object.entries(payload)) {
-    const t = throttleDelta(v, throttleMap, state, nowMs);
-    if (t !== null) {
-      out[k] = t;
-      anyKept = true;
-    }
-  }
-  return anyKept ? out : null;
+  return mapDeltaPayload(payload, (d) => throttleDelta(d, throttleMap, state, nowMs));
 }

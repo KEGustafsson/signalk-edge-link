@@ -17,11 +17,11 @@ import { OUTBOUND_DEDUPE_CLEANUP_INTERVAL_MS } from "../../foundation/constants"
 import { SOCKET_RECOVERY_BASE_MS, type ConnectionContext } from "./context";
 import { startServer } from "./start-server";
 import { startClient } from "./start-client";
+import { isServer as isServerOptions } from "./build-context";
 
 /** Derive server mode from options (supports legacy boolean and string forms). */
 function isServer(ctx: ConnectionContext): boolean {
-  const { options } = ctx;
-  return (options.serverType as unknown) === true || options.serverType === "server";
+  return isServerOptions(ctx.options);
 }
 
 /**
@@ -61,13 +61,14 @@ export async function start(ctx: ConnectionContext): Promise<void> {
     return;
   }
   ctx.socketRecoveryBackoffMs = SOCKET_RECOVERY_BASE_MS;
+  ctx.startingSocketError = null;
   state.stopped = false;
   state.options = options;
   state.isServerMode = isServer(ctx);
 
+  // Throws (after forcing Stopped) on an invalid key or port, so nothing
+  // below runs for a config that cannot start.
   validateStartPreconditions(ctx);
-
-  if (lifecycle.isShuttingDown()) return;
 
   // Clear before re-arming: a repeated start() would otherwise orphan the
   // previous 1s interval with no handle left to clear it.
@@ -86,6 +87,14 @@ export async function start(ctx: ConnectionContext): Promise<void> {
     } else {
       await startClient(ctx);
     }
+    // A socket "error" that fired mid-startup was only recorded (recovery must
+    // not touch a socket the startup path still owns); surface it now instead
+    // of declaring Ready on a possibly dead socket.
+    if (ctx.startingSocketError) {
+      const socketError = ctx.startingSocketError;
+      ctx.startingSocketError = null;
+      throw socketError;
+    }
     if (!lifecycle.isShuttingDown()) {
       lifecycle.transition("Ready", (msg) => ctx.app.error(msg));
       state.readyToSend = true;
@@ -103,7 +112,15 @@ export async function start(ctx: ConnectionContext): Promise<void> {
 /** Reset session/dedupe bookkeeping and unsubscribe from the SignalK bus. */
 function teardownSession(ctx: ConnectionContext): void {
   const { state, services } = ctx;
-  state.unsubscribes.forEach((f: () => void) => f());
+  for (const f of state.unsubscribes) {
+    try {
+      f();
+    } catch (err: unknown) {
+      ctx.app.error(
+        `[${ctx.instanceId}] Unsubscribe failed during teardown: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
   state.unsubscribes = [];
   state.localSubscription = null;
   services.invalidateSubscriptionGeneration();
@@ -153,36 +170,38 @@ function teardownTimers(ctx: ConnectionContext): void {
     delete state.configDebounceTimers[k];
   });
 
-  state.configWatcherObjects.forEach((w) => w.close());
+  for (const w of state.configWatcherObjects) {
+    try {
+      w.close();
+    } catch {
+      // A watcher whose file vanished can throw on close; nothing to release.
+    }
+  }
   state.configWatcherObjects = [];
 }
 
-/** Tear down the transport pipelines (client + server) and heartbeat. */
+/**
+ * Tear down the transport pipelines (client + server) and heartbeat.
+ *
+ * Each handle is cleared before its stop() runs, and every stop() is
+ * individually contained, so one throwing teardown can neither leave a stale
+ * handle behind nor skip the remaining cleanups. Only the v2/v3 pipelines are
+ * ever stored on state (v1 lives behind getV1Pipeline and holds no timers),
+ * and both implement full stop().
+ */
 function teardownPipelines(ctx: ConnectionContext): void {
   const { state } = ctx;
-  if (state.pipeline?.stop) {
-    state.pipeline.stop();
-  } else {
-    state.pipeline?.stopBonding?.();
-    state.pipeline?.stopMetricsPublishing?.();
-    state.pipeline?.stopCongestionControl?.();
-  }
+  const pipeline = state.pipeline;
   state.pipeline = null;
-  if (state.heartbeatHandle) {
-    state.heartbeatHandle.stop();
-    state.heartbeatHandle = null;
-  }
+  runTeardownPhase(ctx, "client pipeline", () => pipeline?.stop?.());
 
-  // Prefer the full teardown (resets every per-session tracker, clears the
-  // session map). Fall back to the legacy calls for pipelines without stop().
-  if (state.pipelineServer?.stop) {
-    state.pipelineServer.stop();
-  } else {
-    state.pipelineServer?.stopACKTimer?.();
-    state.pipelineServer?.stopMetricsPublishing?.();
-    state.pipelineServer?.getSequenceTracker?.()?.reset();
-  }
+  const heartbeatHandle = state.heartbeatHandle;
+  state.heartbeatHandle = null;
+  runTeardownPhase(ctx, "heartbeat", () => heartbeatHandle?.stop());
+
+  const pipelineServer = state.pipelineServer;
   state.pipelineServer = null;
+  runTeardownPhase(ctx, "server pipeline", () => pipelineServer?.stop?.());
 }
 
 /** Reset enhanced monitoring, the ping monitor, and release the socket. */
@@ -208,6 +227,18 @@ function teardownMonitoringAndSocket(ctx: ConnectionContext): void {
   }
 }
 
+/** Run one teardown phase, containing a throw so the remaining phases still
+ *  run — a failing unsubscribe or pipeline stop must not leak the socket. */
+function runTeardownPhase(ctx: ConnectionContext, name: string, fn: () => void): void {
+  try {
+    fn();
+  } catch (err: unknown) {
+    ctx.app.error(
+      `[${ctx.instanceId}] Error during ${name} teardown: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
 /** Tear down the connection, cancel all timers, and release the socket. */
 export function stop(ctx: ConnectionContext): void {
   const { state, app, instanceId, lifecycle, services, resetMetrics } = ctx;
@@ -217,21 +248,19 @@ export function stop(ctx: ConnectionContext): void {
     );
   }
 
-  const wasShuttingDown = lifecycle.isShuttingDown();
   lifecycle.forceStop();
   state.stopped = true;
   state.readyToSend = false;
   state.isHealthy = false;
 
-  teardownSession(ctx);
-
-  resetMetrics();
-  services.keepaliveManager.stop();
-
-  teardownTimers(ctx);
-  teardownPipelines(ctx);
-  teardownMonitoringAndSocket(ctx);
+  runTeardownPhase(ctx, "session", () => teardownSession(ctx));
+  runTeardownPhase(ctx, "metrics", () => {
+    resetMetrics();
+    services.keepaliveManager.stop();
+  });
+  runTeardownPhase(ctx, "timer", () => teardownTimers(ctx));
+  runTeardownPhase(ctx, "pipeline", () => teardownPipelines(ctx));
+  runTeardownPhase(ctx, "monitoring/socket", () => teardownMonitoringAndSocket(ctx));
 
   ctx.setStatus("Stopped", false);
-  void wasShuttingDown; // satisfies linter if unused
 }

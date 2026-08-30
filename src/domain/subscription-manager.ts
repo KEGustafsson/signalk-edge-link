@@ -386,7 +386,8 @@ function processSubscriptionConfig(ctx: SubscriptionContext, config: unknown): v
     parseMetaConfig,
     restartMetadataTimer,
     scheduleMetadataSnapshot,
-    replayValuesSnapshot
+    replayValuesSnapshot,
+    setStatus
   } = ctx.deps;
   state.localSubscription = normalizeSubscriptionConfig(ctx, config);
   app.debug(`[${instanceId}] Subscription configuration updated`);
@@ -420,6 +421,12 @@ function processSubscriptionConfig(ctx: SubscriptionContext, config: unknown): v
   // A pending retry belongs to the subscription torn down above; cancel it so
   // it cannot fire after the fresh subscribe and churn a redundant
   // teardown/resubscribe cycle. A subscribe() failure below reschedules one.
+  // A pending retry also marks that a subscription failure paused the send
+  // gate (both error paths always arm one); remember it so a successful
+  // subscribe below can reopen the gate — cancelling the retry otherwise
+  // strands the connection paused until plugin restart, since only the retry
+  // path restores readyToSend.
+  const pausedBySubscriptionError = state.subscriptionRetryTimer !== null;
   cancelPendingSubscriptionRetry(state);
 
   try {
@@ -450,6 +457,14 @@ function processSubscriptionConfig(ctx: SubscriptionContext, config: unknown): v
     // Signal K state tree has had a moment to settle after (re)subscribe.
     if (state.metaConfig?.enabled) {
       scheduleMetadataSnapshot(2000);
+    }
+    // Reopen the send gate a subscription error closed — but never while
+    // socket recovery owns the gate (it re-enables sending itself, see the
+    // matching guard in runSubscriptionRetry), and never on an ordinary
+    // (re)subscribe where the gate is managed by the client startup path.
+    if (pausedBySubscriptionError && !state.socketRecoveryInProgress && !state.stopped) {
+      state.readyToSend = true;
+      setStatus("Subscription restored", true);
     }
     // Replay every value already present in the tree. Without this,
     // one-shot startup deltas published before subscribe() ran (e.g. by

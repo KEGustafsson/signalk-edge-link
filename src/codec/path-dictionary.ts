@@ -150,17 +150,25 @@ function transformDelta(
   pathTransform: (path: string) => number | string,
   shouldTransform: (value: DeltaValue) => boolean
 ): Delta {
-  if (!delta || !delta.updates) {
+  // Tolerate malformed shapes (non-array updates, null update entries) the
+  // way the sibling sanitize/filter/dedup stages do: pass them through so the
+  // downstream sanitize step rejects them, instead of throwing mid-batch and
+  // dropping every already-ACKed delta after this one in the same packet.
+  if (!delta || !Array.isArray(delta.updates)) {
     return delta;
   }
 
   const transformedUpdates = new Array(delta.updates.length);
   for (let i = 0; i < delta.updates.length; i++) {
     const update = delta.updates[i];
+    if (!update || typeof update !== "object") {
+      transformedUpdates[i] = update;
+      continue;
+    }
     const values = update.values;
     let transformedValues = values;
 
-    if (values) {
+    if (Array.isArray(values)) {
       transformedValues = new Array(values.length);
       for (let j = 0; j < values.length; j++) {
         const value = values[j];

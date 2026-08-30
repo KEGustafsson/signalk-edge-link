@@ -312,6 +312,63 @@ describe("createWatcherWithRecovery", () => {
     expect(fs.watch).toHaveBeenCalledTimes(expectRecreate ? 2 : 1);
   });
 
+  test("a throwing onChange during the post-recreate re-read is contained", () => {
+    // Regression: the recreate path re-reads once (a save landing in the
+    // watcherless window produced no event); a throw from that onChange must
+    // be logged, not escape the recovery timer callback.
+    jest.useFakeTimers();
+    const watchers = mockFsWatch();
+    const app = { debug: jest.fn(), error: jest.fn() };
+    const onChange = jest.fn(() => {
+      throw new Error("re-read failed");
+    });
+    createWatcherWithRecovery({
+      filePath: path.join(tmpDir, "watch.json"),
+      onChange,
+      name: "Watch",
+      instanceId: "default",
+      app,
+      state: { stopped: false }
+    });
+
+    // A rename schedules a recreate; the recreate fires onChange once.
+    onChange.mockClear();
+    watchers[0].callback("rename");
+    expect(() => jest.advanceTimersByTime(WATCHER_RECOVERY_DELAY)).not.toThrow();
+
+    expect(fs.watch).toHaveBeenCalledTimes(2);
+    expect(app.error).toHaveBeenCalledWith(expect.stringContaining("change handler failed"));
+  });
+
+  test("a failed initial creation schedules recovery", () => {
+    // Regression: only the recreate paths retried; a transient failure at
+    // FIRST creation (file missing on a full disk) silently left the
+    // connection without a watcher for its whole lifetime.
+    jest.useFakeTimers();
+    let calls = 0;
+    jest.spyOn(fs, "watch").mockImplementation((_filePath, callback) => {
+      calls++;
+      if (calls === 1) {
+        throw Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" });
+      }
+      const watcher = { callback, close: jest.fn(), on: jest.fn(() => watcher) };
+      return watcher;
+    });
+    const app = { debug: jest.fn(), error: jest.fn() };
+    createWatcherWithRecovery({
+      filePath: path.join(tmpDir, "watch.json"),
+      onChange: jest.fn(),
+      name: "Watch",
+      instanceId: "default",
+      app,
+      state: { stopped: false }
+    });
+
+    expect(fs.watch).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(WATCHER_RECOVERY_DELAY);
+    expect(fs.watch).toHaveBeenCalledTimes(2);
+  });
+
   test("ignores fs events that are neither change nor rename", () => {
     const watchers = mockFsWatch();
     const onChange = jest.fn();

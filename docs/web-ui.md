@@ -113,6 +113,10 @@ Each tab shows:
 With a single connection the tab bar is hidden and that connection is shown
 directly. Selecting a tab swaps the dashboard to that connection.
 
+A connection whose startup failed stays in the tab bar with a red dot rather
+than disappearing, and is retried in the background (30 s → 300 s backoff), so
+the dot turns green on its own once the cause clears.
+
 ### What you see depends on type and protocol
 
 The dashboard renders a **Server** or **Client** layout based on the active

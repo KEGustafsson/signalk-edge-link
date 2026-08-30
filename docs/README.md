@@ -1,6 +1,6 @@
 # Documentation Guide
 
-This folder contains documentation for Signal K Edge Link (current: 4.1.0).
+This folder contains documentation for Signal K Edge Link (current: 4.2.0).
 
 ## Primary Reference
 

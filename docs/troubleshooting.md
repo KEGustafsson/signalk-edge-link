@@ -37,6 +37,13 @@
 | `Invalid magic bytes`                         | Basic client sending to Advanced server | Set same protocol mode on both ends                  |
 | Protocol version mismatch warning             | Mismatched `protocolVersion`            | Set same version on both ends and restart            |
 
+A plugin status of `N/M active — <name>: <error>` means some connections started
+and some did not. Only the named connection is down; it is retried on its own
+with 30 s → 300 s backoff while the rest keep running. Fix the reported cause —
+usually a `udpPort` already in use or an interface that is not up yet — and the
+retry brings it up without a plugin restart. `Startup failed: <error>` means
+every connection failed.
+
 ---
 
 ## No Data Flowing

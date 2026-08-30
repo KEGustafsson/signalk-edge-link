@@ -107,7 +107,7 @@ function makeWiredPair(options = {}) {
   const serverMetrics = makeMetricsApi();
   const server = createPipelineV2Server(serverApp, serverState, serverMetrics);
 
-  return { wire, client, clientState, server, serverApp, serverMetrics };
+  return { wire, client, clientState, server, serverApp, serverState, serverMetrics };
 }
 
 const rinfo = { address: "10.0.0.5", port: 33100 };
@@ -199,6 +199,42 @@ describe("v3 DATA end-to-end (real client pipeline → real server pipeline)", (
       .map((v) => v.value);
 
     expect(sogValues).toEqual([1, 2, 3]);
+  });
+
+  test("a sentinel with no baseline triggers a one-shot full-status request", async () => {
+    // Regression: the client's dedup cache has no TTL, so after a server
+    // restart every stable path kept arriving as a sentinel the new session
+    // could not expand — silently absent from the tree until the value
+    // actually changed. The server must ask for a full replay instead.
+    const { wire, client, server, serverApp, serverState } = makeWiredPair({
+      useValueDedup: true
+    });
+
+    // Prime the client's cache, then send the same values again so the second
+    // packet carries dup sentinels.
+    await client.sendDelta([sampleDelta(4.2)], secretKey, "127.0.0.1", 9200);
+    await client.sendDelta([sampleDelta(4.2)], secretKey, "127.0.0.1", 9200);
+    expect(wire.length).toBe(2);
+
+    // Simulate a restarted server: deliver only the sentinel-bearing packet.
+    const sentinelPacket = wire[1];
+    await server.receivePacket(sentinelPacket, secretKey, rinfo);
+
+    // The unexpandable values are dropped, not injected as raw sentinels…
+    for (const delta of dispatched(serverApp)) {
+      for (const v of delta.updates.flatMap((u) => u.values)) {
+        expect(JSON.stringify(v.value)).not.toContain('"$$"');
+      }
+    }
+    // …and exactly one FULL_STATUS_REQUEST (0x08) goes back to the client.
+    const controlTypes = serverState.socketUdp.send.mock.calls.map((c) => c[0][3]);
+    expect(controlTypes.filter((t) => t === 0x08)).toHaveLength(1);
+
+    // A second sentinel-only packet does not re-request.
+    await client.sendDelta([sampleDelta(4.2)], secretKey, "127.0.0.1", 9200);
+    await server.receivePacket(wire[2], secretKey, rinfo);
+    const typesAfter = serverState.socketUdp.send.mock.calls.map((c) => c[0][3]);
+    expect(typesAfter.filter((t) => t === 0x08)).toHaveLength(1);
   });
 
   test("a server configured with a different key decodes nothing", async () => {

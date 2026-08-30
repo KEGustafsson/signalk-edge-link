@@ -12,6 +12,7 @@
 
 import { BondingManager } from "../../bonding";
 import {
+  HELLO_REFRESH_INTERVAL_MS,
   HELLO_REHANDSHAKE_ACK_IDLE_MS,
   HELLO_RETRY_BASE_MS,
   HELLO_RETRY_MAX_MS
@@ -114,6 +115,7 @@ export async function sendHello(
   stopHelloRetry(ctx);
   mut.helloAcknowledged = false;
   mut.helloRetryDelay = HELLO_RETRY_BASE_MS;
+  mut.lastHelloSentAt = Date.now();
 
   try {
     const helloPacket = packetBuilder.buildHelloPacket({
@@ -210,6 +212,7 @@ function scheduleHelloRetry(ctx: ClientContext, udpAddress: string, udpPort: num
         });
         await udpSendAsync(ctx, helloPacket, udpAddress, udpPort);
         state.lastPacketTime = Date.now();
+        mut.lastHelloSentAt = Date.now();
         app.debug(`v3 HELLO retried (backoff ${mut.helloRetryDelay}ms)`);
       } catch (err: unknown) {
         app.debug(`v3 HELLO retry failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -225,24 +228,40 @@ function scheduleHelloRetry(ctx: ClientContext, udpAddress: string, udpPort: num
   }
 }
 
+/**
+ * Re-send HELLO on a fixed cadence so a server that lost its session state
+ * without going silent regains this client's identity and anti-replay epoch.
+ * `maybeRehandshake` only covers the silent case: a server restarted faster
+ * than the ACK-idle threshold (or a session idle-expired and re-minted by
+ * DATA) resumes ACKing immediately, so the idle triggers never fire and the
+ * re-minted session keeps no client identity and epoch 0 — telemetry
+ * unattributed, anti-replay disarmed — for the life of the connection.
+ */
+export function maybeRefreshHello(ctx: ClientContext, udpAddress: string, udpPort: number): void {
+  const { state, mut } = ctx;
+  if (state.stopped || ctx.protocolVersion < 3) return;
+  if (Date.now() - mut.lastHelloSentAt < HELLO_REFRESH_INTERVAL_MS) return;
+  ctx.app.debug("v3 periodic HELLO refresh");
+  void sendHello(ctx, udpAddress, udpPort);
+}
+
 export function startHeartbeat(
   ctx: ClientContext,
   udpAddress: string,
   udpPort: number,
   options?: { heartbeatInterval?: number }
 ): { stop: () => void } {
-  const { app, state, packetBuilder } = ctx;
+  const { app, state, packetBuilder, mut } = ctx;
   const HEARTBEAT_INTERVAL = (options && options.heartbeatInterval) || 25000; // default 25 seconds
-  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-  heartbeatTimer = setInterval(async () => {
+  // Idempotent, and owned by `mut` so pipeline.stop() clears it even when the
+  // caller discards the returned handle.
+  stopHeartbeat(ctx);
+  const timer = setInterval(async () => {
     // A stop() that raced this interval's creation would otherwise leave it
     // sending real UDP traffic with no handle left to clear it.
     if (state.stopped) {
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
-      }
+      stopHeartbeat(ctx);
       return;
     }
     try {
@@ -253,16 +272,29 @@ export function startHeartbeat(
     } catch (err: unknown) {
       app.debug(`v3 heartbeat send failed: ${err instanceof Error ? err.message : String(err)}`);
     }
+    // A stop can land while this tick was awaiting the send; a HELLO refresh
+    // from a disowned tick would re-arm the retry chain after pipeline.stop().
+    if (mut.heartbeatTimer !== timer) {
+      return;
+    }
+    maybeRefreshHello(ctx, udpAddress, udpPort);
   }, HEARTBEAT_INTERVAL);
+  mut.heartbeatTimer = timer;
 
   return {
     stop() {
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
-      }
+      stopHeartbeat(ctx);
     }
   };
+}
+
+/** Clear the heartbeat interval (safe no-op when none is running). */
+export function stopHeartbeat(ctx: ClientContext): void {
+  const { mut } = ctx;
+  if (mut.heartbeatTimer) {
+    clearInterval(mut.heartbeatTimer);
+    mut.heartbeatTimer = null;
+  }
 }
 
 export async function initBonding(

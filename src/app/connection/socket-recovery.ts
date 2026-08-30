@@ -113,6 +113,22 @@ export function handleClientSocketError(ctx: ConnectionContext, err: NodeJS.Errn
   const { state, app, instanceId, socketManager, lifecycle } = ctx;
   if (state.socketRecoveryInProgress || lifecycle.isShuttingDown()) return;
   app.error(`[${instanceId}] Client UDP socket error: ${err.message}`);
+  // Only Ready → Recovering is a valid transition. An error surfacing while
+  // startClient is still mid-initialization (Starting) must not close the
+  // socket under it or schedule a recovery that would declare Ready — and
+  // open the send gate — before config watchers and the subscription exist.
+  // Record it instead: start() rethrows it before declaring Ready, so the
+  // failure lands in the manager's start-retry machinery rather than a Ready
+  // connection with a dead socket.
+  if (!lifecycle.is("Ready")) {
+    if (lifecycle.is("Starting") && !ctx.startingSocketError) {
+      ctx.startingSocketError = err instanceof Error ? err : new Error(String(err));
+    }
+    app.debug(
+      `[${instanceId}] Socket error during ${lifecycle.state} — leaving handling to the startup path`
+    );
+    return;
+  }
   state.readyToSend = false;
   state.socketRecoveryInProgress = true;
   state.pipeline?.stopMetricsPublishing?.();

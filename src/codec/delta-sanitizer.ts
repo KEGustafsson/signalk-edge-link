@@ -10,7 +10,7 @@
 
 import type { Delta, DeltaUpdate, DeltaValue } from "../foundation/types";
 import type { DeltaPayload } from "./delta-sanitizer/internal";
-import { isObject, isDeltaLike } from "./delta-sanitizer/internal";
+import { isObject, isDeltaLike, mapDeltaPayload } from "./delta-sanitizer/internal";
 
 export type { DeltaPayload } from "./delta-sanitizer/internal";
 export * from "./delta-sanitizer/quantize";
@@ -238,39 +238,5 @@ export function sanitizeDeltaForSignalK(delta: Delta | null | undefined): Delta 
 }
 
 export function sanitizeDeltaPayloadForSignalK(delta: DeltaPayload): DeltaPayload | null {
-  if (Array.isArray(delta)) {
-    // Return the input array by reference when every entry survives unchanged,
-    // avoiding the two intermediate arrays that .map().filter() allocates per
-    // batch.
-    let sanitized: Delta[] | null = null;
-    let keptCount = 0;
-    for (let i = 0; i < delta.length; i++) {
-      const item = sanitizeDeltaForSignalK(delta[i]);
-      if (item === null) {
-        if (sanitized === null) sanitized = delta.slice(0, i);
-        continue;
-      }
-      if (item !== delta[i] && sanitized === null) {
-        sanitized = delta.slice(0, i);
-      }
-      keptCount++;
-      if (sanitized !== null) sanitized.push(item);
-    }
-    if (keptCount === 0) return null;
-    return sanitized ?? delta;
-  }
-
-  if (isDeltaLike(delta)) {
-    return sanitizeDeltaForSignalK(delta);
-  }
-
-  const sanitizedEntries: Array<[string, Delta]> = [];
-  for (const [key, value] of Object.entries(delta)) {
-    const sanitized = sanitizeDeltaForSignalK(value);
-    if (sanitized !== null) {
-      sanitizedEntries.push([key, sanitized]);
-    }
-  }
-
-  return sanitizedEntries.length > 0 ? Object.fromEntries(sanitizedEntries) : null;
+  return mapDeltaPayload(delta, sanitizeDeltaForSignalK);
 }

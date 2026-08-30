@@ -7,7 +7,7 @@
  */
 
 import { createHash } from "crypto";
-import type { MetaEntry, MetaEnvelope } from "../../foundation/types";
+import type { MetaEntry } from "../../foundation/types";
 
 /**
  * Produces a stable JSON representation of a meta object for change detection.
@@ -83,28 +83,10 @@ export class MetaCache {
   }
 
   /**
-   * Returns only the entries whose meta has changed (or is new) relative to
-   * this cache, and simultaneously updates the cache.
-   */
-  diff(entries: MetaEntry[]): MetaEntry[] {
-    const changed: MetaEntry[] = [];
-    for (const entry of entries) {
-      const key = this.keyFor(entry);
-      const h = hashMeta(entry.meta);
-      if (this.hashes.get(key) !== h) {
-        this.setHash(key, h);
-        changed.push(entry);
-      }
-    }
-    return changed;
-  }
-
-  /**
-   * Non-mutating variant of {@link diff}. Returns the subset of entries that
-   * are new or whose meta has changed without updating the internal cache.
-   * Used by the send pipeline so the cache is only updated after a
-   * successful transmission — a failed send leaves the cache untouched and
-   * the entries will be re-attempted on the next diff.
+   * Returns the subset of entries that are new or whose meta has changed
+   * without updating the internal cache. The send pipeline commits only
+   * after a successful transmission — a failed send leaves the cache
+   * untouched and the entries will be re-attempted on the next diff.
    */
   computeDiff(entries: MetaEntry[]): MetaEntry[] {
     const changed: MetaEntry[] = [];

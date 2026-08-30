@@ -21,6 +21,7 @@ const {
 
 function makeCtx({ createImpl } = {}) {
   const shuttingDown = { value: false };
+  const lifecycleState = { value: "Ready" };
   const state = {
     socketUdp: null,
     pipeline: null,
@@ -43,11 +44,16 @@ function makeCtx({ createImpl } = {}) {
     instanceId: "test",
     recordError: jest.fn(),
     socketRecoveryBackoffMs: SOCKET_RECOVERY_BASE_MS,
+    startingSocketError: null,
     socketManager: {
       create: createImpl || jest.fn(() => socket),
       close: jest.fn()
     },
     lifecycle: {
+      get state() {
+        return lifecycleState.value;
+      },
+      is: (s) => s === lifecycleState.value,
       isShuttingDown: () => shuttingDown.value,
       transition: jest.fn()
     },
@@ -60,7 +66,7 @@ function makeCtx({ createImpl } = {}) {
     }
   };
 
-  return { ctx, state, socket, shuttingDown };
+  return { ctx, state, socket, shuttingDown, lifecycleState };
 }
 
 describe("client socket recovery", () => {
@@ -194,6 +200,24 @@ describe("client socket recovery", () => {
     shuttingDown.value = true;
     handleClientSocketError(ctx, new Error("boom"));
     expect(ctx.state.socketRecoveryInProgress).toBe(false);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test("an error during Starting is recorded for the startup path, not recovered", () => {
+    // Regression: recovery scheduled from a mid-startup error closed the
+    // socket under startClient and later declared Ready — opening the send
+    // gate — before config watchers and the subscription existed. The error
+    // is recorded instead; start() rethrows it before declaring Ready.
+    const { ctx, state, lifecycleState } = makeCtx();
+    lifecycleState.value = "Starting";
+    state.socketUdp = { on: jest.fn() };
+
+    const err = Object.assign(new Error("EHOSTUNREACH"), { code: "EHOSTUNREACH" });
+    handleClientSocketError(ctx, err);
+
+    expect(ctx.startingSocketError).toBe(err);
+    expect(state.socketRecoveryInProgress).toBe(false);
+    expect(state.socketUdp).not.toBeNull();
     expect(jest.getTimerCount()).toBe(0);
   });
 });

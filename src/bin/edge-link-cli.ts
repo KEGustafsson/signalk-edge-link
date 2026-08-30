@@ -247,7 +247,9 @@ function createRequestJson(): RequestJsonFn {
     options: { method?: string; body?: any; token?: string | null } = {}
   ): Promise<any> {
     const { method = "GET", body, token } = options;
-    const url = new URL(endpoint, baseUrl);
+    // Endpoints are absolute paths; `new URL(endpoint, baseUrl)` would drop the
+    // base URL's /plugins/signalk-edge-link prefix, so append instead.
+    const url = new URL(baseUrl.replace(/\/+$/, "") + endpoint);
     const transport = url.protocol === "https:" ? https : http;
     const payload = body === undefined ? null : Buffer.from(JSON.stringify(body), "utf8");
 
@@ -304,7 +306,7 @@ function createRequestJson(): RequestJsonFn {
       // firewall), with no output and no way out but Ctrl-C.
       req.setTimeout(REQUEST_TIMEOUT_MS, () => {
         req.destroy(
-          new Error(`Request to ${url.host}${endpoint} timed out after ${REQUEST_TIMEOUT_MS}ms`)
+          new Error(`Request to ${url.host}${url.pathname} timed out after ${REQUEST_TIMEOUT_MS}ms`)
         );
       });
 

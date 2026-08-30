@@ -58,7 +58,7 @@ export interface BuildContextArgs {
 }
 
 /** Derive server mode from options (supports legacy boolean and string forms). */
-function isServer(options: ConnectionConfig): boolean {
+export function isServer(options: ConnectionConfig): boolean {
   return (options.serverType as unknown) === true || options.serverType === "server";
 }
 
@@ -97,7 +97,6 @@ function createInitialState(
     unsubscribes: [],
     localSubscription: null,
     helloMessageSender: null,
-    pingTimeout: null,
     pingMonitor: null,
     deltaTimer: null,
     subscriptionRetryTimer: null,
@@ -415,6 +414,7 @@ export function buildConnectionContext(args: BuildContextArgs): ConnectionContex
     reportPendingCount: 0,
     v1Pipeline: null,
     socketRecoveryBackoffMs: SOCKET_RECOVERY_BASE_MS,
+    startingSocketError: null,
     fullStatusCascadeHandler: null
   };
 

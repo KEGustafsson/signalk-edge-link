@@ -44,6 +44,8 @@ export interface RouteResponse {
   /** Sets the Content-Type response header. Alias for res.set('Content-Type', ...). */
   contentType(type: string): this;
   end(): void;
+  /** True once a response has been written (express sets this; mocks may not). */
+  headersSent?: boolean;
 }
 
 /** Express next() callback passed to middleware functions. */
@@ -76,23 +78,6 @@ export interface Router {
   post(path: string, ...handlers: RouteHandler[]): void;
   put(path: string, ...handlers: RouteHandler[]): void;
   delete(path: string, ...handlers: RouteHandler[]): void;
-}
-
-/** Network quality data assembled for HTTP responses. */
-export interface NetworkQualityResponse {
-  rtt: number;
-  jitter: number;
-  packetLoss: number;
-  retransmissions: number;
-  queueDepth: number;
-  acksSent: number;
-  naksSent: number;
-  dataSource: string;
-  lastRemoteUpdate?: number;
-  activeLink?: string;
-  linkQuality?: number;
-  retransmitRate?: number;
-  timestamp?: number;
 }
 
 /** Shared context object passed to every route sub-module. */

@@ -84,6 +84,12 @@ export interface ClientSession {
 export interface ReplayGuard {
   epoch: number;
   window: ReplayWindow;
+  /**
+   * Separate window for the METADATA/source-snapshot channel: its header
+   * sequences come from the builder's own meta counter, an independent
+   * sequence space from DATA.
+   */
+  metaWindow: ReplayWindow;
   lastSeen: number;
   /**
    * True once an authenticated HELLO has arrived from this exact `address:port`,
@@ -206,7 +212,13 @@ export function getReplayGuard(ctx: ServerContext, peerKey: string): ReplayGuard
       replayGuards.delete(oldestKey);
     }
   }
-  guard = { epoch: 0, window: new ReplayWindow(), lastSeen: now, handshaked: false };
+  guard = {
+    epoch: 0,
+    window: new ReplayWindow(),
+    metaWindow: new ReplayWindow(),
+    lastSeen: now,
+    handshaked: false
+  };
   replayGuards.set(peerKey, guard);
   return guard;
 }
@@ -248,6 +260,7 @@ export function applyHelloEpoch(ctx: ServerContext, peerKey: string, epoch: unkn
     // from a clean window — pre-handshake (epoch 0) DATA must not carry its
     // high-water mark into the first authenticated epoch.
     guard.window.reset();
+    guard.metaWindow.reset();
     guard.epoch = epoch;
   }
   return advanced;

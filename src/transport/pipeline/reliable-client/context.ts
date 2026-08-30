@@ -67,6 +67,10 @@ export interface ClientMutableState {
   lastAckAt: number;
   lastAckRinfo: { address: string; port: number } | null;
   recoveryDrainTimer: ReturnType<typeof setInterval> | null;
+  /** Heartbeat interval; owned by the pipeline so stop() can clear it. */
+  heartbeatTimer: ReturnType<typeof setInterval> | null;
+  /** When the last HELLO (initial, retry, or refresh) was sent. */
+  lastHelloSentAt: number;
   /** Pending HELLO retry timer; cleared once the handshake is confirmed. */
   helloRetryTimer: ReturnType<typeof setTimeout> | null;
   /** Current HELLO retry backoff in ms. */
@@ -168,6 +172,8 @@ export function createMutableState(): ClientMutableState {
     lastAckAt: now,
     lastAckRinfo: null,
     recoveryDrainTimer: null,
+    heartbeatTimer: null,
+    lastHelloSentAt: 0,
     helloRetryTimer: null,
     helloRetryDelay: HELLO_RETRY_BASE_MS,
     helloAcknowledged: false,

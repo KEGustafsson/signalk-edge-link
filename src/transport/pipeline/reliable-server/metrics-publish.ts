@@ -9,7 +9,6 @@
  * @module transport/pipeline/reliable-server/metrics-publish
  */
 
-import { getFirstSessionTracker } from "./sessions";
 import { isFreshRemoteTelemetry } from "./telemetry";
 import type { ServerContext } from "./context";
 
@@ -156,7 +155,10 @@ export function publishServerMetrics(ctx: ServerContext): void {
     queueDepth: effective.queueDepth,
     retransmitRate: effective.retransmitRate,
     activeLink: effective.activeLink,
-    sequenceNumber: getFirstSessionTracker(ctx).expectedSeq ?? undefined,
+    // Read the first session directly: getFirstSessionTracker allocates a
+    // fresh throwaway tracker when no sessions exist, and this runs per tick.
+    sequenceNumber:
+      ctx.clientSessions.values().next().value?.sequenceTracker.expectedSeq ?? undefined,
     compressionRatio: metrics.bandwidth.compressionRatio || 0
   });
 

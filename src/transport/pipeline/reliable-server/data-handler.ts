@@ -20,7 +20,12 @@ import { createValueDedupState, undedupDelta } from "../../../codec/value-dedup"
 import { isCompactDeltaArray, decodeCompactDeltaArray } from "../../../codec/compact-delta";
 import { handleMessageBySource, normalizeDeltaSourceRefs } from "../../../codec/source-dispatch";
 import { ParsedPacket } from "../../../codec/packet-codec";
-import { getOrCreateSession, sendUDP, sendFullStatusRequest } from "./sessions";
+import {
+  getOrCreateSession,
+  sendUDP,
+  sendFullStatusRequest,
+  udpPacketRateLimited
+} from "./sessions";
 import { ingestRemoteTelemetry } from "./telemetry";
 import type { ServerContext, ClientSession } from "./context";
 import type { Delta } from "../../../foundation/types";
@@ -28,56 +33,14 @@ import type { Delta } from "../../../foundation/types";
 import {
   MAX_DECOMPRESSED_SIZE,
   MAX_PARSE_PAYLOAD_SIZE,
-  MAX_DELTAS_PER_PACKET,
-  UDP_RATE_LIMIT_WINDOW,
-  UDP_RATE_LIMIT_MAX_PACKETS
+  MAX_DELTAS_PER_PACKET
 } from "../../../foundation/constants";
 
-import {
-  preAuthRateLimited,
-  getReplayGuard,
-  handshakedPeerAddress,
-  bindBuilderEpochForPeer
-} from "./context";
+import { getReplayGuard, handshakedPeerAddress, bindBuilderEpochForPeer } from "./context";
+
+import { serialAhead as isAhead } from "../../../foundation/serial";
 
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
-
-function isAhead(seq: number, reference: number): boolean {
-  const distance = (seq - reference) >>> 0;
-  return distance !== 0 && distance < 0x80000000;
-}
-
-/**
- * Rate-limit a DATA packet before the (relatively expensive) decrypt. Returns
- * true when the packet should be dropped. An established session uses its own
- * per-session limiter; a new peer uses the per-IP pre-auth limiter.
- */
-function dataRateLimited(
-  ctx: ServerContext,
-  existingDataSession: ClientSession | null,
-  rinfo?: { address: string; port: number }
-): boolean {
-  const { app, metrics } = ctx;
-  if (existingDataSession) {
-    const now = Date.now();
-    if (now - existingDataSession.rateLimitWindowStart >= UDP_RATE_LIMIT_WINDOW) {
-      existingDataSession.rateLimitCount = 0;
-      existingDataSession.rateLimitWindowStart = now;
-    }
-    existingDataSession.rateLimitCount++;
-    if (existingDataSession.rateLimitCount > UDP_RATE_LIMIT_MAX_PACKETS) {
-      metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
-      app.debug(
-        `[v2-server] rate limited ${existingDataSession.key}: ${existingDataSession.rateLimitCount} packets in window`
-      );
-      return true;
-    }
-  } else if (rinfo && preAuthRateLimited(ctx, rinfo.address)) {
-    metrics.rateLimitedPackets = (metrics.rateLimitedPackets || 0) + 1;
-    return true;
-  }
-  return false;
-}
 
 /**
  * Send an immediate ACK in response to a duplicate DATA packet so the client
@@ -172,7 +135,8 @@ function processDelta(
   session: ClientSession | null,
   decompressedLength: number,
   totalDeltas: number,
-  dataSeq: number
+  dataSeq: number,
+  onMissingBaseline?: () => void
 ): void {
   const { app, trackPathStats, metrics } = ctx;
   let deltaMessage: Delta | null | undefined = rawDelta;
@@ -197,7 +161,7 @@ function processDelta(
     // Pass the DATA sequence so a reordered older packet cannot roll the
     // receive cache backwards: payloads are dispatched in arrival order, and a
     // cache left holding a superseded value expands every later sentinel to it.
-    deltaMessage = undedupDelta(deltaMessage, session.valueDedupState, dataSeq);
+    deltaMessage = undedupDelta(deltaMessage, session.valueDedupState, dataSeq, onMissingBaseline);
   }
 
   const sanitizedDelta = sanitizeDeltaForSignalK(deltaMessage);
@@ -261,8 +225,20 @@ async function rejectReplayedDataPacket(
   if (fresh || guard.epoch === 0) {
     return false;
   }
-  ctx.app.debug(`v2 replay/too-old DATA rejected: seq=${parsed.sequence >>> 0}`);
-  ctx.metrics.replayedPackets = (ctx.metrics.replayedPackets ?? 0) + 1;
+  // Classify before counting: this gate runs ahead of processSequence, so an
+  // ordinary in-window duplicate (a retransmit crossing an ACK, still in the
+  // live session's seen-set) is a duplicate, not a suspected replay. Only a
+  // sequence the session has no record of counts against replayedPackets.
+  const knownDuplicate =
+    session !== null && session.sequenceTracker.receivedSeqs.has(parsed.sequence >>> 0);
+  ctx.app.debug(
+    `v2 ${knownDuplicate ? "duplicate" : "replay/too-old"} DATA rejected: seq=${parsed.sequence >>> 0}`
+  );
+  if (knownDuplicate) {
+    ctx.metrics.duplicatePackets = (ctx.metrics.duplicatePackets ?? 0) + 1;
+  } else {
+    ctx.metrics.replayedPackets = (ctx.metrics.replayedPackets ?? 0) + 1;
+  }
   if (session && session.sequenceTracker.expectedSeq !== null) {
     await ackDuplicate(ctx, session, rinfo);
   }
@@ -393,13 +369,48 @@ function parsePayloadContent(
   return jsonContent;
 }
 
+/**
+ * One-shot full-status trigger for a receiver that lost its dedup baseline.
+ *
+ * A sentinel with no cached baseline means the sender is deduping against a
+ * cache this (new) session does not have — a server restart or session
+ * expiry/eviction — and every affected path stays silently absent until its
+ * value actually changes. Request a full replay once per session, independent
+ * of `requestFullStatusOnRestart`; the client rate-limits replays to one per
+ * 10s, and `statusRequested` keeps this to a single request.
+ */
+function makeMissingBaselineHandler(
+  ctx: ServerContext,
+  session: ClientSession | null,
+  secretKey: string
+): (() => void) | undefined {
+  if (!session) {
+    return undefined;
+  }
+  return () => {
+    if (session.statusRequested) {
+      return;
+    }
+    session.statusRequested = true;
+    ctx.app.debug(
+      `[v2-server] value-dedup sentinel with no baseline from ${session.key} — requesting full status replay`
+    );
+    sendFullStatusRequest(ctx, session, secretKey).catch((err: unknown) => {
+      ctx.app.debug(
+        `[v2-server] FULL_STATUS_REQUEST (dedup trigger) send failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    });
+  };
+}
+
 /** Decode the payload into deltas (capped) and dispatch each one. */
 function decodeAndDispatchPayload(
   ctx: ServerContext,
   decompressed: Buffer,
   session: ClientSession | null,
   packet: Buffer,
-  parsed: ParsedPacket
+  parsed: ParsedPacket,
+  secretKey: string
 ): void {
   const { app } = ctx;
   const jsonContent = parsePayloadContent(ctx, decompressed, parsed);
@@ -418,6 +429,7 @@ function decodeAndDispatchPayload(
     );
   }
 
+  const onMissingBaseline = makeMissingBaselineHandler(ctx, session, secretKey);
   for (let i = 0; i < deltaCount; i++) {
     processDelta(
       ctx,
@@ -426,7 +438,8 @@ function decodeAndDispatchPayload(
       session,
       decompressed.length,
       deltas.length,
-      parsed.sequence >>> 0
+      parsed.sequence >>> 0,
+      onMissingBaseline
     );
   }
 
@@ -451,7 +464,7 @@ export async function handleDataPacket(
   const existingDataSession = rinfo
     ? (clientSessions.get(`${rinfo.address}:${rinfo.port}`) ?? null)
     : null;
-  if (dataRateLimited(ctx, existingDataSession, rinfo)) {
+  if (udpPacketRateLimited(ctx, existingDataSession, rinfo, "DATA")) {
     return;
   }
 
@@ -482,5 +495,5 @@ export async function handleDataPacket(
     return;
   }
 
-  decodeAndDispatchPayload(ctx, decompressed, session, packet, parsed);
+  decodeAndDispatchPayload(ctx, decompressed, session, packet, parsed, secretKey);
 }

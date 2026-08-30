@@ -241,3 +241,40 @@ describe("source snapshot merge", () => {
     expect(app.error).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("provider cap against the live tree", () => {
+  const { SOURCE_SNAPSHOT_MAX_PROVIDERS } = require("../../lib/constants");
+
+  function makeApp(root) {
+    return { debug: jest.fn(), signalk: { retrieve: jest.fn(() => root) } };
+  }
+
+  test("rotating provider names cannot grow /sources past the cap", () => {
+    // Regression: the cap only limited providers per merge call, so each
+    // snapshot could add up to the cap in NEW keys and rotating names grew
+    // the live tree without bound.
+    const root = { sources: {} };
+    const app = makeApp(root);
+    for (let batch = 0; batch < 3; batch++) {
+      const snapshot = {};
+      for (let i = 0; i < SOURCE_SNAPSHOT_MAX_PROVIDERS; i++) {
+        snapshot[`prov${batch}x${i}`] = { label: `p${batch}-${i}` };
+      }
+      mergeSourceSnapshot(app, snapshot);
+    }
+    expect(Object.keys(root.sources).length).toBe(SOURCE_SNAPSHOT_MAX_PROVIDERS);
+  });
+
+  test("merging into an existing provider stays allowed at the cap", () => {
+    const root = { sources: {} };
+    const app = makeApp(root);
+    const full = {};
+    for (let i = 0; i < SOURCE_SNAPSHOT_MAX_PROVIDERS; i++) {
+      full[`prov${i}`] = { label: `p${i}` };
+    }
+    mergeSourceSnapshot(app, full);
+    mergeSourceSnapshot(app, { prov0: { label: "p0", updated: true } });
+    expect(root.sources.prov0).toEqual({ label: "p0", updated: true });
+    expect(Object.keys(root.sources).length).toBe(SOURCE_SNAPSHOT_MAX_PROVIDERS);
+  });
+});

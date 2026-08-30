@@ -74,12 +74,12 @@ _Runtime defects are tracked as issues and fixed in the commit that finds them; 
 - Cause: Alert updates are persisted immediately for durability.
 - Improvement path: Debounce or coalesce alert persistence per connection, then add tests for persistence ordering and failure responses.
 
-**Linear scans on the retransmit-queue hot paths:**
+**Ordering cost on the retransmit-queue oldest-N path:**
 
-- Problem: `_evictOldest()` and `getOldestSequences()` in `src/transport/reliability/retransmit-queue.ts` scan or sort the whole queue by `originalTimestamp`. `_evictOldest()` runs on every `add()` once the queue reaches `maxSize` (5000), i.e. on every outbound DATA packet during sustained loss.
-- Cause: ordering by true send time rather than Map insertion order is required for correctness — concurrent sends and UDP retries reorder insertion relative to send time — and the correct ordering has no O(1) shortcut.
-- Evidence: the scans are bounded by `maxSize`, so this is a constant-factor cost in an already-degraded regime, not unbounded growth.
-- Improvement path: maintain an auxiliary min-heap or sorted index keyed on `originalTimestamp` to make eviction O(log n) and oldest-N retrieval allocation-free. Establish a baseline in `test/benchmarks/` first; the index must stay in sync with `add`, `acknowledge`, `acknowledgeRange`, and eviction, so it carries real correctness risk in the retransmit path.
+- Problem: `getOldestSequences()` in `src/transport/reliability/retransmit-queue.ts` sorts the eligible entries on every recovery-burst tick.
+- Why it cannot be free: ordering by true send time rather than Map insertion order is required for correctness — concurrent sends and UDP retries reorder insertion relative to send time.
+- Evidence: the sort runs at the burst-tick cadence (a few times per second), not per outbound packet, and is bounded by `maxSize`.
+- Improvement path: benchmark before changing anything here; any auxiliary index must stay in sync with add, acknowledge, and eviction, which carries real correctness risk in the retransmit path.
 
 **Brotli, MessagePack, path dictionary, and reliable transport overhead tradeoffs:**
 

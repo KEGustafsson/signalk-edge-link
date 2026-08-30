@@ -983,12 +983,8 @@ describe("createConnection", () => {
     const state = inst.getState();
     const heartbeatStop = jest.fn();
     const watcherClose = jest.fn();
-    const pipelineStopMetrics = jest.fn();
-    const pipelineStopCongestion = jest.fn();
-    const pipelineStopBonding = jest.fn();
-    const serverStopAck = jest.fn();
-    const serverStopMetrics = jest.fn();
-    const sequenceReset = jest.fn();
+    const pipelineStop = jest.fn();
+    const serverStop = jest.fn();
 
     state.stopped = false;
     state.subscriptionRetryTimer = setTimeout(jest.fn(), 1000);
@@ -1005,16 +1001,8 @@ describe("createConnection", () => {
     state.configContentHashes = { Subscription: "abc" };
     state.configWatcherObjects = [{ close: watcherClose }];
     state.heartbeatHandle = { stop: heartbeatStop };
-    state.pipeline = {
-      stopBonding: pipelineStopBonding,
-      stopMetricsPublishing: pipelineStopMetrics,
-      stopCongestionControl: pipelineStopCongestion
-    };
-    state.pipelineServer = {
-      stopACKTimer: serverStopAck,
-      stopMetricsPublishing: serverStopMetrics,
-      getSequenceTracker: () => ({ reset: sequenceReset })
-    };
+    state.pipeline = { stop: pipelineStop };
+    state.pipelineServer = { stop: serverStop };
 
     inst.stop();
 
@@ -1027,13 +1015,43 @@ describe("createConnection", () => {
     expect(state.configDebounceTimers).toEqual({});
     expect(heartbeatStop).toHaveBeenCalledTimes(1);
     expect(watcherClose).toHaveBeenCalledTimes(1);
-    expect(pipelineStopMetrics).toHaveBeenCalledTimes(1);
-    expect(pipelineStopCongestion).toHaveBeenCalledTimes(1);
-    expect(pipelineStopBonding).toHaveBeenCalledTimes(1);
-    expect(serverStopAck).toHaveBeenCalledTimes(1);
-    expect(serverStopMetrics).toHaveBeenCalledTimes(1);
-    expect(sequenceReset).toHaveBeenCalledTimes(1);
+    expect(pipelineStop).toHaveBeenCalledTimes(1);
+    expect(serverStop).toHaveBeenCalledTimes(1);
+    expect(state.pipeline).toBeNull();
+    expect(state.pipelineServer).toBeNull();
     expect(jest.getTimerCount()).toBe(0);
     jest.useRealTimers();
+  });
+
+  test("a throwing client-pipeline stop does not skip heartbeat or server cleanup", () => {
+    // Regression: one throwing stop() used to abort the rest of the pipeline
+    // teardown, leaving the heartbeat sending and the server pipeline armed.
+    const app = makeMockApp();
+    const inst = createConnection(
+      app,
+      makeClientOptions({ protocolVersion: 2 }),
+      "throwing-teardown",
+      "plugin",
+      jest.fn()
+    );
+    const state = inst.getState();
+    const heartbeatStop = jest.fn();
+    const serverStop = jest.fn();
+    state.heartbeatHandle = { stop: heartbeatStop };
+    state.pipeline = {
+      stop: jest.fn(() => {
+        throw new Error("pipeline stop failed");
+      })
+    };
+    state.pipelineServer = { stop: serverStop };
+
+    expect(() => inst.stop()).not.toThrow();
+
+    expect(heartbeatStop).toHaveBeenCalledTimes(1);
+    expect(serverStop).toHaveBeenCalledTimes(1);
+    expect(state.pipeline).toBeNull();
+    expect(state.pipelineServer).toBeNull();
+    expect(state.heartbeatHandle).toBeNull();
+    expect(app.error).toHaveBeenCalledWith(expect.stringContaining("client pipeline teardown"));
   });
 });
