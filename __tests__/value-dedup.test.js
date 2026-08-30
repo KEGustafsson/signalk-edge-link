@@ -363,4 +363,33 @@ describe("sentinel-shaped genuine value", () => {
     expect(second.updates[0].values[0].value).toEqual({ $$: "dup" });
     expect(state.cache.size).toBe(0);
   });
+
+  test("round-trip: the receiver treats the reserved shape as the wire marker", () => {
+    // {$$: "dup"} is reserved by the v3 dedup encoding (see isSentinel).
+    // Escaping it would change what existing receivers decode — a wire
+    // format change — so the reservation is documented instead, and this
+    // test pins the documented behavior: the receiver cannot tell a genuine
+    // value of this exact shape from the marker.
+    const sender = createValueDedupState();
+    const receiver = createValueDedupState();
+
+    // With a cached baseline, the receiver expands the shape from its cache.
+    undedupDelta(makeDelta([{ path: "p", value: "baseline" }]), receiver);
+    const sent = dedupDelta(makeDelta([{ path: "p", value: { $$: "dup" } }]), sender);
+    const expanded = undedupDelta(sent, receiver);
+    expect(expanded.updates[0].values[0].value).toBe("baseline");
+
+    // Without a baseline, the entry is dropped and the missing-baseline
+    // handler fires — the same recovery path as a lost dedup cache.
+    const freshReceiver = createValueDedupState();
+    const onMissingBaseline = jest.fn();
+    const dropped = undedupDelta(
+      dedupDelta(makeDelta([{ path: "p", value: { $$: "dup" } }]), createValueDedupState()),
+      freshReceiver,
+      undefined,
+      onMissingBaseline
+    );
+    expect(dropped.updates[0].values.length).toBe(0);
+    expect(onMissingBaseline).toHaveBeenCalled();
+  });
 });

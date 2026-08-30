@@ -115,7 +115,18 @@ function cacheSet(cache: Map<string, DedupEntry>, key: string, entry: DedupEntry
   cache.set(key, entry);
 }
 
-/** True when `value` is exactly the dup sentinel object shape. */
+/**
+ * True when `value` is exactly the dup sentinel object shape.
+ *
+ * The shape `{$$: "dup"}` is RESERVED by the v3 dedup encoding: it is the
+ * in-band duplicate marker on the wire, so a receiver cannot distinguish a
+ * genuine value of exactly this shape from the marker and will expand it
+ * from its baseline cache (or drop it when no baseline exists). An escaping
+ * representation would change what existing receivers must decode — a wire
+ * format change the compatibility policy forbids — so the sender instead
+ * passes such values through verbatim and uncached (see dedupDelta), and the
+ * reservation is documented in configuration-reference.md.
+ */
 function isSentinel(value: unknown): boolean {
   return (
     value !== null &&
