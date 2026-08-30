@@ -25,7 +25,7 @@ jest.mock(
 
 const mockConnectionConfig = {
   failLoad: false,
-  message: "Cannot find module '/home/user/.signalk/node_modules/broken-dep'"
+  message: "Cannot find module '/srv/signalk/node_modules/broken-dep'"
 };
 jest.mock("../src/connection-config", () => {
   if (mockConnectionConfig.failLoad) {

@@ -188,7 +188,7 @@ describe("/instances mutation routes — restart rejection", () => {
   // Regression: a rejected _restartPlugin used to have its message serialized
   // straight into the 500 body, exposing configuration and filesystem detail
   // to management clients.
-  const REJECTION = "EACCES: permission denied, open '/home/user/.signalk/keys'";
+  const REJECTION = "EACCES: permission denied, open '/srv/signalk/keys'";
 
   function conn(name) {
     return {

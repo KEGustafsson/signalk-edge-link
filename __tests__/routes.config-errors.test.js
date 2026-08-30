@@ -13,7 +13,7 @@ jest.mock("../src/codec/path-dictionary", () => {
     ...actual,
     getAllPaths: (...args) => {
       if (mockPathDictionary.failPaths) {
-        throw new Error("streambundle unavailable: /home/user/.signalk/paths");
+        throw new Error("streambundle unavailable: /srv/signalk/paths");
       }
       return actual.getAllPaths(...args);
     }
@@ -101,7 +101,7 @@ describe("config route error contract", () => {
   test("GET /plugin-schema returns a generic 500 when bundle resolution throws", () => {
     const { router, app } = registerRoutes({
       getFirstBundle: () => {
-        throw new Error("registry corrupted: /home/user/.signalk/state");
+        throw new Error("registry corrupted: /srv/signalk/state");
       }
     });
     const res = makeResponse();
@@ -112,7 +112,7 @@ describe("config route error contract", () => {
   });
 
   test("POST /plugin-config returns a generic 500 when the save rejects", async () => {
-    const SAVE_ERROR = "EACCES: permission denied, open '/home/user/.signalk/plugin-config.json'";
+    const SAVE_ERROR = "EACCES: permission denied, open '/srv/signalk/plugin-config.json'";
     const { router, app } = registerRoutes({
       app: {
         savePluginOptions: (config, cb) => cb(new Error(SAVE_ERROR))
