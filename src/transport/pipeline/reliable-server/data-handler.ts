@@ -169,7 +169,8 @@ function processDelta(
   session: ClientSession | null,
   decompressedLength: number,
   totalDeltas: number,
-  dataSeq: number
+  dataSeq: number,
+  onMissingBaseline?: () => void
 ): void {
   const { app, trackPathStats, metrics } = ctx;
   let deltaMessage: Delta | null | undefined = rawDelta;
@@ -194,7 +195,7 @@ function processDelta(
     // Pass the DATA sequence so a reordered older packet cannot roll the
     // receive cache backwards: payloads are dispatched in arrival order, and a
     // cache left holding a superseded value expands every later sentinel to it.
-    deltaMessage = undedupDelta(deltaMessage, session.valueDedupState, dataSeq);
+    deltaMessage = undedupDelta(deltaMessage, session.valueDedupState, dataSeq, onMissingBaseline);
   }
 
   const sanitizedDelta = sanitizeDeltaForSignalK(deltaMessage);
@@ -390,13 +391,48 @@ function parsePayloadContent(
   return jsonContent;
 }
 
+/**
+ * One-shot full-status trigger for a receiver that lost its dedup baseline.
+ *
+ * A sentinel with no cached baseline means the sender is deduping against a
+ * cache this (new) session does not have — a server restart or session
+ * expiry/eviction — and every affected path stays silently absent until its
+ * value actually changes. Request a full replay once per session, independent
+ * of `requestFullStatusOnRestart`; the client rate-limits replays to one per
+ * 10s, and `statusRequested` keeps this to a single request.
+ */
+function makeMissingBaselineHandler(
+  ctx: ServerContext,
+  session: ClientSession | null,
+  secretKey: string
+): (() => void) | undefined {
+  if (!session) {
+    return undefined;
+  }
+  return () => {
+    if (session.statusRequested) {
+      return;
+    }
+    session.statusRequested = true;
+    ctx.app.debug(
+      `[v2-server] value-dedup sentinel with no baseline from ${session.key} — requesting full status replay`
+    );
+    sendFullStatusRequest(ctx, session, secretKey).catch((err: unknown) => {
+      ctx.app.debug(
+        `[v2-server] FULL_STATUS_REQUEST (dedup trigger) send failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    });
+  };
+}
+
 /** Decode the payload into deltas (capped) and dispatch each one. */
 function decodeAndDispatchPayload(
   ctx: ServerContext,
   decompressed: Buffer,
   session: ClientSession | null,
   packet: Buffer,
-  parsed: ParsedPacket
+  parsed: ParsedPacket,
+  secretKey: string
 ): void {
   const { app } = ctx;
   const jsonContent = parsePayloadContent(ctx, decompressed, parsed);
@@ -415,6 +451,7 @@ function decodeAndDispatchPayload(
     );
   }
 
+  const onMissingBaseline = makeMissingBaselineHandler(ctx, session, secretKey);
   for (let i = 0; i < deltaCount; i++) {
     processDelta(
       ctx,
@@ -423,7 +460,8 @@ function decodeAndDispatchPayload(
       session,
       decompressed.length,
       deltas.length,
-      parsed.sequence >>> 0
+      parsed.sequence >>> 0,
+      onMissingBaseline
     );
   }
 
@@ -479,5 +517,5 @@ export async function handleDataPacket(
     return;
   }
 
-  decodeAndDispatchPayload(ctx, decompressed, session, packet, parsed);
+  decodeAndDispatchPayload(ctx, decompressed, session, packet, parsed, secretKey);
 }

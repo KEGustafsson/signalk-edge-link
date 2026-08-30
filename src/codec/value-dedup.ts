@@ -295,7 +295,20 @@ function cacheAbsoluteIfNewest(
   }
 }
 
-export function undedupDelta(delta: Delta, state: ValueDedupState, seq?: number): Delta {
+/**
+ * @param onMissingBaseline - Called (once per dropped entry) when a sentinel
+ *   arrives for a path with no cached baseline. This is the signature of a
+ *   receiver that lost its cache while the sender kept deduping — session
+ *   expiry, eviction, or a receiver restart — and every affected path stays
+ *   absent until its value actually changes; the receiver can use the hook to
+ *   ask the sender for a full replay.
+ */
+export function undedupDelta(
+  delta: Delta,
+  state: ValueDedupState,
+  seq?: number,
+  onMissingBaseline?: () => void
+): Delta {
   if (!Array.isArray(delta.updates)) return delta;
   const context = delta.context;
   let deltaChanged = false;
@@ -324,6 +337,7 @@ export function undedupDelta(delta: Delta, state: ValueDedupState, seq?: number)
           // Receiver missed the absolute baseline — skip rather than inject the sentinel.
           // The sender will resync on the next absolute value.
           valuesChanged = true;
+          onMissingBaseline?.();
           continue;
         }
         valuesChanged = true;
@@ -347,10 +361,15 @@ export function undedupDelta(delta: Delta, state: ValueDedupState, seq?: number)
   return { ...delta, updates };
 }
 
-export function undedupDeltaArray(deltas: Delta[], state: ValueDedupState, seq?: number): Delta[] {
+export function undedupDeltaArray(
+  deltas: Delta[],
+  state: ValueDedupState,
+  seq?: number,
+  onMissingBaseline?: () => void
+): Delta[] {
   let anyChanged = false;
   const out = deltas.map((d) => {
-    const r = undedupDelta(d, state, seq);
+    const r = undedupDelta(d, state, seq, onMissingBaseline);
     if (r !== d) anyChanged = true;
     return r;
   });
