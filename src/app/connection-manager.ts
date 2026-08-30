@@ -13,7 +13,11 @@
 import type { ConnectionApi } from "./connection";
 import type { SignalKApp } from "../foundation/types";
 import type { InstanceRegistry } from "../foundation/types/instance";
-import { start as startManager, type ManagerContext } from "./connection-manager/start";
+import {
+  start as startManager,
+  safeStopInstance,
+  type ManagerContext
+} from "./connection-manager/start";
 
 export type { ConnectionApi };
 
@@ -121,7 +125,7 @@ export function createConnectionManager({
     // Invalidate any start() still in flight so it cannot go on to start
     // instances into a registry we are about to clear.
     ctx.startGeneration++;
-    for (const inst of instances.values()) inst.stop();
+    for (const inst of instances.values()) safeStopInstance(ctx, inst);
     instances.clear();
     setStatus("Stopped");
   }

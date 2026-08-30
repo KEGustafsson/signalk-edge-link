@@ -81,10 +81,25 @@ function scheduleWatcherRecreate(ctx: WatcherContext): void {
     const created = createWatcher(ctx);
     if (created) {
       watcherObj.recoveryAttempts = 0;
+      // Re-read once: a save landing between the rename/error and this
+      // recreate produced no event on the new watch handle. The debounced
+      // handler's content-hash dedup makes a redundant re-read a no-op.
+      onChangeSafe(ctx);
     } else {
       scheduleWatcherRecreate(ctx);
     }
   }, delay);
+}
+
+function onChangeSafe(ctx: WatcherContext): void {
+  const { onChange, name, instanceId, app } = ctx.opts;
+  try {
+    onChange();
+  } catch (err: unknown) {
+    app.error(
+      `[${instanceId}] ${name} change handler failed: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 }
 
 function createWatcher(ctx: WatcherContext): boolean {
@@ -136,7 +151,13 @@ export function createWatcherWithRecovery(opts: WatcherRecoveryOpts): WatcherHan
   };
   const { watcherObj } = ctx;
 
-  createWatcher(ctx);
+  // Every later recreate path retries with backoff; the initial creation must
+  // too, or a transient failure (file missing on a full disk at first start)
+  // silently leaves the connection without a watcher for its whole lifetime.
+  // A null filePath is permanent — retrying it would only burn the attempts.
+  if (!createWatcher(ctx) && opts.filePath) {
+    scheduleWatcherRecreate(ctx);
+  }
 
   return {
     get watcher() {

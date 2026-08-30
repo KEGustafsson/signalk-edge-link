@@ -161,9 +161,21 @@ async function startGroup(
   );
 }
 
+/** Stop one instance, containing a throwing teardown so it cannot abort the
+ *  teardown of sibling connections. */
+export function safeStopInstance(ctx: ManagerContext, inst: ConnectionApi): void {
+  try {
+    inst.stop();
+  } catch (err: unknown) {
+    ctx.app.error(
+      `Error stopping connection '${inst.getName()}': ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
 /** Stop and clear every registered instance. */
 function teardownAll(ctx: ManagerContext): void {
-  for (const inst of ctx.instances.values()) inst.stop();
+  for (const inst of ctx.instances.values()) safeStopInstance(ctx, inst);
   ctx.instances.clear();
 }
 
@@ -178,7 +190,7 @@ function teardownAll(ctx: ManagerContext): void {
  */
 function teardownOwned(ctx: ManagerContext, owned: Map<string, ConnectionApi>): void {
   for (const [id, inst] of owned) {
-    inst.stop();
+    safeStopInstance(ctx, inst);
     if (ctx.instances.get(id) === inst) ctx.instances.delete(id);
   }
 }

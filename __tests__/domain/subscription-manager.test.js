@@ -333,6 +333,48 @@ describe("domain/subscription-manager", () => {
       expect(subscribe).toHaveBeenCalledTimes(2); // only the two operator subscribes
     });
 
+    test("a successful operator resubscribe reopens the send gate the error closed", () => {
+      // Regression: cancelling the pending retry removed the only path that
+      // restored readyToSend, so an operator who resubscribed while paused
+      // stranded the connection "paused" until plugin restart.
+      let errorHandler;
+      const subscribe = jest.fn((_sub, _unsub, onErr) => {
+        errorHandler = onErr;
+      });
+      const { state, deps, processConfig } = makeManager({ subscribe });
+
+      processConfig({ context: "*", subscribe: [{ path: "*" }] });
+      state.readyToSend = true;
+      errorHandler(new Error("async error"));
+      expect(state.readyToSend).toBe(false);
+
+      processConfig({ context: "*", subscribe: [{ path: "navigation.*" }] });
+      expect(state.readyToSend).toBe(true);
+      expect(deps.setStatus).toHaveBeenCalledWith("Subscription restored", true);
+    });
+
+    test("the resubscribe leaves the gate to socket recovery when it is in progress", () => {
+      let errorHandler;
+      const subscribe = jest.fn((_sub, _unsub, onErr) => {
+        errorHandler = onErr;
+      });
+      const state = makeState({ socketRecoveryInProgress: true });
+      const { processConfig } = makeManager({ subscribe, state });
+
+      processConfig({ context: "*", subscribe: [{ path: "*" }] });
+      errorHandler(new Error("async error"));
+      processConfig({ context: "*", subscribe: [{ path: "navigation.*" }] });
+      expect(state.readyToSend).toBe(false);
+    });
+
+    test("an ordinary resubscribe does not open the gate early", () => {
+      // No subscription error paused the connection (e.g. the client is still
+      // starting up): the success path must not touch readyToSend.
+      const { state, processConfig } = makeManager();
+      processConfig({ context: "*", subscribe: [{ path: "*" }] });
+      expect(state.readyToSend).toBe(false);
+    });
+
     test("an error after stop() is ignored", () => {
       let errorHandler;
       const subscribe = jest.fn((_sub, _unsub, onErr) => {

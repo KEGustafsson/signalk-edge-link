@@ -43,14 +43,23 @@ module.exports = function createPlugin(app: SignalKApp) {
     options: Record<string, unknown> = {},
     restartPlugin?: (config: unknown) => Promise<void>
   ) {
-    // Lazy import, hoisted above the try so a module-load failure surfaces
-    // distinctly instead of being folded into the generic start error.
-    const { sanitizeConnectionConfig, VALID_CONNECTION_KEYS } = require("./connection-config");
-
     // signalk-server invokes plugin.start() without awaiting the returned
-    // promise, so a rejection here would surface as an unhandled promise
-    // rejection in the server process. Report failures through the plugin
-    // error status instead of rethrowing.
+    // promise, so a rejection anywhere in this function — the lazy import
+    // included — would surface as an unhandled promise rejection in the
+    // server process. Report failures through the plugin error status
+    // instead of rethrowing; the import gets its own catch so a module-load
+    // failure still surfaces distinctly from a generic start error.
+    let sanitizeConnectionConfig: (c: Record<string, unknown>) => Record<string, unknown>;
+    let VALID_CONNECTION_KEYS: string[];
+    try {
+      ({ sanitizeConnectionConfig, VALID_CONNECTION_KEYS } = require("./connection-config"));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      app.error(`Plugin module load failed: ${msg}`);
+      setError(`Module load failed: ${msg}`);
+      return;
+    }
+
     try {
       plugin._currentOptions = options;
       plugin._restartPlugin = typeof restartPlugin === "function" ? restartPlugin : null;

@@ -103,7 +103,15 @@ export async function start(ctx: ConnectionContext): Promise<void> {
 /** Reset session/dedupe bookkeeping and unsubscribe from the SignalK bus. */
 function teardownSession(ctx: ConnectionContext): void {
   const { state, services } = ctx;
-  state.unsubscribes.forEach((f: () => void) => f());
+  for (const f of state.unsubscribes) {
+    try {
+      f();
+    } catch (err: unknown) {
+      ctx.app.error(
+        `[${ctx.instanceId}] Unsubscribe failed during teardown: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
   state.unsubscribes = [];
   state.localSubscription = null;
   services.invalidateSubscriptionGeneration();
@@ -153,7 +161,13 @@ function teardownTimers(ctx: ConnectionContext): void {
     delete state.configDebounceTimers[k];
   });
 
-  state.configWatcherObjects.forEach((w) => w.close());
+  for (const w of state.configWatcherObjects) {
+    try {
+      w.close();
+    } catch {
+      // A watcher whose file vanished can throw on close; nothing to release.
+    }
+  }
   state.configWatcherObjects = [];
 }
 
@@ -208,6 +222,18 @@ function teardownMonitoringAndSocket(ctx: ConnectionContext): void {
   }
 }
 
+/** Run one teardown phase, containing a throw so the remaining phases still
+ *  run — a failing unsubscribe or pipeline stop must not leak the socket. */
+function runTeardownPhase(ctx: ConnectionContext, name: string, fn: () => void): void {
+  try {
+    fn();
+  } catch (err: unknown) {
+    ctx.app.error(
+      `[${ctx.instanceId}] Error during ${name} teardown: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
 /** Tear down the connection, cancel all timers, and release the socket. */
 export function stop(ctx: ConnectionContext): void {
   const { state, app, instanceId, lifecycle, services, resetMetrics } = ctx;
@@ -223,14 +249,14 @@ export function stop(ctx: ConnectionContext): void {
   state.readyToSend = false;
   state.isHealthy = false;
 
-  teardownSession(ctx);
-
-  resetMetrics();
-  services.keepaliveManager.stop();
-
-  teardownTimers(ctx);
-  teardownPipelines(ctx);
-  teardownMonitoringAndSocket(ctx);
+  runTeardownPhase(ctx, "session", () => teardownSession(ctx));
+  runTeardownPhase(ctx, "metrics", () => {
+    resetMetrics();
+    services.keepaliveManager.stop();
+  });
+  runTeardownPhase(ctx, "timer", () => teardownTimers(ctx));
+  runTeardownPhase(ctx, "pipeline", () => teardownPipelines(ctx));
+  runTeardownPhase(ctx, "monitoring/socket", () => teardownMonitoringAndSocket(ctx));
 
   ctx.setStatus("Stopped", false);
   void wasShuttingDown; // satisfies linter if unused
