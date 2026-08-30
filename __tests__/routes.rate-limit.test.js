@@ -177,13 +177,11 @@ describe("rate limit middleware client identity", () => {
       rateLimitMiddleware(req, res, next);
     }
 
-    // Every distinct client got through — capacity evicts, it never rejects
-    // admission — and an evicted early client is re-admitted with a fresh
-    // bucket rather than refused.
     expect(next).toHaveBeenCalledTimes(RATE_LIMIT_MAX_KEYS + 50);
     expect(res.status).not.toHaveBeenCalled();
     const early = { headers: {}, ip: "10.0.0.0", socket: {}, app: { get: () => false } };
     rateLimitMiddleware(early, res, next);
+    expect(next).toHaveBeenCalledTimes(RATE_LIMIT_MAX_KEYS + 51);
     expect(res.status).not.toHaveBeenCalled();
   });
 

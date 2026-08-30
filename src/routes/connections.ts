@@ -101,6 +101,15 @@ function register(router: Router, ctx: RouteContext): void {
     pluginRef._currentOptions = nextOptions as typeof pluginRef._currentOptions;
     return res.status(successStatus).json({ success: true });
   }
+
+  // Restart rejections carry configuration, filesystem, and transport detail
+  // that must not reach management clients; keep it in the server log.
+  function respondInstancesError(res: RouteResponse, err: unknown): void {
+    app.error(`Instance route failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
   router.get(
     "/connections",
     rateLimitMiddleware,
@@ -279,7 +288,7 @@ function register(router: Router, ctx: RouteContext): void {
 
         return await restartWithConnections(res, connections, 201);
       } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        respondInstancesError(res, err);
       }
     }
   );
@@ -362,7 +371,7 @@ function register(router: Router, ctx: RouteContext): void {
 
         return await restartWithConnections(res, connections, 200);
       } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        respondInstancesError(res, err);
       }
     }
   );
@@ -390,7 +399,7 @@ function register(router: Router, ctx: RouteContext): void {
         const next = [...connections.slice(0, idx), ...connections.slice(idx + 1)];
         return await restartWithConnections(res, next, 200);
       } catch (err: unknown) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        respondInstancesError(res, err);
       }
     }
   );

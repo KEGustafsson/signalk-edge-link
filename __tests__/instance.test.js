@@ -1001,7 +1001,6 @@ describe("createConnection", () => {
     state.configContentHashes = { Subscription: "abc" };
     state.configWatcherObjects = [{ close: watcherClose }];
     state.heartbeatHandle = { stop: heartbeatStop };
-    // Pipelines implement full stop(); teardown calls it and nulls the handle.
     state.pipeline = { stop: pipelineStop };
     state.pipelineServer = { stop: serverStop };
 

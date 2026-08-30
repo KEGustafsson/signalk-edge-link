@@ -139,15 +139,20 @@ function isSentinel(value: unknown): boolean {
  * The MessagePack transport preserves non-finite numbers on the wire, so a
  * path that switches between e.g. `{a: NaN}` and `{a: null}` would otherwise
  * be deduped to the wrong cached value and silently delivered as the stale
- * one. The replacer maps them to NUL-prefixed tag strings; a genuine string
- * value containing those exact tags would collide, but NUL characters do not
- * occur in real Signal K values.
+ * one. The replacer maps them to NUL-prefixed tag strings, and escapes any
+ * genuine string that itself starts with NUL into a disjoint `\0str:`
+ * namespace, so no string value can collide with a tag and suppress a real
+ * update. Only the comparison key is affected — cached and sent values stay
+ * verbatim.
  */
 /** JSON.stringify replacer tagging non-finite numbers at any depth. */
 function nonFiniteReplacer(_key: string, value: unknown): unknown {
   if (typeof value === "number" && !Number.isFinite(value)) {
     if (Number.isNaN(value)) return "\0nan";
     return value > 0 ? "\0+inf" : "\0-inf";
+  }
+  if (typeof value === "string" && value.charCodeAt(0) === 0) {
+    return "\0str:" + value;
   }
   return value;
 }

@@ -336,7 +336,7 @@ describe("createWatcherWithRecovery", () => {
     watchers[0].callback("rename");
     expect(() => jest.advanceTimersByTime(WATCHER_RECOVERY_DELAY)).not.toThrow();
 
-    expect(fs.watch).toHaveBeenCalledTimes(2); // recreate still happened
+    expect(fs.watch).toHaveBeenCalledTimes(2);
     expect(app.error).toHaveBeenCalledWith(expect.stringContaining("change handler failed"));
   });
 

@@ -444,7 +444,12 @@ export class RetransmitQueue {
 
   // ── Age-heap plumbing ──────────────────────────────────────────────────────
 
-  /** Push a node and sift it up to restore the min-heap invariant. */
+  /**
+   * Min-heap insert. Nodes are never removed when their entry leaves the
+   * queue — a pushed node can outlive its entry, and `_evictOldest` detects
+   * that lazily by comparing the node's `order` against the entry's live
+   * `heapOrder`.
+   */
   private _heapPush(node: AgeHeapNode): void {
     const heap = this.ageHeap;
     heap.push(node);
@@ -459,7 +464,11 @@ export class RetransmitQueue {
     }
   }
 
-  /** Remove the heap root and sift the last node down into place. */
+  /**
+   * Discard the heap root. Pops only the node — the caller decides whether
+   * the root was live (evict its queue entry first) or stale (drop it and
+   * keep looking), so this must not touch the queue.
+   */
   private _heapPop(): void {
     const heap = this.ageHeap;
     const last = heap.pop();

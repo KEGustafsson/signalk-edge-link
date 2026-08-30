@@ -183,3 +183,71 @@ describe("POST /connections/:id/bonding/failover", () => {
     });
   });
 });
+
+describe("/instances mutation routes — restart rejection", () => {
+  // Regression: a rejected _restartPlugin used to have its message serialized
+  // straight into the 500 body, exposing configuration and filesystem detail
+  // to management clients.
+  const REJECTION = "EACCES: permission denied, open '/home/user/.signalk/keys'";
+
+  function conn(name) {
+    return {
+      name,
+      serverType: "client",
+      udpPort: 4567,
+      udpAddress: "127.0.0.1",
+      secretKey: "12345678901234567890123456789012",
+      protocolVersion: 3
+    };
+  }
+
+  function bundle(id) {
+    return { id, name: id, state: { options: conn(id) }, metricsApi: { metrics: {} } };
+  }
+
+  function setup(connections) {
+    const router = makeRouterCollector();
+    const ctx = makeCtx({ primary: bundle("primary"), secondary: bundle("secondary") });
+    ctx.pluginRef = {
+      _currentOptions: { connections },
+      _restartPlugin: jest.fn(() => Promise.reject(new Error(REJECTION)))
+    };
+    connectionsRoutes.register(router, ctx);
+    return { router, ctx };
+  }
+
+  function lastHandler(router, method, path) {
+    return router.routes.find((r) => r.method === method && r.path === path).handlers.at(-1);
+  }
+
+  function expectGenericFailure(res, ctx) {
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({ error: "Internal server error" });
+    expect(ctx.app.error).toHaveBeenCalledWith(expect.stringContaining(REJECTION));
+  }
+
+  test("POST /instances returns a generic 500 and logs the detail", async () => {
+    const { router, ctx } = setup([conn("primary")]);
+    const res = makeResponse();
+    await lastHandler(router, "post", "/instances")({ body: conn("tertiary") }, res);
+    expectGenericFailure(res, ctx);
+  });
+
+  test("PUT /instances/:id returns a generic 500 and logs the detail", async () => {
+    const { router, ctx } = setup([conn("primary")]);
+    const res = makeResponse();
+    await lastHandler(
+      router,
+      "put",
+      "/instances/:id"
+    )({ params: { id: "primary" }, body: { name: "renamed" } }, res);
+    expectGenericFailure(res, ctx);
+  });
+
+  test("DELETE /instances/:id returns a generic 500 and logs the detail", async () => {
+    const { router, ctx } = setup([conn("primary"), conn("secondary")]);
+    const res = makeResponse();
+    await lastHandler(router, "delete", "/instances/:id")({ params: { id: "secondary" } }, res);
+    expectGenericFailure(res, ctx);
+  });
+});

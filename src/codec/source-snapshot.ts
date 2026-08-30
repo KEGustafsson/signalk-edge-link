@@ -243,7 +243,9 @@ function filterAcceptableProviders(
       continue;
     }
     if (inspected >= SOURCE_SNAPSHOT_MAX_PROVIDERS) {
-      dropped++;
+      // Count every uninspected own key so the reported total stays exact —
+      // a shallow key count, not the per-entry deep validation the cap avoids.
+      dropped += Object.keys(sources).length - inspected;
       break;
     }
     inspected++;

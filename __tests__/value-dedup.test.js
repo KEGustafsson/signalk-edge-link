@@ -310,6 +310,28 @@ describe("nested non-finite numbers", () => {
     const dup = dedupDelta(makeDelta([{ path: "p", value: { a: NaN, b: 1 } }]), state);
     expect(isDupSentinel(dup.updates[0].values[0].value)).toBe(true);
   });
+
+  test("a string shaped like a non-finite tag never collides with the number", () => {
+    // Regression: the replacer mapped NaN/±Infinity to NUL-prefixed tag
+    // strings, so a genuine string with that exact content produced the same
+    // comparison key and a real update was suppressed as a duplicate.
+    const cases = [
+      [{ a: NaN }, { a: "\0nan" }],
+      [{ a: "\0nan" }, { a: NaN }],
+      [{ a: Infinity }, { a: "\0+inf" }],
+      [{ a: -Infinity }, { a: "\0-inf" }],
+      [{ a: "\0str:\0nan" }, { a: "\0nan" }],
+      [NaN, "\0nan"],
+      ["\0nan", NaN]
+    ];
+    for (const [first, second] of cases) {
+      const state = createValueDedupState();
+      dedupDelta(makeDelta([{ path: "environment.depth", value: first }]), state);
+      const out = dedupDelta(makeDelta([{ path: "environment.depth", value: second }]), state);
+      expect(isDupSentinel(out.updates[0].values[0].value)).toBe(false);
+      expect(out.updates[0].values[0].value).toBe(second);
+    }
+  });
 });
 
 describe("malformed update entries", () => {
