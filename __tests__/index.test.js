@@ -342,6 +342,69 @@ describe("SignalK Data Connector Plugin", () => {
         createSocketSpy.mockRestore();
       }
     });
+
+    test("one connection's start failure does not take down the others", async () => {
+      // Regression: a single failed bind used to cascade-stop EVERY
+      // connection — a bad server port also killed an unrelated shore uplink.
+      const { EventEmitter } = require("node:events");
+      const realCreateSocket = dgram.createSocket.bind(dgram);
+      const createSocketSpy = jest.spyOn(dgram, "createSocket").mockImplementation((...args) => {
+        // Server sockets bind(); make the bind fail. Client sockets never
+        // bind, so they get a real socket and start normally.
+        const socket = new EventEmitter();
+        socket.bind = jest.fn(() => {
+          process.nextTick(() => {
+            const err = new Error("bind EADDRINUSE 0.0.0.0:4446");
+            err.code = "EADDRINUSE";
+            socket.emit("error", err);
+          });
+        });
+        socket.send = jest.fn((msg, port, addr, cb) => cb && cb(null));
+        socket.close = jest.fn();
+        socket.address = jest.fn(() => ({ address: "0.0.0.0", port: 4446 }));
+        socket.removeAllListeners = EventEmitter.prototype.removeAllListeners;
+        void realCreateSocket;
+        void args;
+        return socket;
+      });
+
+      try {
+        await plugin.start({
+          connections: [
+            {
+              name: "srv",
+              serverType: "server",
+              udpPort: 4446,
+              protocolVersion: 3,
+              secretKey: "12345678901234567890123456789012"
+            },
+            {
+              name: "cli",
+              serverType: "client",
+              udpAddress: "127.0.0.1",
+              udpPort: 4447,
+              protocolVersion: 3,
+              secretKey: "12345678901234567890123456789012"
+            }
+          ]
+        });
+
+        expect(mockApp.error).toHaveBeenCalledWith(
+          expect.stringContaining("Failed to start 1 of 2 connections")
+        );
+        // The healthy client must NOT have been torn down with the server.
+        expect(mockApp.error).not.toHaveBeenCalledWith(
+          expect.stringContaining("no instance is running")
+        );
+        expect(mockApp.debug).toHaveBeenCalledWith(expect.stringContaining("[cli]"));
+        // Degraded status is reported, not a whole-plugin startup failure.
+        expect(mockApp.setPluginStatus).not.toHaveBeenCalledWith(
+          expect.stringContaining("Startup failed")
+        );
+      } finally {
+        createSocketSpy.mockRestore();
+      }
+    });
   });
 
   describe("Client Mode", () => {
