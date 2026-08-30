@@ -301,3 +301,76 @@ describe("v3 protocol variant", () => {
     expect(typeof pipeline.getCongestionControl).toBe("function");
   });
 });
+
+// ── heartbeat ownership + periodic HELLO refresh ─────────────────────────────
+
+describe("pipeline.stop() owns the heartbeat timer", () => {
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  // Regression: the heartbeat interval was tracked only in the returned
+  // handle, so a caller that discarded it and called pipeline.stop() leaked a
+  // 25s UDP-sending interval against a possibly-recreated socket.
+  test("clears the heartbeat even when the returned handle is discarded", () => {
+    jest.useFakeTimers();
+    const { pipeline } = makeClient();
+    const before = jest.getTimerCount();
+
+    pipeline.startHeartbeat("127.0.0.1", 12345, { heartbeatInterval: 100 });
+    expect(jest.getTimerCount()).toBe(before + 1);
+
+    pipeline.stop();
+    expect(jest.getTimerCount()).toBe(before);
+  });
+
+  test("a repeated startHeartbeat does not stack a second interval", () => {
+    jest.useFakeTimers();
+    const { pipeline } = makeClient();
+    const before = jest.getTimerCount();
+
+    const first = pipeline.startHeartbeat("127.0.0.1", 12345, { heartbeatInterval: 100 });
+    pipeline.startHeartbeat("127.0.0.1", 12345, { heartbeatInterval: 100 });
+    expect(jest.getTimerCount()).toBe(before + 1);
+
+    first.stop();
+    expect(jest.getTimerCount()).toBe(before);
+  });
+});
+
+describe("periodic HELLO refresh", () => {
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  const HELLO = 0x05;
+  const sentTypes = (state) => state.socketUdp.send.mock.calls.map((c) => c[0][3]);
+
+  // Regression: a server restarting faster than the ACK-idle threshold under
+  // continuous traffic re-mints the session from DATA — no client identity,
+  // epoch 0 — and resumes ACKing, so the idle-based rehandshake never fires.
+  // The heartbeat tick now re-sends HELLO once the refresh cadence elapses.
+  test("a heartbeat tick re-sends HELLO once the refresh cadence has elapsed", async () => {
+    jest.useFakeTimers();
+    const { pipeline, state } = makeClient();
+    await pipeline.sendHello("127.0.0.1", 12345);
+    pipeline.startHeartbeat("127.0.0.1", 12345, { heartbeatInterval: 100 });
+    state.socketUdp.send.mockClear();
+
+    // Within the cadence: heartbeat only, no HELLO.
+    jest.advanceTimersByTime(100);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sentTypes(state)).not.toContain(HELLO);
+
+    // Past the cadence (fake timers advance Date.now too): HELLO re-sent.
+    jest.advanceTimersByTime(300000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sentTypes(state)).toContain(HELLO);
+
+    pipeline.stop();
+  });
+});

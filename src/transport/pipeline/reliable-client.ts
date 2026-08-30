@@ -22,6 +22,7 @@ import * as nodeCrypto from "node:crypto";
 import { PacketBuilder, PacketParser } from "../../codec/packet-codec";
 import { RetransmitQueue } from "../reliability/retransmit-queue";
 import { resetValueDedupState } from "../../codec/value-dedup";
+import { resetPathThrottleState } from "../../codec/delta-sanitizer";
 import { MetricsPublisher } from "../metrics/publisher";
 import { CongestionControl } from "../congestion";
 import { BondingManager } from "../bonding";
@@ -53,6 +54,7 @@ import {
   stopCongestionControl,
   sendHello,
   stopHelloRetry,
+  stopHeartbeat,
   startHeartbeat,
   initBonding,
   stopBonding
@@ -166,11 +168,15 @@ function buildClientContext(
     connectionEpoch
   );
 
-  // Built before the queue so the drop listener below can capture it: a
+  // Built before the queue so the drop listener below can capture them: a
   // packet that leaves the queue unacknowledged may never have reached the
   // peer, and the dedup baseline it established has to be dropped with it or
-  // every later sentinel for those paths expands to a stale value.
+  // every later sentinel for those paths expands to a stale value. The
+  // throttle deadband state has the same failure mode — a value recorded as
+  // "sent" that never arrived would suppress every later value within the
+  // deadband of it — so it resets alongside.
   const dedupState = createDedupState();
+  const throttleState = createThrottleState();
 
   // Reliability: extract config once to avoid repetitive deep-access chains
   const reliabilityConfig = (state.options && state.options.reliability) || {};
@@ -179,7 +185,8 @@ function buildClientContext(
     maxRetransmits: reliabilityConfig.maxRetransmits ?? 3,
     onPacketDropped: (sequence, reason) => {
       resetValueDedupState(dedupState);
-      app.debug(`v2 dedup baseline reset: seq=${sequence} ${reason} without delivery`);
+      resetPathThrottleState(throttleState);
+      app.debug(`v2 dedup/throttle baseline reset: seq=${sequence} ${reason} without delivery`);
     }
   });
 
@@ -206,7 +213,7 @@ function buildClientContext(
     state,
     metricsApi,
     setStatus,
-    throttleState: createThrottleState(),
+    throttleState,
     dedupState,
     protocolVersion,
     stretchAsciiKey,
@@ -314,6 +321,7 @@ function buildControlApi(ctx: ClientContext) {
     stop() {
       stopRecoveryBurst(ctx, "pipeline stop");
       stopHelloRetry(ctx);
+      stopHeartbeat(ctx);
       stopMetricsPublishing(ctx);
       stopCongestionControl(ctx);
       stopBonding(ctx);
