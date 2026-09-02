@@ -95,7 +95,7 @@
   "overrides": {
     "js-yaml": "4.3.0",
     "ws": "8.21.0",
-    "fast-uri": "^3.1.5"
+    "fast-uri": "^3.1.7"
   },
   "engines": {
     "node": ">=20.9.0"
