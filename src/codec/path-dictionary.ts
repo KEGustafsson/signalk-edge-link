@@ -173,13 +173,18 @@ function transformDelta(
       for (let j = 0; j < values.length; j++) {
         const value = values[j];
 
-        if (!value || typeof value !== "object") {
+        // Only a value whose path actually maps to something else gets a new
+        // object; everything else is passed through by reference. Neither
+        // side mutates value entries downstream, and this runs for every
+        // value of every delta on both the send and the receive path — the
+        // receive path even when the path dictionary is off, where every
+        // entry used to be cloned for nothing.
+        if (!value || typeof value !== "object" || !shouldTransform(value)) {
           transformedValues[j] = value;
-        } else if (shouldTransform(value)) {
-          const transformedPath = pathTransform(value.path);
-          transformedValues[j] = { ...value, path: transformedPath as string };
         } else {
-          transformedValues[j] = { ...value };
+          const transformedPath = pathTransform(value.path);
+          transformedValues[j] =
+            transformedPath === value.path ? value : { ...value, path: transformedPath as string };
         }
       }
     }

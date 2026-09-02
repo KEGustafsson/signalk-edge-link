@@ -386,20 +386,49 @@ export class RetransmitQueue {
    * @returns Number of packets removed
    */
   expireOld(maxAge: number): number {
+    // Walk the age heap instead of scanning the queue. This runs after every
+    // DATA send, on every ACK and on the metrics tick, so under sustained loss
+    // (thousands of outstanding packets) a full-queue scan per send was the
+    // dominant per-packet cost. The heap is ordered by the immutable
+    // originalTimestamp, so once its live root is young enough, so is every
+    // other live entry; stale nodes are skipped exactly as in _evictOldest.
     const now = Date.now();
-    const toDelete: number[] = [];
+    let removed = 0;
 
-    for (const [seq, entry] of this.queue.entries()) {
-      if (now - entry.originalTimestamp > maxAge) {
-        toDelete.push(seq);
+    while (this.ageHeap.length > 0) {
+      const top = this.ageHeap[0];
+      const entry = this.queue.get(top.seq);
+      if (!entry || entry.heapOrder !== top.order) {
+        this._heapPop(); // stale — its entry left the queue by another path
+        continue;
       }
-    }
-    for (const seq of toDelete) {
-      this.queue.delete(seq);
-      this.notifyDropped(seq, "expired");
+      if (now - entry.originalTimestamp <= maxAge) {
+        break;
+      }
+      this._heapPop();
+      this.queue.delete(top.seq);
+      this.notifyDropped(top.seq, "expired");
+      removed++;
     }
 
-    return toDelete.length;
+    if (this.ageHeap.length === 0 && this.queue.size > 0) {
+      // Same degraded path as _evictOldest: a heap that ran dry with entries
+      // still queued means the bookkeeping slipped, and the scan keeps expiry
+      // correct at the old O(n) cost rather than leaving entries immortal.
+      const toDelete: number[] = [];
+      for (const [seq, entry] of this.queue.entries()) {
+        if (now - entry.originalTimestamp > maxAge) {
+          toDelete.push(seq);
+        }
+      }
+      for (const seq of toDelete) {
+        this.queue.delete(seq);
+        this.notifyDropped(seq, "expired");
+      }
+      removed += toDelete.length;
+    }
+
+    return removed;
   }
 
   /**

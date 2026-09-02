@@ -92,6 +92,34 @@ export function normalizeKey(secretKey: string, options: KeyNormalizationOptions
     throw new Error("Secret key must be a non-empty string");
   }
 
+  // Memoized per (key string, stretch flag). Every encrypt, decrypt and control
+  // packet HMAC starts here, so without the memo each packet re-ran two regex
+  // tests plus a Buffer decode — and, with stretchAsciiKey, a SHA-256 of the
+  // key just to look up the PBKDF2 result. The cache key holds the same string
+  // the connection config already keeps in `options.secretKey` for the life of
+  // the instance, so it retains no plaintext that was not resident already.
+  const cacheKey = (options.stretchAsciiKey ? "s:" : "r:") + secretKey;
+  const cached = normalizedKeyCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const normalized = normalizeKeyUncached(secretKey, options);
+  if (normalizedKeyCache.size >= NORMALIZED_KEY_CACHE_MAX) {
+    const oldest = normalizedKeyCache.keys().next();
+    if (!oldest.done) {
+      normalizedKeyCache.delete(oldest.value);
+    }
+  }
+  normalizedKeyCache.set(cacheKey, normalized);
+  return normalized;
+}
+
+// Bounded so a caller that passes externally-influenced strings cannot grow
+// the memo without limit; real deployments have one or two keys per instance.
+const NORMALIZED_KEY_CACHE_MAX = 32;
+const normalizedKeyCache = new Map<string, Buffer>();
+
+function normalizeKeyUncached(secretKey: string, options: KeyNormalizationOptions): Buffer {
   // Try hex: 64 hex characters → 32 bytes
   if (/^[0-9a-fA-F]{64}$/.test(secretKey)) {
     return Buffer.from(secretKey, "hex");
@@ -122,7 +150,9 @@ export function normalizeKey(secretKey: string, options: KeyNormalizationOptions
   // strength.  Both ends must use the same setting.
   if (Buffer.byteLength(secretKey) === 32) {
     if (options.stretchAsciiKey) {
-      return getOrDeriveAsciiKey(secretKey);
+      // PBKDF2 runs the full iteration count; the memo in normalizeKey() is
+      // what keeps it off the per-packet path.
+      return deriveKeyFromPassphrase(secretKey);
     }
     return Buffer.from(secretKey);
   }
@@ -131,41 +161,6 @@ export function normalizeKey(secretKey: string, options: KeyNormalizationOptions
     "Secret key must be exactly 32 bytes: use a 32-character ASCII string, " +
       "64-character hex string, or 44-character base64 string"
   );
-}
-
-// Per-process PBKDF2 cache.  Without this cache every encryption /
-// decryption call would re-run the full iteration count, which would
-// dominate the per-packet cost.  The cache is keyed by a SHA-256 digest of
-// the raw ASCII key (hex-encoded for Map use) so the plaintext key is not
-// retained in process memory beyond the live derivation. The cache is
-// effectively bounded by the number of distinct configured keys (typically
-// one or two per Signal K instance); the LRU cap is a defensive measure
-// against a future caller that passes externally-influenced strings here.
-const ASCII_KEY_CACHE_MAX = 32;
-const asciiKeyCache = new Map<string, Buffer>();
-
-function asciiKeyCacheKey(asciiKey: string): string {
-  return crypto.createHash("sha256").update(asciiKey, "utf8").digest("hex");
-}
-
-function getOrDeriveAsciiKey(asciiKey: string): Buffer {
-  const cacheKey = asciiKeyCacheKey(asciiKey);
-  const cached = asciiKeyCache.get(cacheKey);
-  if (cached) {
-    // LRU refresh: move to tail by delete-then-set on insertion order Map.
-    asciiKeyCache.delete(cacheKey);
-    asciiKeyCache.set(cacheKey, cached);
-    return cached;
-  }
-  const derived = deriveKeyFromPassphrase(asciiKey);
-  if (asciiKeyCache.size >= ASCII_KEY_CACHE_MAX) {
-    const oldest = asciiKeyCache.keys().next();
-    if (!oldest.done) {
-      asciiKeyCache.delete(oldest.value);
-    }
-  }
-  asciiKeyCache.set(cacheKey, derived);
-  return derived;
 }
 
 /**
@@ -200,11 +195,11 @@ export const encryptBinary = (
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGORITHM, keyBuffer, iv) as crypto.CipherGCM;
 
-  const encrypted = Buffer.concat([cipher.update(dataBuffer), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-
-  // Return single buffer: [IV][Encrypted][AuthTag]
-  return Buffer.concat([iv, encrypted, authTag]);
+  // One concat, not two: GCM is a stream mode, so update() yields the whole
+  // ciphertext and final() an empty buffer; assembling [IV][Encrypted][AuthTag]
+  // directly skips the intermediate ciphertext copy. Array elements evaluate
+  // left to right, so getAuthTag() runs after final() as GCM requires.
+  return Buffer.concat([iv, cipher.update(dataBuffer), cipher.final(), cipher.getAuthTag()]);
 };
 
 /**
@@ -236,7 +231,11 @@ export const decryptBinary = (
   decipher.setAuthTag(authTag);
 
   try {
-    return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    const plaintext = decipher.update(encrypted);
+    // final() verifies the tag and, for GCM, returns no bytes — so the common
+    // case needs no concat copy of the plaintext.
+    const tail = decipher.final();
+    return tail.length === 0 ? plaintext : Buffer.concat([plaintext, tail]);
   } catch (err: unknown) {
     // GCM auth tag failure: the most likely cause is a stretchAsciiKey
     // disagreement between peers (one side stretched, the other did not),

@@ -26,38 +26,42 @@ import type { ConnectionContext } from "./context";
 
 /** Build a deterministic dedupe key for an outbound delta (hot path). */
 export function buildOutboundDedupeKey(delta: Delta): string {
-  const parts: string[] = [];
-  function push(tag: string, raw: unknown): void {
+  // Length-prefixed fields keep the key injective (no delimiter collisions).
+  // Built by string concatenation rather than a parts array + join: this runs
+  // once per inbound delta, and V8 concatenates short strings as ropes without
+  // the intermediate array and per-field length strings.
+  let key = "";
+  function field(tag: string, raw: unknown): void {
     const s = raw === null || raw === undefined ? "" : String(raw);
-    parts.push(tag, String(s.length), ":", s);
+    key += tag + s.length + ":" + s;
   }
-  push("c", delta.context);
+  field("c", delta.context);
   const updates = Array.isArray(delta.updates) ? delta.updates : [];
   for (const update of updates) {
-    parts.push("|u");
-    push("s", update?.$source);
+    key += "|u";
+    field("s", update?.$source);
     const srcObj = update?.source as Record<string, unknown> | undefined;
     if (srcObj && typeof srcObj === "object") {
-      push("sl", srcObj.label);
-      push("st", srcObj.type);
-      push("ss", srcObj.src);
+      field("sl", srcObj.label);
+      field("st", srcObj.type);
+      field("ss", srcObj.src);
     }
-    push("t", update?.timestamp);
+    field("t", update?.timestamp);
     const values = Array.isArray(update?.values) ? update.values : [];
     for (const v of values) {
-      parts.push("|v");
-      push("p", v?.path);
+      key += "|v";
+      field("p", v?.path);
       const value = v?.value;
       if (value === null || value === undefined) {
-        push("v", "");
+        field("v", "");
       } else if (typeof value === "object") {
-        push("v", JSON.stringify(value));
+        field("v", JSON.stringify(value));
       } else {
-        push("v", String(value));
+        field("v", String(value));
       }
     }
   }
-  return parts.join("");
+  return key;
 }
 
 /** Emit a throttled debug line describing a suppressed duplicate delta. */

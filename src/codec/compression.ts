@@ -19,6 +19,28 @@ export const brotliCompressAsync = promisify(zlib.brotliCompress);
 export const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
 /**
+ * One process-wide MessagePack encoder, created on first use. `msgpack.encode()`
+ * constructs a fresh Encoder — a 2 KiB ArrayBuffer plus DataView — on every
+ * call and throws it away; reusing one instance keeps its grown buffer across
+ * batches. The encoder is re-entrancy safe (it clones itself if entered
+ * recursively), and `encodeSharedRef` returns a view into its internal buffer
+ * that `Buffer.from` copies out before the next call can overwrite it.
+ */
+let sharedEncoder: msgpack.Encoder | null = null;
+
+/**
+ * MessagePack-encode a value into a standalone Buffer.
+ * @param value - Any msgpack-encodable value
+ * @returns Freshly allocated buffer holding the encoded bytes
+ */
+export function encodeMsgpack(value: unknown): Buffer {
+  if (sharedEncoder === null) {
+    sharedEncoder = new msgpack.Encoder();
+  }
+  return Buffer.from(sharedEncoder.encodeSharedRef(value));
+}
+
+/**
  * Converts delta object to buffer (JSON or MessagePack)
  * @param delta - Delta object or array to convert
  * @param useMsgpack - Whether to use MessagePack serialization
@@ -26,7 +48,7 @@ export const brotliDecompressAsync = promisify(zlib.brotliDecompress);
  */
 export function deltaBuffer(delta: unknown, useMsgpack = false): Buffer {
   if (useMsgpack) {
-    return Buffer.from(msgpack.encode(delta));
+    return encodeMsgpack(delta);
   }
   return Buffer.from(JSON.stringify(delta), "utf8");
 }
