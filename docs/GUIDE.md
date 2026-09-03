@@ -1057,6 +1057,8 @@ A 32-character ASCII key has ~208 bits of raw entropy. Setting `stretchAsciiKey:
 
 **Both peers must have the same `stretchAsciiKey` setting.** A mismatch causes every packet to fail authentication silently.
 
+Running 600,000 PBKDF2 iterations per packet would dominate the cost of every encrypt and decrypt, so the derived key is derived once and cached, and re-derived only if its entry is evicted. The cache is keyed by a SHA-256 digest of the ASCII secret rather than by the secret itself — the plaintext key lives only in the connection config — and hands each caller its own copy of the derived key. Hex and base64 keys are decoded per call; the decode is cheaper than a cache lookup. See [security.md](security.md) for the cache bounds.
+
 ### Security properties
 
 | Property                      | Status     | Detail                                                                |
@@ -1367,7 +1369,7 @@ Build a Grafana dashboard from the Prometheus metrics exposed at `/prometheus` (
 
 **Base path:** `/plugins/signalk-edge-link`  
 **Rate limit:** 120 requests/minute/IP → HTTP 429  
-**API version tracked (current: 4.2.0)** — see CHANGELOG.md for endpoint changes between releases
+**API version tracked (current: 4.3.0)** — see CHANGELOG.md for endpoint changes between releases
 
 ### 14.1 Core data endpoints
 
