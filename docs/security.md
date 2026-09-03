@@ -43,6 +43,8 @@ A 32-character ASCII key has ~208 bits of raw entropy. Setting `stretchAsciiKey:
 
 **Both peers must have the same `stretchAsciiKey` setting.** A mismatch causes every packet to fail authentication silently — `encryptionErrors` will rise and no data will flow.
 
+**Derived-key cache.** 600,000 iterations per packet would dominate the cost of every encrypt and decrypt, so the stretched key is derived once and cached for the life of the process. The cache is keyed by a SHA-256 digest of the ASCII secret, not by the secret itself, so the plaintext key is not retained beyond the live derivation — it stays only where the connection config holds it. The cache is capped at 32 entries (LRU) and returns a copy of the derived key to each caller, so a caller that mutates the buffer it receives cannot corrupt later operations on the same key. Hex and base64 keys are decoded on each call; the decode costs less than the cache lookup would.
+
 ### Authenticated packet headers (`authenticatedHeaders`)
 
 The AES-256-GCM auth tag covers the encrypted payload but **not** the cleartext header (type, flags, sequence, payload length). Without header authentication the header is protected only by a CRC16 — a non-cryptographic checksum — so an on-path attacker can flip header bits (for example the sequence number that drives the reliable-transport ACK/NAK logic, or the COMPRESSED/MESSAGEPACK flags) and recompute the CRC. The payload still authenticates, but the tampered header can cause a valid packet to be dropped as a duplicate, ACKed under the wrong number, or trigger a spurious resync.

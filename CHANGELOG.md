@@ -2,6 +2,82 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [4.3.0] - 2026-09-03
+
+Hot-path performance release. No behaviour or wire-format change: the
+conformance vectors regenerate byte-identical, and 4.3.0 interoperates with
+4.2.0, 4.1.0 and 4.0.x peers in both directions. Nothing in this release needs
+a configuration change or a coordinated peer upgrade.
+
+The figures below are like-for-like micro-benchmarks of 4.2.0 against this
+release on one machine (Node 22, v3 with `authenticatedHeaders`, 20-delta
+batches); they are relative indications, not throughput guarantees.
+
+### Changed — performance
+
+- **Packet assembly writes once.** `_buildPacket` allocated the header, then
+  concatenated header + payload and again with the auth tag. It now sizes one
+  buffer and writes header, payload and tag into it — `buildDataPacket` 6.4 →
+  5.5 µs and `buildACKPacket` 5.1 → 4.7 µs per call on a 341-byte payload.
+- **Value dedup serializes only what is new.** Each comparison re-serialized
+  both the incoming value and the cached baseline. The baseline's stable
+  representation is now memoized on the cache entry, `stableRepr` short-circuits
+  primitives, and the replacement arrays for updates and values are allocated
+  only when an entry actually changes — 34.3 → 18.1 µs per 20-delta batch, on
+  both the send and the receive side.
+- **Retransmit-queue expiry walks the age heap.** `expireOld` — called on every
+  send, ACK and timer tick — scanned the whole queue. It now pops the same
+  lazy-deletion min-heap that 4.2.0 added for eviction and stops at the first
+  live entry inside `maxAge`: 38.5 → 14.9 µs per send with 2000 packets
+  outstanding.
+- **One msgpack encoder, reused.** `encode()` allocated a fresh 2 KiB scratch
+  buffer per call; a module-level `Encoder` is reused and its result copied out,
+  so encoded buffers stay independent of later encodes (11.4 → 9.9 µs per
+  20-delta batch).
+- **Fewer copies elsewhere on the hot path.** `encryptBinary` assembles
+  `[IV][ciphertext][tag]` in a single concat and `decryptBinary` skips the
+  concat when GCM `final()` yields no bytes; the path dictionary passes value
+  entries through by reference when the path is unchanged (the receive path
+  cloned every entry even with the dictionary off);
+  `normalizeDeltaSourceRefs` allocates only when a stale `$source` is actually
+  stripped; and the outbound dedupe key is built by concatenation rather than an
+  array join.
+
+### Fixed
+
+- **A mutated key buffer could break every later packet.** `normalizeKey` is
+  exported, and with `stretchAsciiKey` it returned the PBKDF2 cache's own
+  buffer; a caller that modified it in place would have corrupted every
+  subsequent encrypt, decrypt and control-tag operation using that key. The
+  cache now hands out a copy. The cache itself stays keyed by a SHA-256 digest
+  of the ASCII secret, so no plaintext key is retained beyond the live
+  derivation.
+
+### Tests
+
+- Regression coverage for the cloning and laziness the optimizations rely on:
+  msgpack buffers independent of later encodes; path-dictionary value-entry
+  identity (reused when unchanged, cloned only on a real transform);
+  `normalizeDeltaSourceRefs` selective cloning with a mixed delta; value-dedup
+  lazy replacement on send and receive, memoized object repr, and the
+  missing-baseline drop; and `RetransmitQueue.expireOld` heap-walk behaviour
+  (stale-node skipping, strict `maxAge` boundary, early stop, `expired`
+  notifications, empty-heap fallback).
+
+### Documentation
+
+- `docs/security.md` and `docs/GUIDE.md` §12 describe the per-process derived-key
+  cache used by `stretchAsciiKey`: what it holds, why the plaintext key is not a
+  cache key, and that callers receive a copy.
+
+### Dependencies
+
+- `fast-uri` override moved to `^3.1.7`. Four high-severity advisories
+  (GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf,
+  GHSA-jqff-g426-hqxp) were published against `<3.1.6`, which the in-suite
+  `npm audit --omit=dev` gate reported for the pinned 3.1.5.
+  `@rjsf/validator-ajv8` → `ajv` → `fast-uri` is the only consumer.
+
 ## [4.2.0] - 2026-08-30
 
 Correctness and availability release from a second full-codebase review. No wire
