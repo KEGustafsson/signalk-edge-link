@@ -4,10 +4,12 @@ All notable changes to signalk-edge-link are documented here.
 
 ## [4.3.0] - 2026-09-03
 
-Hot-path performance release. No behaviour or wire-format change: the
+Hot-path performance release. No protocol or wire-format change: the
 conformance vectors regenerate byte-identical, and 4.3.0 interoperates with
 4.2.0, 4.1.0 and 4.0.x peers in both directions. Nothing in this release needs
-a configuration change or a coordinated peer upgrade.
+a configuration change or a coordinated peer upgrade. The one observable API
+change is that `normalizeKey` now hands back a copy of the cached derived key
+rather than the cache's own buffer (see Fixed, below).
 
 The figures below are like-for-like micro-benchmarks of 4.2.0 against this
 release on one machine (Node 22, v3 with `authenticatedHeaders`, 20-delta
