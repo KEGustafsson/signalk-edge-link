@@ -461,6 +461,90 @@ describe("RetransmitQueue", () => {
     });
   });
 
+  // expireOld walks the age heap (ordered by originalTimestamp) instead of
+  // scanning the queue. These pin the contract of that walk: stale heap nodes
+  // left behind by ACKs are skipped, the boundary is strict (`> maxAge`), the
+  // walk stops at the first live entry that is young enough, every removal
+  // is reported as "expired", and an empty heap degrades to the full scan.
+  describe("Expiration (age heap)", () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test("skips heap nodes whose entries were already acknowledged", () => {
+      jest.useFakeTimers();
+      const dropped = [];
+      const queue = new RetransmitQueue({
+        onPacketDropped: (seq, reason) => dropped.push([seq, reason])
+      });
+      queue.add(0, Buffer.from("p0"));
+      queue.add(1, Buffer.from("p1"));
+      queue.add(2, Buffer.from("p2"));
+
+      // Removes 0 and 1 from the queue but leaves their heap nodes in place.
+      expect(queue.acknowledgeRange(null, 1)).toBe(2);
+      jest.advanceTimersByTime(6000);
+
+      expect(queue.expireOld(5000)).toBe(1);
+      expect(queue.getSize()).toBe(0);
+      expect(dropped).toEqual([[2, "expired"]]);
+    });
+
+    test("keeps an entry that is exactly maxAge old", () => {
+      jest.useFakeTimers();
+      const queue = new RetransmitQueue();
+      queue.add(0, Buffer.from("p0"));
+
+      jest.advanceTimersByTime(5000);
+      expect(queue.expireOld(5000)).toBe(0);
+      expect(queue.get(0)).toBeDefined();
+
+      jest.advanceTimersByTime(1);
+      expect(queue.expireOld(5000)).toBe(1);
+      expect(queue.get(0)).toBeUndefined();
+    });
+
+    test("stops at the first live entry that is young enough", () => {
+      jest.useFakeTimers();
+      const dropped = [];
+      const queue = new RetransmitQueue({
+        onPacketDropped: (seq, reason) => dropped.push([seq, reason])
+      });
+      queue.add(0, Buffer.from("p0"));
+      jest.advanceTimersByTime(3000);
+      queue.add(1, Buffer.from("p1"));
+      jest.advanceTimersByTime(3000);
+
+      expect(queue.expireOld(5000)).toBe(1);
+      expect(queue.get(0)).toBeUndefined();
+      expect(queue.get(1)).toBeDefined();
+      expect(dropped).toEqual([[0, "expired"]]);
+
+      // Nothing else has aged out yet; the walk is a no-op.
+      expect(queue.expireOld(5000)).toBe(0);
+    });
+
+    test("falls back to a full scan when the age heap is empty", () => {
+      jest.useFakeTimers();
+      const dropped = [];
+      const queue = new RetransmitQueue({
+        onPacketDropped: (seq, reason) => dropped.push([seq, reason])
+      });
+      queue.add(0, Buffer.from("p0"));
+      queue.add(1, Buffer.from("p1"));
+      // Simulate lost heap bookkeeping.
+      queue.ageHeap = [];
+      jest.advanceTimersByTime(6000);
+
+      expect(queue.expireOld(5000)).toBe(2);
+      expect(queue.getSize()).toBe(0);
+      expect(dropped.sort()).toEqual([
+        [0, "expired"],
+        [1, "expired"]
+      ]);
+    });
+  });
+
   describe("Clear", () => {
     test("clears all packets", () => {
       const queue = new RetransmitQueue();

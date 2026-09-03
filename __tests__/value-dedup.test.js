@@ -393,3 +393,119 @@ describe("sentinel-shaped genuine value", () => {
     expect(onMissingBaseline).toHaveBeenCalled();
   });
 });
+
+// ── Lazy replacement / reference identity ────────────────────────────────────
+//
+// Both directions allocate a replacement `updates` / `values` array only once
+// an entry actually changes. A delta that passes through untouched must come
+// back as the same object, and a delta that does change must leave the input
+// unmodified and reuse every entry it did not rewrite.
+
+describe("lazy replacement (reference identity)", () => {
+  test("dedupDelta returns the same delta when every value is new", () => {
+    const state = createValueDedupState();
+    const delta = makeDelta([
+      { path: "a", value: 1 },
+      { path: "b", value: "x" }
+    ]);
+    expect(dedupDelta(delta, state)).toBe(delta);
+  });
+
+  test("dedupDelta returns the same delta when every value changed", () => {
+    const state = createValueDedupState();
+    dedupDelta(makeDelta([{ path: "a", value: 1 }]), state);
+    const changed = makeDelta([{ path: "a", value: 2 }]);
+    expect(dedupDelta(changed, state)).toBe(changed);
+  });
+
+  test("dedupDelta replaces only the arrays holding a collapsed value", () => {
+    const state = createValueDedupState();
+    dedupDelta(makeDelta([{ path: "a", value: 1 }]), state);
+
+    const delta = {
+      context: "vessels.self",
+      updates: [
+        { values: [{ path: "c", value: 3 }] },
+        {
+          values: [
+            { path: "a", value: 1 },
+            { path: "b", value: 2 }
+          ]
+        }
+      ]
+    };
+    const out = dedupDelta(delta, state);
+
+    expect(out).not.toBe(delta);
+    expect(out.updates[0]).toBe(delta.updates[0]);
+    expect(out.updates[1]).not.toBe(delta.updates[1]);
+    expect(out.updates[1].values[0].value).toEqual(DUP_SENTINEL);
+    expect(out.updates[1].values[1]).toBe(delta.updates[1].values[1]);
+    // Input untouched.
+    expect(delta.updates[1].values[0].value).toBe(1);
+  });
+
+  test("an unchanged object value keeps collapsing on every repeat", () => {
+    const state = createValueDedupState();
+    const position = () => ({ latitude: 60.1, longitude: 24.9 });
+    dedupDelta(makeDelta([{ path: "navigation.position", value: position() }]), state);
+
+    for (let i = 0; i < 3; i++) {
+      const out = dedupDelta(
+        makeDelta([{ path: "navigation.position", value: position() }]),
+        state
+      );
+      expect(out.updates[0].values[0].value).toEqual(DUP_SENTINEL);
+    }
+
+    const moved = makeDelta([
+      { path: "navigation.position", value: { latitude: 60.2, longitude: 24.9 } }
+    ]);
+    expect(dedupDelta(moved, state)).toBe(moved);
+    // The new baseline is the moved position, so the old one is absolute again.
+    const back = makeDelta([{ path: "navigation.position", value: position() }]);
+    expect(dedupDelta(back, state)).toBe(back);
+  });
+
+  test("undedupDelta returns the same delta when it carries only absolute values", () => {
+    const state = createValueDedupState();
+    const delta = makeDelta([
+      { path: "a", value: 1 },
+      { path: "b", value: { x: 1 } }
+    ]);
+    expect(undedupDelta(delta, state)).toBe(delta);
+  });
+
+  test("undedupDelta builds a replacement array only where a sentinel is expanded or dropped", () => {
+    const state = createValueDedupState();
+    undedupDelta(makeDelta([{ path: "a", value: 1 }]), state);
+
+    const delta = {
+      context: "vessels.self",
+      updates: [
+        { values: [{ path: "c", value: 3 }] },
+        {
+          values: [
+            { path: "a", value: { $$: "dup" } },
+            { path: "b", value: 2 },
+            { path: "never-seen", value: { $$: "dup" } }
+          ]
+        }
+      ]
+    };
+    const onMissingBaseline = jest.fn();
+    const out = undedupDelta(delta, state, undefined, onMissingBaseline);
+
+    expect(out).not.toBe(delta);
+    expect(out.updates[0]).toBe(delta.updates[0]);
+    expect(out.updates[1].values).toEqual([
+      { path: "a", value: 1 },
+      { path: "b", value: 2 }
+    ]);
+    expect(out.updates[1].values[1]).toBe(delta.updates[1].values[1]);
+    expect(onMissingBaseline).toHaveBeenCalledTimes(1);
+    // Input untouched: the sentinels are still in place.
+    expect(isDupSentinel(delta.updates[1].values[0].value)).toBe(true);
+    expect(delta.updates[1].values).toHaveLength(3);
+  });
+});

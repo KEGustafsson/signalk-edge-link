@@ -267,3 +267,54 @@ describe("Compression and Encryption Pipeline", () => {
     });
   });
 });
+
+// ── Shared MessagePack encoder ───────────────────────────────────────────────
+//
+// encodeMsgpack() serializes through one reused Encoder whose encodeSharedRef()
+// hands back a view into the encoder's internal buffer. The next encode
+// overwrites that buffer, so the helper must copy before returning; these
+// tests fail if a returned buffer is ever aliased to the encoder's storage.
+
+const msgpack = require("@msgpack/msgpack");
+const { encodeMsgpack, deltaBuffer } = require("../lib/pipeline-utils");
+
+describe("encodeMsgpack (shared encoder)", () => {
+  const small = {
+    context: "vessels.self",
+    updates: [{ values: [{ path: "navigation.speedOverGround", value: 1.5 }] }]
+  };
+  // Larger than the encoder's initial 2 KiB buffer so the second encode both
+  // overwrites and reallocates the internal storage.
+  const large = {
+    context: "vessels.other",
+    updates: [{ values: [{ path: "notes", value: "y".repeat(4096) }] }]
+  };
+
+  test("a returned buffer is not changed by later encodes", () => {
+    const first = encodeMsgpack(small);
+    const snapshot = Buffer.from(first);
+
+    encodeMsgpack(large);
+    encodeMsgpack(small);
+    encodeMsgpack(large);
+
+    expect(first.equals(snapshot)).toBe(true);
+    expect(msgpack.decode(first)).toEqual(small);
+  });
+
+  test("consecutive encodes each decode to their own input", () => {
+    const a = encodeMsgpack(small);
+    const b = encodeMsgpack(large);
+    const c = encodeMsgpack(small);
+
+    expect(msgpack.decode(a)).toEqual(small);
+    expect(msgpack.decode(b)).toEqual(large);
+    expect(msgpack.decode(c)).toEqual(small);
+    expect(a.equals(c)).toBe(true);
+  });
+
+  test("produces the same bytes as msgpack.encode", () => {
+    expect(encodeMsgpack(large).equals(Buffer.from(msgpack.encode(large)))).toBe(true);
+    expect(deltaBuffer(small, true).equals(Buffer.from(msgpack.encode(small)))).toBe(true);
+  });
+});

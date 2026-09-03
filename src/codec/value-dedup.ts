@@ -175,6 +175,11 @@ function nonFiniteReplacer(_key: string, value: unknown): unknown {
   return value;
 }
 
+/**
+ * Serialize a value into the comparison key used by the send-side dedup, as
+ * documented on {@link nonFiniteReplacer}: JSON with non-finite numbers and
+ * NUL-prefixed strings tagged so no two distinct values share a repr.
+ */
 function stableRepr(value: unknown): string {
   // Primitive fast paths. Each returns exactly what the replacer-driven
   // JSON.stringify below would, so a cached repr and a fresh one always
