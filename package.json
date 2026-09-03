@@ -57,7 +57,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
-    "@babel/preset-env": "^7.22.0",
+    "@babel/preset-env": "^8.0.2",
     "@babel/preset-react": "^7.22.0",
     "@rjsf/core": "^5.18.4",
     "@rjsf/utils": "^5.18.4",
