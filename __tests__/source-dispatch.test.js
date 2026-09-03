@@ -302,4 +302,31 @@ describe("normalizeDeltaSourceRefs", () => {
     };
     expect(normalizeDeltaSourceRefs(delta)).toBe(delta);
   });
+
+  test("clones only the update it strips and reuses the rest", () => {
+    const untouched = {
+      source: { label: "bedroom" },
+      $source: "bedroom",
+      values: [{ path: "p", value: 1 }]
+    };
+    const stale = {
+      source: { label: "galley" },
+      $source: "signalk-edge-link.42",
+      values: [{ path: "q", value: 2 }]
+    };
+    const delta = { context: "vessels.self", updates: [untouched, stale] };
+
+    const out = normalizeDeltaSourceRefs(delta);
+
+    expect(out).not.toBe(delta);
+    expect(out.updates).toHaveLength(2);
+    expect(out.updates[0]).toBe(untouched);
+    expect(out.updates[1]).not.toBe(stale);
+    expect(out.updates[1].$source).toBeUndefined();
+    expect(out.updates[1].source).toEqual({ label: "galley" });
+    expect(out.updates[1].values).toBe(stale.values);
+    // Input untouched.
+    expect(delta.updates).toEqual([untouched, stale]);
+    expect(stale.$source).toBe("signalk-edge-link.42");
+  });
 });
