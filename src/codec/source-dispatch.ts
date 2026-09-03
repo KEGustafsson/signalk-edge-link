@@ -191,29 +191,38 @@ export function normalizeDeltaSourceRefs(delta: Delta): Delta {
     return delta;
   }
 
-  let changed = false;
-  const updates = delta.updates.map((update) => {
+  // The replacement array is only allocated once an update actually needs its
+  // stale `$source` stripped; the ordinary delta (no edge-link attribution at
+  // all) passes through by reference. Runs once per received delta.
+  let updates: DeltaUpdate[] | null = null;
+  const source = delta.updates;
+  for (let i = 0; i < source.length; i++) {
+    const update = source[i];
     const sourceRef = trimmedString(update.$source);
-    if (!sourceRef || !isStaleEdgeLinkRef(sourceRef)) {
-      return update;
+    let next = update;
+    if (sourceRef && isStaleEdgeLinkRef(sourceRef)) {
+      const sourceObj = isRecord(update.source) ? update.source : null;
+      const sourceLabel = trimmedString(sourceObj?.label);
+      // Only strip when we have a real (non-edge-link) structured source the
+      // receiver can fall back to. Otherwise keep the stale $source so the
+      // value still has *some* attribution downstream. Use prefix-aware
+      // staleness detection so a label like `"signalk-edge-link:<instanceId>"`
+      // is treated the same as the bare `"signalk-edge-link"`.
+      if (sourceLabel && !isStaleEdgeLinkRef(sourceLabel)) {
+        const cloned = { ...update };
+        delete cloned.$source;
+        next = cloned;
+      }
     }
-    const sourceObj = isRecord(update.source) ? update.source : null;
-    const sourceLabel = trimmedString(sourceObj?.label);
-    // Only strip when we have a real (non-edge-link) structured source the
-    // receiver can fall back to. Otherwise keep the stale $source so the
-    // value still has *some* attribution downstream. Use prefix-aware
-    // staleness detection so a label like `"signalk-edge-link:<instanceId>"`
-    // is treated the same as the bare `"signalk-edge-link"`.
-    if (!sourceLabel || isStaleEdgeLinkRef(sourceLabel)) {
-      return update;
+    if (next !== update && updates === null) {
+      updates = source.slice(0, i);
     }
-    changed = true;
-    const cloned = { ...update };
-    delete cloned.$source;
-    return cloned;
-  });
+    if (updates !== null) {
+      updates.push(next);
+    }
+  }
 
-  return changed ? { ...delta, updates } : delta;
+  return updates === null ? delta : { ...delta, updates };
 }
 
 /**

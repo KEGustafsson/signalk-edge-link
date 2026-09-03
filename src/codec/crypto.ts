@@ -141,13 +141,24 @@ export function normalizeKey(secretKey: string, options: KeyNormalizationOptions
 // effectively bounded by the number of distinct configured keys (typically
 // one or two per Signal K instance); the LRU cap is a defensive measure
 // against a future caller that passes externally-influenced strings here.
+//
+// Only the stretched path is cached: the hex, base64 and raw-ASCII decodes
+// cost less than the digest lookup would, so memoizing them buys nothing.
 const ASCII_KEY_CACHE_MAX = 32;
 const asciiKeyCache = new Map<string, Buffer>();
 
+/** Cache key for the derived-key cache: hex SHA-256 of the raw ASCII key. */
 function asciiKeyCacheKey(asciiKey: string): string {
   return crypto.createHash("sha256").update(asciiKey, "utf8").digest("hex");
 }
 
+/**
+ * Return the PBKDF2-derived key for a 32-char ASCII secret, deriving it on the
+ * first call and serving a copy from the cache afterwards. A copy, not the
+ * cached Buffer itself: `normalizeKey` is exported, and a caller that mutated
+ * the shared instance would silently corrupt every later encrypt, decrypt and
+ * control-tag operation on the same key.
+ */
 function getOrDeriveAsciiKey(asciiKey: string): Buffer {
   const cacheKey = asciiKeyCacheKey(asciiKey);
   const cached = asciiKeyCache.get(cacheKey);
@@ -155,7 +166,7 @@ function getOrDeriveAsciiKey(asciiKey: string): Buffer {
     // LRU refresh: move to tail by delete-then-set on insertion order Map.
     asciiKeyCache.delete(cacheKey);
     asciiKeyCache.set(cacheKey, cached);
-    return cached;
+    return Buffer.from(cached);
   }
   const derived = deriveKeyFromPassphrase(asciiKey);
   if (asciiKeyCache.size >= ASCII_KEY_CACHE_MAX) {
@@ -165,7 +176,7 @@ function getOrDeriveAsciiKey(asciiKey: string): Buffer {
     }
   }
   asciiKeyCache.set(cacheKey, derived);
-  return derived;
+  return Buffer.from(derived);
 }
 
 /**
@@ -200,11 +211,11 @@ export const encryptBinary = (
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGORITHM, keyBuffer, iv) as crypto.CipherGCM;
 
-  const encrypted = Buffer.concat([cipher.update(dataBuffer), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-
-  // Return single buffer: [IV][Encrypted][AuthTag]
-  return Buffer.concat([iv, encrypted, authTag]);
+  // One concat, not two: GCM is a stream mode, so update() yields the whole
+  // ciphertext and final() an empty buffer; assembling [IV][Encrypted][AuthTag]
+  // directly skips the intermediate ciphertext copy. Array elements evaluate
+  // left to right, so getAuthTag() runs after final() as GCM requires.
+  return Buffer.concat([iv, cipher.update(dataBuffer), cipher.final(), cipher.getAuthTag()]);
 };
 
 /**
@@ -236,7 +247,11 @@ export const decryptBinary = (
   decipher.setAuthTag(authTag);
 
   try {
-    return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    const plaintext = decipher.update(encrypted);
+    // final() verifies the tag and, for GCM, returns no bytes — so the common
+    // case needs no concat copy of the plaintext.
+    const tail = decipher.final();
+    return tail.length === 0 ? plaintext : Buffer.concat([plaintext, tail]);
   } catch (err: unknown) {
     // GCM auth tag failure: the most likely cause is a stretchAsciiKey
     // disagreement between peers (one side stretched, the other did not),

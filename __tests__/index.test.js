@@ -10,10 +10,19 @@ jest.mock("ping-monitor", () =>
 
 jest.mock(
   "@msgpack/msgpack",
-  () => ({
-    encode: jest.fn((v) => Buffer.from(JSON.stringify(v))),
-    decode: jest.fn((b) => JSON.parse(b.toString()))
-  }),
+  () => {
+    const encode = jest.fn((v) => Buffer.from(JSON.stringify(v)));
+    return {
+      encode,
+      decode: jest.fn((b) => JSON.parse(b.toString())),
+      // codec/compression.ts encodes through a reused Encoder instance.
+      Encoder: class {
+        encodeSharedRef(v) {
+          return encode(v);
+        }
+      }
+    };
+  },
   { virtual: true }
 );
 

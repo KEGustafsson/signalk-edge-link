@@ -11,7 +11,6 @@
  * @module transport/pipeline/reliable-client/delta-sender
  */
 
-import * as msgpack from "@msgpack/msgpack";
 import { encryptBinary } from "../../../codec/crypto";
 import { encodeDelta } from "../../../codec/path-dictionary";
 import {
@@ -24,7 +23,7 @@ import {
 import { dedupDeltaPayload, resetValueDedupState } from "../../../codec/value-dedup";
 import { resetPathThrottleState } from "../../../codec/delta-sanitizer";
 import { encodeCompactPayload } from "../../../codec/compact-delta";
-import { deltaBuffer, compressPayload } from "../../../codec/compression";
+import { deltaBuffer, compressPayload, encodeMsgpack } from "../../../codec/compression";
 import {
   MAX_SAFE_UDP_PAYLOAD,
   SMART_BATCH_SMOOTHING,
@@ -298,7 +297,7 @@ export async function sendDelta(
     // Serialize to buffer — compact mode requires msgpack (no gain in JSON)
     const serialized =
       state.options.useCompactDeltas && state.options.useMsgpack
-        ? Buffer.from(msgpack.encode(encodeCompactPayload(processedDelta)))
+        ? encodeMsgpack(encodeCompactPayload(processedDelta))
         : deltaBuffer(processedDelta, state.options.useMsgpack);
 
     metrics.bandwidth.bytesOutRaw += serialized.length;

@@ -311,7 +311,6 @@ export class PacketBuilder {
       sequence?: number;
     } = {}
   ): Buffer {
-    const header = Buffer.alloc(HEADER_SIZE);
     const payloadBuffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload || "");
     const protocolVersion = normalizeProtocolVersion(
       options.protocolVersion ?? this._protocolVersion
@@ -324,16 +323,26 @@ export class PacketBuilder {
     // the bit) are detectable by a receiver that requires authentication.
     const authenticateHeader =
       this._authenticatedHeaders && (type === PacketType.DATA || type === PacketType.METADATA);
+    const isControl = type !== PacketType.DATA && type !== PacketType.METADATA;
+    const hasAuthTag = isControl || authenticateHeader;
+
+    // The wire payload is the caller's payload plus, when authenticated, the
+    // trailing HMAC tag. Its length is known up front, so the whole datagram is
+    // written into one allocation: header, payload copy, tag. This used to be
+    // a 15-byte header plus two Buffer.concat passes (payload+tag, then
+    // header+payload) — three copies of every outbound packet's payload.
+    const finalPayloadLength = payloadBuffer.length + (hasAuthTag ? CONTROL_AUTH_TAG_LENGTH : 0);
+    const packet = Buffer.allocUnsafe(HEADER_SIZE + finalPayloadLength);
 
     // Magic bytes
-    header[0] = MAGIC[0];
-    header[1] = MAGIC[1];
+    packet[0] = MAGIC[0];
+    packet[1] = MAGIC[1];
 
     // Version
-    header[2] = protocolVersion;
+    packet[2] = protocolVersion;
 
     // Type
-    header[3] = type;
+    packet[3] = type;
 
     // Flags.
     //
@@ -341,30 +350,37 @@ export class PacketBuilder {
     // receiver has nothing to verify against yet. Binding it would make the
     // handshake unverifiable and the connection could never start.
     const boundEpoch = type === PacketType.HELLO ? 0 : this._bindableEpoch();
-    header[4] = buildFlagByte(flags, authenticateHeader, boundEpoch > 0);
+    packet[4] = buildFlagByte(flags, authenticateHeader, boundEpoch > 0);
 
     // Sequence number (uint32 big-endian) — DATA uses this._sequence, METADATA
     // uses this._metaSequence, control packets inherit this._sequence.
-    header.writeUInt32BE(sequence, 5);
+    packet.writeUInt32BE(sequence, 5);
 
-    const isControl = type !== PacketType.DATA && type !== PacketType.METADATA;
-    const finalPayload =
-      isControl || authenticateHeader
-        ? this._appendAuthTag(header, payloadBuffer, isControl, options, boundEpoch)
-        : payloadBuffer;
+    // Payload length (uint32 big-endian). Written before the HMAC because the
+    // tag covers header bytes 0..12, length field included.
+    packet.writeUInt32BE(finalPayloadLength, 9);
 
-    // Payload length (uint32 big-endian)
-    header.writeUInt32BE(finalPayload.length, 9);
+    payloadBuffer.copy(packet, HEADER_SIZE);
+    if (hasAuthTag) {
+      const authTag = this._computeAuthTag(
+        packet.subarray(0, 13),
+        payloadBuffer,
+        isControl,
+        options,
+        boundEpoch
+      );
+      authTag.copy(packet, HEADER_SIZE + payloadBuffer.length);
+    }
 
     // CRC16 over header bytes 0..12 (everything except the CRC field itself)
-    const crcValue = crc16(header.subarray(0, 13));
-    header.writeUInt16BE(crcValue, 13);
+    const crcValue = crc16(packet.subarray(0, 13));
+    packet.writeUInt16BE(crcValue, 13);
 
-    return Buffer.concat([header, finalPayload]);
+    return packet;
   }
 
   /**
-   * Append a trailing HMAC tag when the packet needs header authentication:
+   * Compute the trailing HMAC tag for a packet that needs header authentication:
    *  - Control packets (ACK/NAK/HEARTBEAT/HELLO/META_REQUEST/FULL_STATUS_REQUEST)
    *    are always HMAC-authenticated so they cannot be forged off-path.
    *  - DATA/METADATA are AEAD ciphertext; with opt-in `authenticatedHeaders`
@@ -372,9 +388,12 @@ export class PacketBuilder {
    *    ciphertext so an on-path attacker cannot flip header bits and recompute
    *    only the CRC.
    *
+   * `header` must already carry the final payload length (payload + tag) in
+   * bytes 9-12, since the tag is authenticated over header bytes 0..12.
+   *
    * @private
    */
-  _appendAuthTag(
+  _computeAuthTag(
     header: Buffer,
     payloadBuffer: Buffer,
     isControl: boolean,
@@ -389,17 +408,10 @@ export class PacketBuilder {
           : "Authenticated-header DATA/METADATA packets require a secretKey"
       );
     }
-    // Write the final payload length (payload + auth tag) into header bytes
-    // 9-12 BEFORE computing the HMAC, since the tag is authenticated over
-    // header.subarray(0, 13). The later writeUInt32BE(finalPayload.length, 9)
-    // re-writes the same value, so this is not a dead write — removing it
-    // would change the bytes the HMAC covers and break the wire format.
-    header.writeUInt32BE(payloadBuffer.length + CONTROL_AUTH_TAG_LENGTH, 9);
-    const authTag = createControlPacketAuthTag(header.subarray(0, 13), payloadBuffer, secretKey, {
+    return createControlPacketAuthTag(header, payloadBuffer, secretKey, {
       stretchAsciiKey: this._stretchAsciiKey,
       epoch: boundEpoch > 0 ? boundEpoch : undefined
     });
-    return Buffer.concat([payloadBuffer, authTag]);
   }
 
   /**

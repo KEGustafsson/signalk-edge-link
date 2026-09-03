@@ -415,3 +415,46 @@ describe("malformed delta shapes", () => {
     expect(out.updates[0].values).toBe("nope");
   });
 });
+
+// ── Value entry identity ──────────────────────────────────────────────────────
+//
+// transformDelta clones a value entry only when its path actually maps to
+// something else. Everything else passes through by reference, which the
+// receive path relies on to avoid a per-value copy even with the dictionary
+// off. The input delta is never mutated either way.
+
+describe("value entry identity", () => {
+  test("encodeDelta reuses entries whose path is not in the dictionary", () => {
+    const custom = { path: "sensors.custom.foo", value: 1 };
+    const known = { path: "navigation.speedOverGround", value: 2 };
+    const out = encodeDelta({ context: "vessels.self", updates: [{ values: [custom, known] }] });
+
+    expect(out.updates[0].values[0]).toBe(custom);
+    expect(out.updates[0].values[1]).not.toBe(known);
+    expect(out.updates[0].values[1]).toEqual({
+      path: PATH_TO_ID["navigation.speedOverGround"],
+      value: 2
+    });
+    expect(known.path).toBe("navigation.speedOverGround");
+  });
+
+  test("decodeDelta reuses every entry when no path carries a dictionary id", () => {
+    const first = { path: "navigation.speedOverGround", value: 2 };
+    const second = { path: "sensors.custom.foo", value: { a: 1 } };
+    const out = decodeDelta({ context: "vessels.self", updates: [{ values: [first, second] }] });
+
+    expect(out.updates[0].values[0]).toBe(first);
+    expect(out.updates[0].values[1]).toBe(second);
+  });
+
+  test("decodeDelta clones only the entries carrying a dictionary id", () => {
+    const encoded = { path: PATH_TO_ID["navigation.speedOverGround"], value: 2 };
+    const plain = { path: "sensors.custom.foo", value: 1 };
+    const out = decodeDelta({ context: "vessels.self", updates: [{ values: [encoded, plain] }] });
+
+    expect(out.updates[0].values[0]).not.toBe(encoded);
+    expect(out.updates[0].values[0]).toEqual({ path: "navigation.speedOverGround", value: 2 });
+    expect(out.updates[0].values[1]).toBe(plain);
+    expect(encoded.path).toBe(PATH_TO_ID["navigation.speedOverGround"]);
+  });
+});

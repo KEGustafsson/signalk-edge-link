@@ -43,7 +43,7 @@
  * session starts with an empty cache; see `reliable-client/lifecycle`.
  */
 
-import type { Delta, DeltaValue } from "../foundation/types";
+import type { Delta, DeltaUpdate, DeltaValue } from "../foundation/types";
 import type { DeltaPayload } from "./delta-sanitizer";
 import { mapDeltaPayload } from "./delta-sanitizer/internal";
 import { VALUE_DEDUP_CACHE_MAX } from "../foundation/constants";
@@ -66,6 +66,13 @@ export const DUP_SENTINEL = { $$: "dup" } as const;
 interface DedupEntry {
   value: unknown;
   seq: number;
+  /**
+   * Memoized {@link stableRepr} of `value`, filled on the send path the first
+   * time the entry is compared against. Without it every outbound value
+   * re-serialized the cached baseline as well as itself — two JSON passes per
+   * value per delta, the single largest cost of the outbound codec chain.
+   */
+  repr?: string;
 }
 
 /** Sentinel "no sequence recorded" marker for send-side entries. */
@@ -168,11 +175,30 @@ function nonFiniteReplacer(_key: string, value: unknown): unknown {
   return value;
 }
 
+/**
+ * Serialize a value into the comparison key used by the send-side dedup, as
+ * documented on {@link nonFiniteReplacer}: JSON with non-finite numbers and
+ * NUL-prefixed strings tagged so no two distinct values share a repr.
+ */
 function stableRepr(value: unknown): string {
-  if (value === undefined) return "undefined";
-  if (typeof value === "number" && !Number.isFinite(value)) {
-    if (Number.isNaN(value)) return "\0nan";
-    return value > 0 ? "\0+inf" : "\0-inf";
+  // Primitive fast paths. Each returns exactly what the replacer-driven
+  // JSON.stringify below would, so a cached repr and a fresh one always
+  // compare like-for-like; they just skip the replacer callback machinery
+  // for the numbers and short strings that make up most Signal K values.
+  switch (typeof value) {
+    case "number":
+      if (Number.isFinite(value)) return String(value);
+      if (Number.isNaN(value)) return "\0nan";
+      return value > 0 ? "\0+inf" : "\0-inf";
+    case "string":
+      if (value.charCodeAt(0) !== 0) return JSON.stringify(value);
+      break;
+    case "boolean":
+      return value ? "true" : "false";
+    case "undefined":
+      return "undefined";
+    default:
+      if (value === null) return "null";
   }
   try {
     return JSON.stringify(value, nonFiniteReplacer);
@@ -194,43 +220,72 @@ function stableRepr(value: unknown): string {
 export function dedupDelta(delta: Delta, state: ValueDedupState): Delta {
   if (!Array.isArray(delta.updates)) return delta;
   const context = delta.context;
-  let deltaChanged = false;
+  const rawUpdates = delta.updates;
 
-  const updates = delta.updates.map((update) => {
-    // Pass malformed updates through — sanitize is responsible for them.
-    if (!update || typeof update !== "object" || !Array.isArray(update.values)) return update;
-    let valuesChanged = false;
-    const values = update.values.map((entry) => {
-      // Pass malformed entries through — sanitize is responsible for them.
-      if (entry === null || typeof entry !== "object") return entry;
-      const v = entry as DeltaValue;
-      if (typeof v.path !== "string" || v.path.length === 0) return entry;
-      // A genuine value identical to the sentinel cannot be told apart by the
-      // receiver, which never caches sentinels — send it verbatim without
-      // caching so the two caches stay in agreement.
-      if (isSentinel(v.value)) return entry;
-      const key = cacheKey(context, v.path);
-      const cached = state.cache.get(key);
-      const cachedRepr = cached === undefined ? undefined : stableRepr(cached.value);
-      const currentRepr = stableRepr(v.value);
-      if (cachedRepr !== undefined && cachedRepr === currentRepr) {
-        valuesChanged = true;
-        // Refresh LRU position so a stable path that only ever emits
-        // sentinels is not evicted ahead of churnier ones.
-        cacheSet(state.cache, key, cached!);
-        return { ...v, value: DUP_SENTINEL };
-      }
-      // First occurrence or value changed — cache the absolute value
-      cacheSet(state.cache, key, { value: v.value, seq: NO_SEQ });
-      return entry;
-    });
-    if (!valuesChanged) return update;
-    deltaChanged = true;
-    return { ...update, values };
-  });
+  // Replacement arrays are allocated lazily, on the first update (or value)
+  // that actually changes, so a delta of all-fresh values costs no copies.
+  let updates: DeltaUpdate[] | null = null;
+  for (let i = 0; i < rawUpdates.length; i++) {
+    const update = rawUpdates[i];
+    const next = dedupUpdate(update, context, state.cache);
+    if (next !== update && updates === null) updates = rawUpdates.slice(0, i);
+    if (updates !== null) updates.push(next);
+  }
 
-  if (!deltaChanged) return delta;
-  return { ...delta, updates };
+  return updates === null ? delta : { ...delta, updates };
+}
+
+/** Dedup one update's values; returns the same object when nothing changed. */
+function dedupUpdate(
+  update: DeltaUpdate,
+  context: string | undefined,
+  cache: Map<string, DedupEntry>
+): DeltaUpdate {
+  // Pass malformed updates through — sanitize is responsible for them.
+  if (!update || typeof update !== "object" || !Array.isArray(update.values)) return update;
+  const rawValues = update.values;
+  let values: DeltaValue[] | null = null;
+  for (let j = 0; j < rawValues.length; j++) {
+    const entry = rawValues[j];
+    const next = dedupValue(entry, context, cache);
+    if (next !== entry && values === null) values = rawValues.slice(0, j);
+    if (values !== null) values.push(next);
+  }
+  return values === null ? update : { ...update, values };
+}
+
+/** Collapse one value entry to the sentinel when it matches the cached baseline. */
+function dedupValue(
+  entry: DeltaValue,
+  context: string | undefined,
+  cache: Map<string, DedupEntry>
+): DeltaValue {
+  // Pass malformed entries through — sanitize is responsible for them.
+  if (entry === null || typeof entry !== "object") return entry;
+  const v = entry;
+  if (typeof v.path !== "string" || v.path.length === 0) return entry;
+  // A genuine value identical to the sentinel cannot be told apart by the
+  // receiver, which never caches sentinels — send it verbatim without
+  // caching so the two caches stay in agreement.
+  if (isSentinel(v.value)) return entry;
+  const key = cacheKey(context, v.path);
+  const cached = cache.get(key);
+  let currentRepr: string | undefined;
+  if (cached !== undefined) {
+    // The baseline's repr is computed once and memoized on the entry; only
+    // the incoming value is serialized per delta.
+    if (cached.repr === undefined) cached.repr = stableRepr(cached.value);
+    currentRepr = stableRepr(v.value);
+    if (cached.repr === currentRepr) {
+      // Refresh LRU position so a stable path that only ever emits
+      // sentinels is not evicted ahead of churnier ones.
+      cacheSet(cache, key, cached);
+      return { ...v, value: DUP_SENTINEL };
+    }
+  }
+  // First occurrence or value changed — cache the absolute value
+  cacheSet(cache, key, { value: v.value, seq: NO_SEQ, repr: currentRepr });
+  return entry;
 }
 
 /** Apply {@link dedupDelta} to an array of deltas in order. */
@@ -310,54 +365,78 @@ export function undedupDelta(
 ): Delta {
   if (!Array.isArray(delta.updates)) return delta;
   const context = delta.context;
-  let deltaChanged = false;
+  const rawUpdates = delta.updates;
 
-  const updates = delta.updates.map((update) => {
-    // Pass malformed updates through — sanitize is responsible for them.
-    if (!update || typeof update !== "object" || !Array.isArray(update.values)) return update;
-    let valuesChanged = false;
-    const values: DeltaValue[] = [];
-    for (const entry of update.values) {
-      // Pass malformed entries through unchanged — sanitizeDeltaForSignalK
-      // is responsible for rejecting null / missing-path entries.
-      if (entry === null || typeof entry !== "object") {
-        values.push(entry as DeltaValue);
-        continue;
-      }
-      const v = entry as DeltaValue;
-      if (typeof v.path !== "string" || v.path.length === 0) {
-        values.push(entry as DeltaValue);
-        continue;
-      }
-      const key = cacheKey(context, v.path);
-      const cached = state.cache.get(key);
-      if (isSentinel(v.value)) {
-        if (cached === undefined) {
-          // Receiver missed the absolute baseline — skip rather than inject the sentinel.
-          // The sender will resync on the next absolute value.
-          valuesChanged = true;
-          onMissingBaseline?.();
-          continue;
-        }
-        valuesChanged = true;
-        // Refresh LRU position so a stable path is not evicted ahead of
-        // churnier ones (mirrors the sender-side dedup behaviour).
-        cacheSet(state.cache, key, cached);
-        values.push({ ...v, value: cached.value });
-      } else {
-        // Absolute value — always delivered, but only cached when it is the
-        // newest write for this path (see cacheAbsoluteIfNewest).
-        cacheAbsoluteIfNewest(state, key, cached, v.value, seq);
-        values.push(entry as DeltaValue);
-      }
-    }
-    if (!valuesChanged) return update;
-    deltaChanged = true;
-    return { ...update, values };
-  });
+  // As on the send side: allocate replacement arrays only once a sentinel is
+  // actually expanded (or dropped), so a packet of absolute values — the
+  // steady state for changing paths — is delivered without copies.
+  let updates: DeltaUpdate[] | null = null;
+  for (let i = 0; i < rawUpdates.length; i++) {
+    const update = rawUpdates[i];
+    const next = undedupUpdate(update, context, state, seq, onMissingBaseline);
+    if (next !== update && updates === null) updates = rawUpdates.slice(0, i);
+    if (updates !== null) updates.push(next);
+  }
 
-  if (!deltaChanged) return delta;
-  return { ...delta, updates };
+  return updates === null ? delta : { ...delta, updates };
+}
+
+/** Expand one update's sentinels; returns the same object when nothing changed. */
+function undedupUpdate(
+  update: DeltaUpdate,
+  context: string | undefined,
+  state: ValueDedupState,
+  seq: number | undefined,
+  onMissingBaseline: (() => void) | undefined
+): DeltaUpdate {
+  // Pass malformed updates through — sanitize is responsible for them.
+  if (!update || typeof update !== "object" || !Array.isArray(update.values)) return update;
+  const rawValues = update.values;
+  let values: DeltaValue[] | null = null;
+  for (let j = 0; j < rawValues.length; j++) {
+    const entry = rawValues[j];
+    const next = undedupValue(entry, context, state, seq, onMissingBaseline);
+    if (next !== entry && values === null) values = rawValues.slice(0, j);
+    if (values !== null && next !== null) values.push(next);
+  }
+  return values === null ? update : { ...update, values };
+}
+
+/**
+ * Expand one value entry: returns the entry itself when it is absolute (or
+ * malformed), a copy carrying the cached baseline when it is a sentinel, or
+ * null when it is a sentinel with no baseline and must be dropped.
+ */
+function undedupValue(
+  entry: DeltaValue,
+  context: string | undefined,
+  state: ValueDedupState,
+  seq: number | undefined,
+  onMissingBaseline: (() => void) | undefined
+): DeltaValue | null {
+  // Pass malformed entries through unchanged — sanitizeDeltaForSignalK
+  // is responsible for rejecting null / missing-path entries.
+  if (entry === null || typeof entry !== "object") return entry;
+  const v = entry;
+  if (typeof v.path !== "string" || v.path.length === 0) return entry;
+  const key = cacheKey(context, v.path);
+  const cached = state.cache.get(key);
+  if (!isSentinel(v.value)) {
+    // Absolute value — always delivered, but only cached when it is the
+    // newest write for this path (see cacheAbsoluteIfNewest).
+    cacheAbsoluteIfNewest(state, key, cached, v.value, seq);
+    return entry;
+  }
+  if (cached === undefined) {
+    // Receiver missed the absolute baseline — drop rather than inject the
+    // sentinel. The sender will resync on the next absolute value.
+    onMissingBaseline?.();
+    return null;
+  }
+  // Refresh LRU position so a stable path is not evicted ahead of churnier
+  // ones (mirrors the sender-side dedup behaviour).
+  cacheSet(state.cache, key, cached);
+  return { ...v, value: cached.value };
 }
 
 export function undedupDeltaArray(
