@@ -4,23 +4,23 @@
 **Project Code:** SKEL
 **Initialized:** 2026-04-30
 **Current Milestone:** v2 Fleet Data Sharing (`v2-fleet-sharing`)
-**Current Phase:** 6 - Fleet Sharing Protocol Design
-**Phase Status:** Context gathered, ready for planning
+**Current Phase:** 6-10 implemented
+**Phase Status:** Verification open items remain
 **Plan Count:** 0
 
 ## Current Focus
 
-Phase 6: specify the server-to-client fleet packets, HELLO capability and encrypted vessel identity, and accept or replace decisions D-01 to D-08 in `06-CONTEXT.md`. No source changes in this phase.
+Fleet sharing is implemented on `claude/zen-bell-l5clz3`. Remaining: the Partial items in `.planning/phases/06-fleet-sharing-protocol-design/FLEET-VERIFICATION.md`.
 
 ## Phase Status
 
 v2 Fleet Data Sharing (phases 6-10):
 
-- Phase 6: Fleet Sharing Protocol Design — Context gathered
-- Phase 7: Vessel Identity, Scope and Loop Prevention — Not started
-- Phase 8: Server-to-Client Fleet Transport — Not started
-- Phase 9: Fleet Configuration, UI and Observability — Not started
-- Phase 10: Fleet Integration, Security Review and Docs — Not started
+- Phase 6: Fleet Sharing Protocol Design — Complete (`89aca48`)
+- Phase 7: Vessel Identity, Scope and Loop Prevention — Complete (`218272c`)
+- Phase 8: Server-to-Client Fleet Transport — Partial: inbound rate cap and end-to-end replay untested (`218272c`)
+- Phase 9: Fleet Configuration, UI and Observability — Partial: `fleet.state` not shown in the web UI (`eb1743e`)
+- Phase 10: Fleet Integration, Security Review and Docs — Partial: no real-socket or real signalk-server run
 
 Archived v1 Maintenance and Hardening: all five phases of the v1 Maintenance and Hardening milestone are complete:
 
@@ -33,7 +33,8 @@ Archived v1 Maintenance and Hardening: all five phases of the v1 Maintenance and
 ## Available Context
 
 - `.planning/REQUIREMENTS.md` defines v2 Fleet Data Sharing requirements, non-goals and deferred items.
-- `.planning/phases/06-fleet-sharing-protocol-design/06-CONTEXT.md` records code evidence, proposed decisions D-01 to D-08 and risks for Phase 6.
+- `.planning/phases/06-fleet-sharing-protocol-design/06-CONTEXT.md` records code evidence, accepted decisions D-01 to D-08 and risks.
+- `.planning/phases/06-fleet-sharing-protocol-design/FLEET-VERIFICATION.md` maps every FLEET requirement to test evidence and lists open items.
 - `.planning/codebase/` contains the committed codebase map.
 - `.planning/research/` contains local brownfield research synthesis.
 - `.planning/PROJECT.md` defines the product context and project direction.
@@ -109,7 +110,8 @@ Archived v1 Maintenance and Hardening: all five phases of the v1 Maintenance and
 - 2026-05-01: Phase 5 completed in commits `d368eac` and `010666e`; validation passed.
 - 2026-05-01: v1 Maintenance and Hardening archived as `v1-maintenance-hardening`.
 - 2026-11-02: v2 Fleet Data Sharing milestone defined (phases 6-10); Phase 6 context gathered.
+- 2026-11-02: Decisions accepted and spec written (`89aca48`); transport (`218272c`) and config/metrics/docs (`eb1743e`) implemented; verification recorded.
 
 ## Recommended Next Action
 
-Plan Phase 6 and review decisions D-01 to D-08 in `.planning/phases/06-fleet-sharing-protocol-design/06-CONTEXT.md`.
+Close the Partial items in `FLEET-VERIFICATION.md`, then archive `v2-fleet-sharing`.

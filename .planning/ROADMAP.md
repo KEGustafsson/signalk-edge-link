@@ -1,7 +1,7 @@
 # Roadmap: Signal K Edge Link
 
 **Project:** Signal K Edge Link
-**Current Planning State:** v2 Fleet Data Sharing defined; Phase 6 ready for planning
+**Current Planning State:** v2 Fleet Data Sharing implemented; verification has open items
 **Updated:** 2026-11-02
 
 ## Milestones
@@ -28,13 +28,13 @@ Full milestone details are archived in `.planning/milestones/v1-maintenance-hard
 
 **Milestone goal:** Each client of one server receives the other clients' vessel data over the session it already opened, never its own vessel, with no inbound port on the vessel and no change to the uplink when the feature is off.
 
-| Phase | Name                                       | Status        | Requirements                                                                       |
-| ----- | ------------------------------------------ | ------------- | ---------------------------------------------------------------------------------- |
-| 6     | Fleet Sharing Protocol Design              | Ready to plan | FLEET-PROTO-001                                                                    |
-| 7     | Vessel Identity, Scope and Loop Prevention | Not started   | FLEET-ID-001, FLEET-ID-002, FLEET-ID-003, FLEET-LOOP-001                           |
-| 8     | Server-to-Client Fleet Transport           | Not started   | FLEET-PROTO-002 to 005, FLEET-SNAP-001, FLEET-BW-001, FLEET-SEC-001, FLEET-SEC-002 |
-| 9     | Fleet Configuration, UI and Observability  | Not started   | FLEET-CFG-001, FLEET-CFG-002, FLEET-OPS-001, FLEET-OPS-002                         |
-| 10    | Fleet Integration, Security Review, Docs   | Not started   | FLEET-SEC-003, FLEET-TEST-001, FLEET-DOC-001                                       |
+| Phase | Name                                       | Status   | Requirements                                                                       |
+| ----- | ------------------------------------------ | -------- | ---------------------------------------------------------------------------------- |
+| 6     | Fleet Sharing Protocol Design              | Complete | FLEET-PROTO-001                                                                    |
+| 7     | Vessel Identity, Scope and Loop Prevention | Complete | FLEET-ID-001, FLEET-ID-002, FLEET-ID-003, FLEET-LOOP-001                           |
+| 8     | Server-to-Client Fleet Transport           | Partial  | FLEET-PROTO-002 to 005, FLEET-SNAP-001, FLEET-BW-001, FLEET-SEC-001, FLEET-SEC-002 |
+| 9     | Fleet Configuration, UI and Observability  | Partial  | FLEET-CFG-001, FLEET-CFG-002, FLEET-OPS-001, FLEET-OPS-002                         |
+| 10    | Fleet Integration, Security Review, Docs   | Partial  | FLEET-SEC-003, FLEET-TEST-001, FLEET-DOC-001                                       |
 
 #### Phase 6: Fleet Sharing Protocol Design
 
@@ -71,7 +71,7 @@ Full milestone details are archived in `.planning/milestones/v1-maintenance-hard
 | Milestone                    | Phases | Plans | Status  | Completed  |
 | ---------------------------- | ------ | ----- | ------- | ---------- |
 | v1 Maintenance and Hardening | 1-5    | 13/13 | Shipped | 2026-05-01 |
-| v2 Fleet Data Sharing        | 6-10   | 0/0   | Active  | -          |
+| v2 Fleet Data Sharing        | 6-10   | -     | Active  | -          |
 
 ## Backlog
 
@@ -117,4 +117,4 @@ Plans:
 
 ## Next Action
 
-Plan Phase 6 (Fleet Sharing Protocol Design) from `.planning/phases/06-fleet-sharing-protocol-design/06-CONTEXT.md`.
+Close the open items in `.planning/phases/06-fleet-sharing-protocol-design/FLEET-VERIFICATION.md` (inbound rate-cap, `not-offered` and replay tests; `fleet.state` in the web UI; a real-socket run), then archive the milestone.
