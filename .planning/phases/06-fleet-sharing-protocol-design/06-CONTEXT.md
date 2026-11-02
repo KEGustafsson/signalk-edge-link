@@ -1,7 +1,7 @@
 # Phase 6: Fleet Sharing Protocol Design - Context
 
 **Gathered:** 2026-11-02
-**Status:** Ready for planning
+**Status:** Decisions accepted; spec written (`docs/protocol-v3-spec.md` §15)
 **Milestone:** v2 Fleet Data Sharing
 **Requirements:** FLEET-PROTO-001 (and the decisions every later phase depends on)
 
@@ -39,72 +39,49 @@ Target topology:
 </evidence>
 
 <decisions>
-## Design Decisions (proposed; accept or change during planning)
+## Design Decisions (accepted 2026-11-02)
 
-### D-01: Protocol v3 capability extension, not protocol v4
+The wire format is specified in `docs/protocol-v3-spec.md` §15. Each decision below states what was chosen and what it changed from the proposal.
 
-**Proposal:** Add new packet types under protocol version `0x03`, enabled only by a HELLO capability (`fleet-v1`) and server config.
+### D-01: Protocol v3 capability extension (accepted)
 
-**Reason:** The uplink format is unchanged (FLEET-PROTO-005). Current servers ignore the capability (VAL-FL-004), and the server sends nothing new to a client without it, so mixed fleets keep working.
+Version byte stays `0x03`. The feature is enabled by the HELLO capability `fleet-v1` plus server config, and answered explicitly by a new HELLO_ACK packet. HELLO_ACK is generic: `accepted` lists capability strings, so later features negotiate the same way without another packet type.
 
-**Constraint from `docs/future-security-and-protocol-roadmap.md`:** opt-in, explicit, no silent fallback. A client configured for fleet data whose server never sends any must report `not-offered` (FLEET-OPS-002), not stay silent.
+### D-02: Four packet types, stream-scoped sequences (changed)
 
-**Alternative:** treat this as backlog phase 999.2 (protocol v4). That costs a version bump on every peer and gains nothing the capability gate does not already give.
+`0x09` HELLO_ACK, `0x0A` FLEET_DATA, `0x0B` FLEET_ACK, `0x0C` FLEET_NAK. Changes from the proposal:
 
-### D-02: New packet types
+- FLEET_DATA always carries the HMAC tag, independent of `authenticatedHeaders`. A new packet type has no legacy peers to stay compatible with, so there is no reason to leave its header unauthenticated.
+- Every FLEET_DATA, FLEET_ACK and FLEET_NAK starts with a 4-byte stream id chosen by the server per accepted session. A server restart or a session re-accept starts a new stream, so the client resets its sequence tracker on a known event instead of guessing from sequence jumps.
+- FLEET_ACK receivers ignore trailing bytes, leaving room for later fields such as a receive window.
 
-| Value | Name      | Direction       | Payload                                                                |
-| ----- | --------- | --------------- | ---------------------------------------------------------------------- |
-| 0x09  | FLEET     | Server → Client | Same pipeline as DATA: serialize, path dictionary, Brotli, AES-256-GCM |
-| 0x0A  | FLEET_ACK | Client → Server | uint32 cumulative fleet sequence + HMAC tag                            |
-| 0x0B  | FLEET_NAK | Client → Server | uint32[] missing fleet sequences + HMAC tag                            |
+### D-03: Encrypted identity with a nonce (changed)
 
-Existing ACK/NAK cannot be reused: they acknowledge the client's uplink sequence. Fleet sequence numbers are a separate space per session.
+HELLO carries `fleet`: AES-256-GCM over `{v, self, nonce, pathFilter?, maxBytesPerSec?}`. Added: a per-HELLO `nonce` echoed in HELLO_ACK. The client adopts a stream only from a HELLO_ACK that echoes its latest nonce, so a replayed old HELLO_ACK cannot switch the client to a stale stream. Duplicate `self`: newest HELLO wins.
 
-**To specify in this phase:** whether `useMsgpack` and `usePathDictionary` follow the session's uplink flags or are set by the server; how `AUTHENTICATED_HEADER` and `EPOCH_BOUND_AUTH` bind on FLEET (which epoch: the client's, as control packets do today).
+### D-04: Scope set by the server, filtered by the receiver (changed)
 
-### D-03: Encrypted vessel identity in HELLO
+Server: `scope` `fleet` (default) or `all`, `includeServerVessel` (default `false`), `pathFilter`, `maxBytesPerSec`. Added: the client sends its own `pathFilter` and `maxBytesPerSec` inside the encrypted `fleet` field. The vessel pays for its downlink, so the vessel decides what it receives; the server applies the stricter of both.
 
-**Proposal:** When the capability is on, HELLO carries a field `fleetIdentity`: the client's self context URN, AES-256-GCM encrypted with the session key and base64 encoded.
+### D-05: Loop prevention on both ends (changed)
 
-**Reason:** HELLO is plaintext (VAL-FL-005); a plain URN would put the vessel's MMSI on the wire (FLEET-ID-001). HELLO is already retried and refreshed every 300 s, so the identity reaches a restarted server without a new packet type.
+Client: drops from uplink every context it received in FLEET_DATA. Added on the server: origin authority. While fleet sharing is on, uplink deltas for a context declared by another accepted session are dropped, so vessel B's data enters the hub only from B, including AIS-derived copies of B relayed by A.
 
-**Alternative:** infer identity from uplink DATA contexts. Rejected: with `context: "*"` a client sends AIS targets too, so the contexts it sends do not identify it.
+### D-06: Reliable, coalesced (accepted)
 
-**Open:** what the server does when two sessions declare the same URN (vessel reinstalled, NAT port change). Proposal: the newest session wins; the older one is removed from the fleet set and counted.
+Newest value per `(context, $source, path)` between flushes; per-session token bucket; retransmit on FLEET_NAK and after 2 s unacknowledged, 3 attempts maximum, queue 512 packets.
 
-### D-04: Sharing scope
+### D-07: Join snapshot plus member-join fan-out (changed)
 
-**Proposal:** `fleetSharing.scope` on the server:
+Snapshot on accept and on each new-nonce HELLO, at most once per 10 s. Added: when a vessel joins, its current values are queued to every other member, so members see a new vessel immediately rather than when its paths next change.
 
-- `fleet` (default): only contexts declared by live sessions on this server instance, minus the receiving session's own.
-- `all`: every context in the hub's tree except the receiving session's own (includes AIS).
+### D-08: Liveness via HELLO_ACK keepalive (changed)
 
-Plus `includeServerVessel` (default `false`): also send the hub's own `vessels.self`, for when the hub is itself a vessel.
+Server sends HELLO_ACK after 20 s without fleet traffic to a session; client re-sends HELLO after 60 s without any fleet packet. This recovers fleet delivery after a server restart without new packet types. Offline members: no deletion; Signal K timestamps show value age.
 
-### D-05: Loop prevention on the client
+### Bonding
 
-**Proposal:** The client records every context it writes from FLEET packets and drops those contexts in `processDelta` before uplink (`src/app/connection/process-delta.ts`). The client's own self context is never added to that set.
-
-**Why not force `context: "vessels.self"`:** `"*"` is the default (`src/app/config/watcher.ts:260`) and forwards the vessel's AIS targets to the hub; forcing `vessels.self` would stop that.
-
-**Open:** how long a context stays in the set after its last FLEET delta. Proposal: for the life of the connection.
-
-### D-06: Delivery: reliable, coalesced at batch time
-
-**Proposal:** Reuse the uplink batching interval model; before sending a batch, keep only the newest value per `(context, path, $source)`. Send with fleet sequence numbers and retransmit on FLEET_NAK. Retransmit queue size bounded per session.
-
-**Alternative:** best-effort, no retransmit. Smaller code, but a lost packet leaves a stale value until that path changes; slow-changing paths (e.g. `design.*`, anchor position) could stay stale for hours.
-
-### D-07: Join and restart snapshot
-
-**Proposal:** On first HELLO with the capability, or a HELLO with a higher epoch, send a values snapshot of the scoped contexts, built with `src/codec/values-snapshot.ts`. At most one snapshot per session per 10 s, matching FULL_STATUS_REQUEST's existing limit.
-
-### D-08: Fleet member goes offline
-
-**Proposal:** Do nothing in this milestone. Signal K keeps last values with their timestamps, so receivers can judge age. Document it in troubleshooting.
-
-**Alternative:** send a notification delta when a member's session expires. Deferred until someone asks for it.
+Rejected by configuration validation in this milestone (FLEET-FUT-001). Stream ids are per session, so a later design can move a stream between the two links of a bonded client.
 
 </decisions>
 

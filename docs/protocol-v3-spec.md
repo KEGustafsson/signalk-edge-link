@@ -70,6 +70,10 @@ All multi-byte integers are big-endian (network byte order).
 | 0x06  | METADATA            | Client → Server | Signal K path metadata (units, ...)                                | Encrypted/compressed meta envelope  |
 | 0x07  | META_REQUEST        | Server → Client | Demand a fresh metadata snapshot                                   | 16-byte HMAC tag only               |
 | 0x08  | FULL_STATUS_REQUEST | Server → Client | Demand a full values-snapshot replay (e.g. after a server restart) | 16-byte HMAC tag only               |
+| 0x09  | HELLO_ACK           | Server → Client | Capability answer to HELLO; fleet keepalive (§15)                  | JSON + HMAC tag                     |
+| 0x0A  | FLEET_DATA          | Server → Client | Other vessels' deltas (§15)                                        | stream id + encrypted delta + HMAC  |
+| 0x0B  | FLEET_ACK           | Client → Server | Cumulative acknowledgement of FLEET_DATA (§15)                     | stream id + uint32 seq + HMAC       |
+| 0x0C  | FLEET_NAK           | Client → Server | Missing FLEET_DATA sequences (§15)                                 | stream id + uint32[] + HMAC         |
 
 ### DATA Packet
 
@@ -656,3 +660,120 @@ The reliable (v3) protocol publishes the following metrics to the Signal K data 
 | `networking.edgeLink.bonding.primary.*`          | object         | Primary link health metrics        |
 | `networking.edgeLink.bonding.backup.*`           | object         | Backup link health metrics         |
 | `notifications.signalk-edge-link.<instanceId>.*` | notification   | Alert notifications (per-instance) |
+
+## 15. Fleet Sharing (capability `fleet-v1`)
+
+Fleet sharing lets every client of one server instance receive the other clients' vessel data over the session the client already opened. The server sends to the `address:port` the client's packets come from, so the client needs no listening socket and no inbound firewall or NAT rule. A client never receives its own vessel.
+
+Fleet sharing is an additive extension of protocol v3: the version byte stays `0x03`, and the uplink (DATA, METADATA, ACK, NAK, HEARTBEAT, HELLO) is byte-for-byte unchanged when the feature is off on either end. It is not available on v1 or on bonded clients.
+
+### 15.1 Negotiation
+
+1. A client with `fleetSharing.enabled` adds `"fleet-v1"` to the HELLO `capabilities` array and a `fleet` field (§15.2).
+2. A server that receives such a HELLO answers with HELLO_ACK (§15.3). `accepted` contains `"fleet-v1"` only when the server's own `fleetSharing.enabled` is true.
+3. The server sends FLEET_DATA only to sessions it has accepted. The client sends FLEET_ACK and FLEET_NAK only after it has received a HELLO_ACK accepting `fleet-v1`.
+
+Receivers built before this extension reject packet types `0x09`-`0x0C` as unknown (`Unknown packet type`) and count them in `malformedPackets`. Rules 2 and 3 guarantee such a peer never receives them.
+
+A server built before this extension never reads `capabilities` and never sends HELLO_ACK. The client reports `not-offered` after three HELLOs without an answer and keeps the uplink working.
+
+### 15.2 HELLO `fleet` field
+
+`fleet` is a base64 string: AES-256-GCM (`[IV 12][ciphertext][tag 16]`, same key and `stretchAsciiKey` as DATA) over UTF-8 JSON:
+
+```json
+{
+  "v": 1,
+  "self": "vessels.urn:mrn:imo:mmsi:230123456",
+  "nonce": "3f9c1a7e5b2d4c60",
+  "pathFilter": { "allow": ["navigation.*"], "deny": [] },
+  "maxBytesPerSec": 4096
+}
+```
+
+| Field            | Required | Meaning                                                                                                      |
+| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `v`              | yes      | Field version. Receivers ignore a `fleet` field whose `v` they do not know and treat the HELLO as non-fleet. |
+| `self`           | yes      | The client's own context. The server never sends this context to this client.                                |
+| `nonce`          | yes      | 16 hex characters, new for every HELLO. Echoed in HELLO_ACK to bind the answer to this HELLO.                |
+| `pathFilter`     | no       | Paths the client wants, same globs as `pathFilter` elsewhere. Applied on the server before sending.          |
+| `maxBytesPerSec` | no       | Ceiling the client requests. The server uses the lower of this and its own limit.                            |
+
+The vessel identity is encrypted because HELLO is authenticated but not encrypted; a plaintext `self` would expose the vessel's MMSI to anyone on the path. Receivers ignore unknown keys inside the decrypted object.
+
+### 15.3 HELLO_ACK (0x09)
+
+Control packet, Server → Client. Payload: UTF-8 JSON followed by the 16-byte HMAC tag (§5). The tag is epoch-bound under `epochBoundAuth` like every other server → client control packet.
+
+```json
+{
+  "v": 1,
+  "accepted": ["fleet-v1"],
+  "nonce": "3f9c1a7e5b2d4c60",
+  "fleet": { "stream": 2864434397, "maxBytesPerSec": 4096 }
+}
+```
+
+- `nonce` echoes the HELLO's `fleet.nonce`. The client accepts a HELLO_ACK only when it matches the nonce of its most recent HELLO.
+- `fleet.stream` is a random uint32 the server picks when it accepts the session. It names the FLEET_DATA sequence space (§15.4).
+- The server re-sends HELLO_ACK as a keepalive when it has sent nothing to an accepted session for 20 s. A client that receives no fleet packet for 60 s sends a new HELLO; the server answers it with a new HELLO_ACK and a join snapshot. This is how a session survives a server restart.
+
+### 15.4 FLEET_DATA (0x0A)
+
+Server → Client. Always authenticated with the 16-byte HMAC tag over header bytes 0-12 and the payload, whatever `authenticatedHeaders` is set to; under `epochBoundAuth` the tag is bound to the client's epoch.
+
+```text
+[Header 15][stream uint32 BE][AES-256-GCM: IV 12 | ciphertext | tag 16][HMAC 16]
+```
+
+- Plaintext before encryption: Brotli-compressed delta array, JSON or MessagePack (`MESSAGEPACK` flag), optionally path-dictionary encoded (`PATH_DICTIONARY` flag). Same encoding as DATA; no compact deltas, no value-dedup sentinels.
+- Header sequence: the FLEET_DATA sequence of this stream, starting at 0, independent of DATA and METADATA sequence spaces.
+- The client drops FLEET_DATA whose stream is not the stream of its accepted HELLO_ACK, and FLEET_DATA rejected by its replay window for that stream.
+- Each delta keeps its `context`, `$source` and `timestamp`. The client writes them into its Signal K tree the way the server writes DATA.
+
+### 15.5 FLEET_ACK (0x0B) and FLEET_NAK (0x0C)
+
+Control packets, Client → Server, HMAC-authenticated (§5), epoch-bound under `epochBoundAuth`.
+
+```text
+FLEET_ACK: [stream uint32 BE][cumulative seq uint32 BE] ... [HMAC 16]
+FLEET_NAK: [stream uint32 BE][missing seq uint32 BE] × n   [HMAC 16]   (n ≤ 64)
+```
+
+Receivers ignore bytes after the defined fields in FLEET_ACK so later versions can append fields. The server ignores either packet when the stream is not the session's current stream.
+
+The client sends FLEET_ACK at most every 200 ms while FLEET_DATA arrives. It sends FLEET_NAK for gaps using the same timers as the server's DATA NAKs (`nakTimeout`, `maxNakRounds`). The server retransmits on FLEET_NAK, and retransmits any packet still unacknowledged after 2 s, at most 3 times per packet.
+
+### 15.6 What the server sends
+
+For an accepted session `s` the server sends a context `C` when all of these hold:
+
+1. `C` is not `s.self`.
+2. Scope `fleet` (default): `C` is the `self` of another accepted session on the same server instance, or `C` is the server's own vessel and `includeServerVessel` is true. Scope `all`: any context, including AIS targets.
+3. The path does not start with `networking.edgeLink.`.
+4. The path passes the server's `fleetSharing.pathFilter` and the client's requested `pathFilter`.
+
+Values are coalesced per `(context, $source, path)` between flushes (`batchIntervalMs`, default 1000 ms): only the newest value is sent. Each session has a token bucket at `min(server maxBytesPerSec, client maxBytesPerSec)`; when it is empty, pending values wait for the next flush and newer values replace them.
+
+On accepting a session (and on every HELLO with a new nonce, at most once per 10 s), the server sends a snapshot of the in-scope values from its Signal K tree. When a session joins the fleet, the server also queues that vessel's current values for every other accepted session.
+
+### 15.7 Identity and loop rules
+
+- **One owner per vessel.** If two sessions declare the same `self`, the newer HELLO wins and the older session leaves the fleet (`fleetIdentityConflicts`).
+- **Origin authority on the server.** While fleet sharing is enabled, the server drops uplink deltas from session `X` whose context is the declared `self` of another accepted session (`fleetOriginDrops`). Vessel B's data enters the hub only from B.
+- **No echo on the client.** The client records every context it received in FLEET_DATA and drops those contexts from its own uplink (`fleetLoopDrops`). Its own `self` is never recorded. This holds with `subscription.json` `context: "*"`.
+
+### 15.8 Limits
+
+| Constant                               | Value  | Where  |
+| -------------------------------------- | ------ | ------ |
+| HELLO_ACK keepalive after idle         | 20 s   | Server |
+| Client re-HELLO after no fleet packet  | 60 s   | Client |
+| Join snapshot minimum interval         | 10 s   | Server |
+| Retransmit unacknowledged FLEET_DATA   | 2 s    | Server |
+| Maximum retransmits per FLEET_DATA     | 3      | Server |
+| Retransmit queue per session           | 512    | Server |
+| Values per FLEET_DATA packet           | 40     | Server |
+| FLEET_ACK minimum spacing              | 200 ms | Client |
+| Inbound FLEET_DATA per second          | 200    | Client |
+| Encrypted `fleet` field, base64 length | 2048   | Both   |
