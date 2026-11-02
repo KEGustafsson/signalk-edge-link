@@ -22,6 +22,7 @@ import { extractLiveMeta, resolveSelfContext } from "../../codec/metadata-codec"
 import type { SignalKApp } from "../../foundation/types";
 import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "../../codec/delta-sanitizer";
 import type { Delta } from "../../foundation/types";
+import { ensureFleetMetrics } from "../../transport/fleet/common";
 import type { ConnectionContext } from "./context";
 
 /** Build a deterministic dedupe key for an outbound delta (hot path). */
@@ -162,6 +163,17 @@ export function processDelta(ctx: ConnectionContext, delta: Delta): void {
   if (state.metaConfig?.enabled) {
     const liveMeta = extractLiveMeta(delta, state.metaConfig, cachedSelfContext(appProxy));
     if (liveMeta.length > 0) services.enqueueMetaDiff(liveMeta);
+  }
+
+  // Fleet loop guard: a context that arrived over the fleet channel belongs to
+  // another vessel and must not be sent back upstream.
+  if (
+    state.fleetLearnedContexts &&
+    typeof delta.context === "string" &&
+    state.fleetLearnedContexts.has(delta.context)
+  ) {
+    ensureFleetMetrics(metrics).loopDrops++;
+    return;
   }
 
   const sanitized = sanitizeDeltaForSignalK(delta);

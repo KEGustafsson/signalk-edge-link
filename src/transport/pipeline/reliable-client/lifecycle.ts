@@ -21,6 +21,7 @@ import { udpSendAsync as _udpSendAsyncShared } from "../../udp-socket-manager";
 import type * as dgram from "dgram";
 import type { ClientContext } from "./context";
 import { handleControlPacket } from "./control-packets";
+import { fleetHelloFields } from "./fleet";
 
 /**
  * Send a message via UDP with retry logic (delegates to shared utility).
@@ -122,7 +123,8 @@ export async function sendHello(
       protocolVersion,
       clientId: state.instanceId || "",
       instanceId: state.instanceId || "",
-      epoch: connectionEpoch
+      epoch: connectionEpoch,
+      ...fleetHelloFields(ctx)
     });
     await udpSendAsync(ctx, helloPacket, udpAddress, udpPort);
     state.lastPacketTime = Date.now();
@@ -208,7 +210,8 @@ function scheduleHelloRetry(ctx: ClientContext, udpAddress: string, udpPort: num
           protocolVersion,
           clientId: state.instanceId || "",
           instanceId: state.instanceId || "",
-          epoch: connectionEpoch
+          epoch: connectionEpoch,
+          ...fleetHelloFields(ctx)
         });
         await udpSendAsync(ctx, helloPacket, udpAddress, udpPort);
         state.lastPacketTime = Date.now();

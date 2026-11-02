@@ -334,6 +334,39 @@ export class PacketParser {
   }
 
   /**
+   * Parse a FLEET_DATA payload: 4-byte stream id, then the AES-GCM ciphertext.
+   */
+  parseFleetDataPayload(payload: Buffer): { stream: number; encrypted: Buffer } {
+    if (payload.length < 5) {
+      throw new Error("FLEET_DATA payload too small");
+    }
+    return { stream: payload.readUInt32BE(0), encrypted: payload.subarray(4) };
+  }
+
+  /**
+   * Parse a FLEET_ACK payload. Bytes after the first 8 are ignored so later
+   * versions can append fields (protocol-v3-spec §15.5).
+   */
+  parseFleetAckPayload(payload: Buffer): { stream: number; sequence: number } {
+    if (payload.length < 8) {
+      throw new Error("FLEET_ACK payload too small");
+    }
+    return { stream: payload.readUInt32BE(0), sequence: payload.readUInt32BE(4) };
+  }
+
+  /** Parse a FLEET_NAK payload: stream id followed by uint32 sequences. */
+  parseFleetNakPayload(payload: Buffer): { stream: number; missing: number[] } {
+    if (payload.length < 4 || (payload.length - 4) % 4 !== 0) {
+      throw new Error("FLEET_NAK payload length must be 4 + a multiple of 4");
+    }
+    const missing: number[] = [];
+    for (let i = 4; i < payload.length; i += 4) {
+      missing.push(payload.readUInt32BE(i));
+    }
+    return { stream: payload.readUInt32BE(0), missing };
+  }
+
+  /**
    * Parse NAK payload
    * @param {Buffer} payload - NAK packet payload
    * @returns {number[]} Array of missing sequence numbers

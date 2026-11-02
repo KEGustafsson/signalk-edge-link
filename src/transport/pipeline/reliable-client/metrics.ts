@@ -12,7 +12,8 @@
 import { METRICS_PUBLISH_INTERVAL } from "../../../foundation/constants";
 import type { ClientContext } from "./context";
 import { calculatePacketLoss, pruneRetransmitQueue } from "./reliability";
-import { maybeRehandshake } from "./lifecycle";
+import { maybeRehandshake, sendHello } from "./lifecycle";
+import { fleetMaintenance } from "./fleet";
 import { sendDelta } from "./delta-sender";
 
 interface PeriodRates {
@@ -180,6 +181,12 @@ export function publishMetrics(ctx: ClientContext): void {
 
   pruneRetransmitQueue(ctx, "metrics");
   maybeRehandshake(ctx);
+  fleetMaintenance(ctx, () => {
+    const options = ctx.state.options;
+    if (options?.udpAddress && options.udpPort) {
+      void sendHello(ctx, options.udpAddress, options.udpPort);
+    }
+  });
 
   const now = Date.now();
   const elapsed = (now - mut.lastMetricsTime) / 1000; // seconds

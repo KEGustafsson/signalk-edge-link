@@ -186,7 +186,9 @@ export function getOrCreateSession(
     lastSourceEnvSeq: null,
     sourceChunkWindow: new Map<number, Set<number>>(),
     // Same-as-last value dedup expansion (created lazily when needed)
-    valueDedupState: null
+    valueDedupState: null,
+    // Fleet sharing: set when a fleet HELLO is accepted
+    fleet: null
   };
   clientSessions.set(key, session);
   app.debug(`[v2-server] new client session: ${key}`);

@@ -34,6 +34,7 @@ import type {
   InstanceState,
   MonitoringState
 } from "../../../foundation/types";
+import type { FleetClientRuntime } from "./fleet";
 
 /** Reliability tuning derived once from `state.options.reliability`. */
 export interface ReliabilitySettings {
@@ -104,6 +105,8 @@ export interface ClientContext {
   reliability: ReliabilitySettings;
   rttSamples: CircularBuffer<number>;
   lossWindow: CircularBuffer<boolean>;
+  /** Fleet sharing receiver (protocol-v3-spec §15); null when disabled. */
+  fleet: FleetClientRuntime | null;
   mut: ClientMutableState;
 }
 

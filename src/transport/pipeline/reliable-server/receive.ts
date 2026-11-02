@@ -21,6 +21,8 @@ import {
 } from "./sessions";
 import { handleMetadataPacket } from "./metadata";
 import { handleDataPacket } from "./data-handler";
+import { handleFleetHello } from "./fleet";
+import { handleFleetAck, handleFleetNak } from "./fleet-sender";
 import { preAuthRateLimited, verifyHbProbe, applyHelloEpoch, markPeerHandshaked } from "./context";
 import type { ServerContext, ClientSession } from "./context";
 
@@ -122,7 +124,7 @@ function parseHelloInfo(
   ctx: ServerContext,
   parsed: ParsedPacket,
   session: ClientSession | null
-): void {
+): { info: Record<string, unknown>; restarted: boolean } | null {
   const { app } = ctx;
   try {
     const info = JSON.parse(parsed.payload.toString());
@@ -154,12 +156,15 @@ function parseHelloInfo(
         session.lastAckSeq = null;
         app.debug(`v2 peer restart detected for ${session.key}; sequence state reset`);
       }
+      return { info: info as Record<string, unknown>, restarted };
     }
+    return null;
   } catch (parseErr: unknown) {
     const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
     // Truncate so an attacker-controlled JSON parse error can't bloat the log.
     const truncated = parseMsg.length > 256 ? parseMsg.slice(0, 256) + "…" : parseMsg;
     app.error(`v2 failed to parse HELLO payload: ${truncated}`);
+    return null;
   }
 }
 
@@ -213,9 +218,12 @@ function handleHelloPacket(
     metrics.malformedPackets = (metrics.malformedPackets || 0) + 1;
     return;
   }
-  parseHelloInfo(ctx, parsed, session);
+  const hello = parseHelloInfo(ctx, parsed, session);
   if (session) {
     primeSessionRequests(ctx, session, secretKey);
+    if (hello) {
+      handleFleetHello(ctx, session, hello.info, hello.restarted);
+    }
   }
 }
 
@@ -337,6 +345,38 @@ function peerAuthEpoch(ctx: ServerContext, rinfo?: { address: string; port: numb
   return ctx.replayGuards.get(`${rinfo.address}:${rinfo.port}`)?.epoch ?? 0;
 }
 
+/** Route an accepted, authenticated packet to its type's handler. */
+async function dispatchByType(
+  ctx: ServerContext,
+  packet: Buffer,
+  parsed: ParsedPacket,
+  secretKey: string,
+  rinfo?: { address: string; port: number }
+): Promise<void> {
+  switch (parsed.type) {
+    case PacketType.HEARTBEAT:
+      ctx.app.debug("v2 heartbeat received");
+      return;
+    case PacketType.HELLO:
+      await handleHelloPacket(ctx, parsed, secretKey, rinfo);
+      return;
+    case PacketType.METADATA:
+      await handleMetadataDispatch(ctx, parsed, secretKey, rinfo);
+      return;
+    case PacketType.FLEET_ACK:
+      handleFleetAck(ctx, parsed, rinfo);
+      return;
+    case PacketType.FLEET_NAK:
+      await handleFleetNak(ctx, parsed, rinfo);
+      return;
+    case PacketType.DATA:
+      await handleDataPacket(ctx, packet, parsed, secretKey, rinfo);
+      return;
+    default:
+      ctx.app.debug(`v2 unhandled packet type: ${parsed.typeName}`);
+  }
+}
+
 /**
  * Receive and process a v2 packet.
  * Pipeline: PacketParse → SequenceTrack → Decrypt → Decompress → Parse → handleMessage
@@ -379,28 +419,7 @@ export async function receivePacket(
       return;
     }
 
-    // Handle by packet type
-    if (parsed.type === PacketType.HEARTBEAT) {
-      app.debug("v2 heartbeat received");
-      return;
-    }
-
-    if (parsed.type === PacketType.HELLO) {
-      await handleHelloPacket(ctx, parsed, secretKey, rinfo);
-      return;
-    }
-
-    if (parsed.type === PacketType.METADATA) {
-      await handleMetadataDispatch(ctx, parsed, secretKey, rinfo);
-      return;
-    }
-
-    if (parsed.type !== PacketType.DATA) {
-      app.debug(`v2 unhandled packet type: ${parsed.typeName}`);
-      return;
-    }
-
-    await handleDataPacket(ctx, packet, parsed, secretKey, rinfo);
+    await dispatchByType(ctx, packet, parsed, secretKey, rinfo);
   } catch (error: unknown) {
     reportReceiveError(ctx, error);
   }
