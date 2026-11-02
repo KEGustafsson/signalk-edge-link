@@ -60,6 +60,7 @@ export class PacketBuilder {
   _authenticatedHeaders: boolean;
   _epochBoundAuth: boolean;
   _connectionEpoch: number;
+  _lastHelloTimestamp: number;
 
   /**
    * @param {Object} [config]
@@ -90,6 +91,7 @@ export class PacketBuilder {
     this._authenticatedHeaders = !!config.authenticatedHeaders;
     this._epochBoundAuth = !!config.epochBoundAuth;
     this._connectionEpoch = config.connectionEpoch ?? 0;
+    this._lastHelloTimestamp = 0;
   }
 
   /**
@@ -251,10 +253,14 @@ export class PacketBuilder {
     const protocolVersion = normalizeProtocolVersion(
       options.protocolVersion ?? info.protocolVersion ?? this._protocolVersion
     );
+    // Strictly increasing, even within one millisecond or across a backward
+    // clock step: the fleet replay guard orders a vessel's HELLOs by it.
+    const timestamp = Math.max(Date.now(), this._lastHelloTimestamp + 1);
+    this._lastHelloTimestamp = timestamp;
     const payload: Record<string, unknown> = {
       protocolVersion,
       clientId: info.clientId || "",
-      timestamp: Date.now(),
+      timestamp,
       capabilities: info.capabilities || [
         "compression",
         "encryption",

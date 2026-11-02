@@ -42,7 +42,7 @@ import type { ServerContext, ClientSession } from "./context";
 import { bindBuilderEpochForPeer } from "./context";
 import { sendUDP } from "./sessions";
 import { enqueueMeta } from "./fleet-meta";
-import { helloReplayed, type HelloMark } from "./fleet-replay";
+import { helloReplayed } from "./fleet-replay";
 
 /** One coalesced value (or metadata entry) waiting to be sent to a session. */
 export interface PendingValue {
@@ -84,8 +84,8 @@ export interface FleetServerState {
   config: ResolvedFleetConfig;
   /** Declared vessel context → session key of its current owner. */
   members: Map<string, string>;
-  /** Vessel context → newest accepted HELLO, for the replay guard. */
-  helloMarks: Map<string, HelloMark>;
+  /** Vessel context → `timestamp` of its newest accepted HELLO (replay guard). */
+  helloMarks: Map<string, number>;
   unsubscribes: Array<() => void>;
   timer: ReturnType<typeof setInterval> | null;
   serverSelf: string | null;
