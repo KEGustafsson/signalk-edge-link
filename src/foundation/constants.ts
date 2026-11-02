@@ -301,5 +301,12 @@ export const FLEET_MAX_MAX_BYTES_PER_SEC = 1048576;
 export const FLEET_DEFAULT_BATCH_INTERVAL_MS = 1000;
 export const FLEET_MIN_BATCH_INTERVAL_MS = 100;
 export const FLEET_MAX_BATCH_INTERVAL_MS = 10000;
+/** Loss-adaptive fleet rate: multiplicative decrease on loss, at most once
+ *  per backoff interval; additive recovery per second once loss stops. */
+export const FLEET_RATE_BACKOFF_FACTOR = 0.7;
+export const FLEET_RATE_MIN_FACTOR = 0.1;
+export const FLEET_RATE_BACKOFF_INTERVAL_MS = 1000;
+export const FLEET_RATE_RECOVERY_DELAY_MS = 2000;
+export const FLEET_RATE_RECOVERY_PER_SEC = 0.05;
 /** Path prefix never shared over the fleet channel (link telemetry). */
 export const FLEET_EXCLUDED_PATH_PREFIX = "networking.edgeLink.";

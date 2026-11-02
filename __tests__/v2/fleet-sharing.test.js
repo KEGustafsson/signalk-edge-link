@@ -508,6 +508,171 @@ describe("fleet sharing end-to-end", () => {
     expect(hub.metricsApi.metrics.fleet.snapshotsSent).toBe(before);
   });
 
+  function metaReceived(c, context) {
+    return c.bus.received
+      .filter((d) => d.context === context)
+      .flatMap((d) => d.updates.flatMap((u) => u.meta || []));
+  }
+
+  test("metadata travels with a path the first time a vessel receives it", async () => {
+    await connectAll();
+    const b = clients[1];
+    hub.bus.app.signalk = {
+      retrieve: () => ({
+        vessels: {
+          "urn:mrn:imo:mmsi:230000002": {
+            navigation: {
+              speedOverGround: { value: 1, meta: { units: "m/s", displayName: "SOG" } }
+            }
+          }
+        },
+        sources: {}
+      })
+    };
+    await uplinkAndDeliver([[b, 2.0]]);
+    await uplinkAndDeliver([[b, 2.1]]);
+    const meta = metaReceived(clients[0], b.self);
+    expect(meta).toEqual([
+      { path: "navigation.speedOverGround", value: { units: "m/s", displayName: "SOG" } }
+    ]);
+    expect(clients[0].metricsApi.metrics.fleet.metaReceived).toBe(1);
+    expect(lastSog(clients[0], b.self)).toBeCloseTo(2.1);
+  });
+
+  test("live metadata changes are forwarded to the other members", async () => {
+    await connectAll();
+    const b = clients[1];
+    hub.bus.app.handleMessage("meta", {
+      context: b.self,
+      updates: [{ meta: [{ path: "environment.depth.belowKeel", value: { units: "m" } }] }]
+    });
+    await wait(250);
+    await pump(hub, clients);
+    expect(metaReceived(clients[0], b.self)).toEqual([
+      { path: "environment.depth.belowKeel", value: { units: "m" } }
+    ]);
+    expect(metaReceived(clients[1], b.self)).toEqual([]);
+  });
+
+  function streamOf(c) {
+    const parser = new PacketParser({ secretKey });
+    for (const call of hub.state.socketUdp.send.mock.calls) {
+      if (call[1] !== c.port) {
+        continue;
+      }
+      try {
+        const parsed = parser.parseHeader(Buffer.from(call[0]));
+        if (parsed.type === PacketType.HELLO_ACK) {
+          return JSON.parse(parsed.payload.toString()).fleet.stream;
+        }
+      } catch {
+        /* not a HELLO_ACK */
+      }
+    }
+    return null;
+  }
+
+  test("downlink loss cuts the fleet rate once per burst and it recovers when loss stops", async () => {
+    await connectAll();
+    const a = clients[0];
+    const { PacketBuilder } = require("../../lib/packet");
+    const nak = new PacketBuilder({ secretKey }).buildFleetNakPacket(streamOf(a), [5, 6]);
+    const from = { address: "10.0.0.1", port: a.port };
+    await hub.server.receivePacket(nak, secretKey, from);
+    await hub.server.receivePacket(nak, secretKey, from);
+    const fleet = hub.metricsApi.metrics.fleet;
+    expect(fleet.rateBackoffs).toBe(1);
+    await wait(150);
+    expect(fleet.minRateFactor).toBeCloseTo(0.7);
+
+    const realNow = Date.now;
+    const shifted = realNow() + 10000;
+    const spy = jest.spyOn(Date, "now").mockImplementation(() => shifted);
+    try {
+      await wait(250);
+      expect(fleet.minRateFactor).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("a replayed FLEET_DATA is counted as a duplicate and not applied again", async () => {
+    await connectAll();
+    const a = clients[0];
+    const b = clients[1];
+    await b.client.sendDelta([sog(b.self, 3.1)], secretKey, HUB_ADDR, HUB_PORT);
+    for (const pkt of b.toHub.splice(0)) {
+      await hub.server.receivePacket(pkt, secretKey, { address: "10.0.0.1", port: b.port });
+    }
+    await wait(250);
+    const parser = new PacketParser({ secretKey });
+    const toA = hub.toClients.filter((x) => {
+      try {
+        return x.port === a.port && parser.parseHeader(x.pkt).type === PacketType.FLEET_DATA;
+      } catch {
+        return false;
+      }
+    });
+    expect(toA.length).toBeGreaterThan(0);
+    await pump(hub, clients);
+    const applied = a.bus.received.length;
+    const dupBefore = a.metricsApi.metrics.fleet.duplicatePackets;
+    for (const { pkt } of toA) {
+      await a.client.handleControlPacket(pkt, { address: HUB_ADDR, port: HUB_PORT });
+    }
+    expect(a.bus.received.length).toBe(applied);
+    expect(a.metricsApi.metrics.fleet.duplicatePackets).toBe(dupBefore + toA.length);
+  });
+
+  test("a client accepts at most 200 FLEET_DATA per second", async () => {
+    await connectAll();
+    const a = clients[0];
+    const { PacketBuilder } = require("../../lib/packet");
+    const { encodeFleetPayload } = require("../../src/codec/fleet-payload");
+    const builder = new PacketBuilder({ secretKey });
+    const stream = streamOf(a);
+    const packets = [];
+    for (let seq = 0; seq < 260; seq++) {
+      const encrypted = await encodeFleetPayload([sog(clients[1].self, seq)], { secretKey });
+      packets.push(builder.buildFleetDataPacket(stream, seq, encrypted));
+    }
+    const before = { ...a.metricsApi.metrics.fleet };
+    const started = Date.now();
+    for (const pkt of packets) {
+      await a.client.handleControlPacket(pkt, { address: HUB_ADDR, port: HUB_PORT });
+    }
+    expect(Date.now() - started).toBeLessThan(1000);
+    const accepted = a.metricsApi.metrics.fleet.packetsReceived - before.packetsReceived;
+    const rejected = a.metricsApi.metrics.fleet.rejectedPackets - before.rejectedPackets;
+    expect(accepted).toBeLessThanOrEqual(200);
+    expect(rejected).toBeGreaterThanOrEqual(60);
+  });
+
+  test("a server that never answers is reported as 'not-offered' after three HELLOs", async () => {
+    const lonely = makeClient("230000077", 40077);
+    clients = [lonely];
+    hub = makeHub({ enabled: true });
+    let tick = null;
+    const realSetInterval = global.setInterval;
+    global.setInterval = (fn, ms) => {
+      tick = fn;
+      return realSetInterval(fn, ms);
+    };
+    try {
+      lonely.client.startMetricsPublishing();
+    } finally {
+      global.setInterval = realSetInterval;
+    }
+    for (let i = 0; i < 3; i++) {
+      await lonely.client.sendHello(HUB_ADDR, HUB_PORT);
+    }
+    lonely.toHub.length = 0; // the old server drops everything
+    expect(lonely.metricsApi.metrics.fleet.state).toBe("offered");
+    tick();
+    expect(lonely.metricsApi.metrics.fleet.state).toBe("not-offered");
+    lonely.client.stopMetricsPublishing();
+  });
+
   test("a late-joining vessel gets a snapshot of the fleet", async () => {
     hub = makeHub({ enabled: true, batchIntervalMs: 100 });
     const b = makeClient("230000002", 40002);

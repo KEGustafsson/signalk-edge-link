@@ -18,13 +18,20 @@ import {
   FLEET_RETRANSMIT_AFTER_MS,
   FLEET_VALUES_PER_PACKET,
   FLEET_MAX_NAK_SEQUENCES,
-  MAX_SAFE_UDP_PAYLOAD
+  MAX_SAFE_UDP_PAYLOAD,
+  FLEET_MIN_MAX_BYTES_PER_SEC,
+  FLEET_RATE_BACKOFF_FACTOR,
+  FLEET_RATE_MIN_FACTOR,
+  FLEET_RATE_BACKOFF_INTERVAL_MS,
+  FLEET_RATE_RECOVERY_DELAY_MS,
+  FLEET_RATE_RECOVERY_PER_SEC
 } from "../../../foundation/constants";
 import { ensureFleetMetrics } from "../../fleet/common";
 import type { Delta, DeltaUpdate } from "../../../foundation/types";
 import type { ServerContext, ClientSession } from "./context";
 import { bindBuilderEpochForPeer } from "./context";
 import { sendUDP } from "./sessions";
+import { withFirstSightMeta } from "./fleet-meta";
 import {
   acceptedSessions,
   memberSession,
@@ -36,18 +43,60 @@ import {
   type PendingValue
 } from "./fleet";
 
+/** Current byte rate: the session ceiling scaled by its loss-adaptive factor. */
+export function effectiveRate(fleetSession: FleetSessionState): number {
+  return Math.max(FLEET_MIN_MAX_BYTES_PER_SEC, fleetSession.bytesPerSec * fleetSession.rateFactor);
+}
+
 function refillTokens(fleetSession: FleetSessionState, now: number): void {
   const elapsed = Math.max(0, now - fleetSession.lastRefillAt);
   fleetSession.lastRefillAt = now;
+  const rate = effectiveRate(fleetSession);
   // Bucket depth: one second of rate, never less than one full packet.
-  const depth = Math.max(fleetSession.bytesPerSec, MAX_SAFE_UDP_PAYLOAD);
-  fleetSession.tokens = Math.min(
-    depth,
-    fleetSession.tokens + (fleetSession.bytesPerSec * elapsed) / 1000
+  const depth = Math.max(rate, MAX_SAFE_UDP_PAYLOAD);
+  fleetSession.tokens = Math.min(depth, fleetSession.tokens + (rate * elapsed) / 1000);
+}
+
+/**
+ * Loss seen on this session's downlink (a NAK, or a packet that went
+ * unacknowledged): cut the rate multiplicatively, at most once per interval
+ * so one burst of loss counts once. The vessel's link — usually the
+ * bottleneck — sets the pace without any configuration.
+ */
+function backOff(ctx: ServerContext, fleetSession: FleetSessionState, now: number): void {
+  if (now - fleetSession.lastBackoffAt < FLEET_RATE_BACKOFF_INTERVAL_MS) {
+    return;
+  }
+  fleetSession.lastBackoffAt = now;
+  fleetSession.lastRateIncreaseAt = now;
+  fleetSession.rateFactor = Math.max(
+    FLEET_RATE_MIN_FACTOR,
+    fleetSession.rateFactor * FLEET_RATE_BACKOFF_FACTOR
+  );
+  ensureFleetMetrics(ctx.metrics).rateBackoffs++;
+}
+
+/** Recover additively once the session has been loss-free for a while. */
+function recoverRate(fleetSession: FleetSessionState, now: number): void {
+  if (
+    fleetSession.rateFactor >= 1 ||
+    now - fleetSession.lastBackoffAt < FLEET_RATE_RECOVERY_DELAY_MS
+  ) {
+    fleetSession.lastRateIncreaseAt = now;
+    return;
+  }
+  const seconds = Math.max(0, now - fleetSession.lastRateIncreaseAt) / 1000;
+  fleetSession.lastRateIncreaseAt = now;
+  fleetSession.rateFactor = Math.min(
+    1,
+    fleetSession.rateFactor + FLEET_RATE_RECOVERY_PER_SEC * seconds
   );
 }
 
-/** Group pending values into deltas by context, then ($source, timestamp). */
+/**
+ * Group pending entries into deltas by context, then ($source, timestamp).
+ * Metadata entries share one meta-only update per context.
+ */
 function buildDeltas(values: PendingValue[]): Delta[] {
   const byContext = new Map<string, Map<string, DeltaUpdate>>();
   for (const v of values) {
@@ -55,6 +104,19 @@ function buildDeltas(values: PendingValue[]): Delta[] {
     if (!updates) {
       updates = new Map();
       byContext.set(v.context, updates);
+    }
+    if (v.kind === "meta") {
+      let metaUpdate = updates.get("\u0001meta") as
+        | (DeltaUpdate & { meta: Array<{ path: string; value: unknown }> })
+        | undefined;
+      if (!metaUpdate) {
+        metaUpdate = { values: [], meta: [] } as unknown as DeltaUpdate & {
+          meta: Array<{ path: string; value: unknown }>;
+        };
+        updates.set("\u0001meta", metaUpdate);
+      }
+      metaUpdate.meta.push({ path: v.path, value: v.value });
+      continue;
     }
     const updateKey = `${v.$source ?? ""}\u0000${v.timestamp ?? ""}`;
     let update = updates.get(updateKey) as (DeltaUpdate & Record<string, unknown>) | undefined;
@@ -111,13 +173,16 @@ async function sendChunk(
   values: PendingValue[]
 ): Promise<boolean> {
   const options = ctx.state.options!;
-  const encrypted = await encodeFleetPayload(buildDeltas(values), {
-    secretKey: secretKeyOf(ctx),
-    stretchAsciiKey: ctx.stretchAsciiKey,
-    useMsgpack: !!options.useMsgpack,
-    usePathDictionary: !!options.usePathDictionary,
-    brotliQuality: options.brotliQuality
-  });
+  const encrypted = await encodeFleetPayload(
+    buildDeltas(withFirstSightMeta(ctx, fleetSession, values)),
+    {
+      secretKey: secretKeyOf(ctx),
+      stretchAsciiKey: ctx.stretchAsciiKey,
+      useMsgpack: !!options.useMsgpack,
+      usePathDictionary: !!options.usePathDictionary,
+      brotliQuality: options.brotliQuality
+    }
+  );
   if (session.fleet !== fleetSession) {
     return false;
   }
@@ -205,6 +270,9 @@ async function retransmitStale(
     const entry = fleetSession.retransmitQueue.get(seq);
     return !!entry && now - entry.timestamp >= FLEET_RETRANSMIT_AFTER_MS;
   });
+  if (stale.length > 0) {
+    backOff(ctx, fleetSession, now);
+  }
   await retransmit(ctx, session, stale);
 }
 
@@ -217,6 +285,9 @@ export async function fleetTick(ctx: ServerContext): Promise<void> {
   for (const session of acceptedSessions(ctx)) {
     try {
       await retransmitStale(ctx, session, now);
+      if (session.fleet) {
+        recoverRate(session.fleet, now);
+      }
       await flushSession(ctx, session);
       const fleetSession = session.fleet;
       if (fleetSession && now - fleetSession.lastSentAt >= FLEET_KEEPALIVE_MS) {
@@ -233,6 +304,8 @@ export async function fleetTick(ctx: ServerContext): Promise<void> {
     memberSession(ctx, context);
   }
   refreshMemberCount(ctx);
+  const factors = acceptedSessions(ctx).map((s) => s.fleet!.rateFactor);
+  ensureFleetMetrics(ctx.metrics).minRateFactor = factors.length ? Math.min(...factors) : 1;
 }
 
 function sessionFor(
@@ -277,6 +350,9 @@ export async function handleFleetNak(
     return;
   }
   session.lastPacketTime = Date.now();
+  if (missing.length > 0) {
+    backOff(ctx, session.fleet, Date.now());
+  }
   await retransmit(ctx, session, missing.slice(0, FLEET_MAX_NAK_SEQUENCES));
 }
 
@@ -286,7 +362,8 @@ export function startFleet(ctx: ServerContext): void {
   if (!fleet || fleet.timer) {
     return;
   }
-  ensureFleetMetrics(ctx.metrics);
+  // On a server `state` reads `active` while sharing runs.
+  ensureFleetMetrics(ctx.metrics).state = "active";
   const manager = ctx.app.subscriptionmanager;
   if (manager && typeof manager.subscribe === "function") {
     try {
@@ -323,6 +400,7 @@ export function stopFleet(ctx: ServerContext): void {
     clearInterval(fleet.timer);
     fleet.timer = null;
   }
+  ensureFleetMetrics(ctx.metrics).state = "disabled";
   for (const unsubscribe of fleet.unsubscribes.splice(0)) {
     try {
       unsubscribe();

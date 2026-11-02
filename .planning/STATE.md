@@ -5,12 +5,12 @@
 **Initialized:** 2026-04-30
 **Current Milestone:** v2 Fleet Data Sharing (`v2-fleet-sharing`)
 **Current Phase:** 6-10 implemented
-**Phase Status:** Verification open items remain
+**Phase Status:** Verified; ready to archive
 **Plan Count:** 0
 
 ## Current Focus
 
-Fleet sharing is implemented on `claude/zen-bell-l5clz3`. Remaining: the Partial items in `.planning/phases/06-fleet-sharing-protocol-design/FLEET-VERIFICATION.md`.
+Fleet sharing is implemented and verified on `claude/zen-bell-l5clz3`, including a real signalk-server run (`npm run smoke:fleet`). Next: archive the milestone.
 
 ## Phase Status
 
@@ -18,9 +18,9 @@ v2 Fleet Data Sharing (phases 6-10):
 
 - Phase 6: Fleet Sharing Protocol Design — Complete (`89aca48`)
 - Phase 7: Vessel Identity, Scope and Loop Prevention — Complete (`218272c`)
-- Phase 8: Server-to-Client Fleet Transport — Partial: inbound rate cap and end-to-end replay untested (`218272c`)
-- Phase 9: Fleet Configuration, UI and Observability — Partial: `fleet.state` not shown in the web UI (`eb1743e`)
-- Phase 10: Fleet Integration, Security Review and Docs — Partial: no real-socket or real signalk-server run
+- Phase 8: Server-to-Client Fleet Transport — Complete (`218272c`, follow-up tests and adaptive rate later)
+- Phase 9: Fleet Configuration, UI and Observability — Complete (`eb1743e`, Fleet Sharing card later)
+- Phase 10: Fleet Integration, Security Review and Docs — Complete (real-socket test and real signalk-server smoke)
 
 Archived v1 Maintenance and Hardening: all five phases of the v1 Maintenance and Hardening milestone are complete:
 
@@ -111,7 +111,8 @@ Archived v1 Maintenance and Hardening: all five phases of the v1 Maintenance and
 - 2026-05-01: v1 Maintenance and Hardening archived as `v1-maintenance-hardening`.
 - 2026-11-02: v2 Fleet Data Sharing milestone defined (phases 6-10); Phase 6 context gathered.
 - 2026-11-02: Decisions accepted and spec written (`89aca48`); transport (`218272c`) and config/metrics/docs (`eb1743e`) implemented; verification recorded.
+- 2026-11-02: Open items closed: metadata sharing, loss-adaptive rate, Fleet Sharing card, missing tests, real-socket test, real signalk-server smoke.
 
 ## Recommended Next Action
 
-Close the Partial items in `FLEET-VERIFICATION.md`, then archive `v2-fleet-sharing`.
+Archive `v2-fleet-sharing`.

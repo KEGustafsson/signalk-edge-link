@@ -2,6 +2,33 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [Unreleased]
+
+### Added — fleet sharing (`fleetSharing`, protocol v3)
+
+- Every client of one server connection can receive the other clients' vessel
+  data over the link it already opened; a vessel never receives its own data
+  and needs no inbound port. Opt-in on both ends; with either end off, HELLO
+  and the uplink are byte-identical to before. Wire format:
+  `docs/protocol-v3-spec.md` §15 (new packet types `0x09`-`0x0C`).
+- Vessel identity travels encrypted in HELLO; answers are bound to a per-HELLO
+  nonce; FLEET_DATA is always HMAC-tagged and replay-checked.
+- Scope `fleet` (default) or `all`, `includeServerVessel`, server and
+  client-requested path filters and byte rates.
+- Origin authority on the hub and echo suppression on the vessel prevent loops,
+  including with `subscription.json` `context: "*"`.
+- Metadata (units, zones, display names) is sent with each path the first time
+  a vessel receives it, and again when it changes.
+- Reliable delivery with NAK and timeout retransmit; a member's rate backs off
+  on downlink loss and recovers when loss stops; older values never overwrite
+  newer ones.
+- `fleet` block in `GET /metrics`, `signalk_edge_link_fleet_*` in Prometheus,
+  and a Fleet Sharing card on the client and server dashboards.
+- `npm run smoke:fleet -- <signalk-server bin>` runs a hub and two vessels as
+  real signalk-server processes and checks the result over REST.
+
+Not available on bonded clients or protocol v1.
+
 ## [4.3.0] - 2026-09-03
 
 Hot-path performance release. No protocol or wire-format change: the

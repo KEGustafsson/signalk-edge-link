@@ -194,10 +194,16 @@ export interface FleetMetrics {
   staleStreamPackets: number;
   /** FLEET_DATA dropped after exhausting retransmits or evicted from the queue. */
   packetsAbandoned: number;
+  /** Loss-driven rate cuts across all sessions. */
+  rateBackoffs: number;
+  /** Lowest current rate factor among members (1 = full configured rate). */
+  minRateFactor: number;
   // Client side
   state: FleetClientState;
   packetsReceived: number;
   valuesReceived: number;
+  /** Metadata entries (units, zones, display names) received. */
+  metaReceived: number;
   /** Fleet contexts this client has received (never includes its own). */
   contextsKnown: number;
   /** Uplink deltas dropped because their context arrived over the fleet channel. */

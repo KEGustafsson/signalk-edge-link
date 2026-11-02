@@ -15,7 +15,14 @@ const { resolveFleetConfig } = require("../src/transport/fleet/common");
 const KEY = "12345678901234567890123456789012";
 
 function server(fleetSharing, extra = {}) {
-  return { serverType: "server", udpPort: 4446, secretKey: KEY, protocolVersion: 3, fleetSharing, ...extra };
+  return {
+    serverType: "server",
+    udpPort: 4446,
+    secretKey: KEY,
+    protocolVersion: 3,
+    fleetSharing,
+    ...extra
+  };
 }
 
 function client(fleetSharing, extra = {}) {
@@ -45,7 +52,9 @@ describe("fleetSharing validation", () => {
       )
     ).toBeNull();
     expect(
-      validateConnectionConfig(client({ enabled: true, pathFilter: { deny: ["design.*"] }, maxBytesPerSec: 1024 }))
+      validateConnectionConfig(
+        client({ enabled: true, pathFilter: { deny: ["design.*"] }, maxBytesPerSec: 1024 })
+      )
     ).toBeNull();
   });
 
@@ -62,7 +71,10 @@ describe("fleetSharing validation", () => {
     [client({ scope: "all" }), /fleetSharing.scope is only supported in server mode/],
     [client({ batchIntervalMs: 500 }), /batchIntervalMs is only supported in server mode/],
     [server({ enabled: true }, { protocolVersion: 1 }), /fleetSharing requires protocolVersion 3/],
-    [server({ enabled: true }, { protocolVersion: "basic" }), /fleetSharing requires protocolVersion 3/],
+    [
+      server({ enabled: true }, { protocolVersion: "basic" }),
+      /fleetSharing requires protocolVersion 3/
+    ],
     [
       client({ enabled: true }, { bonding: { enabled: true } }),
       /fleetSharing is not supported together with bonding/
@@ -76,7 +88,9 @@ describe("fleetSharing validation", () => {
   });
 
   test("sanitize keeps fleetSharing", () => {
-    expect(sanitizeConnectionConfig(server({ enabled: true })).fleetSharing).toEqual({ enabled: true });
+    expect(sanitizeConnectionConfig(server({ enabled: true })).fleetSharing).toEqual({
+      enabled: true
+    });
   });
 });
 
@@ -107,7 +121,11 @@ describe("resolveFleetConfig", () => {
       maxBytesPerSec: 8192,
       batchIntervalMs: 1000
     });
-    const clamped = resolveFleetConfig({ maxBytesPerSec: 1, batchIntervalMs: 999999, scope: "all" });
+    const clamped = resolveFleetConfig({
+      maxBytesPerSec: 1,
+      batchIntervalMs: 999999,
+      scope: "all"
+    });
     expect(clamped.maxBytesPerSec).toBe(256);
     expect(clamped.batchIntervalMs).toBe(10000);
     expect(clamped.scope).toBe("all");

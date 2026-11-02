@@ -160,13 +160,9 @@ export function processDelta(ctx: ConnectionContext, delta: Delta): void {
   // false on stop). Tests may also set it directly without going through start().
   if (!state.readyToSend || state.subscribing) return;
 
-  if (state.metaConfig?.enabled) {
-    const liveMeta = extractLiveMeta(delta, state.metaConfig, cachedSelfContext(appProxy));
-    if (liveMeta.length > 0) services.enqueueMetaDiff(liveMeta);
-  }
-
   // Fleet loop guard: a context that arrived over the fleet channel belongs to
-  // another vessel and must not be sent back upstream.
+  // another vessel and must not be sent back upstream —
+  // neither its values nor its metadata.
   if (
     state.fleetLearnedContexts &&
     typeof delta.context === "string" &&
@@ -174,6 +170,11 @@ export function processDelta(ctx: ConnectionContext, delta: Delta): void {
   ) {
     ensureFleetMetrics(metrics).loopDrops++;
     return;
+  }
+
+  if (state.metaConfig?.enabled) {
+    const liveMeta = extractLiveMeta(delta, state.metaConfig, cachedSelfContext(appProxy));
+    if (liveMeta.length > 0) services.enqueueMetaDiff(liveMeta);
   }
 
   const sanitized = sanitizeDeltaForSignalK(delta);

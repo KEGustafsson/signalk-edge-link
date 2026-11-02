@@ -14,12 +14,64 @@
 import { sanitizeDeltaForSignalK } from "../../../codec/delta-sanitizer";
 import { handleMessageBySource, normalizeDeltaSourceRefs } from "../../../codec/source-dispatch";
 import { ensureFleetMetrics, fleetPathAllowed } from "../../fleet/common";
-import type { Delta } from "../../../foundation/types";
+import type { Delta, DeltaUpdate } from "../../../foundation/types";
 import type { ClientContext } from "./context";
 import type { FleetClientRuntime } from "./fleet";
 
 /** Bound on remembered (context, $source, path) timestamps. */
 const MAX_TRACKED_VALUE_TIMES = 20000;
+
+type FleetMetricsRef = ReturnType<typeof ensureFleetMetrics>;
+type MetaEntry = { path?: unknown; value?: unknown };
+
+/** Keep values that pass the filter and are not older than what was applied. */
+function filterValues(
+  fleet: FleetClientRuntime,
+  metrics: FleetMetricsRef,
+  context: string,
+  update: DeltaUpdate
+): void {
+  if (!Array.isArray(update.values)) {
+    update.values = [];
+    return;
+  }
+  const at = typeof update.timestamp === "string" ? Date.parse(update.timestamp) : NaN;
+  update.values = update.values.filter((v) => {
+    if (!fleetPathAllowed(v.path, fleet.pathFilter)) {
+      return false;
+    }
+    if (!Number.isFinite(at)) {
+      return true;
+    }
+    const key = `${context}\u0000${update.$source ?? ""}\u0000${v.path}`;
+    const previous = fleet.appliedTimes.get(key);
+    if (previous !== undefined && at < previous) {
+      metrics.staleValues++;
+      return false;
+    }
+    if (fleet.appliedTimes.size >= MAX_TRACKED_VALUE_TIMES && previous === undefined) {
+      fleet.appliedTimes.clear();
+    }
+    fleet.appliedTimes.set(key, at);
+    return true;
+  });
+}
+
+/** Keep metadata entries for paths the client asked for. */
+function filterMeta(fleet: FleetClientRuntime, update: DeltaUpdate): number {
+  const record = update as unknown as { meta?: MetaEntry[] };
+  if (!Array.isArray(record.meta)) {
+    return 0;
+  }
+  record.meta = record.meta.filter(
+    (m) => m && typeof m.path === "string" && fleetPathAllowed(m.path, fleet.pathFilter)
+  );
+  if (record.meta.length === 0) {
+    delete record.meta;
+    return 0;
+  }
+  return record.meta.length;
+}
 
 export function dispatchFleetDeltas(
   ctx: ClientContext,
@@ -38,33 +90,15 @@ export function dispatchFleetDeltas(
     if (!sanitized || !Array.isArray(sanitized.updates)) {
       continue;
     }
+    let metaCount = 0;
     for (const update of sanitized.updates) {
-      if (!Array.isArray(update.values)) {
-        continue;
-      }
-      const at = typeof update.timestamp === "string" ? Date.parse(update.timestamp) : NaN;
-      update.values = update.values.filter((v) => {
-        if (!fleetPathAllowed(v.path, fleet.pathFilter)) {
-          return false;
-        }
-        if (!Number.isFinite(at)) {
-          return true;
-        }
-        const key = `${context}\u0000${update.$source ?? ""}\u0000${v.path}`;
-        const previous = fleet.appliedTimes.get(key);
-        if (previous !== undefined && at < previous) {
-          metrics.staleValues++;
-          return false;
-        }
-        if (fleet.appliedTimes.size >= MAX_TRACKED_VALUE_TIMES && previous === undefined) {
-          fleet.appliedTimes.clear();
-        }
-        fleet.appliedTimes.set(key, at);
-        return true;
-      });
+      filterValues(fleet, metrics, context, update);
+      metaCount += filterMeta(fleet, update);
     }
     sanitized.updates = sanitized.updates.filter(
-      (u) => Array.isArray(u.values) && u.values.length > 0
+      (u) =>
+        (Array.isArray(u.values) && u.values.length > 0) ||
+        Array.isArray((u as unknown as { meta?: unknown[] }).meta)
     );
     if (sanitized.updates.length === 0) {
       continue;
@@ -77,6 +111,7 @@ export function dispatchFleetDeltas(
       metrics.contextsKnown = fleet.learnedContexts.size;
     }
     handleMessageBySource(ctx.app, delta);
+    metrics.metaReceived += metaCount;
     for (const update of delta.updates) {
       metrics.valuesReceived += Array.isArray(update.values) ? update.values.length : 0;
     }
