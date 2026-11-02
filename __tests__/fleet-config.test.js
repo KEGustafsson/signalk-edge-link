@@ -112,6 +112,28 @@ describe("fleetSharing schema", () => {
   });
 });
 
+describe("plugin schema JSON safety", () => {
+  test("contains no object referenced twice (signalk plugin schema check)", () => {
+    const seen = new WeakSet();
+    const repeated = [];
+    const walk = (node, path) => {
+      if (node === null || typeof node !== "object") {
+        return;
+      }
+      if (seen.has(node)) {
+        repeated.push(path);
+        return;
+      }
+      seen.add(node);
+      for (const [key, value] of Object.entries(node)) {
+        walk(value, `${path}.${key}`);
+      }
+    };
+    walk(buildConnectionItemSchema(), "item");
+    expect(repeated).toEqual([]);
+  });
+});
+
 describe("resolveFleetConfig", () => {
   test("applies defaults and clamps out-of-range values", () => {
     expect(resolveFleetConfig({ enabled: true })).toEqual({
