@@ -44,8 +44,8 @@
 
 - **Newest value wins on the client.** The client drops a fleet value older than one already applied for the same `(context, $source, path)` (`fleet.staleValues`), because a retransmitted packet can arrive after newer data.
 - **Metadata inside FLEET_DATA** (FLEET-FUT-002, metadata part): `updates[].meta` is attached the first time a session receives a `(context, path)`, read from the hub's tree, and forwarded when it changes (spec §15.8). Tests: "metadata travels with a path the first time a vessel receives it", "live metadata changes are forwarded to the other members".
-- **Loss-adaptive rate** (FLEET-FUT-003): per-member factor ×0.7 on NAK or 2 s timeout, at most once per second, recovering +0.05/s after 2 s without loss (spec §15.9). Test: "downlink loss cuts the fleet rate once per burst and it recovers when loss stops".
-- **HELLO replay guard**: a nonce presented again for the same vessel by a different session is ignored (`fleet.replayedHellos`), so a captured HELLO cannot move ownership (spec §15.7).
+- **Loss-adaptive rate** (FLEET-FUT-003): each member's send rate drops on downlink loss and recovers when loss stops (spec §15.9). Test: "downlink loss cuts the fleet rate once per burst and it recovers when loss stops".
+- **HELLO replay guard**: a session other than the live owner can claim a vessel only with a HELLO newer than the owner's newest accepted one, by the HMAC-covered HELLO `timestamp` (`fleet.replayedHellos`). A captured HELLO of any age cannot move ownership (spec §15.7). Tests: "a replayed HELLO from another address cannot take over a vessel", "an old HELLO replayed after many newer ones cannot take over a vessel", "a fleet HELLO without a timestamp cannot take over a vessel".
 - **Fleet Sharing card** on the client and server dashboards.
 - **Server `fleet.state`** reads `active` while sharing runs.
 - **Loop guard placement**: the client drops fleet-learned contexts before live-metadata extraction, so neither fleet values nor fleet metadata go back upstream.

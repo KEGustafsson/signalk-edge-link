@@ -657,6 +657,63 @@ describe("fleet sharing end-to-end", () => {
     expect(fleet.replayedHellos).toBe(1);
   });
 
+  test("an old HELLO replayed after many newer ones cannot take over a vessel", async () => {
+    await connectAll();
+    const a = clients[0];
+    const parser = new PacketParser({ secretKey });
+    const hellos = () =>
+      a.state.socketUdp.send.mock.calls
+        .map((call) => Buffer.from(call[0]))
+        .filter((pkt) => {
+          try {
+            return parser.parseHeader(pkt).type === PacketType.HELLO;
+          } catch {
+            return false;
+          }
+        });
+    const captured = hellos()[0];
+    await wait(2);
+    // More HELLOs than any bounded nonce history would hold.
+    for (let i = 0; i < 40; i++) {
+      await a.client.sendHello(HUB_ADDR, HUB_PORT);
+    }
+    await pump(hub, clients);
+    const fleet = hub.metricsApi.metrics.fleet;
+    const before = fleet.replayedHellos;
+    await hub.server.receivePacket(captured, secretKey, { address: "10.6.6.6", port: 50666 });
+    // The newest HELLO, copied exactly, is refused too.
+    await hub.server.receivePacket(hellos().at(-1), secretKey, {
+      address: "10.6.6.7",
+      port: 50667
+    });
+    expect(fleet.replayedHellos).toBe(before + 2);
+    expect(fleet.identityConflicts).toBe(0);
+    hub.bus.received.length = 0;
+    await a.client.sendDelta([sog(a.self, 9.9)], secretKey, HUB_ADDR, HUB_PORT);
+    await pump(hub, clients);
+    expect(hub.bus.received.some((d) => d.context === a.self)).toBe(true);
+  });
+
+  test("a fleet HELLO without a timestamp cannot take over a vessel", async () => {
+    await connectAll();
+    const { PacketBuilder } = require("../../lib/packet");
+    const { encodeFleetIdentity, newFleetNonce } = require("../../src/codec/fleet-identity");
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(Number.NaN);
+    let hello;
+    try {
+      hello = new PacketBuilder({ secretKey }).buildHelloPacket({
+        clientId: "x",
+        capabilities: ["fleet-v1"],
+        fleet: encodeFleetIdentity({ self: clients[0].self, nonce: newFleetNonce() }, secretKey)
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+    await hub.server.receivePacket(hello, secretKey, { address: "10.6.6.8", port: 50668 });
+    expect(hub.metricsApi.metrics.fleet.replayedHellos).toBe(1);
+    expect(hub.metricsApi.metrics.fleet.identityConflicts).toBe(0);
+  });
+
   test("a delta the local server refuses does not drop the rest of the packet", async () => {
     await connectAll();
     const a = clients[0];

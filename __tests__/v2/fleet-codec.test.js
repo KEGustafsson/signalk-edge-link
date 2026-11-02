@@ -157,7 +157,6 @@ describe("encrypted fleet identity", () => {
       pathFilter: { allow: Array.from({ length: 100 }, (_, i) => `p${i}.*`) }
     });
     expect(capped.pathFilter.allow).toHaveLength(32);
-    // A requested ceiling below the minimum is raised to it, never dropped.
     expect(parseFleetIdentityObject({ ...ok, maxBytesPerSec: 0.5 }).maxBytesPerSec).toBe(256);
     expect(parseFleetIdentityObject({ ...ok, maxBytesPerSec: 4096 }).maxBytesPerSec).toBe(4096);
   });
