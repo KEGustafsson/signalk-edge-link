@@ -240,7 +240,7 @@ function takeSnapshot(ctx: ServerContext): Delta[] {
   }
 }
 
-function createSessionState(ctx: ServerContext, identity: FleetIdentity): FleetSessionState {
+export function createSessionState(ctx: ServerContext, identity: FleetIdentity): FleetSessionState {
   const fleet = ctx.fleet!;
   const requested = identity.maxBytesPerSec;
   const bytesPerSec =
@@ -248,6 +248,7 @@ function createSessionState(ctx: ServerContext, identity: FleetIdentity): FleetS
       ? Math.min(fleet.config.maxBytesPerSec, requested)
       : fleet.config.maxBytesPerSec;
   const metrics = ensureFleetMetrics(ctx.metrics);
+  const metaSent = new Set<string>();
   return {
     self: identity.self,
     nonce: identity.nonce,
@@ -264,12 +265,15 @@ function createSessionState(ctx: ServerContext, identity: FleetIdentity): FleetS
       maxRetransmits: FLEET_MAX_RETRANSMITS,
       onPacketDropped: () => {
         metrics.packetsAbandoned++;
+        // The dropped packet may have carried first-sight metadata; forget
+        // what was sent so the next value of each path carries it again.
+        metaSent.clear();
       }
     }),
     lastSentAt: 0,
     lastSnapshotAt: 0,
     flushing: false,
-    metaSent: new Set(),
+    metaSent,
     rateFactor: 1,
     lastBackoffAt: 0,
     lastRateIncreaseAt: Date.now()

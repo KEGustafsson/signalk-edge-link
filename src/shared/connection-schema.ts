@@ -15,6 +15,10 @@
  */
 
 import { PBKDF2_ITERATIONS } from "../foundation/crypto-constants";
+import {
+  FLEET_PATH_FILTER_MAX_PATTERNS,
+  FLEET_PATH_PATTERN_MAX_LENGTH
+} from "../foundation/constants";
 
 export type SchemaFragment = Record<string, unknown>;
 
@@ -415,6 +419,15 @@ export const clientReliabilityProperty: SchemaFragment = {
  * and the Signal K plugin checker (and JSON storage) treat a shared object as
  * a repeated reference.
  */
+function fleetPatternList(title: string): SchemaFragment {
+  return {
+    type: "array",
+    title,
+    maxItems: FLEET_PATH_FILTER_MAX_PATTERNS,
+    items: { type: "string", minLength: 1, maxLength: FLEET_PATH_PATTERN_MAX_LENGTH }
+  };
+}
+
 function fleetPathFilterProperty(): SchemaFragment {
   return {
     type: "object",
@@ -423,8 +436,8 @@ function fleetPathFilterProperty(): SchemaFragment {
       'Glob allowlist/blocklist, same syntax as pathFilter ("navigation.*", "*", exact paths). ' +
       "Paths under networking.edgeLink.* are never shared.",
     properties: {
-      allow: { type: "array", title: "Allow patterns", items: { type: "string", minLength: 1 } },
-      deny: { type: "array", title: "Deny patterns", items: { type: "string", minLength: 1 } }
+      allow: fleetPatternList("Allow patterns"),
+      deny: fleetPatternList("Deny patterns")
     },
     additionalProperties: false
   };

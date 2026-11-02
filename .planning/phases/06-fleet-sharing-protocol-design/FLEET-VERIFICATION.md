@@ -1,7 +1,6 @@
 # v2 Fleet Data Sharing - Verification
 
 **Date:** 2026-11-02
-**Branch:** `claude/zen-bell-l5clz3`
 
 ## Commands Run
 
@@ -9,7 +8,7 @@
 | ---------------------------------------------------- | ------------------------------------------------------------------- |
 | `npm run check:ts`                                   | Pass                                                                |
 | `npm run lint`                                       | Pass (0 warnings)                                                   |
-| `npm test`                                           | 137 suites, 2585 tests, all passing                                 |
+| `npm test`                                           | All passing                                                         |
 | `npm run check:ts:webapp`                            | Pass                                                                |
 | `npm run smoke:fleet -- <signalk-server 2.35.1 bin>` | 15/15 checks pass: hub + 2 vessels as real signalk-server processes |
 | `npm run build`                                      | Pass; webpack asset-size warning for the 304 KiB web bundle         |

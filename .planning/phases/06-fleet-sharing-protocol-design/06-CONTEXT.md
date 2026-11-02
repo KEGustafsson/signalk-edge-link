@@ -98,9 +98,9 @@ Rejected by configuration validation in this milestone (FLEET-FUT-001). Stream i
 <deliverables>
 ## Phase 6 Deliverables
 
-1. Draft section in `docs/protocol-v3-spec.md`: FLEET, FLEET_ACK, FLEET_NAK byte layouts, flag use, tag inputs, capability string, `fleetIdentity` format, sequence rules.
-2. Test vectors for each new packet (fixed key, epoch, sequence, payload → expected bytes), checked into `__tests__/fixtures/` during Phase 8.
-3. Each decision D-01 to D-08 marked accepted or replaced in this file.
-4. Phase 7-10 plans, starting with `07-01-PLAN.md`.
+1. `docs/protocol-v3-spec.md` §15: HELLO_ACK, FLEET_DATA (`0x0A`), FLEET_ACK and FLEET_NAK byte layouts, flag use, tag inputs, the `fleet-v1` capability, the encrypted HELLO `fleet` field and sequence rules.
+2. Test vectors for each new packet (fixed key, epoch, sequence, payload → expected bytes), in spec §15.11 and checked inline in `__tests__/v2/fleet-codec.test.js`.
+3. Each decision D-01 to D-08 marked accepted or changed in this file.
+4. Phases 7-10 ran without separate plan files; `FLEET-VERIFICATION.md` maps each requirement to its evidence.
 
 </deliverables>

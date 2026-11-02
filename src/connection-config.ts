@@ -1,13 +1,19 @@
 "use strict";
 
 import { validateSecretKey } from "./codec/crypto";
+import { fleetPathFilterFits } from "./codec/fleet-identity";
+import {
+  FLEET_PATH_FILTER_MAX_PATTERNS,
+  FLEET_PATH_PATTERN_MAX_LENGTH
+} from "./foundation/constants";
 import { SENDER_ONLY_KEYS } from "./shared/connection-schema";
 import type {
   ConnectionConfig,
   BondingConfig,
   CongestionControlConfig,
   ReliabilityConfig,
-  AlertThresholds
+  AlertThresholds,
+  PathFilterConfig
 } from "./foundation/types";
 
 /** All recognised top-level keys for a ConnectionConfig object; unknown keys are stripped on sanitize. */
@@ -79,15 +85,29 @@ function validatePatternList(value: unknown, label: string): string | null {
   if (!Array.isArray(value)) {
     return `${label} must be an array of strings`;
   }
+  if (value.length > FLEET_PATH_FILTER_MAX_PATTERNS) {
+    return `${label} allows at most ${FLEET_PATH_FILTER_MAX_PATTERNS} patterns`;
+  }
   for (let i = 0; i < value.length; i++) {
     if (typeof value[i] !== "string" || value[i].length === 0) {
       return `${label}[${i}] must be a non-empty string`;
+    }
+    if (value[i].length > FLEET_PATH_PATTERN_MAX_LENGTH) {
+      return `${label}[${i}] is longer than ${FLEET_PATH_PATTERN_MAX_LENGTH} characters`;
     }
   }
   return null;
 }
 
-function validateFleetPathFilter(value: unknown, label: string): string | null {
+/**
+ * `sentInHello` marks a client filter: it travels in the encrypted HELLO
+ * identity, so it must also fit that field (protocol-v3-spec §15.2).
+ */
+function validateFleetPathFilter(
+  value: unknown,
+  label: string,
+  sentInHello: boolean
+): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return `${label} must be an object`;
   }
@@ -99,6 +119,9 @@ function validateFleetPathFilter(value: unknown, label: string): string | null {
     if (error) {
       return error;
     }
+  }
+  if (sentInHello && !fleetPathFilterFits(value as PathFilterConfig)) {
+    return `${label} is too large to send in HELLO; use fewer or shorter patterns`;
   }
   return null;
 }
@@ -149,7 +172,11 @@ function validateFleetSharing(
   const pathError =
     fleet.pathFilter === undefined
       ? null
-      : validateFleetPathFilter(fleet.pathFilter, `${p}fleetSharing.pathFilter`);
+      : validateFleetPathFilter(
+          fleet.pathFilter,
+          `${p}fleetSharing.pathFilter`,
+          serverType === "client"
+        );
   const rangeError =
     pathError ??
     integerRangeError(fleet.maxBytesPerSec, 256, 1048576, `${p}fleetSharing.maxBytesPerSec`) ??

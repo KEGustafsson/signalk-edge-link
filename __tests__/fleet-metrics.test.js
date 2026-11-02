@@ -37,7 +37,6 @@ describe("fleet Prometheus metrics", () => {
     expect(text).toMatch(/signalk_edge_link_fleet_packets_sent_total\{[^}]*\} 12/);
     expect(text).toMatch(/signalk_edge_link_fleet_origin_drops_total\{[^}]*\} 2/);
     expect(text).toMatch(/signalk_edge_link_fleet_active\{[^}]*\} 1/);
-    // Only the base labels: no vessel, context or path labels.
     for (const line of text
       .split("\n")
       .filter((l) => l.includes("_fleet_") && !l.startsWith("#"))) {

@@ -51,7 +51,6 @@ function normalizePathFilter(filter: PathFilterConfig | undefined): PathFilterCo
   return allow.length || deny.length ? { allow, deny } : null;
 }
 
-/** Apply defaults and bounds to a `fleetSharing` block. */
 export function resolveFleetConfig(config: FleetSharingConfig | undefined): ResolvedFleetConfig {
   return {
     scope: config?.scope === "all" ? "all" : "fleet",
@@ -108,7 +107,6 @@ export function ensureFleetMetrics(metrics: Metrics): FleetMetrics {
   return metrics.fleet;
 }
 
-/** True when a path may travel over the fleet channel under these filters. */
 export function fleetPathAllowed(
   path: string,
   ...filters: Array<PathFilterConfig | null | undefined>

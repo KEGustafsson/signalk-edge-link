@@ -674,7 +674,7 @@ describe("fleet sharing end-to-end", () => {
         });
     const captured = hellos()[0];
     await wait(2);
-    // More HELLOs than any bounded nonce history would hold.
+    // Many newer HELLOs from the owner must not let the oldest one back in.
     for (let i = 0; i < 40; i++) {
       await a.client.sendHello(HUB_ADDR, HUB_PORT);
     }
@@ -830,5 +830,21 @@ describe("fleet sharing end-to-end", () => {
     await pump(hub, clients);
     expect(lastSog(late, b.self)).toBeCloseTo(6.6);
     expect(hub.metricsApi.metrics.fleet.snapshotsSent).toBeGreaterThan(0);
+  });
+});
+
+describe("fleet session state", () => {
+  test("a dropped FLEET_DATA makes the next values carry metadata again", () => {
+    const { createSessionState } = require("../../src/transport/pipeline/reliable-server/fleet");
+    const { FLEET_RETRANSMIT_QUEUE_SIZE } = require("../../src/foundation/constants");
+    const ctx = { fleet: { config: { maxBytesPerSec: 8192 } }, metrics: {} };
+    const session = createSessionState(ctx, { self: urn("230000001"), nonce: "0123456789abcdef" });
+    session.metaSent.add("vessels.x\0navigation.speedOverGround");
+    // Filling the queue evicts the oldest unacknowledged packet.
+    for (let seq = 0; seq <= FLEET_RETRANSMIT_QUEUE_SIZE; seq++) {
+      session.retransmitQueue.add(seq, Buffer.alloc(1));
+    }
+    expect(ctx.metrics.fleet.packetsAbandoned).toBe(1);
+    expect(session.metaSent.size).toBe(0);
   });
 });

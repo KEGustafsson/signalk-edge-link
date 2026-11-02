@@ -13,6 +13,8 @@
 
 ## Problem Statement
 
+This section and Validated Existing Behavior describe the code before this milestone, at base commit `b2f8ecb`; file and line references point into that commit. The milestone changes several of these facts (for example, the server now also sends HELLO_ACK and FLEET_DATA, and reads the `fleet-v1` capability).
+
 Today vessel data flows one way, client → server. The server sends the client only ACK, NAK, HEARTBEAT, META_REQUEST and FULL_STATUS_REQUEST (`src/codec/packet/constants.ts:33-43`). Vessels A, B and C reporting to hub H can only see each other if H also runs one client per vessel and each vessel runs a server. That manual setup has three problems:
 
 1. Each vessel needs inbound UDP from H. Vessels on LTE or Starlink behind carrier-grade NAT usually cannot accept it.

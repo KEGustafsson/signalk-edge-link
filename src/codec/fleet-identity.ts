@@ -13,15 +13,21 @@
 
 import * as crypto from "node:crypto";
 import { encryptBinary, decryptBinary } from "./crypto";
-import { FLEET_IDENTITY_MAX_LENGTH, FLEET_MIN_MAX_BYTES_PER_SEC } from "../foundation/constants";
+import {
+  FLEET_IDENTITY_MAX_LENGTH,
+  FLEET_MIN_MAX_BYTES_PER_SEC,
+  FLEET_MAX_MAX_BYTES_PER_SEC,
+  FLEET_PATH_FILTER_MAX_PATTERNS,
+  FLEET_PATH_PATTERN_MAX_LENGTH
+} from "../foundation/constants";
 import type { PathFilterConfig } from "../foundation/types";
 
 /** Version of the decrypted `fleet` object this code understands. */
 export const FLEET_IDENTITY_VERSION = 1;
 
-const MAX_FILTER_PATTERNS = 32;
-const MAX_PATTERN_LENGTH = 128;
 const MAX_CONTEXT_LENGTH = 256;
+/** AES-256-GCM adds a 12-byte IV and a 16-byte tag (codec/crypto). */
+const ENCRYPTION_OVERHEAD = 28;
 
 export interface FleetIdentity {
   /** The client's own context, e.g. `vessels.urn:mrn:imo:mmsi:230123456`. */
@@ -45,8 +51,8 @@ function sanitizePatterns(value: unknown): string[] | undefined {
   }
   const out = value
     .filter((p): p is string => typeof p === "string" && p.length > 0)
-    .map((p) => p.slice(0, MAX_PATTERN_LENGTH))
-    .slice(0, MAX_FILTER_PATTERNS);
+    .map((p) => p.slice(0, FLEET_PATH_PATTERN_MAX_LENGTH))
+    .slice(0, FLEET_PATH_FILTER_MAX_PATTERNS);
   return out;
 }
 
@@ -97,6 +103,24 @@ export function parseFleetIdentityObject(value: unknown): FleetIdentity | null {
     identity.maxBytesPerSec = Math.max(FLEET_MIN_MAX_BYTES_PER_SEC, Math.floor(rate));
   }
   return identity;
+}
+
+/**
+ * True when an identity carrying `pathFilter` fits the HELLO `fleet` field for
+ * any valid vessel context and rate. Config validation uses it so a filter it
+ * accepts is never refused by encodeFleetIdentity at runtime.
+ */
+export function fleetPathFilterFits(pathFilter: PathFilterConfig): boolean {
+  const worstCase = JSON.stringify({
+    v: FLEET_IDENTITY_VERSION,
+    self: "v".repeat(MAX_CONTEXT_LENGTH),
+    nonce: "0".repeat(16),
+    // Both keys, as either form may be sent; this only adds bytes.
+    pathFilter: { allow: pathFilter.allow ?? [], deny: pathFilter.deny ?? [] },
+    maxBytesPerSec: FLEET_MAX_MAX_BYTES_PER_SEC
+  });
+  const encrypted = Buffer.byteLength(worstCase) + ENCRYPTION_OVERHEAD;
+  return Math.ceil(encrypted / 3) * 4 <= FLEET_IDENTITY_MAX_LENGTH;
 }
 
 /** Encrypt an identity for the HELLO `fleet` field (base64). */
