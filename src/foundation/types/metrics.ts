@@ -162,6 +162,54 @@ export interface Metrics {
   fullStatusCascadeFired?: number;
   /** Peak observed length of state.deltas since reset. */
   deltasBufferHighWaterMark?: number;
+  /** Fleet sharing counters (protocol-v3-spec §15). Absent until fleet
+   *  sharing runs on this instance. */
+  fleet?: FleetMetrics;
+}
+
+/** Client fleet state as reported in status and metrics. */
+export type FleetClientState = "disabled" | "offered" | "active" | "declined" | "not-offered";
+
+/** Fleet sharing counters. Server fields and client fields share one object;
+ *  each side only increments its own. */
+export interface FleetMetrics {
+  // Server side
+  /** Sessions currently accepted into the fleet. */
+  members: number;
+  packetsSent: number;
+  bytesSent: number;
+  valuesSent: number;
+  retransmits: number;
+  /** Flushes that left values pending because the session's byte budget ran out. */
+  rateLimitedFlushes: number;
+  /** Uplink deltas dropped because their context belongs to another member. */
+  originDrops: number;
+  /** HELLOs whose vessel was already declared by another session (newest wins). */
+  identityConflicts: number;
+  /** HELLOs that requested fleet sharing with an unreadable `fleet` field. */
+  identityRejected: number;
+  keepalivesSent: number;
+  snapshotsSent: number;
+  /** FLEET_ACK/FLEET_NAK naming a stream the session no longer uses. */
+  staleStreamPackets: number;
+  /** FLEET_DATA dropped after exhausting retransmits or evicted from the queue. */
+  packetsAbandoned: number;
+  // Client side
+  state: FleetClientState;
+  packetsReceived: number;
+  valuesReceived: number;
+  /** Fleet contexts this client has received (never includes its own). */
+  contextsKnown: number;
+  /** Uplink deltas dropped because their context arrived over the fleet channel. */
+  loopDrops: number;
+  duplicatePackets: number;
+  /** Values older than one already applied for the same (context, $source,
+   *  path), e.g. from a retransmit overtaken by newer data. */
+  staleValues: number;
+  /** FLEET_DATA rejected: wrong stream, replayed, over rate, or undecodable. */
+  rejectedPackets: number;
+  acksSent: number;
+  naksSent: number;
 }
 
 /** Metrics API returned by createMetrics(). */

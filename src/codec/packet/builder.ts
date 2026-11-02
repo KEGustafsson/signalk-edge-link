@@ -242,6 +242,9 @@ export class PacketBuilder {
       /** Monotonic per-connection epoch for server-side anti-replay window
        *  resets. Optional for backward compatibility with pre-H3 peers. */
       epoch?: number;
+      /** Encrypted fleet identity (protocol-v3-spec §15.2). Omitted when the
+       *  client does not request fleet sharing, so HELLO bytes are unchanged. */
+      fleet?: string;
     } = {},
     options: { secretKey?: string; protocolVersion?: number } = {}
   ): Buffer {
@@ -265,7 +268,76 @@ export class PacketBuilder {
     if (typeof info.epoch === "number" && Number.isFinite(info.epoch)) {
       payload.epoch = info.epoch;
     }
+    if (typeof info.fleet === "string" && info.fleet.length > 0) {
+      payload.fleet = info.fleet;
+    }
     return this._buildPacket(PacketType.HELLO, Buffer.from(JSON.stringify(payload)), {}, options);
+  }
+
+  /**
+   * Build a HELLO_ACK control packet (server → client). The payload is the
+   * JSON capability answer; the HMAC tag is applied like any control packet.
+   */
+  buildHelloAckPacket(
+    info: Record<string, unknown>,
+    options: { secretKey?: string; protocolVersion?: number } = {}
+  ): Buffer {
+    return this._buildPacket(PacketType.HELLO_ACK, Buffer.from(JSON.stringify(info)), {}, options);
+  }
+
+  /**
+   * Build a FLEET_DATA packet (server → client). `encryptedPayload` is the
+   * AES-GCM output; the 4-byte stream id is prefixed and, like a control
+   * packet, the whole payload is HMAC-tagged regardless of
+   * `authenticatedHeaders`. The sequence is the stream's own counter, passed
+   * explicitly so the builder's DATA sequence is untouched.
+   */
+  buildFleetDataPacket(
+    stream: number,
+    sequence: number,
+    encryptedPayload: Buffer,
+    flags: { messagepack?: boolean; pathDictionary?: boolean } = {}
+  ): Buffer {
+    const payload = Buffer.allocUnsafe(4 + encryptedPayload.length);
+    payload.writeUInt32BE(stream >>> 0, 0);
+    encryptedPayload.copy(payload, 4);
+    return this._buildPacket(
+      PacketType.FLEET_DATA,
+      payload,
+      {
+        compressed: true,
+        encrypted: true,
+        messagepack: !!flags.messagepack,
+        pathDictionary: !!flags.pathDictionary
+      },
+      { sequence }
+    );
+  }
+
+  /** Build a FLEET_ACK control packet (client → server). */
+  buildFleetAckPacket(
+    stream: number,
+    cumulativeSeq: number,
+    options: { secretKey?: string; protocolVersion?: number } = {}
+  ): Buffer {
+    const payload = Buffer.alloc(8);
+    payload.writeUInt32BE(stream >>> 0, 0);
+    payload.writeUInt32BE(cumulativeSeq >>> 0, 4);
+    return this._buildPacket(PacketType.FLEET_ACK, payload, {}, options);
+  }
+
+  /** Build a FLEET_NAK control packet (client → server). */
+  buildFleetNakPacket(
+    stream: number,
+    missingSequences: number[],
+    options: { secretKey?: string; protocolVersion?: number } = {}
+  ): Buffer {
+    const payload = Buffer.alloc(4 + missingSequences.length * 4);
+    payload.writeUInt32BE(stream >>> 0, 0);
+    for (let i = 0; i < missingSequences.length; i++) {
+      payload.writeUInt32BE(missingSequences[i] >>> 0, 4 + i * 4);
+    }
+    return this._buildPacket(PacketType.FLEET_NAK, payload, {}, options);
   }
 
   /**

@@ -31,6 +31,7 @@ import {
 } from "./reliable-server/sessions";
 import { publishServerMetrics } from "./reliable-server/metrics-publish";
 import { receivePacket } from "./reliable-server/receive";
+import { startFleet, stopFleet } from "./reliable-server/fleet-sender";
 
 /** Start the periodic ACK timer (also expires idle sessions each tick). */
 function startACKTimer(ctx: ServerContext): void {
@@ -43,6 +44,9 @@ function startACKTimer(ctx: ServerContext): void {
       ctx.app.error(`Periodic ACK error: ${err instanceof Error ? err.message : String(err)}`);
     });
   }, ctx.ackInterval);
+  // Fleet sharing follows the session engine's lifecycle: it starts and stops
+  // with the ACK timer (socket listening / socket error / stop).
+  startFleet(ctx);
 }
 
 /** Stop the periodic ACK timer. */
@@ -51,6 +55,7 @@ function stopACKTimer(ctx: ServerContext): void {
     clearInterval(ctx.mut.ackTimer);
     ctx.mut.ackTimer = null;
   }
+  stopFleet(ctx);
 }
 
 /** Start periodic metrics publishing (every METRICS_PUBLISH_INTERVAL ms). */
@@ -127,6 +132,7 @@ function stopServer(ctx: ServerContext): void {
   }
   ctx.clientSessions.clear();
   ctx.replayGuards.clear();
+  ctx.fleet?.members.clear();
 }
 
 /**

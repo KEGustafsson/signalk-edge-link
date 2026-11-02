@@ -264,3 +264,42 @@ export function clampBytesPerDeltaSample(bytesPerDelta: number): number {
  * previous value.
  */
 export const CURRENT_CONFIG_SCHEMA_VERSION = 1;
+
+// ── Fleet sharing (protocol-v3-spec §15) ─────────────────────────────────────
+
+/** HELLO capability string that requests fleet sharing. */
+export const FLEET_CAPABILITY = "fleet-v1";
+/** Server re-sends HELLO_ACK to an accepted session idle this long. */
+export const FLEET_KEEPALIVE_MS = 20000;
+/** Client re-sends HELLO when no fleet packet arrived for this long. */
+export const FLEET_LIVENESS_TIMEOUT_MS = 60000;
+/** HELLOs without a HELLO_ACK before the client reports `not-offered`. */
+export const FLEET_HELLO_ATTEMPTS_BEFORE_NOT_OFFERED = 3;
+/** Minimum spacing of join snapshots per session. */
+export const FLEET_SNAPSHOT_MIN_INTERVAL_MS = 10000;
+/** Retransmit FLEET_DATA still unacknowledged after this long. */
+export const FLEET_RETRANSMIT_AFTER_MS = 2000;
+/** Maximum retransmits per FLEET_DATA packet. */
+export const FLEET_MAX_RETRANSMITS = 3;
+/** Per-session FLEET_DATA retransmit queue capacity. */
+export const FLEET_RETRANSMIT_QUEUE_SIZE = 512;
+/** Values packed into one FLEET_DATA packet. */
+export const FLEET_VALUES_PER_PACKET = 40;
+/** Minimum spacing between FLEET_ACKs sent by a client. */
+export const FLEET_ACK_MIN_INTERVAL_MS = 200;
+/** Inbound FLEET_DATA packets per second a client accepts. */
+export const FLEET_MAX_INBOUND_PACKETS_PER_SEC = 200;
+/** Maximum base64 length of the encrypted HELLO `fleet` field. */
+export const FLEET_IDENTITY_MAX_LENGTH = 2048;
+/** Maximum missing sequences in one FLEET_NAK. */
+export const FLEET_MAX_NAK_SEQUENCES = 64;
+/** Default and bounds for the per-session fleet byte rate. */
+export const FLEET_DEFAULT_MAX_BYTES_PER_SEC = 8192;
+export const FLEET_MIN_MAX_BYTES_PER_SEC = 256;
+export const FLEET_MAX_MAX_BYTES_PER_SEC = 1048576;
+/** Default and bounds for the fleet flush interval. */
+export const FLEET_DEFAULT_BATCH_INTERVAL_MS = 1000;
+export const FLEET_MIN_BATCH_INTERVAL_MS = 100;
+export const FLEET_MAX_BATCH_INTERVAL_MS = 10000;
+/** Path prefix never shared over the fleet channel (link telemetry). */
+export const FLEET_EXCLUDED_PATH_PREFIX = "networking.edgeLink.";

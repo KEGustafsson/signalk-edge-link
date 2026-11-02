@@ -117,6 +117,25 @@ export interface PathFilterConfig {
   deny?: string[];
 }
 
+/**
+ * Fleet sharing (protocol-v3-spec §15). On a server: share other clients'
+ * vessel data with each accepted client. On a client: request that data.
+ */
+export interface FleetSharingConfig {
+  enabled?: boolean;
+  /** Server only. `fleet`: only vessels declared by clients of this server
+   *  instance. `all`: every context in the server's tree, including AIS. */
+  scope?: "fleet" | "all";
+  /** Server only. Also share the server's own vessel. */
+  includeServerVessel?: boolean;
+  /** Server: paths shared at all. Client: paths requested. */
+  pathFilter?: PathFilterConfig;
+  /** Per-session byte rate. Server: ceiling. Client: requested ceiling. */
+  maxBytesPerSec?: number;
+  /** Server only. Flush interval for coalesced fleet values. */
+  batchIntervalMs?: number;
+}
+
 /** Per-connection configuration. */
 export interface ConnectionConfig {
   /** Stable per-connection identity used for config editing and secret restoration. */
@@ -280,4 +299,6 @@ export interface ConnectionConfig {
    * individual value changes to trickle in. Default false.
    */
   requestFullStatusOnRestart?: boolean;
+  /** Fleet sharing over the existing session (protocol-v3-spec §15). */
+  fleetSharing?: FleetSharingConfig;
 }
