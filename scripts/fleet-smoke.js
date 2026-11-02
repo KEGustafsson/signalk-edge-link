@@ -19,7 +19,8 @@
  *   npm run build:ts
  *   node scripts/fleet-smoke.js /tmp/sk/node_modules/signalk-server/bin/signalk-server
  *
- * Exits 0 on success, 1 on any failed check. Uses HTTP ports 3100-3102 and UDP
+ * Requires Node 22 or later (global WebSocket). Exits 0 on success, 1 on any
+ * failed check. Uses HTTP ports 3100-3102 and UDP
  * port 24446; instance directories go under the OS temp directory.
  */
 
@@ -34,7 +35,9 @@ if (!serverBin || !fs.existsSync(serverBin)) {
   process.exit(2);
 }
 if (typeof WebSocket !== "function") {
-  console.error("Node 22 or later is required (global WebSocket).");
+  // Global WebSocket arrived in Node 22 (behind a flag before that); the
+  // plugin itself still supports the package's minimum Node version.
+  console.error("fleet-smoke needs Node 22 or later (global WebSocket).");
   process.exit(2);
 }
 
@@ -115,14 +118,21 @@ function startNode(n) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Per-request deadline, so a server that accepts but never answers fails fast. */
+const REQUEST_TIMEOUT_MS = 2000;
 async function getJson(port, urlPath) {
-  const res = await fetch(`http://127.0.0.1:${port}${urlPath}`);
+  const res = await fetch(`http://127.0.0.1:${port}${urlPath}`, {
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  });
   return res.json();
 }
 async function waitHttp(port) {
   for (let i = 0; i < 60; i++) {
     try {
-      if ((await fetch(`http://127.0.0.1:${port}/signalk`)).ok) {
+      const res = await fetch(`http://127.0.0.1:${port}/signalk`, {
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+      });
+      if (res.ok) {
         return;
       }
     } catch {

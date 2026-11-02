@@ -110,7 +110,18 @@ export function dispatchFleetDeltas(
       fleet.learnedContexts.add(context);
       metrics.contextsKnown = fleet.learnedContexts.size;
     }
-    handleMessageBySource(ctx.app, delta);
+    try {
+      handleMessageBySource(ctx.app, delta);
+    } catch (err: unknown) {
+      // The packet's sequence is already accepted, so a retransmit would be
+      // refused as a duplicate: keep going with the other deltas rather than
+      // losing all of them, and let the ACK go out.
+      metrics.rejectedPackets++;
+      ctx.app.debug(
+        `[fleet] dispatch failed for ${context}: ${err instanceof Error ? err.message : String(err)}`
+      );
+      continue;
+    }
     metrics.metaReceived += metaCount;
     for (const update of delta.updates) {
       metrics.valuesReceived += Array.isArray(update.values) ? update.values.length : 0;

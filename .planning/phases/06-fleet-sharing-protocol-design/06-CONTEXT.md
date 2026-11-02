@@ -103,6 +103,4 @@ Rejected by configuration validation in this milestone (FLEET-FUT-001). Stream i
 3. Each decision D-01 to D-08 marked accepted or replaced in this file.
 4. Phase 7-10 plans, starting with `07-01-PLAN.md`.
 
-Validation for this phase is review only: no source changes, `git diff --stat` limited to `docs/` and `.planning/`.
-
 </deliverables>

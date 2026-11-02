@@ -157,6 +157,9 @@ describe("encrypted fleet identity", () => {
       pathFilter: { allow: Array.from({ length: 100 }, (_, i) => `p${i}.*`) }
     });
     expect(capped.pathFilter.allow).toHaveLength(32);
+    // A requested ceiling below the minimum is raised to it, never dropped.
+    expect(parseFleetIdentityObject({ ...ok, maxBytesPerSec: 0.5 }).maxBytesPerSec).toBe(256);
+    expect(parseFleetIdentityObject({ ...ok, maxBytesPerSec: 4096 }).maxBytesPerSec).toBe(4096);
   });
 });
 
@@ -252,5 +255,54 @@ describe("fleet wire layout matches protocol-v3-spec §15", () => {
     expect(packet[3]).toBe(0x09);
     expect(packet.readUInt32BE(9)).toBe(json.length + TAG);
     expect(packet.subarray(HEADER, HEADER + json.length)).toEqual(json);
+  });
+});
+
+describe("fleet test vectors (protocol-v3-spec §15.11)", () => {
+  // Computed independently of PacketBuilder; also listed in the spec.
+  const VECTOR_KEY = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+  const VECTORS = {
+    FLEET_ACK: "534b030b00000000000000001878fd0102030400000010867130d10c17e6d48759ea94d6ec7fe8",
+    FLEET_NAK:
+      "534b030c00000000000000001c2483010203040000000500000007435cf5158835af1e54650d31c06ee280",
+    HELLO_ACK:
+      "534b030900000000000000007c8a557b2276223a312c226163636570746564223a5b22666c6565742d7631225d2c226e6f6e6365223a2230303131323233333434353536363737222c22666c656574223a7b2273747265616d223a31363930393036302c226d61784279746573506572536563223a343039367d7d4c1b5de5f08854fbd3ac02066dafe40e",
+    FLEET_DATA:
+      "534b030a030000000700000024aaf701020304aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaafe8c56f292f29fe0098624eab0c6a5a8",
+    FLEET_ACK_EPOCH:
+      "534b030b200000000000000018df0101020304000000101854b54731d487a6b6afee248e9574dc"
+  };
+
+  test("builders produce the specified bytes", () => {
+    const builder = new PacketBuilder({ secretKey: VECTOR_KEY });
+    expect(builder.buildFleetAckPacket(0x01020304, 16).toString("hex")).toBe(VECTORS.FLEET_ACK);
+    expect(builder.buildFleetNakPacket(0x01020304, [5, 7]).toString("hex")).toBe(VECTORS.FLEET_NAK);
+    expect(
+      builder
+        .buildHelloAckPacket({
+          v: 1,
+          accepted: ["fleet-v1"],
+          nonce: "0011223344556677",
+          fleet: { stream: 16909060, maxBytesPerSec: 4096 }
+        })
+        .toString("hex")
+    ).toBe(VECTORS.HELLO_ACK);
+    expect(
+      builder.buildFleetDataPacket(0x01020304, 7, Buffer.alloc(16, 0xaa)).toString("hex")
+    ).toBe(VECTORS.FLEET_DATA);
+    const bound = new PacketBuilder({
+      secretKey: VECTOR_KEY,
+      epochBoundAuth: true,
+      connectionEpoch: 1700000000000
+    });
+    expect(bound.buildFleetAckPacket(0x01020304, 16).toString("hex")).toBe(VECTORS.FLEET_ACK_EPOCH);
+  });
+
+  test("the parser accepts every vector", () => {
+    const parser = new PacketParser({ secretKey: VECTOR_KEY, authenticatedHeaders: false });
+    for (const [name, hex] of Object.entries(VECTORS)) {
+      const options = name === "FLEET_ACK_EPOCH" ? { epoch: 1700000000000 } : {};
+      expect(() => parser.parseHeader(Buffer.from(hex, "hex"), options)).not.toThrow();
+    }
   });
 });

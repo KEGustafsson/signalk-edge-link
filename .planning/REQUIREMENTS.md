@@ -72,11 +72,11 @@ Today vessel data flows one way, client → server. The server sends the client 
 
 ## Deferred Requirements
 
-| ID            | Requirement                                                                            | Reason Deferred                                                                                        |
-| ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| FLEET-FUT-001 | Fleet sharing over bonded links.                                                       | Two hub server instances would both send to the client; needs a rule for which one sends (VAL-FL-011). |
-| FLEET-FUT-002 | `/sources` tree sharing on the fleet direction. Metadata sharing shipped (spec §15.8). | Each update already carries its `source` object; a full tree copy has not been needed.                 |
-| FLEET-FUT-004 | Sharing across server instances with different `secretKey` values on the same hub.     | Crosses a trust boundary the operator created by using different keys.                                 |
+| ID            | Requirement                                                                        | Reason Deferred                                                                                        |
+| ------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| FLEET-FUT-001 | Fleet sharing over bonded links.                                                   | Two hub server instances would both send to the client; needs a rule for which one sends (VAL-FL-011). |
+| FLEET-FUT-002 | `/sources` tree sharing on the fleet direction.                                    | Each update already carries its `source` object; a full tree copy has not been needed.                 |
+| FLEET-FUT-004 | Sharing across server instances with different `secretKey` values on the same hub. | Crosses a trust boundary the operator created by using different keys.                                 |
 
 ## Coverage Check
 

@@ -263,7 +263,10 @@ describe("fleet sharing over real sockets", () => {
     const hubFleet = fleetOf(hub);
     expect(hubFleet.packetsSent).toBeGreaterThan(0);
     expect(hubFleet.identityConflicts).toBe(0);
-    // The hub's own tree holds each vessel exactly once, from its owner.
+    // The hub received each vessel's delta once, from its owner, and refused none.
+    for (const v of vessels) {
+      expect(hub.bus.received.filter((d) => d.context === v.self)).toHaveLength(1);
+    }
     expect(hubFleet.originDrops).toBe(0);
   });
 
