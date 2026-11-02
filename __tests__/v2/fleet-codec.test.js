@@ -202,3 +202,55 @@ describe("FLEET_DATA payload", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("fleet wire layout matches protocol-v3-spec §15", () => {
+  const HEADER = 15;
+  const TAG = 16;
+
+  test("FLEET_DATA: header, stream id, ciphertext, HMAC tag", () => {
+    const builder = new PacketBuilder({ secretKey: KEY, authenticatedHeaders: false });
+    const ciphertext = Buffer.from("0123456789abcdef0123456789abcdef", "hex");
+    const packet = builder.buildFleetDataPacket(0x01020304, 0x0a0b0c0d, ciphertext, {
+      messagepack: true,
+      pathDictionary: true
+    });
+    expect(packet.subarray(0, 2).toString("ascii")).toBe("SK");
+    expect(packet[2]).toBe(0x03);
+    expect(packet[3]).toBe(0x0a);
+    // COMPRESSED | ENCRYPTED | MESSAGEPACK | PATH_DICTIONARY, no header-auth flag
+    expect(packet[4]).toBe(0x0f);
+    expect(packet.readUInt32BE(5)).toBe(0x0a0b0c0d);
+    expect(packet.readUInt32BE(9)).toBe(4 + ciphertext.length + TAG);
+    expect(packet.readUInt32BE(HEADER)).toBe(0x01020304);
+    expect(packet.subarray(HEADER + 4, HEADER + 4 + ciphertext.length)).toEqual(ciphertext);
+    expect(packet.length).toBe(HEADER + 4 + ciphertext.length + TAG);
+  });
+
+  test("FLEET_ACK and FLEET_NAK payloads", () => {
+    const builder = new PacketBuilder({ secretKey: KEY });
+    const ack = builder.buildFleetAckPacket(0x11223344, 0x55667788);
+    expect(ack[3]).toBe(0x0b);
+    expect(ack.readUInt32BE(9)).toBe(8 + TAG);
+    expect(ack.readUInt32BE(HEADER)).toBe(0x11223344);
+    expect(ack.readUInt32BE(HEADER + 4)).toBe(0x55667788);
+
+    const nak = builder.buildFleetNakPacket(7, [1, 2]);
+    expect(nak[3]).toBe(0x0c);
+    expect(nak.readUInt32BE(9)).toBe(4 + 8 + TAG);
+    expect([
+      nak.readUInt32BE(HEADER),
+      nak.readUInt32BE(HEADER + 4),
+      nak.readUInt32BE(HEADER + 8)
+    ]).toEqual([7, 1, 2]);
+  });
+
+  test("HELLO_ACK carries JSON then the tag", () => {
+    const builder = new PacketBuilder({ secretKey: KEY });
+    const body = { v: 1, accepted: [] };
+    const packet = builder.buildHelloAckPacket(body);
+    const json = Buffer.from(JSON.stringify(body));
+    expect(packet[3]).toBe(0x09);
+    expect(packet.readUInt32BE(9)).toBe(json.length + TAG);
+    expect(packet.subarray(HEADER, HEADER + json.length)).toEqual(json);
+  });
+});
