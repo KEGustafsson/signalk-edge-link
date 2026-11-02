@@ -125,6 +125,8 @@ Payload: JSON string with connection metadata, followed by a 16-byte HMAC-SHA256
 }
 ```
 
+`timestamp` is milliseconds since the epoch by the client's clock, strictly increasing across the HELLOs of one client process: a HELLO in the same millisecond as the previous one, or after a backward clock step, carries the previous value plus 1. §15.7 relies on this.
+
 Sent at connection establishment to identify the client and negotiate
 protocol version, retried with exponential backoff until any control packet
 proves the server holds a session for this source port. The client also
@@ -767,7 +769,7 @@ On accepting a session (and on every HELLO with a new nonce, at most once per 10
 ### 15.7 Identity and loop rules
 
 - **One owner per vessel.** If two sessions declare the same `self`, the newer HELLO wins and the older session leaves the fleet (`fleet.identityConflicts`). Ownership is a claim by a holder of the key, not a proof of vessel identity.
-- **No ownership by replay.** For each vessel the server records the `timestamp` and `nonce` of the newest accepted fleet HELLO. `timestamp` is the HELLO's own field, covered by the HELLO tag and written by the vessel's clock, so no clock agreement with the server is needed. While the vessel has a live owner, a HELLO from any other session is ignored (`fleet.replayedHellos`) unless its `timestamp` is greater than the record, or equal with a different nonce. A HELLO without a numeric `timestamp` counts as `0`. The owner's own HELLOs are always accepted and never move the record back. With no live owner, any HELLO is accepted and becomes the record. Records cover up to 1024 vessels; a live owner without a record cannot be displaced until its next HELLO.
+- **No ownership by replay.** For each vessel the server records the `timestamp` of the newest accepted fleet HELLO. `timestamp` is the HELLO's own field, covered by the HELLO tag and strictly increasing per client process (HELLO Packet section), so no clock agreement with the server is needed. While the vessel has a live owner, a HELLO from any other session is ignored (`fleet.replayedHellos`) unless its `timestamp` is strictly greater than the record. A HELLO without a numeric `timestamp` counts as `0`. The owner's own HELLOs are always accepted and never move the record back. With no live owner, any HELLO is accepted and becomes the record. Records cover up to 1024 vessels; a live owner without a record cannot be displaced until its next HELLO.
 - **Origin authority on the server.** While fleet sharing is enabled, the server drops uplink deltas from session `X` whose context is the declared `self` of another accepted session (`fleet.originDrops`). Vessel B's data enters the hub only from B.
 - **No echo on the client.** The client records every context it received in FLEET_DATA and drops those contexts from its own uplink (`fleet.loopDrops`). Its own `self` is never recorded. This holds with `subscription.json` `context: "*"`.
 

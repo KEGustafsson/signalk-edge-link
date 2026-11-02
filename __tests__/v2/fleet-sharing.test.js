@@ -312,6 +312,7 @@ describe("fleet sharing end-to-end", () => {
     await connectAll();
     const impostor = makeClient("230000001", 40009);
     clients.push(impostor);
+    await wait(2); // the newer claim needs a later HELLO timestamp
     await impostor.client.sendHello(HUB_ADDR, HUB_PORT);
     await pump(hub, clients);
     expect(hub.metricsApi.metrics.fleet.identityConflicts).toBe(1);
@@ -698,19 +699,50 @@ describe("fleet sharing end-to-end", () => {
     await connectAll();
     const { PacketBuilder } = require("../../lib/packet");
     const { encodeFleetIdentity, newFleetNonce } = require("../../src/codec/fleet-identity");
-    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(Number.NaN);
-    let hello;
+    const payload = {
+      protocolVersion: 3,
+      clientId: "x",
+      capabilities: ["fleet-v1"],
+      fleet: encodeFleetIdentity({ self: clients[0].self, nonce: newFleetNonce() }, secretKey)
+    };
+    const hello = new PacketBuilder({ secretKey })._buildPacket(
+      PacketType.HELLO,
+      Buffer.from(JSON.stringify(payload)),
+      {},
+      {}
+    );
+    await hub.server.receivePacket(hello, secretKey, { address: "10.6.6.8", port: 50668 });
+    expect(hub.metricsApi.metrics.fleet.replayedHellos).toBe(1);
+    expect(hub.metricsApi.metrics.fleet.identityConflicts).toBe(0);
+  });
+
+  test("an earlier HELLO from the same millisecond cannot take over a vessel", async () => {
+    await connectAll();
+    const a = clients[0];
+    const parser = new PacketParser({ secretKey });
+    const isHello = (pkt) => {
+      try {
+        return parser.parseHeader(pkt).type === PacketType.HELLO;
+      } catch {
+        return false;
+      }
+    };
+    a.state.socketUdp.send.mockClear();
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(Date.now() + 5);
     try {
-      hello = new PacketBuilder({ secretKey }).buildHelloPacket({
-        clientId: "x",
-        capabilities: ["fleet-v1"],
-        fleet: encodeFleetIdentity({ self: clients[0].self, nonce: newFleetNonce() }, secretKey)
-      });
+      await a.client.sendHello(HUB_ADDR, HUB_PORT);
+      await a.client.sendHello(HUB_ADDR, HUB_PORT);
     } finally {
       nowSpy.mockRestore();
     }
-    await hub.server.receivePacket(hello, secretKey, { address: "10.6.6.8", port: 50668 });
-    expect(hub.metricsApi.metrics.fleet.replayedHellos).toBe(1);
+    const sent = a.state.socketUdp.send.mock.calls.map((c) => Buffer.from(c[0])).filter(isHello);
+    expect(sent).toHaveLength(2);
+    const stamp = (pkt) => JSON.parse(parser.parseHeader(pkt).payload.toString()).timestamp;
+    expect(stamp(sent[1])).toBeGreaterThan(stamp(sent[0]));
+    await pump(hub, clients);
+    const before = hub.metricsApi.metrics.fleet.replayedHellos;
+    await hub.server.receivePacket(sent[0], secretKey, { address: "10.6.6.9", port: 50669 });
+    expect(hub.metricsApi.metrics.fleet.replayedHellos).toBe(before + 1);
     expect(hub.metricsApi.metrics.fleet.identityConflicts).toBe(0);
   });
 
