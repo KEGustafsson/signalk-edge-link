@@ -130,8 +130,8 @@ _Runtime defects are tracked as issues and fixed in the commit that finds them; 
 
 **Node runtime floor vs modern dependencies:**
 
-- Risk: `package.json` allows Node >=16 while CI publish workflow uses Node 22. Some dependencies may evolve with higher runtime expectations over time.
-- Impact: Users on older Node 16 installations could see install/build/runtime incompatibilities after future dependency updates.
+- Risk: `package.json` requires Node >=24; CI tests Node 24 and 26 and publishes on Node 24. Some dependencies may evolve with higher runtime expectations over time.
+- Impact: Servers still on Node 20 or 22 must upgrade Node before installing this version.
 - Migration plan: Keep dependency updates tested on the declared minimum or raise `engines.node` deliberately with release notes.
 
 **Frontend TypeScript strictness differs from backend:**

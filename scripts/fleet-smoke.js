@@ -19,9 +19,8 @@
  *   npm run build:ts
  *   node scripts/fleet-smoke.js /tmp/sk/node_modules/signalk-server/bin/signalk-server
  *
- * Requires Node 22 or later (global WebSocket). Exits 0 on success, 1 on any
- * failed check. Uses HTTP ports 3100-3102 and UDP
- * port 24446; instance directories go under the OS temp directory.
+ * Exits 0 on success, 1 on any failed check. Uses HTTP ports 3100-3102 and
+ * UDP port 24446; instance directories go under the OS temp directory.
  */
 
 const fs = require("fs");
@@ -32,12 +31,6 @@ const { spawn } = require("child_process");
 const serverBin = process.argv[2];
 if (!serverBin || !fs.existsSync(serverBin)) {
   console.error("usage: node scripts/fleet-smoke.js <path to signalk-server/bin/signalk-server>");
-  process.exit(2);
-}
-if (typeof WebSocket !== "function") {
-  // Global WebSocket arrived in Node 22 (behind a flag before that); the
-  // plugin itself still supports the package's minimum Node version.
-  console.error("fleet-smoke needs Node 22 or later (global WebSocket).");
   process.exit(2);
 }
 

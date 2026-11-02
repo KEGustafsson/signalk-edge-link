@@ -31,6 +31,14 @@ All notable changes to signalk-edge-link are documented here.
 
 Not available on bonded clients or protocol v1.
 
+### Changed
+
+- **Node.js 24 or later is required** (`engines.node` `>=24.0.0`, was
+  `>=20.9.0`). Node 20 and 22 are no longer supported or tested. Upgrade Node
+  on the Signal K server before installing this version.
+- CI tests Node 24 and 26, including the signalk-server plugin CI. Coverage,
+  audits and package publishing run on Node 24.
+
 ## [4.3.0] - 2026-09-03
 
 Hot-path performance release. No protocol or wire-format change: the
