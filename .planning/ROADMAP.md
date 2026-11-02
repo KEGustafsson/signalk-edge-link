@@ -41,7 +41,7 @@ Full milestone details are archived in `.planning/milestones/v1-maintenance-hard
 **Goal:** Wire spec for HELLO_ACK, FLEET_DATA, FLEET_ACK and FLEET_NAK, the HELLO capability and the encrypted HELLO `fleet` field, and accepted decisions D-01 to D-08.
 **Context:** `.planning/phases/06-fleet-sharing-protocol-design/06-CONTEXT.md`
 **Changes:** `docs/` and `.planning/` only.
-**Success criteria:** byte layouts and tag inputs specified; every decision marked accepted or replaced; phase 7-10 plans drafted.
+**Success criteria:** byte layouts and tag inputs specified; every decision marked accepted or replaced. Phases 7-10 ran without separate plan files.
 
 #### Phase 7: Vessel Identity, Scope and Loop Prevention
 
