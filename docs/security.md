@@ -123,6 +123,18 @@ hunting for a key problem that does not exist.
 
 ---
 
+### Fleet sharing (`fleetSharing`)
+
+Fleet sharing ([protocol-v3-spec.md §15](protocol-v3-spec.md)) sends each client of a server connection the other clients' vessel data. Security-relevant behavior:
+
+- **Trust group = one server connection.** Every client of a server connection already shares that connection's `secretKey`, so any of them can decrypt any other's captured traffic. Fleet sharing does not widen that group: with scope `fleet` the server shares only vessels declared by clients of the same server connection. Use a separate server connection (port and key) for vessels that must not see each other.
+- **Vessel ID is encrypted.** HELLO is HMAC-authenticated but plaintext. The client's own vessel context, which usually contains its MMSI, is carried in HELLO only as AES-256-GCM ciphertext.
+- **Answers are bound to the HELLO.** Each fleet HELLO carries a fresh nonce; the client adopts a new fleet stream only from a HELLO_ACK echoing its latest nonce, and drops FLEET_DATA for any other stream. FLEET_DATA always carries the HMAC header tag (independent of `authenticatedHeaders`) and is checked by a per-stream replay window. Under `epochBoundAuth`, fleet packets are bound to the client's epoch like other control packets.
+- **One owner per vessel.** A vessel can be claimed by one session at a time (newest HELLO wins, counted in `fleet.identityConflicts`). While fleet sharing is on, the server drops uplink deltas for a member's vessel from any other session (`fleet.originDrops`), so a member cannot inject data under another member's vessel.
+- **Own data is never accepted from the fleet.** A client discards fleet deltas for its own vessel and drops from its uplink every vessel it learned from the fleet (`fleet.loopDrops`).
+- **Bounded inbound work.** Clients accept at most 200 FLEET_DATA per second; servers cap retransmits at 3 per packet and the retransmit queue at 512 packets per client.
+- **AES-GCM nonce budget.** IVs are random 96-bit values (`src/codec/crypto.ts`). NIST SP 800-38D limits random IVs to 2^32 encryptions per key. With fleet sharing one key encrypts the uplink of every client plus the fleet traffic to every client: at 100 clients × 10 packets/s in each direction (2,000 packets/s) that limit is reached after about 25 days. Rotate `secretKey` well before that on high-rate hubs (see [Key Rotation](#key-rotation)).
+
 ## Security Properties
 
 | Property                       | Status          | Detail                                                                                                                           |

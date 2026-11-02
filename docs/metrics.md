@@ -183,6 +183,38 @@ When bonding is enabled, per-link metrics are included in `GET /bonding`:
 
 ---
 
+## Fleet Sharing Metrics
+
+`GET /metrics` includes a `fleet` object while fleet sharing runs on the connection ([configuration](configuration-reference.md#fleet-sharing-advancedv3-only), [protocol](protocol-v3-spec.md)); otherwise `fleet` is `null`. Server and client fields share the object; each side increments only its own. Prometheus exports the same counters as `signalk_edge_link_fleet_*` with only the `mode` and `instance` labels — no vessel, context or path labels.
+
+| Field                | Side   | Description                                                                                                          |
+| -------------------- | ------ | -------------------------------------------------------------------------------------------------------------------- |
+| `members`            | server | Sessions currently accepted into the fleet                                                                           |
+| `packetsSent`        | server | FLEET_DATA packets sent                                                                                              |
+| `bytesSent`          | server | FLEET_DATA bytes sent                                                                                                |
+| `valuesSent`         | server | Values sent                                                                                                          |
+| `retransmits`        | server | FLEET_DATA retransmitted on NAK or after 2 s unacknowledged                                                          |
+| `rateLimitedFlushes` | server | Flushes that left values queued because a client's byte budget was spent                                             |
+| `originDrops`        | server | Uplink deltas dropped because their vessel belongs to another member (e.g. relayed AIS copies)                       |
+| `identityConflicts`  | server | Vessel claims moved to a newer session (same vessel reconnected from a new port, or a duplicate)                     |
+| `identityRejected`   | server | Fleet HELLOs whose encrypted identity could not be read                                                              |
+| `keepalivesSent`     | server | HELLO_ACK keepalives sent to idle clients                                                                            |
+| `snapshotsSent`      | server | Join snapshots queued                                                                                                |
+| `staleStreamPackets` | server | FLEET_ACK/FLEET_NAK for a stream the session no longer uses                                                          |
+| `packetsAbandoned`   | server | FLEET_DATA dropped after 3 retransmits or evicted from the 512-packet queue                                          |
+| `state`              | client | `disabled`, `offered`, `active`, `declined` (server has fleet sharing off), `not-offered` (no answer after 3 HELLOs) |
+| `packetsReceived`    | client | FLEET_DATA accepted                                                                                                  |
+| `valuesReceived`     | client | Values written into the local tree                                                                                   |
+| `contextsKnown`      | client | Fleet vessels received so far                                                                                        |
+| `loopDrops`          | client | Uplink deltas dropped because their vessel arrived over the fleet channel                                            |
+| `duplicatePackets`   | client | Duplicate or late FLEET_DATA                                                                                         |
+| `staleValues`        | client | Values older than one already applied for the same vessel, source and path                                           |
+| `rejectedPackets`    | client | FLEET_DATA or HELLO_ACK rejected: wrong stream, stale nonce, over 200 packets/s, or undecodable                      |
+| `acksSent`           | client | FLEET_ACKs sent                                                                                                      |
+| `naksSent`           | client | FLEET_NAKs sent                                                                                                      |
+
+---
+
 ## Management API Auth Telemetry
 
 `GET /status` and `GET /metrics` include a `managementAuth` block **only when a `managementApiToken` is configured** (in open-access mode it is omitted, and `/prometheus` likewise omits the management-auth metrics):

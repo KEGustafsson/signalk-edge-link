@@ -63,6 +63,7 @@ are preserved across the switch.
 | Encryption Key                    | ✓            | ✓              |
 | Protocol (Basic v1 / Advanced v3) | ✓            | ✓              |
 | `requestFullStatusOnRestart`      | ✓ (advanced) | —              |
+| `fleetSharing`                    | ✓ (advanced) | ✓ (advanced)   |
 | v1 ping-monitor fields            | —            | ✓ (Basic only) |
 
 The encryption key field is a password input; the helper text accepts a

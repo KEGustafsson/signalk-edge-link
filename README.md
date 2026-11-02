@@ -69,6 +69,19 @@ the UI, one per hop, and each dashboard reports only its own link — see
 [Reading a relay (proxy) node](docs/web-ui.md) for how to interpret them, and
 [Relay / Proxy Chains](docs/troubleshooting.md) for hop-by-hop diagnosis.
 
+**Fleet sharing** — several vessels report to one hub, and each vessel also
+receives the other vessels' data back over the link it already opened. No
+inbound port is needed on the vessels, and a vessel never receives its own
+data. Enable `fleetSharing` on the hub's server connection and on each
+vessel's client connection; see
+[Fleet Sharing](docs/configuration-reference.md#fleet-sharing-advancedv3-only).
+
+```text
+  [Vessel A] ──┐             ┌──► A gets B, C
+  [Vessel B] ──┼──► [Hub] ───┼──► B gets A, C
+  [Vessel C] ──┘             └──► C gets A, B
+```
+
 ## Requirements
 
 - Two Signal K instances (source and destination)

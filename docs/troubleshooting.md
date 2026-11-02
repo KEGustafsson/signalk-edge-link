@@ -168,6 +168,28 @@ but the two hops need not match each other.
 
 ---
 
+## Fleet Sharing
+
+`GET /connections/<id>/metrics` → `fleet.state` on a client tells you which end to look at:
+
+| `fleet.state` | Meaning                                                | Fix                                                                                                                |
+| ------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `offered`     | Request sent, no answer yet                            | Normal for a few seconds after start. Persisting: the client's own vessel ID may be unknown (no `mmsi`/`uuid` set) |
+| `declined`    | The server answered and has `fleetSharing.enabled` off | Enable it on the server connection                                                                                 |
+| `not-offered` | Three HELLOs got no answer                             | Server runs a version without fleet sharing; upgrade it. The uplink keeps working                                  |
+| `active`      | Receiving                                              | —                                                                                                                  |
+
+| Symptom                                           | Check                                                                                                                                                                                   |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `active` but no other vessels appear              | Server `fleet.members` ≥ 2? A vessel only appears once it is a member and uplinks data. With scope `fleet`, AIS targets are not shared                                                  |
+| Some paths missing                                | Client and server `fleetSharing.pathFilter` both apply; `networking.edgeLink.*` is never shared                                                                                         |
+| Values update slowly                              | Server `fleet.rateLimitedFlushes` rising: raise `maxBytesPerSec` on the server (and the client's requested value, if set)                                                               |
+| Data stops after a while, resumes within a minute | The vessel's NAT mapping expired: fleet data reaches it only while its outbound packets keep the mapping open. Lower `heartbeatInterval` (default 25000 ms) below the NAT's UDP timeout |
+| `fleet.originDrops` rising on the server          | A client relays another member's vessel (e.g. AIS copy). Expected and harmless: the member's own data wins                                                                              |
+| `fleet.identityConflicts` rising                  | Two sessions claim the same vessel: duplicate `mmsi` across vessels, or one vessel with two client connections to this server                                                           |
+
+---
+
 ## Bonding Not Failing Over
 
 | Symptom                     | Check                                                                                                                                            |

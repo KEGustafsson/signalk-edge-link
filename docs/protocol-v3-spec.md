@@ -625,21 +625,27 @@ v1 (Basic) packets do not start with these magic bytes (they start with the rand
 
 ## 13. Implementation Files
 
-| File                                            | Purpose                                             |
-| ----------------------------------------------- | --------------------------------------------------- |
-| `src/codec/packet-codec.ts`                     | Packet builder/parser, packet type constants        |
-| `src/transport/reliability/sequence.ts`         | SequenceTracker for loss detection                  |
-| `src/transport/reliability/retransmit-queue.ts` | RetransmitQueue for reliable delivery               |
-| `src/transport/pipeline/factory.ts`             | Pipeline selector (v1 or v3)                        |
-| `src/transport/pipeline/reliable-client.ts`     | Reliable client pipeline (send side)                |
-| `src/transport/pipeline/reliable-server.ts`     | Reliable server pipeline (receive side)             |
-| `src/transport/congestion.ts`                   | CongestionControl with AIMD algorithm               |
-| `src/transport/bonding.ts`                      | BondingManager with failover/failback               |
-| `src/domain/monitoring/`                        | PacketLossTracker, PathLatencyTracker, AlertManager |
-| `src/domain/metrics/prometheus.ts`              | Prometheus metrics exporter                         |
-| `src/transport/metrics/publisher.ts`            | Signal K metrics publisher                          |
-| `src/codec/crypto.ts`                           | AES-256-GCM encryption/decryption; HMAC             |
-| `src/foundation/constants.ts`                   | Protocol constants and defaults                     |
+| File                                                       | Purpose                                                |
+| ---------------------------------------------------------- | ------------------------------------------------------ |
+| `src/codec/packet-codec.ts`                                | Packet builder/parser, packet type constants           |
+| `src/transport/reliability/sequence.ts`                    | SequenceTracker for loss detection                     |
+| `src/transport/reliability/retransmit-queue.ts`            | RetransmitQueue for reliable delivery                  |
+| `src/transport/pipeline/factory.ts`                        | Pipeline selector (v1 or v3)                           |
+| `src/transport/pipeline/reliable-client.ts`                | Reliable client pipeline (send side)                   |
+| `src/transport/pipeline/reliable-server.ts`                | Reliable server pipeline (receive side)                |
+| `src/transport/congestion.ts`                              | CongestionControl with AIMD algorithm                  |
+| `src/transport/bonding.ts`                                 | BondingManager with failover/failback                  |
+| `src/domain/monitoring/`                                   | PacketLossTracker, PathLatencyTracker, AlertManager    |
+| `src/domain/metrics/prometheus.ts`                         | Prometheus metrics exporter                            |
+| `src/transport/metrics/publisher.ts`                       | Signal K metrics publisher                             |
+| `src/codec/crypto.ts`                                      | AES-256-GCM encryption/decryption; HMAC                |
+| `src/foundation/constants.ts`                              | Protocol constants and defaults                        |
+| `src/codec/fleet-identity.ts`                              | Encrypted HELLO fleet identity (§15.2)                 |
+| `src/codec/fleet-payload.ts`                               | FLEET_DATA payload encode/decode (§15.4)               |
+| `src/transport/pipeline/reliable-server/fleet.ts`          | Fleet membership, scope, origin authority (§15.6-15.7) |
+| `src/transport/pipeline/reliable-server/fleet-sender.ts`   | Fleet flush, retransmit, keepalive, lifecycle          |
+| `src/transport/pipeline/reliable-client/fleet.ts`          | Fleet HELLO fields, HELLO_ACK, FLEET_DATA receive      |
+| `src/transport/pipeline/reliable-client/fleet-dispatch.ts` | Fleet delta dispatch, newest-value guard               |
 
 ## 14. Signal K Paths Published
 

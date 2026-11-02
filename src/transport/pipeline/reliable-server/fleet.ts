@@ -343,8 +343,12 @@ function claimMembership(
     existing!.nonce = identity.nonce;
     existing!.pathFilter = identity.pathFilter ?? null;
   } else {
+    // Carry the snapshot time across re-creation: a client that keeps
+    // advancing its epoch must not get a fresh snapshot allowance each time.
+    const lastSnapshotAt = existing?.lastSnapshotAt ?? 0;
     leaveFleet(ctx, session);
     session.fleet = createSessionState(ctx, identity);
+    session.fleet.lastSnapshotAt = lastSnapshotAt;
   }
   ctx.fleet!.members.set(identity.self, session.key);
   refreshMemberCount(ctx);
