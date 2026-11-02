@@ -32,11 +32,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Matrix starts at the supported floor (package.json engines: >=20).
-        # 20 is the real minimum: Node 18 is EOL and the build toolchain
-        # (copy-webpack-plugin@14 uses Array.prototype.toSorted) requires
-        # Node >=20.9. 24 (current) is included for forward coverage.
-        node-version: [20, 22, 24]
+        # Matrix starts at the supported floor (package.json engines: >=24).
+        # Node 20 is EOL and Node 22 is not supported. 26 (current) is
+        # included for forward coverage.
+        node-version: [24, 26]
     permissions:
       contents: read
 
@@ -78,10 +77,10 @@ jobs:
       - name: Verify (check:ts + lint + test)
         run: npm run verify
 
-      # Enforce the coverageThreshold configured in package.json. Gated on a
-      # single Node version so coverage runs once per workflow, not 3x.
+      # Enforce the coverageThreshold configured in package.json. Gated on one
+      # Node version so a wider matrix does not repeat it.
       - name: Coverage gate
-        if: matrix.node-version == 22
+        if: matrix.node-version == 24
         run: npm run test:coverage
 
       - name: Type-check (webapp)
@@ -126,7 +125,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Install dependencies
         run: npm ci
@@ -162,7 +161,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Install dependencies
         run: npm ci

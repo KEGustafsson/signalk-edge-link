@@ -99,7 +99,7 @@
     "fast-uri": "^3.1.7"
   },
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=24.0.0"
   },
   "author": "Karl-Erik Gustafsson",
   "repository": "https://github.com/KEGustafsson/signalk-edge-link",

@@ -10,7 +10,7 @@
 2. Encryption keys identical on both sides? (32 ASCII, 64 hex, or 44 base64)
 3. UDP port open in firewall? (`ufw status` or `iptables -L`)
 4. Plugin enabled in Signal K Admin UI?
-5. Node.js ≥ 20.9.0? (`node --version`)
+5. Node.js ≥ 24? (`node --version`)
 
 ---
 
