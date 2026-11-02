@@ -75,14 +75,18 @@ function makeBusApp(mmsi) {
     getSelfPath: (path) => (path === "mmsi" ? mmsi : undefined),
     handleMessage: jest.fn((_id, delta) => {
       received.push(delta);
-      for (const fn of subscribers) {fn(delta);}
+      for (const fn of subscribers) {
+        fn(delta);
+      }
     }),
     subscriptionmanager: {
       subscribe: (_sub, unsubscribes, _onError, onDelta) => {
         subscribers.push(onDelta);
         unsubscribes.push(() => {
           const i = subscribers.indexOf(onDelta);
-          if (i >= 0) {subscribers.splice(i, 1);}
+          if (i >= 0) {
+            subscribers.splice(i, 1);
+          }
         });
       }
     }
@@ -106,7 +110,9 @@ function makeHub(fleetSharing, extraOptions = {}) {
     socketUdp: {
       send: jest.fn((pkt, port, address, cb) => {
         toClients.push({ pkt: Buffer.from(pkt), port, address });
-        if (cb) {cb(null);}
+        if (cb) {
+          cb(null);
+        }
       })
     }
   };
@@ -132,7 +138,9 @@ function makeClient(mmsi, port, fleetSharing = { enabled: true }, extraOptions =
     socketUdp: {
       send: jest.fn((pkt, _port, _addr, cb) => {
         toHub.push(Buffer.from(pkt));
-        if (cb) {cb(null);}
+        if (cb) {
+          cb(null);
+        }
       })
     },
     deltaTimerTime: 1000,
@@ -160,9 +168,13 @@ async function pump(hub, clients, rounds = 6) {
     moved += out.length;
     for (const { pkt, port } of out) {
       const c = clients.find((x) => x.port === port);
-      if (c) {await c.client.handleControlPacket(pkt, { address: HUB_ADDR, port: HUB_PORT });}
+      if (c) {
+        await c.client.handleControlPacket(pkt, { address: HUB_ADDR, port: HUB_PORT });
+      }
     }
-    if (moved === 0) {return;}
+    if (moved === 0) {
+      return;
+    }
   }
 }
 
@@ -210,7 +222,9 @@ describe("fleet sharing end-to-end", () => {
 
   afterEach(() => {
     hub?.server.stop();
-    for (const c of clients || []) {c.client.stop();}
+    for (const c of clients || []) {
+      c.client.stop();
+    }
   });
 
   async function connectAll(
@@ -224,7 +238,9 @@ describe("fleet sharing end-to-end", () => {
       makeClient("230000003", 40003, clientCfgs[2])
     ];
     hub.server.startACKTimer();
-    for (const c of clients) {await c.client.sendHello(HUB_ADDR, HUB_PORT);}
+    for (const c of clients) {
+      await c.client.sendHello(HUB_ADDR, HUB_PORT);
+    }
     await pump(hub, clients);
   }
 
@@ -282,7 +298,9 @@ describe("fleet sharing end-to-end", () => {
     expect(contextsReceived(clients[0]).has(ais)).toBe(false);
 
     hub.server.stop();
-    for (const c of clients) {c.client.stop();}
+    for (const c of clients) {
+      c.client.stop();
+    }
     await connectAll({ enabled: true, scope: "all", batchIntervalMs: 100 });
     hub.bus.app.handleMessage("ais", sog(ais, 7.7, "ais.1"));
     await wait(250);
@@ -467,6 +485,27 @@ describe("fleet sharing end-to-end", () => {
       .flatMap((d) => d.updates.flatMap((u) => u.values)).length;
     expect(delivered).toBeGreaterThan(0);
     expect(delivered).toBeLessThan(200);
+  });
+
+  test("join snapshots stay rate-limited across repeated client restarts", async () => {
+    await connectAll();
+    const before = hub.metricsApi.metrics.fleet.snapshotsSent;
+    const { PacketBuilder } = require("../../lib/packet");
+    const { encodeFleetIdentity, newFleetNonce } = require("../../src/codec/fleet-identity");
+    for (let epoch = 10; epoch < 15; epoch++) {
+      const builder = new PacketBuilder({ secretKey });
+      const hello = builder.buildHelloPacket({
+        clientId: "x",
+        epoch: Date.now() + epoch * 1000,
+        capabilities: ["fleet-v1"],
+        fleet: encodeFleetIdentity({ self: clients[0].self, nonce: newFleetNonce() }, secretKey)
+      });
+      await hub.server.receivePacket(hello, secretKey, {
+        address: "10.0.0.1",
+        port: clients[0].port
+      });
+    }
+    expect(hub.metricsApi.metrics.fleet.snapshotsSent).toBe(before);
   });
 
   test("a late-joining vessel gets a snapshot of the fleet", async () => {

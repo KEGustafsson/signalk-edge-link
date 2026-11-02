@@ -895,7 +895,10 @@ function createRoutes(app: SignalKApp, instanceRegistry: InstanceRegistry, plugi
             metrics: state.sourceRegistry.getMetrics(),
             registry: null
           }
-        : null
+        : null,
+      // Fleet sharing counters (protocol-v3-spec §15); null when not running.
+      // Counts only — no vessel identities, so nothing here names a vessel.
+      fleet: metrics.fleet ? { ...metrics.fleet } : null
     };
 
     return metricsData;

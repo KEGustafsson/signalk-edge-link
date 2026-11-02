@@ -408,6 +408,86 @@ export const clientReliabilityProperty: SchemaFragment = {
   }
 };
 
+// ── fleet sharing (reliable protocol v3, protocol-v3-spec §15) ───────────────
+
+const fleetPathFilterProperty: SchemaFragment = {
+  type: "object",
+  title: "Fleet Path Filter",
+  description:
+    'Glob allowlist/blocklist, same syntax as pathFilter ("navigation.*", "*", exact paths). ' +
+    "Paths under networking.edgeLink.* are never shared.",
+  properties: {
+    allow: { type: "array", title: "Allow patterns", items: { type: "string", minLength: 1 } },
+    deny: { type: "array", title: "Deny patterns", items: { type: "string", minLength: 1 } }
+  },
+  additionalProperties: false
+};
+
+export const serverFleetSharingProperty: SchemaFragment = {
+  type: "object",
+  title: "Fleet Sharing (reliable protocol v3 only)",
+  description:
+    "Send each client the other clients' vessel data over the session the client opened. " +
+    "Clients need no inbound port. A client never receives its own vessel. " +
+    "Clients must also enable fleet sharing.",
+  properties: {
+    enabled: { type: "boolean", title: "Enable fleet sharing", default: false },
+    scope: {
+      type: "string",
+      title: "Scope",
+      description:
+        "fleet: only vessels declared by clients of this server connection. " +
+        "all: every vessel in this server's Signal K tree, including AIS targets.",
+      enum: ["fleet", "all"],
+      default: "fleet"
+    },
+    includeServerVessel: {
+      type: "boolean",
+      title: "Include this server's own vessel",
+      description: "Also share this server's own vessel, for a hub that is itself a vessel.",
+      default: false
+    },
+    pathFilter: fleetPathFilterProperty,
+    maxBytesPerSec: {
+      type: "integer",
+      title: "Max bytes per second per client",
+      description:
+        "Fleet data budget per client. Over budget, values wait and only the newest value per path is sent.",
+      default: 8192,
+      minimum: 256,
+      maximum: 1048576
+    },
+    batchIntervalMs: {
+      type: "integer",
+      title: "Batch interval (ms)",
+      description: "How often coalesced fleet values are flushed to each client.",
+      default: 1000,
+      minimum: 100,
+      maximum: 10000
+    }
+  }
+};
+
+export const clientFleetSharingProperty: SchemaFragment = {
+  type: "object",
+  title: "Fleet Sharing (reliable protocol v3 only)",
+  description:
+    "Receive other vessels' data from the server over this connection. The server must enable fleet sharing too. " +
+    "Not available with bonding.",
+  properties: {
+    enabled: { type: "boolean", title: "Enable fleet sharing", default: false },
+    pathFilter: fleetPathFilterProperty,
+    maxBytesPerSec: {
+      type: "integer",
+      title: "Requested max bytes per second",
+      description:
+        "Ceiling this client asks for. The server uses the lower of this and its own limit. Empty = server limit.",
+      minimum: 256,
+      maximum: 1048576
+    }
+  }
+};
+
 // ── reliable v3 reliability (server pipeline — ACK/NAK timing) ──────────────────────
 
 export const requestFullStatusOnRestartProperty: SchemaFragment = {
@@ -715,7 +795,8 @@ export function buildConnectionItemSchema(): SchemaFragment {
             properties: {
               serverType: { enum: ["server"] },
               requestFullStatusOnRestart: requestFullStatusOnRestartProperty,
-              reliability: serverReliabilityProperty
+              reliability: serverReliabilityProperty,
+              fleetSharing: serverFleetSharingProperty
             }
           },
           {
@@ -729,7 +810,8 @@ export function buildConnectionItemSchema(): SchemaFragment {
               bonding: bondingProperty,
               enableNotifications: enableNotificationsProperty,
               skipOwnData: skipOwnDataProperty,
-              alertThresholds: alertThresholdsProperty
+              alertThresholds: alertThresholdsProperty,
+              fleetSharing: clientFleetSharingProperty
             },
             // testAddress/testPort/pingIntervalTime are validated as v1-only by
             // validateConnectionConfig — they are exposed in the schema so
@@ -814,6 +896,7 @@ export function buildWebappConnectionSchema(
       props.congestionControl = congestionControlProperty;
       props.bonding = bondingProperty;
       props.alertThresholds = alertThresholdsProperty;
+      props.fleetSharing = clientFleetSharingProperty;
     } else {
       // v1 client only: external ping monitor for RTT. reliable v3 measures RTT
       // via HEARTBEAT, so these fields are removed entirely from the schema.
@@ -823,6 +906,7 @@ export function buildWebappConnectionSchema(
   } else if (isReliableProtocol) {
     props.requestFullStatusOnRestart = requestFullStatusOnRestartProperty;
     props.reliability = serverReliabilityProperty;
+    props.fleetSharing = serverFleetSharingProperty;
   }
 
   return { type: "object", required, properties: props };

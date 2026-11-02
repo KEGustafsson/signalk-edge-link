@@ -205,6 +205,7 @@ const uiSchemaClient: UiSchema = {
     "skipOwnData",
     "enableNotifications",
     "alertThresholds",
+    "fleetSharing",
     "*"
   ],
   // Assigned automatically to keep a connection identifiable across saves;
@@ -226,6 +227,9 @@ const uiSchemaClient: UiSchema = {
     "ui:classNames": "skel-optional-group"
   },
   alertThresholds: {
+    "ui:classNames": "skel-optional-group"
+  },
+  fleetSharing: {
     "ui:classNames": "skel-optional-group"
   }
 };
@@ -251,6 +255,7 @@ const uiSchemaServer: UiSchema = {
     "protocolVersion",
     "requestFullStatusOnRestart",
     "reliability",
+    "fleetSharing",
     "*"
   ],
   // Assigned automatically to keep a connection identifiable across saves;
@@ -261,7 +266,8 @@ const uiSchemaServer: UiSchema = {
     "ui:help": "Use 32-character ASCII, 64-character hex, or base64 (standard or URL-safe)"
   },
   stretchAsciiKey: { "ui:help": "Only applies to 32-char ASCII keys. Must match on both peers." },
-  serverType: { "ui:widget": "select" }
+  serverType: { "ui:widget": "select" },
+  fleetSharing: { "ui:classNames": "skel-optional-group" }
 };
 
 // Fields preserved when the user toggles server <-> client mode.
@@ -299,7 +305,8 @@ const ADVANCED_OBJECT_KEYS = [
   "reliability",
   "congestionControl",
   "bonding",
-  "alertThresholds"
+  "alertThresholds",
+  "fleetSharing"
 ];
 
 // Scalar fields that count as advanced when they differ from the schema
