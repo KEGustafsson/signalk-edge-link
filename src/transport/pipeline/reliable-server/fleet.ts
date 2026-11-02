@@ -41,9 +41,12 @@ import type { Delta, DeltaUpdate, PathFilterConfig } from "../../../foundation/t
 import type { ServerContext, ClientSession } from "./context";
 import { bindBuilderEpochForPeer } from "./context";
 import { sendUDP } from "./sessions";
+import { enqueueMeta } from "./fleet-meta";
 
-/** One coalesced value waiting to be sent to a session. */
+/** One coalesced value (or metadata entry) waiting to be sent to a session. */
 export interface PendingValue {
+  /** `meta`: `value` is a Signal K meta object for `path`. */
+  kind: "value" | "meta";
   context: string;
   $source: string | undefined;
   source: unknown;
@@ -67,6 +70,12 @@ export interface FleetSessionState {
   lastSentAt: number;
   lastSnapshotAt: number;
   flushing: boolean;
+  /** `context\0path` keys whose metadata this session already has. */
+  metaSent: Set<string>;
+  /** Loss-adaptive share of `bytesPerSec` (0.1-1), see fleet-sender. */
+  rateFactor: number;
+  lastBackoffAt: number;
+  lastRateIncreaseAt: number;
 }
 
 /** Server-wide fleet state, present only when `fleetSharing.enabled`. */
@@ -175,6 +184,7 @@ function enqueueUpdate(
     // most recent change and a constantly-updating path cannot starve others.
     fleetSession.pending.delete(key);
     fleetSession.pending.set(key, {
+      kind: "value",
       context,
       $source: sourceRef,
       source: update.source,
@@ -183,6 +193,7 @@ function enqueueUpdate(
       value: entry.value
     });
   }
+  enqueueMeta(ctx, fleetSession, context, update);
 }
 
 /** Queue every in-scope value of `delta` for `session`. */
@@ -195,7 +206,7 @@ function enqueueDelta(ctx: ServerContext, session: ClientSession, delta: Delta):
     return;
   }
   for (const update of delta.updates as DeltaUpdate[]) {
-    if (update && Array.isArray(update.values)) {
+    if (update && typeof update === "object") {
       enqueueUpdate(ctx, session.fleet, context, update);
     }
   }
@@ -253,7 +264,11 @@ function createSessionState(ctx: ServerContext, identity: FleetIdentity): FleetS
     }),
     lastSentAt: 0,
     lastSnapshotAt: 0,
-    flushing: false
+    flushing: false,
+    metaSent: new Set(),
+    rateFactor: 1,
+    lastBackoffAt: 0,
+    lastRateIncreaseAt: Date.now()
   };
 }
 

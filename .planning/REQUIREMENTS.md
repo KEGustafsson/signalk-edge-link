@@ -67,17 +67,16 @@ Today vessel data flows one way, client → server. The server sends the client 
 - Fleet sharing on protocol v1.
 - Hub-to-hub meshes or chains of hubs exchanging fleet data.
 - Per-vessel access control beyond the server-instance scope in FLEET-ID-003.
-- Adaptive congestion control on the fleet direction; this milestone uses the fixed rate limit in FLEET-BW-001.
+- Delay-based congestion control on the fleet direction; this milestone adds loss-adaptive pacing (spec §15.9) on top of the FLEET-BW-001 limit.
 - Changes to key management, key rotation or forward secrecy (tracked as FUT-SEC-001).
 
 ## Deferred Requirements
 
-| ID            | Requirement                                                                        | Reason Deferred                                                                                          |
-| ------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| FLEET-FUT-001 | Fleet sharing over bonded links.                                                   | Two hub server instances would both send to the client; needs a rule for which one sends (VAL-FL-011).   |
-| FLEET-FUT-002 | Metadata (units, zones) and `/sources` sharing on the fleet direction.             | Values first; metadata and sources have their own packet types and caches on the uplink.                 |
-| FLEET-FUT-003 | Adaptive congestion control on the fleet direction.                                | The uplink controller lives on the client (`src/transport/congestion.ts`); the server has no equivalent. |
-| FLEET-FUT-004 | Sharing across server instances with different `secretKey` values on the same hub. | Crosses a trust boundary the operator created by using different keys.                                   |
+| ID            | Requirement                                                                            | Reason Deferred                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| FLEET-FUT-001 | Fleet sharing over bonded links.                                                       | Two hub server instances would both send to the client; needs a rule for which one sends (VAL-FL-011). |
+| FLEET-FUT-002 | `/sources` tree sharing on the fleet direction. Metadata sharing shipped (spec §15.8). | Each update already carries its `source` object; a full tree copy has not been needed.                 |
+| FLEET-FUT-004 | Sharing across server instances with different `secretKey` values on the same hub.     | Crosses a trust boundary the operator created by using different keys.                                 |
 
 ## Coverage Check
 

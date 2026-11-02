@@ -1,7 +1,7 @@
 # Roadmap: Signal K Edge Link
 
 **Project:** Signal K Edge Link
-**Current Planning State:** v2 Fleet Data Sharing implemented; verification has open items
+**Current Planning State:** v2 Fleet Data Sharing implemented and verified; ready to archive
 **Updated:** 2026-11-02
 
 ## Milestones
@@ -32,9 +32,9 @@ Full milestone details are archived in `.planning/milestones/v1-maintenance-hard
 | ----- | ------------------------------------------ | -------- | ---------------------------------------------------------------------------------- |
 | 6     | Fleet Sharing Protocol Design              | Complete | FLEET-PROTO-001                                                                    |
 | 7     | Vessel Identity, Scope and Loop Prevention | Complete | FLEET-ID-001, FLEET-ID-002, FLEET-ID-003, FLEET-LOOP-001                           |
-| 8     | Server-to-Client Fleet Transport           | Partial  | FLEET-PROTO-002 to 005, FLEET-SNAP-001, FLEET-BW-001, FLEET-SEC-001, FLEET-SEC-002 |
-| 9     | Fleet Configuration, UI and Observability  | Partial  | FLEET-CFG-001, FLEET-CFG-002, FLEET-OPS-001, FLEET-OPS-002                         |
-| 10    | Fleet Integration, Security Review, Docs   | Partial  | FLEET-SEC-003, FLEET-TEST-001, FLEET-DOC-001                                       |
+| 8     | Server-to-Client Fleet Transport           | Complete | FLEET-PROTO-002 to 005, FLEET-SNAP-001, FLEET-BW-001, FLEET-SEC-001, FLEET-SEC-002 |
+| 9     | Fleet Configuration, UI and Observability  | Complete | FLEET-CFG-001, FLEET-CFG-002, FLEET-OPS-001, FLEET-OPS-002                         |
+| 10    | Fleet Integration, Security Review, Docs   | Complete | FLEET-SEC-003, FLEET-TEST-001, FLEET-DOC-001                                       |
 
 #### Phase 6: Fleet Sharing Protocol Design
 
@@ -117,4 +117,4 @@ Plans:
 
 ## Next Action
 
-Close the open items in `.planning/phases/06-fleet-sharing-protocol-design/FLEET-VERIFICATION.md` (inbound rate-cap, `not-offered` and replay tests; `fleet.state` in the web UI; a real-socket run), then archive the milestone.
+Archive `v2-fleet-sharing` (all requirements Met in `FLEET-VERIFICATION.md`); bonding support stays in FLEET-FUT-001.

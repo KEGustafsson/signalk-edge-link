@@ -644,6 +644,7 @@ v1 (Basic) packets do not start with these magic bytes (they start with the rand
 | `src/codec/fleet-payload.ts`                               | FLEET_DATA payload encode/decode (§15.4)               |
 | `src/transport/pipeline/reliable-server/fleet.ts`          | Fleet membership, scope, origin authority (§15.6-15.7) |
 | `src/transport/pipeline/reliable-server/fleet-sender.ts`   | Fleet flush, retransmit, keepalive, lifecycle          |
+| `src/transport/pipeline/reliable-server/fleet-meta.ts`     | First-sight fleet metadata (§15.8)                     |
 | `src/transport/pipeline/reliable-client/fleet.ts`          | Fleet HELLO fields, HELLO_ACK, FLEET_DATA receive      |
 | `src/transport/pipeline/reliable-client/fleet-dispatch.ts` | Fleet delta dispatch, newest-value guard               |
 
@@ -759,7 +760,7 @@ For an accepted session `s` the server sends a context `C` when all of these hol
 3. The path does not start with `networking.edgeLink.`.
 4. The path passes the server's `fleetSharing.pathFilter` and the client's requested `pathFilter`.
 
-Values are coalesced per `(context, $source, path)` between flushes (`batchIntervalMs`, default 1000 ms): only the newest value is sent. Each session has a token bucket at `min(server maxBytesPerSec, client maxBytesPerSec)`; when it is empty, pending values wait for the next flush and newer values replace them.
+Values are coalesced per `(context, $source, path)` between flushes (`batchIntervalMs`, default 1000 ms): only the newest value is sent. Each session has a token bucket at `min(server maxBytesPerSec, client maxBytesPerSec) × rate factor` (§15.9); when it is empty, pending values wait for the next flush and newer values replace them.
 
 On accepting a session (and on every HELLO with a new nonce, at most once per 10 s), the server sends a snapshot of the in-scope values from its Signal K tree. When a session joins the fleet, the server also queues that vessel's current values for every other accepted session.
 
@@ -769,17 +770,32 @@ On accepting a session (and on every HELLO with a new nonce, at most once per 10
 - **Origin authority on the server.** While fleet sharing is enabled, the server drops uplink deltas from session `X` whose context is the declared `self` of another accepted session (`fleetOriginDrops`). Vessel B's data enters the hub only from B.
 - **No echo on the client.** The client records every context it received in FLEET_DATA and drops those contexts from its own uplink (`fleetLoopDrops`). Its own `self` is never recorded. This holds with `subscription.json` `context: "*"`.
 
-### 15.8 Limits
+### 15.8 Metadata
 
-| Constant                               | Value  | Where  |
-| -------------------------------------- | ------ | ------ |
-| HELLO_ACK keepalive after idle         | 20 s   | Server |
-| Client re-HELLO after no fleet packet  | 60 s   | Client |
-| Join snapshot minimum interval         | 10 s   | Server |
-| Retransmit unacknowledged FLEET_DATA   | 2 s    | Server |
-| Maximum retransmits per FLEET_DATA     | 3      | Server |
-| Retransmit queue per session           | 512    | Server |
-| Values per FLEET_DATA packet           | 40     | Server |
-| FLEET_ACK minimum spacing              | 200 ms | Client |
-| Inbound FLEET_DATA per second          | 200    | Client |
-| Encrypted `fleet` field, base64 length | 2048   | Both   |
+Metadata (units, zones, display names) rides inside FLEET_DATA as standard `updates[].meta` entries; there is no separate fleet metadata packet.
+
+- **First sight.** The first time the server sends a session a `(context, path)`, it attaches that path's `meta` from its own Signal K tree, in a meta-only update of the same delta. A receiver therefore shows a fleet value with its units from the first packet. The server remembers what it sent per session (bounded to 20000 keys, then reset), so later packets carry no metadata.
+- **Changes.** Live deltas that carry `updates[].meta` for an in-scope context are queued and sent like values, newest entry per `(context, path)`.
+- The client applies its requested `pathFilter` to metadata paths and never records metadata for its own vessel.
+
+### 15.9 Loss-adaptive rate
+
+The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming at least one sequence, or a FLEET_DATA still unacknowledged after 2 s, multiplies the factor by 0.7, at most once per second, down to 0.1. After 2 s without loss the factor grows by 0.05 per second back to 1. The effective rate never drops below 256 bytes/s. The vessel's downlink, usually the slowest hop, therefore sets the pace without configuration, and a burst of loss counts once rather than once per lost packet.
+
+### 15.10 Limits
+
+| Constant                               | Value                            | Where  |
+| -------------------------------------- | -------------------------------- | ------ |
+| HELLO_ACK keepalive after idle         | 20 s                             | Server |
+| Client re-HELLO after no fleet packet  | 60 s                             | Client |
+| Join snapshot minimum interval         | 10 s                             | Server |
+| Retransmit unacknowledged FLEET_DATA   | 2 s                              | Server |
+| Maximum retransmits per FLEET_DATA     | 3                                | Server |
+| Retransmit queue per session           | 512                              | Server |
+| Values per FLEET_DATA packet           | 40                               | Server |
+| FLEET_ACK minimum spacing              | 200 ms                           | Client |
+| Inbound FLEET_DATA per second          | 200                              | Client |
+| Encrypted `fleet` field, base64 length | 2048                             | Both   |
+| Metadata keys remembered per session   | 20000                            | Server |
+| Rate cut on loss / floor               | ×0.7 / 0.1, at most once per 1 s | Server |
+| Rate recovery after 2 s without loss   | +0.05 per second                 | Server |
