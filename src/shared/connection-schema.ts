@@ -410,18 +410,25 @@ export const clientReliabilityProperty: SchemaFragment = {
 
 // ── fleet sharing (reliable protocol v3, protocol-v3-spec §15) ───────────────
 
-const fleetPathFilterProperty: SchemaFragment = {
-  type: "object",
-  title: "Fleet Path Filter",
-  description:
-    'Glob allowlist/blocklist, same syntax as pathFilter ("navigation.*", "*", exact paths). ' +
-    "Paths under networking.edgeLink.* are never shared.",
-  properties: {
-    allow: { type: "array", title: "Allow patterns", items: { type: "string", minLength: 1 } },
-    deny: { type: "array", title: "Deny patterns", items: { type: "string", minLength: 1 } }
-  },
-  additionalProperties: false
-};
+/**
+ * A fresh object per use: the server and client fleet schemas both embed it,
+ * and the Signal K plugin checker (and JSON storage) treat a shared object as
+ * a repeated reference.
+ */
+function fleetPathFilterProperty(): SchemaFragment {
+  return {
+    type: "object",
+    title: "Fleet Path Filter",
+    description:
+      'Glob allowlist/blocklist, same syntax as pathFilter ("navigation.*", "*", exact paths). ' +
+      "Paths under networking.edgeLink.* are never shared.",
+    properties: {
+      allow: { type: "array", title: "Allow patterns", items: { type: "string", minLength: 1 } },
+      deny: { type: "array", title: "Deny patterns", items: { type: "string", minLength: 1 } }
+    },
+    additionalProperties: false
+  };
+}
 
 export const serverFleetSharingProperty: SchemaFragment = {
   type: "object",
@@ -447,7 +454,7 @@ export const serverFleetSharingProperty: SchemaFragment = {
       description: "Also share this server's own vessel, for a hub that is itself a vessel.",
       default: false
     },
-    pathFilter: fleetPathFilterProperty,
+    pathFilter: fleetPathFilterProperty(),
     maxBytesPerSec: {
       type: "integer",
       title: "Max bytes per second per client",
@@ -476,7 +483,7 @@ export const clientFleetSharingProperty: SchemaFragment = {
     "Not available with bonding.",
   properties: {
     enabled: { type: "boolean", title: "Enable fleet sharing", default: false },
-    pathFilter: fleetPathFilterProperty,
+    pathFilter: fleetPathFilterProperty(),
     maxBytesPerSec: {
       type: "integer",
       title: "Requested max bytes per second",
