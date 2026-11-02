@@ -185,7 +185,7 @@ When bonding is enabled, per-link metrics are included in `GET /bonding`:
 
 ## Fleet Sharing Metrics
 
-`GET /metrics` includes a `fleet` object while fleet sharing runs on the connection ([configuration](configuration-reference.md#fleet-sharing-advancedv3-only), [protocol](protocol-v3-spec.md)); otherwise `fleet` is `null`. Server and client fields share the object; each side increments only its own. Prometheus exports the same counters as `signalk_edge_link_fleet_*` with only the `mode` and `instance` labels — no vessel, context or path labels.
+`GET /metrics` includes a `fleet` object while fleet sharing runs on the connection ([configuration](configuration-reference.md#fleet-sharing-advancedv3-only), [protocol](protocol-v3-spec.md)); otherwise `fleet` is `null`. Server and client fields share the object; each side increments only its own. Prometheus exports every numeric field as `signalk_edge_link_fleet_*` (`members`, `contextsKnown` and `minRateFactor` as gauges, the rest as `_total` counters), and `state` as the `fleet_active` gauge (1 when `active`), with only the `mode` and `instance` labels — no vessel, context or path labels.
 
 | Field                | Side   | Description                                                                                                                                                       |
 | -------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -198,6 +198,7 @@ When bonding is enabled, per-link metrics are included in `GET /bonding`:
 | `originDrops`        | server | Uplink deltas dropped because their vessel belongs to another member (e.g. relayed AIS copies)                                                                    |
 | `identityConflicts`  | server | Vessel claims moved to a newer session (same vessel reconnected from a new port, or a duplicate)                                                                  |
 | `identityRejected`   | server | Fleet HELLOs whose encrypted identity could not be read                                                                                                           |
+| `replayedHellos`     | server | Fleet HELLOs ignored because another session already presented the same nonce (a captured HELLO replayed from a different address)                                |
 | `keepalivesSent`     | server | HELLO_ACK keepalives sent to idle clients                                                                                                                         |
 | `snapshotsSent`      | server | Join snapshots queued                                                                                                                                             |
 | `staleStreamPackets` | server | FLEET_ACK/FLEET_NAK for a stream the session no longer uses                                                                                                       |

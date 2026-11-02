@@ -85,6 +85,9 @@ describe("fleetSharing validation", () => {
 
   test("disabled fleet sharing is accepted on v1 and with bonding", () => {
     expect(validateConnectionConfig(server({ enabled: false }, { protocolVersion: 1 }))).toBeNull();
+    expect(
+      validateConnectionConfig(client({ enabled: false }, { bonding: { enabled: true } }))
+    ).toBeNull();
   });
 
   test("sanitize keeps fleetSharing", () => {

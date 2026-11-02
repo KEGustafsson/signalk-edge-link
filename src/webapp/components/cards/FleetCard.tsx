@@ -105,6 +105,11 @@ function ServerView({ fleet }: { fleet: FleetMetricsData }) {
             hasError={fleet.identityConflicts > 0}
           />
           <StatItem
+            label="Replayed HELLOs ignored"
+            value={fleet.replayedHellos ?? 0}
+            hasError={(fleet.replayedHellos ?? 0) > 0}
+          />
+          <StatItem
             label="Unreadable identities"
             value={fleet.identityRejected}
             hasError={fleet.identityRejected > 0}

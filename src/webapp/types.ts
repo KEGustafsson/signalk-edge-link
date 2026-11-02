@@ -107,6 +107,7 @@ export interface FleetMetricsData {
   originDrops: number;
   identityConflicts: number;
   identityRejected: number;
+  replayedHellos?: number;
   keepalivesSent: number;
   snapshotsSent: number;
   staleStreamPackets: number;

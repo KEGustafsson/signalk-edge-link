@@ -10,29 +10,9 @@ export interface FleetMetricSink {
   counter(name: string, help: string, value: number): void;
 }
 
-/**
- * Fleet sharing (protocol-v3-spec §15). Emitted only while fleet sharing runs
- * on this instance. No vessel or path labels: identities stay out of scrapes
- * and series count stays fixed.
- */
-export function emitFleet(e: FleetMetricSink, metrics: Metrics): void {
-  const fleet = metrics.fleet;
-  if (!fleet) {
-    return;
-  }
-  e.gauge("fleet_members", "Sessions currently accepted into the fleet", fleet.members);
-  e.gauge(
-    "fleet_active",
-    "1 when this client's fleet stream is active",
-    fleet.state === "active" ? 1 : 0
-  );
-  e.gauge("fleet_contexts_known", "Fleet vessels this client has received", fleet.contextsKnown);
-  e.gauge(
-    "fleet_min_rate_factor",
-    "Lowest loss-adaptive rate factor among members (1 = configured rate)",
-    fleet.minRateFactor
-  );
-  const counters: Array<[string, string, number]> = [
+/** Counter name, help text and value for every cumulative fleet field. */
+function fleetCounters(fleet: NonNullable<Metrics["fleet"]>): Array<[string, string, number]> {
+  return [
     ["fleet_packets_sent_total", "FLEET_DATA packets sent", fleet.packetsSent],
     ["fleet_bytes_sent_total", "FLEET_DATA bytes sent", fleet.bytesSent],
     ["fleet_values_sent_total", "Values sent over the fleet channel", fleet.valuesSent],
@@ -79,8 +59,45 @@ export function emitFleet(e: FleetMetricSink, metrics: Metrics): void {
     ],
     ["fleet_duplicate_packets_total", "Duplicate or late FLEET_DATA", fleet.duplicatePackets],
     ["fleet_stale_values_total", "Fleet values older than one already applied", fleet.staleValues],
-    ["fleet_rejected_packets_total", "FLEET_DATA or HELLO_ACK rejected", fleet.rejectedPackets]
+    ["fleet_rejected_packets_total", "FLEET_DATA or HELLO_ACK rejected", fleet.rejectedPackets],
+    [
+      "fleet_stale_stream_packets_total",
+      "FLEET_ACK/FLEET_NAK naming a stream no longer in use",
+      fleet.staleStreamPackets
+    ],
+    [
+      "fleet_replayed_hellos_total",
+      "Fleet HELLOs ignored as replays from another session",
+      fleet.replayedHellos
+    ],
+    ["fleet_acks_sent_total", "FLEET_ACKs sent", fleet.acksSent],
+    ["fleet_naks_sent_total", "FLEET_NAKs sent", fleet.naksSent]
   ];
+}
+
+/**
+ * Fleet sharing (protocol-v3-spec §15). Emitted only while fleet sharing runs
+ * on this instance. No vessel or path labels: identities stay out of scrapes
+ * and series count stays fixed.
+ */
+export function emitFleet(e: FleetMetricSink, metrics: Metrics): void {
+  const fleet = metrics.fleet;
+  if (!fleet) {
+    return;
+  }
+  e.gauge("fleet_members", "Sessions currently accepted into the fleet", fleet.members);
+  e.gauge(
+    "fleet_active",
+    "1 when this client's fleet stream is active",
+    fleet.state === "active" ? 1 : 0
+  );
+  e.gauge("fleet_contexts_known", "Fleet vessels this client has received", fleet.contextsKnown);
+  e.gauge(
+    "fleet_min_rate_factor",
+    "Lowest loss-adaptive rate factor among members (1 = configured rate)",
+    fleet.minRateFactor
+  );
+  const counters = fleetCounters(fleet);
   for (const [name, help, value] of counters) {
     e.counter(name, help, value || 0);
   }

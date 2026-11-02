@@ -188,6 +188,8 @@ export interface FleetMetrics {
   identityConflicts: number;
   /** HELLOs that requested fleet sharing with an unreadable `fleet` field. */
   identityRejected: number;
+  /** Fleet HELLOs ignored because another session already presented their nonce. */
+  replayedHellos: number;
   keepalivesSent: number;
   snapshotsSent: number;
   /** FLEET_ACK/FLEET_NAK naming a stream the session no longer uses. */

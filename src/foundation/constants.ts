@@ -279,7 +279,8 @@ export const FLEET_HELLO_ATTEMPTS_BEFORE_NOT_OFFERED = 3;
 export const FLEET_SNAPSHOT_MIN_INTERVAL_MS = 10000;
 /** Retransmit FLEET_DATA still unacknowledged after this long. */
 export const FLEET_RETRANSMIT_AFTER_MS = 2000;
-/** Maximum retransmits per FLEET_DATA packet. */
+/** Retransmits per FLEET_DATA packet. Values are coalesced and re-sent when
+ *  they change, so a packet lost three times is cheaper to drop than to chase. */
 export const FLEET_MAX_RETRANSMITS = 3;
 /** Per-session FLEET_DATA retransmit queue capacity. */
 export const FLEET_RETRANSMIT_QUEUE_SIZE = 512;

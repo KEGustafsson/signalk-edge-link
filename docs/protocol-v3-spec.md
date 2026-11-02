@@ -766,9 +766,10 @@ On accepting a session (and on every HELLO with a new nonce, at most once per 10
 
 ### 15.7 Identity and loop rules
 
-- **One owner per vessel.** If two sessions declare the same `self`, the newer HELLO wins and the older session leaves the fleet (`fleetIdentityConflicts`).
-- **Origin authority on the server.** While fleet sharing is enabled, the server drops uplink deltas from session `X` whose context is the declared `self` of another accepted session (`fleetOriginDrops`). Vessel B's data enters the hub only from B.
-- **No echo on the client.** The client records every context it received in FLEET_DATA and drops those contexts from its own uplink (`fleetLoopDrops`). Its own `self` is never recorded. This holds with `subscription.json` `context: "*"`.
+- **One owner per vessel.** If two sessions declare the same `self`, the newer HELLO wins and the older session leaves the fleet (`fleet.identityConflicts`). Ownership is a claim by a holder of the key, not a proof of vessel identity.
+- **No ownership by replay.** The server remembers the last 32 HELLO nonces per vessel with the session that presented each. A nonce presented again by a different session is ignored (`fleet.replayedHellos`); the same session repeating it is accepted.
+- **Origin authority on the server.** While fleet sharing is enabled, the server drops uplink deltas from session `X` whose context is the declared `self` of another accepted session (`fleet.originDrops`). Vessel B's data enters the hub only from B.
+- **No echo on the client.** The client records every context it received in FLEET_DATA and drops those contexts from its own uplink (`fleet.loopDrops`). Its own `self` is never recorded. This holds with `subscription.json` `context: "*"`.
 
 ### 15.8 Metadata
 
@@ -799,3 +800,15 @@ The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming at
 | Metadata keys remembered per session   | 20000                            | Server |
 | Rate cut on loss / floor               | ×0.7 / 0.1, at most once per 1 s | Server |
 | Rate recovery after 2 s without loss   | +0.05 per second                 | Server |
+
+### 15.11 Test vectors
+
+Key: the 32 bytes `00 01 02 … 1f` (hex key `000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f`). Header sequence 0 unless stated. Tags are HMAC-SHA256 over header bytes 0-12 and the payload (then the 8-byte big-endian epoch when `EPOCH_BOUND_AUTH` is set), truncated to 16 bytes; CRC is CRC-16/CCITT (polynomial 0x1021, initial 0xFFFF) over header bytes 0-12. These bytes were computed independently of the packet builder; `__tests__/v2/fleet-codec.test.js` checks the builder and parser against them.
+
+| Packet                 | Inputs                                                                                                         | Bytes (hex)                                                                                                                                                                                                                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FLEET_ACK              | stream `0x01020304`, cumulative seq 16                                                                         | `534b030b00000000000000001878fd0102030400000010867130d10c17e6d48759ea94d6ec7fe8`                                                                                                                                                                                                         |
+| FLEET_ACK, epoch-bound | as above, epoch 1700000000000, flag `0x20`                                                                     | `534b030b200000000000000018df0101020304000000101854b54731d487a6b6afee248e9574dc`                                                                                                                                                                                                         |
+| FLEET_NAK              | stream `0x01020304`, missing 5 and 7                                                                           | `534b030c00000000000000001c2483010203040000000500000007435cf5158835af1e54650d31c06ee280`                                                                                                                                                                                                 |
+| HELLO_ACK              | `{"v":1,"accepted":["fleet-v1"],"nonce":"0011223344556677","fleet":{"stream":16909060,"maxBytesPerSec":4096}}` | `534b030900000000000000007c8a557b2276223a312c226163636570746564223a5b22666c6565742d7631225d2c226e6f6e6365223a2230303131323233333434353536363737222c22666c656574223a7b2273747265616d223a31363930393036302c226d61784279746573506572536563223a343039367d7d4c1b5de5f08854fbd3ac02066dafe40e` |
+| FLEET_DATA             | stream `0x01020304`, seq 7, flags `0x03`, 16 bytes `0xaa` standing in for the AES-GCM output                   | `534b030a030000000700000024aaf701020304aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaafe8c56f292f29fe0098624eab0c6a5a8`                                                                                                                                                                                 |

@@ -10,17 +10,17 @@
 
 ## Current Focus
 
-Fleet sharing is implemented and verified on `claude/zen-bell-l5clz3`, including a real signalk-server run (`npm run smoke:fleet`). Next: archive the milestone.
+Fleet sharing is implemented and verified, including a real signalk-server run (`npm run smoke:fleet`); evidence is in `.planning/phases/06-fleet-sharing-protocol-design/FLEET-VERIFICATION.md`. Next: archive the milestone.
 
 ## Phase Status
 
 v2 Fleet Data Sharing (phases 6-10):
 
-- Phase 6: Fleet Sharing Protocol Design — Complete (`89aca48`)
-- Phase 7: Vessel Identity, Scope and Loop Prevention — Complete (`218272c`)
-- Phase 8: Server-to-Client Fleet Transport — Complete (`218272c`, follow-up tests and adaptive rate later)
-- Phase 9: Fleet Configuration, UI and Observability — Complete (`eb1743e`, Fleet Sharing card later)
-- Phase 10: Fleet Integration, Security Review and Docs — Complete (real-socket test and real signalk-server smoke)
+- Phase 6: Fleet Sharing Protocol Design — Complete
+- Phase 7: Vessel Identity, Scope and Loop Prevention — Complete
+- Phase 8: Server-to-Client Fleet Transport — Complete
+- Phase 9: Fleet Configuration, UI and Observability — Complete
+- Phase 10: Fleet Integration, Security Review and Docs — Complete
 
 Archived v1 Maintenance and Hardening: all five phases of the v1 Maintenance and Hardening milestone are complete:
 

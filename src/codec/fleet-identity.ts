@@ -13,7 +13,7 @@
 
 import * as crypto from "node:crypto";
 import { encryptBinary, decryptBinary } from "./crypto";
-import { FLEET_IDENTITY_MAX_LENGTH } from "../foundation/constants";
+import { FLEET_IDENTITY_MAX_LENGTH, FLEET_MIN_MAX_BYTES_PER_SEC } from "../foundation/constants";
 import type { PathFilterConfig } from "../foundation/types";
 
 /** Version of the decrypted `fleet` object this code understands. */
@@ -92,7 +92,9 @@ export function parseFleetIdentityObject(value: unknown): FleetIdentity | null {
   }
   const rate = record.maxBytesPerSec;
   if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
-    identity.maxBytesPerSec = Math.floor(rate);
+    // A requested ceiling below the minimum is raised to the minimum, never
+    // dropped: dropping it would let the server send at its full rate.
+    identity.maxBytesPerSec = Math.max(FLEET_MIN_MAX_BYTES_PER_SEC, Math.floor(rate));
   }
   return identity;
 }

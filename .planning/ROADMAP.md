@@ -52,7 +52,7 @@ Full milestone details are archived in `.planning/milestones/v1-maintenance-hard
 #### Phase 8: Server-to-Client Fleet Transport
 
 **Goal:** Server subscribes to the Signal K tree, batches and coalesces scoped deltas per session, sends FLEET with its own sequence space, retransmits on FLEET_NAK, sends a join snapshot, enforces the per-session rate limit. Client verifies, replay-checks, ACKs/NAKs, caps inbound rate and writes through `handleMessageBySource`.
-**Likely files:** `src/codec/packet/{constants,builder,parser}.ts`, new `reliable-server/fleet-sender.ts`, new `reliable-client/fleet-receiver.ts`, `reliable-client/control-packets.ts`, `src/transport/reliability/*` (reuse only).
+**Likely files:** `src/codec/packet/{constants,builder,parser}.ts`, new `reliable-server/fleet-sender.ts`, new `reliable-client/fleet.ts`, new `reliable-client/fleet-dispatch.ts`, `reliable-client/control-packets.ts`, `src/transport/reliability/*` (reuse only).
 **Success criteria:** loss/duplicate/reorder/restart tests pass on the fleet direction; tamper, replay, wrong-key and wrong-epoch negative tests pass; `npm run test:v2` passes unmodified.
 
 #### Phase 9: Fleet Configuration, UI and Observability

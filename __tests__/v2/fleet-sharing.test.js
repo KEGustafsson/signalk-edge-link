@@ -11,6 +11,7 @@ const { createPipelineV2Client } = require("../../lib/pipeline-v2-client");
 const { createPipelineV2Server } = require("../../lib/pipeline-v2-server");
 const { PacketParser, PacketType } = require("../../lib/packet");
 const { processDelta } = require("../../src/app/connection/process-delta");
+const { makeMetricsApi } = require("../helpers/metrics-fixture");
 
 const secretKey = "12345678901234567890123456789012";
 const HUB_PORT = 9300;
@@ -18,52 +19,6 @@ const HUB_ADDR = "127.0.0.1";
 
 const urn = (mmsi) => `vessels.urn:mrn:imo:mmsi:${mmsi}`;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function makeMetricsApi() {
-  const metrics = {
-    startTime: Date.now(),
-    deltasSent: 0,
-    deltasReceived: 0,
-    udpRetries: 0,
-    udpSendErrors: 0,
-    duplicatePackets: 0,
-    rateLimitedPackets: 0,
-    malformedPackets: 0,
-    rtt: 0,
-    jitter: 0,
-    queueDepth: 0,
-    retransmissions: 0,
-    errorCounts: {},
-    smartBatching: {
-      avgBytesPerDelta: 0,
-      maxDeltasPerBatch: 0,
-      oversizedPackets: 0,
-      earlySends: 0,
-      timerSends: 0
-    },
-    bandwidth: {
-      packetsOut: 0,
-      packetsIn: 0,
-      bytesOut: 0,
-      bytesIn: 0,
-      bytesOutRaw: 0,
-      bytesInRaw: 0,
-      lastBytesOut: 0,
-      lastBytesIn: 0,
-      lastRateCalcTime: Date.now(),
-      rateOut: 0,
-      rateIn: 0,
-      compressionRatio: 1,
-      history: { toArray: () => [] }
-    }
-  };
-  return {
-    metrics,
-    recordError: jest.fn(),
-    trackPathStats: jest.fn(),
-    updateBandwidthRates: jest.fn()
-  };
-}
 
 /** A minimal Signal K bus: handleMessage feeds every subscriber synchronously. */
 function makeBusApp(mmsi) {
@@ -671,6 +626,85 @@ describe("fleet sharing end-to-end", () => {
     tick();
     expect(lonely.metricsApi.metrics.fleet.state).toBe("not-offered");
     lonely.client.stopMetricsPublishing();
+  });
+
+  test("a replayed HELLO from another address cannot take over a vessel", async () => {
+    await connectAll();
+    const a = clients[0];
+    const parser = new PacketParser({ secretKey });
+    const hello = a.state.socketUdp.send.mock.calls
+      .map((call) => Buffer.from(call[0]))
+      .find((pkt) => {
+        try {
+          return parser.parseHeader(pkt).type === PacketType.HELLO;
+        } catch {
+          return false;
+        }
+      });
+    expect(hello).toBeDefined();
+    await hub.server.receivePacket(hello, secretKey, { address: "10.6.6.6", port: 50666 });
+    const fleet = hub.metricsApi.metrics.fleet;
+    expect(fleet.replayedHellos).toBe(1);
+    expect(fleet.identityConflicts).toBe(0);
+    // A still owns its vessel: its own uplink is accepted.
+    hub.bus.received.length = 0;
+    await a.client.sendDelta([sog(a.self, 8.8)], secretKey, HUB_ADDR, HUB_PORT);
+    await pump(hub, clients);
+    expect(hub.bus.received.some((d) => d.context === a.self)).toBe(true);
+    expect(fleet.originDrops).toBe(0);
+    // The same session repeating its HELLO is accepted.
+    await hub.server.receivePacket(hello, secretKey, { address: "10.0.0.1", port: a.port });
+    expect(fleet.replayedHellos).toBe(1);
+  });
+
+  test("a delta the local server refuses does not drop the rest of the packet", async () => {
+    await connectAll();
+    const a = clients[0];
+    const original = a.bus.app.handleMessage;
+    a.bus.app.handleMessage = jest.fn((id, delta) => {
+      if (delta.context === clients[1].self) {
+        throw new Error("refused");
+      }
+      return original(id, delta);
+    });
+    await clients[1].client.sendDelta([sog(clients[1].self, 1)], secretKey, HUB_ADDR, HUB_PORT);
+    await clients[2].client.sendDelta([sog(clients[2].self, 2)], secretKey, HUB_ADDR, HUB_PORT);
+    await pump(hub, clients);
+    await wait(250);
+    await pump(hub, clients);
+    expect(contextsReceived(a).has(clients[2].self)).toBe(true);
+    expect(a.metricsApi.metrics.fleet.rejectedPackets).toBeGreaterThan(0);
+    expect(a.metricsApi.metrics.fleet.acksSent).toBeGreaterThan(0);
+  });
+
+  test("a client whose own vessel is unknown reports 'offered'", async () => {
+    const anon = makeClient("", 40088);
+    clients = [anon];
+    hub = makeHub({ enabled: true });
+    await anon.client.sendHello(HUB_ADDR, HUB_PORT);
+    expect(anon.metricsApi.metrics.fleet.state).toBe("offered");
+  });
+
+  test("FLEET_DATA still decoding when the client stops is not applied", async () => {
+    await connectAll();
+    const a = clients[0];
+    await clients[1].client.sendDelta([sog(clients[1].self, 3)], secretKey, HUB_ADDR, HUB_PORT);
+    for (const pkt of clients[1].toHub.splice(0)) {
+      await hub.server.receivePacket(pkt, secretKey, {
+        address: "10.0.0.1",
+        port: clients[1].port
+      });
+    }
+    await wait(250);
+    const toA = hub.toClients.filter((x) => x.port === a.port).map((x) => x.pkt);
+    expect(toA.length).toBeGreaterThan(0);
+    const before = a.bus.received.length;
+    const pending = toA.map((pkt) =>
+      a.client.handleControlPacket(pkt, { address: HUB_ADDR, port: HUB_PORT })
+    );
+    a.client.stop();
+    await Promise.all(pending);
+    expect(a.bus.received.length).toBe(before);
   });
 
   test("a late-joining vessel gets a snapshot of the fleet", async () => {

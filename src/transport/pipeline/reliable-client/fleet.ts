@@ -140,6 +140,11 @@ export function fleetHelloFields(ctx: ClientContext): { capabilities?: string[];
     // Own vessel not known yet (tree still empty at startup); a later HELLO
     // retry, refresh or liveness HELLO will carry the request.
     ctx.app.debug("[fleet] own vessel context unknown; HELLO sent without fleet request");
+    // Fleet sharing is requested but cannot be offered yet: report `offered`,
+    // which is what troubleshooting tells operators to look for here.
+    if (ensureFleetMetrics(ctx.metricsApi.metrics).state === "disabled") {
+      setState(ctx, "offered");
+    }
     return {};
   }
   const nonce = newFleetNonce();
@@ -304,7 +309,6 @@ function inboundRateLimited(fleet: FleetClientRuntime, now: number): boolean {
   return fleet.inboundCount > FLEET_MAX_INBOUND_PACKETS_PER_SEC;
 }
 
-/** FLEET_DATA (0x0A): verify, decode and write other vessels into the tree. */
 /** Rate cap, stream check and decrypt. Null when the packet is rejected. */
 async function admitFleetPacket(
   ctx: ClientContext,
@@ -413,5 +417,8 @@ export function stopFleetClient(ctx: ClientContext): void {
     clearTimeout(fleet.ackTimer);
     fleet.ackTimer = null;
   }
+  // Clearing the stream makes a FLEET_DATA still decoding when stop() runs
+  // fail the stream check instead of being dispatched and ACKed after stop.
+  fleet.stream = null;
   fleet.tracker.reset();
 }
