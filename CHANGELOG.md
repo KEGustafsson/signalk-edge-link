@@ -17,6 +17,8 @@ All notable changes to signalk-edge-link are documented here.
   client-requested path filters and byte rates.
 - Origin authority on the hub and echo suppression on the vessel prevent loops,
   including with `subscription.json` `context: "*"`.
+- A captured HELLO replayed from another address cannot take a vessel from its
+  live owner: a takeover needs a HELLO newer than the owner's newest one.
 - Metadata (units, zones, display names) is sent with each path the first time
   a vessel receives it, and again when it changes.
 - Reliable delivery with NAK and timeout retransmit; a member's rate backs off

@@ -42,7 +42,7 @@ import type { ServerContext, ClientSession } from "./context";
 import { bindBuilderEpochForPeer } from "./context";
 import { sendUDP } from "./sessions";
 import { enqueueMeta } from "./fleet-meta";
-import { helloReplayed } from "./fleet-replay";
+import { helloReplayed, type HelloMark } from "./fleet-replay";
 
 /** One coalesced value (or metadata entry) waiting to be sent to a session. */
 export interface PendingValue {
@@ -84,9 +84,8 @@ export interface FleetServerState {
   config: ResolvedFleetConfig;
   /** Declared vessel context → session key of its current owner. */
   members: Map<string, string>;
-  /** Vessel context → recent HELLO nonces and the session that sent each.
-   *  A nonce presented again by a different session is a replayed HELLO. */
-  seenNonces: Map<string, Map<string, string>>;
+  /** Vessel context → newest accepted HELLO, for the replay guard. */
+  helloMarks: Map<string, HelloMark>;
   unsubscribes: Array<() => void>;
   timer: ReturnType<typeof setInterval> | null;
   serverSelf: string | null;
@@ -101,7 +100,7 @@ export function createFleetServerState(ctx: Pick<ServerContext, "state">): Fleet
   return {
     config: resolveFleetConfig(fleetOptions),
     members: new Map(),
-    seenNonces: new Map(),
+    helloMarks: new Map(),
     unsubscribes: [],
     timer: null,
     serverSelf: null
@@ -425,7 +424,7 @@ export function handleFleetHello(
     void answer(false);
     return;
   }
-  if (helloReplayed(ctx, session, identity)) {
+  if (helloReplayed(ctx, session, identity, memberSession(ctx, identity.self), info.timestamp)) {
     ensureFleetMetrics(ctx.metrics).replayedHellos++;
     ctx.app.debug(`[fleet] replayed fleet HELLO for ${identity.self} from ${session.key} ignored`);
     return;
