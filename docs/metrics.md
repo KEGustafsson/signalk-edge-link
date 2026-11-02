@@ -50,20 +50,20 @@ Under `networkQuality`:
 
 Under `stats`:
 
-| Metric                      | Unit  | Description                                                                        |
-| --------------------------- | ----- | ---------------------------------------------------------------------------------- |
-| `duplicatePackets`          | count | Packets received with a seq number already seen (safely dropped)                   |
-| `dataPacketsReceived`       | count | Total data packets accepted (excludes duplicates)                                  |
-| `packetsAbandoned`          | count | Packets the sender dropped from its retransmit queue (unrecoverable)               |
-| `abandonedSequences`        | count | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable)          |
-| `rejectedControlPackets`    | count | ACK/NAK/request packets dropped because the source did not match a configured peer |
-| `replayedPackets`           | count | Datagrams the anti-replay guard refused — see below                                |
-| `epochAuthMismatches`       | count | Packets refused because the peers disagree about `epochBoundAuth`                  |
-| `epochAuthPending`          | count | Packets refused because no HELLO has established the sender's epoch yet            |
-| `fullStatusCascadeFired`    | count | Times a client instance relayed FULL_STATUS_REQUEST to the servers beside it       |
-| `snapshotReplayDeltas`      | count | Deltas emitted while replaying a values snapshot on request                        |
-| `processDeltaCalls`         | count | Deltas handed to the outbound path (pre-filter, pre-batch)                         |
-| `deltasBufferHighWaterMark` | count | Peak outbound buffer depth reached — the backpressure signal before drops start    |
+| Metric                      | Unit  | Description                                                                                                              |
+| --------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------ |
+| `duplicatePackets`          | count | Packets received with a seq number already seen (safely dropped)                                                         |
+| `dataPacketsReceived`       | count | Total data packets accepted (excludes duplicates)                                                                        |
+| `packetsAbandoned`          | count | FLEET_DATA given up after the retransmit limit or evicted from the full retransmit queue ([§15.10](protocol-v3-spec.md)) |
+| `abandonedSequences`        | count | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable)                                                |
+| `rejectedControlPackets`    | count | ACK/NAK/request packets dropped because the source did not match a configured peer                                       |
+| `replayedPackets`           | count | Datagrams the anti-replay guard refused — see below                                                                      |
+| `epochAuthMismatches`       | count | Packets refused because the peers disagree about `epochBoundAuth`                                                        |
+| `epochAuthPending`          | count | Packets refused because no HELLO has established the sender's epoch yet                                                  |
+| `fullStatusCascadeFired`    | count | Times a client instance relayed FULL_STATUS_REQUEST to the servers beside it                                             |
+| `snapshotReplayDeltas`      | count | Deltas emitted while replaying a values snapshot on request                                                              |
+| `processDeltaCalls`         | count | Deltas handed to the outbound path (pre-filter, pre-batch)                                                               |
+| `deltasBufferHighWaterMark` | count | Peak outbound buffer depth reached — the backpressure signal before drops start                                          |
 
 **Interpretation:**
 
@@ -185,37 +185,37 @@ When bonding is enabled, per-link metrics are included in `GET /bonding`:
 
 ## Fleet Sharing Metrics
 
-`GET /metrics` includes a `fleet` object while fleet sharing runs on the connection ([configuration](configuration-reference.md#fleet-sharing-advancedv3-only), [protocol](protocol-v3-spec.md)); otherwise `fleet` is `null`. Server and client fields share the object; each side increments only its own. Prometheus exports every numeric field as `signalk_edge_link_fleet_*` (`members`, `contextsKnown` and `minRateFactor` as gauges, the rest as `_total` counters), and `state` as the `fleet_active` gauge (1 when `active`), with only the `mode` and `instance` labels — no vessel, context or path labels.
+`GET /metrics` includes a `fleet` object once fleet sharing has started on the connection ([configuration](configuration-reference.md#fleet-sharing-advancedv3-only), [protocol](protocol-v3-spec.md)); before that, and on connections with fleet sharing off, `fleet` is `null`. When sharing stops (connection stopped, or socket recovery in progress), the counters stay so Prometheus counters do not reset, and `state` reads `disabled`. Server and client fields share the object; each side increments only its own. Prometheus exports every numeric field as `signalk_edge_link_fleet_*` (`members`, `contextsKnown` and `minRateFactor` as gauges, the rest as `_total` counters), and `state` as the `fleet_active` gauge (1 when `active`), with only the `mode` and `instance` labels — no vessel, context or path labels.
 
-| Field                | Side   | Description                                                                                                                                                       |
-| -------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `members`            | server | Sessions currently accepted into the fleet                                                                                                                        |
-| `packetsSent`        | server | FLEET_DATA packets sent                                                                                                                                           |
-| `bytesSent`          | server | FLEET_DATA bytes sent                                                                                                                                             |
-| `valuesSent`         | server | Values sent                                                                                                                                                       |
-| `retransmits`        | server | FLEET_DATA retransmitted on NAK or after 2 s unacknowledged                                                                                                       |
-| `rateLimitedFlushes` | server | Flushes that left values queued because a client's byte budget was spent                                                                                          |
-| `originDrops`        | server | Uplink deltas dropped because their vessel belongs to another member (e.g. relayed AIS copies)                                                                    |
-| `identityConflicts`  | server | Vessel claims moved to a newer session (same vessel reconnected from a new port, or a duplicate)                                                                  |
-| `identityRejected`   | server | Fleet HELLOs whose encrypted identity could not be read                                                                                                           |
-| `replayedHellos`     | server | Fleet HELLOs ignored because another session already presented the same nonce (a captured HELLO replayed from a different address)                                |
-| `keepalivesSent`     | server | HELLO_ACK keepalives sent to idle clients                                                                                                                         |
-| `snapshotsSent`      | server | Join snapshots queued                                                                                                                                             |
-| `staleStreamPackets` | server | FLEET_ACK/FLEET_NAK for a stream the session no longer uses                                                                                                       |
-| `packetsAbandoned`   | server | FLEET_DATA dropped after 3 retransmits or evicted from the 512-packet queue                                                                                       |
-| `rateBackoffs`       | server | Loss-driven rate cuts (×0.7, at most once per second per member)                                                                                                  |
-| `minRateFactor`      | server | Lowest current rate factor among members; 1 = configured rate. Below 1 means a member's downlink is losing packets                                                |
-| `state`              | both   | Client: `disabled`, `offered`, `active`, `declined` (server has fleet sharing off), `not-offered` (no answer after 3 HELLOs). Server: `active` while sharing runs |
-| `packetsReceived`    | client | FLEET_DATA accepted                                                                                                                                               |
-| `valuesReceived`     | client | Values written into the local tree                                                                                                                                |
-| `metaReceived`       | client | Metadata entries (units, zones, display names) received                                                                                                           |
-| `contextsKnown`      | client | Fleet vessels received so far                                                                                                                                     |
-| `loopDrops`          | client | Uplink deltas dropped because their vessel arrived over the fleet channel                                                                                         |
-| `duplicatePackets`   | client | Duplicate or late FLEET_DATA                                                                                                                                      |
-| `staleValues`        | client | Values older than one already applied for the same vessel, source and path                                                                                        |
-| `rejectedPackets`    | client | FLEET_DATA or HELLO_ACK rejected: wrong stream, stale nonce, over 200 packets/s, or undecodable                                                                   |
-| `acksSent`           | client | FLEET_ACKs sent                                                                                                                                                   |
-| `naksSent`           | client | FLEET_NAKs sent                                                                                                                                                   |
+| Field                | Side   | Description                                                                                                                                                                                            |
+| -------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `members`            | server | Sessions currently accepted into the fleet                                                                                                                                                             |
+| `packetsSent`        | server | FLEET_DATA packets sent                                                                                                                                                                                |
+| `bytesSent`          | server | FLEET_DATA bytes sent                                                                                                                                                                                  |
+| `valuesSent`         | server | Values sent                                                                                                                                                                                            |
+| `retransmits`        | server | FLEET_DATA retransmitted on NAK or on timeout ([§15.10](protocol-v3-spec.md))                                                                                                                          |
+| `rateLimitedFlushes` | server | Flushes that left values queued because a client's byte budget was spent                                                                                                                               |
+| `originDrops`        | server | Uplink deltas dropped because their vessel belongs to another member (e.g. relayed AIS copies)                                                                                                         |
+| `identityConflicts`  | server | Vessel claims moved to a newer session (same vessel reconnected from a new port, or a duplicate)                                                                                                       |
+| `identityRejected`   | server | Fleet HELLOs whose encrypted identity could not be read                                                                                                                                                |
+| `replayedHellos`     | server | Fleet HELLOs from a session other than the vessel's live owner, ignored because their `timestamp` is not newer than the owner's newest accepted HELLO (a captured HELLO replayed from another address) |
+| `keepalivesSent`     | server | HELLO_ACK keepalives sent to idle clients                                                                                                                                                              |
+| `snapshotsSent`      | server | Join snapshots queued                                                                                                                                                                                  |
+| `staleStreamPackets` | server | FLEET_ACK/FLEET_NAK for a stream the session no longer uses                                                                                                                                            |
+| `packetsAbandoned`   | server | FLEET_DATA dropped after 3 retransmits or evicted from the 512-packet queue                                                                                                                            |
+| `rateBackoffs`       | server | Loss-driven rate cuts, at most one per burst of loss ([§15.9](protocol-v3-spec.md))                                                                                                                    |
+| `minRateFactor`      | server | Lowest current rate factor among members; 1 = configured rate. Below 1 means a member's downlink is losing packets                                                                                     |
+| `state`              | both   | Client: `disabled`, `offered`, `active`, `declined` (server has fleet sharing off), `not-offered` (no answer after 3 HELLOs). Server: `active` while sharing runs, `disabled` after it stops           |
+| `packetsReceived`    | client | FLEET_DATA accepted                                                                                                                                                                                    |
+| `valuesReceived`     | client | Values written into the local tree                                                                                                                                                                     |
+| `metaReceived`       | client | Metadata entries (units, zones, display names) received                                                                                                                                                |
+| `contextsKnown`      | client | Fleet vessels received so far                                                                                                                                                                          |
+| `loopDrops`          | client | Uplink deltas dropped because their vessel arrived over the fleet channel                                                                                                                              |
+| `duplicatePackets`   | client | Duplicate or late FLEET_DATA                                                                                                                                                                           |
+| `staleValues`        | client | Values older than one already applied for the same vessel, source and path                                                                                                                             |
+| `rejectedPackets`    | client | FLEET_DATA or HELLO_ACK rejected: wrong stream, stale nonce, over the inbound packet cap ([§15.10](protocol-v3-spec.md)), or undecodable                                                               |
+| `acksSent`           | client | FLEET_ACKs sent                                                                                                                                                                                        |
+| `naksSent`           | client | FLEET_NAKs sent                                                                                                                                                                                        |
 
 ---
 

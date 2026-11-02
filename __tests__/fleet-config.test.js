@@ -83,6 +83,61 @@ describe("fleetSharing validation", () => {
     expect(validateConnectionConfig(conn)).toMatch(message);
   });
 
+  test("path filter limits match what the HELLO identity carries", () => {
+    const patterns = (n, len = 10) =>
+      Array.from({ length: n }, (_, i) => `p${i}.`.padEnd(len, "x"));
+    // At the limits and small enough for HELLO: accepted unchanged.
+    expect(
+      validateConnectionConfig(client({ enabled: true, pathFilter: { allow: patterns(32) } }))
+    ).toBeNull();
+    expect(
+      validateConnectionConfig(client({ pathFilter: { allow: [patterns(1, 128)[0]] } }))
+    ).toBeNull();
+    expect(validateConnectionConfig(client({ pathFilter: { allow: patterns(33) } }))).toMatch(
+      /pathFilter.allow allows at most 32 patterns/
+    );
+    expect(validateConnectionConfig(server({ pathFilter: { deny: patterns(1, 129) } }))).toMatch(
+      /pathFilter.deny\[0\] is longer than 128 characters/
+    );
+    // Within the per-list limits but too large for the encrypted HELLO field.
+    const big = { allow: patterns(32, 64), deny: patterns(32, 64) };
+    expect(validateConnectionConfig(client({ pathFilter: big }))).toMatch(
+      /pathFilter is too large to send in HELLO/
+    );
+    // The server's own filter is not sent anywhere.
+    expect(validateConnectionConfig(server({ pathFilter: big }))).toBeNull();
+  });
+
+  test("every client filter validation accepts can be encoded into HELLO", () => {
+    const {
+      encodeFleetIdentity,
+      parseFleetIdentityObject
+    } = require("../src/codec/fleet-identity");
+    const { decryptBinary } = require("../src/codec/crypto");
+    // Largest accepted shape: grow one list until validation refuses it.
+    const allow = [];
+    while (
+      validateConnectionConfig(client({ pathFilter: { allow: [...allow, "x".repeat(128)] } })) ===
+        null &&
+      allow.length < 32
+    ) {
+      allow.push("x".repeat(128));
+    }
+    expect(allow.length).toBeGreaterThan(0);
+    const identity = {
+      self: "vessels." + "v".repeat(248),
+      nonce: "0123456789abcdef",
+      pathFilter: { allow, deny: [] },
+      maxBytesPerSec: 1048576
+    };
+    const field = encodeFleetIdentity(identity, KEY);
+    const decoded = parseFleetIdentityObject(
+      JSON.parse(decryptBinary(Buffer.from(field, "base64"), KEY).toString("utf8"))
+    );
+    // Nothing shortened or dropped on the way through.
+    expect(decoded.pathFilter.allow).toEqual(allow);
+  });
+
   test("disabled fleet sharing is accepted on v1 and with bonding", () => {
     expect(validateConnectionConfig(server({ enabled: false }, { protocolVersion: 1 }))).toBeNull();
     expect(

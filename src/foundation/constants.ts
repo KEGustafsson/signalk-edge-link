@@ -267,7 +267,6 @@ export const CURRENT_CONFIG_SCHEMA_VERSION = 1;
 
 // ── Fleet sharing (protocol-v3-spec §15) ─────────────────────────────────────
 
-/** HELLO capability string that requests fleet sharing. */
 export const FLEET_CAPABILITY = "fleet-v1";
 /** Server re-sends HELLO_ACK to an accepted session idle this long. */
 export const FLEET_KEEPALIVE_MS = 20000;
@@ -292,6 +291,9 @@ export const FLEET_ACK_MIN_INTERVAL_MS = 200;
 export const FLEET_MAX_INBOUND_PACKETS_PER_SEC = 200;
 /** Maximum base64 length of the encrypted HELLO `fleet` field. */
 export const FLEET_IDENTITY_MAX_LENGTH = 2048;
+/** Limits on each fleet `pathFilter` list; validation and the HELLO decoder share them. */
+export const FLEET_PATH_FILTER_MAX_PATTERNS = 32;
+export const FLEET_PATH_PATTERN_MAX_LENGTH = 128;
 /** Maximum missing sequences in one FLEET_NAK. */
 export const FLEET_MAX_NAK_SEQUENCES = 64;
 /** Default and bounds for the per-session fleet byte rate. */

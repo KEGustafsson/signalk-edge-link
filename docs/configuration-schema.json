@@ -178,8 +178,16 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "allow": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-                "deny": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+                "allow": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+                },
+                "deny": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+                }
               }
             },
             "maxBytesPerSec": {
