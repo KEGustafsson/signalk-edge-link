@@ -62,11 +62,12 @@ export function lookupTreeMeta(
     : undefined;
 }
 
-function retrieveTree(ctx: ServerContext): Record<string, unknown> | null {
+/** The Signal K tree, null when there is none, false when the lookup threw. */
+function retrieveTree(ctx: ServerContext): Record<string, unknown> | null | false {
   try {
     return (ctx.app.signalk?.retrieve() as Record<string, unknown>) ?? null;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -74,6 +75,8 @@ function retrieveTree(ctx: ServerContext): Record<string, unknown> | null {
  * Return `values` plus a meta entry for every (context, path) this session
  * has not had metadata for yet, and record those keys as sent. `added` lists
  * the keys recorded, so a caller that does not send the packet can undo them.
+ * If the tree lookup throws, value keys stay unrecorded and are tried again
+ * with a later packet.
  */
 export function withFirstSightMeta(
   ctx: ServerContext,
@@ -83,7 +86,7 @@ export function withFirstSightMeta(
   if (fleetSession.metaSent.size >= MAX_META_KEYS) {
     fleetSession.metaSent.clear();
   }
-  let tree: Record<string, unknown> | null | undefined;
+  let tree: Record<string, unknown> | null | false | undefined;
   const extra: PendingValue[] = [];
   const added: string[] = [];
   for (const v of values) {
@@ -91,15 +94,20 @@ export function withFirstSightMeta(
     if (fleetSession.metaSent.has(key)) {
       continue;
     }
+    if (v.kind === "value") {
+      if (tree === undefined) {
+        tree = retrieveTree(ctx);
+      }
+      if (tree === false) {
+        continue;
+      }
+    }
     fleetSession.metaSent.add(key);
     added.push(key);
     if (v.kind === "meta") {
       continue;
     }
-    if (tree === undefined) {
-      tree = retrieveTree(ctx);
-    }
-    const meta = lookupTreeMeta(tree, v.context, v.path);
+    const meta = lookupTreeMeta(tree || null, v.context, v.path);
     if (meta) {
       extra.push({
         ...v,
