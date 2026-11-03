@@ -27,6 +27,8 @@ export const WATCHER_RECOVERY_DELAY = 5000; // milliseconds
 
 // UDP and network
 export const MAX_SAFE_UDP_PAYLOAD = 1400; // Maximum safe UDP payload size (avoid fragmentation)
+/** Largest payload one IPv4 UDP datagram can carry (65535 - 8 UDP - 20 IP header bytes). */
+export const MAX_UDP_DATAGRAM_PAYLOAD = 65507;
 // Assumed minimum compression ratio for source-snapshot chunking. The greedy
 // fill packs up to MAX_SAFE_UDP_PAYLOAD * this factor of *uncompressed* bytes
 // per chunk; the verification loop builds the real (compressed+encrypted) packet
