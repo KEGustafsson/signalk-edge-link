@@ -950,6 +950,38 @@ describe("fleet sharing end-to-end", () => {
 });
 
 describe("fleet session state", () => {
+  test("retransmissions stay within the session's byte budget", async () => {
+    const { createSessionState } = require("../../src/transport/pipeline/reliable-server/fleet");
+    const { retransmit } = require("../../src/transport/pipeline/reliable-server/fleet-sender");
+    const sent = [];
+    const ctx = {
+      fleet: { config: { maxBytesPerSec: 256 } },
+      metrics: { bandwidth: { bytesOut: 0, packetsOut: 0 } },
+      state: {
+        socketUdp: {
+          send: (pkt, _port, _addr, cb) => {
+            sent.push(pkt);
+            cb(null);
+          }
+        }
+      }
+    };
+    const fleetSession = createSessionState(ctx, {
+      self: urn("230000001"),
+      nonce: "0123456789abcdef"
+    });
+    const session = { key: "10.0.0.1:1", address: "10.0.0.1", port: 1, fleet: fleetSession };
+    for (let seq = 0; seq < 10; seq++) {
+      fleetSession.retransmitQueue.add(seq, Buffer.alloc(1000));
+    }
+    await retransmit(ctx, session, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    // A 1400-byte bucket at 256 B/s covers two 1000-byte packets, not ten.
+    expect(sent.length).toBe(2);
+    expect(fleetSession.tokens).toBeGreaterThan(-1000);
+    // The rest keep their place and go out once the budget refills.
+    expect(fleetSession.retransmitQueue.get(9)).toBeDefined();
+  });
+
   test("a dropped FLEET_DATA makes the next values carry metadata again", () => {
     const { createSessionState } = require("../../src/transport/pipeline/reliable-server/fleet");
     const { FLEET_RETRANSMIT_QUEUE_SIZE } = require("../../src/foundation/constants");
