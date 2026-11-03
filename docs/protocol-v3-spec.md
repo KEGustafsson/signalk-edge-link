@@ -764,7 +764,7 @@ For an accepted session `s` the server sends a context `C` when all of these hol
 
 Values are coalesced per `(context, $source, path)` between flushes (`batchIntervalMs`, default 1000 ms): only the newest value is sent. Each session has a token bucket at `min(server maxBytesPerSec, client maxBytesPerSec) × rate factor` (§15.9); when it is empty, pending values wait for the next flush and newer values replace them.
 
-On accepting a session (and on every HELLO with a new nonce, at most once per 10 s), the server sends a snapshot of the in-scope values from its Signal K tree. When a session joins the fleet, the server also queues that vessel's current values for every other accepted session.
+On accepting a session (and on every HELLO with a new nonce, at most once per 10 s), the server sends a snapshot of the in-scope values from its Signal K tree. A snapshot that falls inside the 10 s limit is deferred, not dropped: the server sends it once the limit has passed, to whichever stream the session then has. When a session joins the fleet, the server also queues that vessel's current values for every other accepted session.
 
 ### 15.7 Identity and loop rules
 
@@ -787,21 +787,23 @@ The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming at
 
 ### 15.10 Limits
 
-| Constant                               | Value                            | Where  |
-| -------------------------------------- | -------------------------------- | ------ |
-| HELLO_ACK keepalive after idle         | 20 s                             | Server |
-| Client re-HELLO after no fleet packet  | 60 s                             | Client |
-| Join snapshot minimum interval         | 10 s                             | Server |
-| Retransmit unacknowledged FLEET_DATA   | 2 s                              | Server |
-| Maximum retransmits per FLEET_DATA     | 3                                | Server |
-| Retransmit queue per session           | 512                              | Server |
-| Values per FLEET_DATA packet           | 40                               | Server |
-| FLEET_ACK minimum spacing              | 200 ms                           | Client |
-| Inbound FLEET_DATA per second          | 200                              | Client |
-| Encrypted `fleet` field, base64 length | 2048                             | Both   |
-| Metadata keys remembered per session   | 20000                            | Server |
-| Rate cut on loss / floor               | ×0.7 / 0.1, at most once per 1 s | Server |
-| Rate recovery after 2 s without loss   | +0.05 per second                 | Server |
+| Constant                               | Value                                  | Where  |
+| -------------------------------------- | -------------------------------------- | ------ |
+| HELLO_ACK keepalive after idle         | 20 s                                   | Server |
+| Client re-HELLO after no fleet packet  | 60 s                                   | Client |
+| Join snapshot minimum interval         | 10 s                                   | Server |
+| Retransmit unacknowledged FLEET_DATA   | 2 s                                    | Server |
+| Maximum retransmits per FLEET_DATA     | 3                                      | Server |
+| Retransmit queue per session           | 512                                    | Server |
+| Values per FLEET_DATA packet           | at most 40, fewer to stay ≤ 1400 bytes | Server |
+| FLEET_ACK minimum spacing              | 200 ms                                 | Client |
+| Inbound FLEET_DATA per second          | 200                                    | Client |
+| Encrypted `fleet` field, base64 length | 2048                                   | Both   |
+| Metadata keys remembered per session   | 20000                                  | Server |
+| Rate cut on loss / floor               | ×0.7 / 0.1, at most once per 1 s       | Server |
+| Rate recovery after 2 s without loss   | +0.05 per second                       | Server |
+
+The server splits a FLEET_DATA that would exceed 1400 bytes in half until each part fits. A single value too large to fit is sent alone, so it cannot take other values with it if that packet is lost.
 
 ### 15.11 Test vectors
 

@@ -746,6 +746,75 @@ describe("fleet sharing end-to-end", () => {
     expect(hub.metricsApi.metrics.fleet.identityConflicts).toBe(0);
   });
 
+  test("a batch too large for one datagram is split and every value arrives", async () => {
+    await connectAll();
+    const [a, b] = clients;
+    const crypto = require("crypto");
+    const values = Array.from({ length: 40 }, (_, i) => ({
+      path: `environment.test.v${i}`,
+      value: crypto.randomBytes(48).toString("hex")
+    }));
+    hub.state.socketUdp.send.mockClear();
+    await b.client.sendDelta(
+      [
+        {
+          context: b.self,
+          updates: [{ $source: "n2k.115", timestamp: new Date().toISOString(), values }]
+        }
+      ],
+      secretKey,
+      HUB_ADDR,
+      HUB_PORT
+    );
+    await pump(hub, clients);
+    await wait(250);
+    await pump(hub, clients);
+    const fleetToA = hub.state.socketUdp.send.mock.calls
+      .filter((call) => call[1] === a.port)
+      .map((call) => Buffer.from(call[0]))
+      .filter((pkt) => pkt[3] === PacketType.FLEET_DATA);
+    expect(fleetToA.length).toBeGreaterThan(1);
+    for (const pkt of fleetToA) {
+      expect(pkt.length).toBeLessThanOrEqual(1400);
+    }
+    const got = new Map(
+      a.bus.received
+        .filter((d) => d.context === b.self)
+        .flatMap((d) => d.updates.flatMap((u) => u.values || []))
+        .map((v) => [v.path, v.value])
+    );
+    for (const v of values) {
+      expect(got.get(v.path)).toBe(v.value);
+    }
+  });
+
+  test("a join snapshot held back by the rate limit is sent once the limit passes", async () => {
+    await connectAll();
+    const before = hub.metricsApi.metrics.fleet.snapshotsSent;
+    const { PacketBuilder } = require("../../lib/packet");
+    const { encodeFleetIdentity, newFleetNonce } = require("../../src/codec/fleet-identity");
+    // A client restart (higher epoch) inside the limit: new stream, no snapshot yet.
+    const hello = new PacketBuilder({ secretKey }).buildHelloPacket({
+      clientId: "x",
+      epoch: Date.now() + 60000,
+      capabilities: ["fleet-v1"],
+      fleet: encodeFleetIdentity({ self: clients[0].self, nonce: newFleetNonce() }, secretKey)
+    });
+    await hub.server.receivePacket(hello, secretKey, {
+      address: "10.0.0.1",
+      port: clients[0].port
+    });
+    expect(hub.metricsApi.metrics.fleet.snapshotsSent).toBe(before);
+    const realNow = Date.now.bind(Date);
+    const nowSpy = jest.spyOn(Date, "now").mockImplementation(() => realNow() + 11000);
+    try {
+      await wait(300);
+    } finally {
+      nowSpy.mockRestore();
+    }
+    expect(hub.metricsApi.metrics.fleet.snapshotsSent).toBe(before + 1);
+  });
+
   test("a delta the local server refuses does not drop the rest of the packet", async () => {
     await connectAll();
     const a = clients[0];

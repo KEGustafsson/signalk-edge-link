@@ -24,7 +24,8 @@ import {
   FLEET_RATE_MIN_FACTOR,
   FLEET_RATE_BACKOFF_INTERVAL_MS,
   FLEET_RATE_RECOVERY_DELAY_MS,
-  FLEET_RATE_RECOVERY_PER_SEC
+  FLEET_RATE_RECOVERY_PER_SEC,
+  FLEET_SNAPSHOT_MIN_INTERVAL_MS
 } from "../../../foundation/constants";
 import { ensureFleetMetrics } from "../../fleet/common";
 import type { Delta, DeltaUpdate } from "../../../foundation/types";
@@ -36,6 +37,7 @@ import {
   acceptedSessions,
   memberSession,
   onFleetDelta,
+  queueJoinSnapshots,
   refreshMemberCount,
   secretKeyOf,
   sendHelloAck,
@@ -165,7 +167,12 @@ function takeChunk(fleetSession: FleetSessionState): PendingValue[] {
   return chunk;
 }
 
-/** Encode, build, queue and send one FLEET_DATA. False if the session left. */
+/**
+ * Encode, build, queue and send `values` as FLEET_DATA. A packet over
+ * MAX_SAFE_UDP_PAYLOAD is split in half and each half sent on its own, so a
+ * large value travels alone instead of fragmenting its neighbours' packet.
+ * False if the session left.
+ */
 async function sendChunk(
   ctx: ServerContext,
   session: ClientSession,
@@ -173,16 +180,14 @@ async function sendChunk(
   values: PendingValue[]
 ): Promise<boolean> {
   const options = ctx.state.options!;
-  const encrypted = await encodeFleetPayload(
-    buildDeltas(withFirstSightMeta(ctx, fleetSession, values)),
-    {
-      secretKey: secretKeyOf(ctx),
-      stretchAsciiKey: ctx.stretchAsciiKey,
-      useMsgpack: !!options.useMsgpack,
-      usePathDictionary: !!options.usePathDictionary,
-      brotliQuality: options.brotliQuality
-    }
-  );
+  const withMeta = withFirstSightMeta(ctx, fleetSession, values);
+  const encrypted = await encodeFleetPayload(buildDeltas(withMeta.values), {
+    secretKey: secretKeyOf(ctx),
+    stretchAsciiKey: ctx.stretchAsciiKey,
+    useMsgpack: !!options.useMsgpack,
+    usePathDictionary: !!options.usePathDictionary,
+    brotliQuality: options.brotliQuality
+  });
   if (session.fleet !== fleetSession) {
     return false;
   }
@@ -194,6 +199,22 @@ async function sendChunk(
     messagepack: !!options.useMsgpack,
     pathDictionary: !!options.usePathDictionary
   });
+  if (packet.length > MAX_SAFE_UDP_PAYLOAD) {
+    if (values.length > 1) {
+      // Not sent: the halves attach this metadata again.
+      for (const key of withMeta.added) {
+        fleetSession.metaSent.delete(key);
+      }
+      const half = Math.ceil(values.length / 2);
+      return (
+        (await sendChunk(ctx, session, fleetSession, values.slice(0, half))) &&
+        sendChunk(ctx, session, fleetSession, values.slice(half))
+      );
+    }
+    ctx.app.debug(
+      `[fleet] ${values[0].context} ${values[0].path} needs ${packet.length} bytes; sent alone`
+    );
+  }
   fleetSession.nextSeq = (seq + 1) >>> 0;
   // Queue before sending so a failed send is still recoverable by NAK.
   fleetSession.retransmitQueue.add(seq, packet);
@@ -287,6 +308,12 @@ export async function fleetTick(ctx: ServerContext): Promise<void> {
       await retransmitStale(ctx, session, now);
       if (session.fleet) {
         recoverRate(session.fleet, now);
+        if (
+          session.fleet.snapshotDue &&
+          now - session.fleet.lastSnapshotAt >= FLEET_SNAPSHOT_MIN_INTERVAL_MS
+        ) {
+          queueJoinSnapshots(ctx, session, session.fleet.self);
+        }
       }
       await flushSession(ctx, session);
       const fleetSession = session.fleet;
