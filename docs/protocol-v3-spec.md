@@ -763,7 +763,7 @@ For an accepted session `s` the server sends a context `C` when all of these hol
 3. The path does not start with `networking.edgeLink.`.
 4. The path passes the server's `fleetSharing.pathFilter` and the client's requested `pathFilter`.
 
-Values are coalesced per `(context, $source, path)` between flushes (`batchIntervalMs`, default 1000 ms): only the newest value is sent. Each session has a token bucket at `min(server maxBytesPerSec, client maxBytesPerSec) × rate factor` (§15.9); when it is empty, pending values wait for the next flush and newer values replace them.
+Values are coalesced per `(context, $source, path)` between flushes (`batchIntervalMs`, default 1000 ms): only the newest value is sent. Each session has a token bucket that fills at `min(server maxBytesPerSec, client maxBytesPerSec) × rate factor` (§15.9) and holds one second of that rate, at least 1400 bytes. Every FLEET_DATA send, first or retransmitted, goes out only when the bucket covers its size; otherwise pending values wait for a later flush and newer values replace them.
 
 Whenever a session starts a new fleet stream (first fleet HELLO, a client restart, or a session re-created after a server restart), the server sends a snapshot of the in-scope values from its Signal K tree. A snapshot that falls inside the 10 s limit is deferred, not dropped: the server sends it once the limit has passed, to whichever stream the session then has. When a session joins the fleet, the server also queues that vessel's current values for every other accepted session.
 
@@ -805,7 +805,7 @@ The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming at
 | Rate recovery after 2 s without loss        | +0.05 per second                        | Server |
 | Minimum `maxBytesPerSec` and effective rate | 256 bytes/s (lower requests are raised) | Server |
 
-FLEET_DATA packets target 1400 bytes. A value whose packet alone exceeds 1400 bytes travels in a packet of its own, so losing that packet costs no other value. A value whose own FLEET_DATA datagram, fully encoded (header, stream id, encrypted payload and tag), exceeds 65,507 bytes, the UDP payload limit, is dropped and counted in `fleet.packetsAbandoned`. A large packet spends the session's byte budget like any other, so values queued after it wait about its size divided by the session rate.
+FLEET_DATA packets target 1400 bytes. A value whose packet alone exceeds 1400 bytes travels in a packet of its own, so losing that packet costs no other value. A value whose own FLEET_DATA datagram, fully encoded (header, stream id, encrypted payload and tag), exceeds 65,507 bytes, the UDP payload limit, is dropped and counted in `fleet.packetsAbandoned`. A packet larger than the bucket waits for a full bucket and is then sent, leaving the bucket in debt, so values queued after it wait about its size divided by the session rate.
 
 ### 15.11 Test vectors
 

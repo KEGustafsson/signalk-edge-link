@@ -825,6 +825,61 @@ describe("fleet sharing end-to-end", () => {
     expect(Math.max(...queuedSizes)).toBeLessThanOrEqual(65507);
   });
 
+  test("a batch split into several packets stays within the byte budget and loses nothing", async () => {
+    const rate = 2048;
+    await connectAll({ enabled: true, maxBytesPerSec: rate, batchIntervalMs: 100 });
+    const [a, b] = clients;
+    const crypto = require("crypto");
+    const values = Array.from({ length: 40 }, (_, i) => ({
+      path: `environment.test.w${i}`,
+      value: crypto.randomBytes(128).toString("hex")
+    }));
+    const sends = [];
+    const send = hub.state.socketUdp.send;
+    const normal = send.getMockImplementation();
+    send.mockImplementation((pkt, port, address, cb) => {
+      if (port === a.port && pkt[3] === PacketType.FLEET_DATA) {
+        sends.push({ at: Date.now(), bytes: pkt.length });
+      }
+      normal(pkt, port, address, cb);
+    });
+    await b.client.sendDelta(
+      [
+        {
+          context: b.self,
+          updates: [{ $source: "n2k.115", timestamp: new Date().toISOString(), values }]
+        }
+      ],
+      secretKey,
+      HUB_ADDR,
+      HUB_PORT
+    );
+    const got = () =>
+      new Set(
+        a.bus.received
+          .filter((d) => d.context === b.self)
+          .flatMap((d) => d.updates.flatMap((u) => u.values || []))
+          .map((v) => v.path)
+      );
+    for (let i = 0; i < 80 && values.some((v) => !got().has(v.path)); i++) {
+      await pump(hub, clients);
+      await wait(100);
+    }
+    const total = sends.reduce((sum, s) => sum + s.bytes, 0);
+    // More than one bucket of data, so it had to be paced.
+    expect(total).toBeGreaterThan(rate);
+    // Token-bucket bound: by each send, at most one full bucket plus what
+    // has refilled since the first send.
+    let sent = 0;
+    for (const s of sends) {
+      sent += s.bytes;
+      expect(sent).toBeLessThanOrEqual(rate + (rate * (s.at - sends[0].at)) / 1000 + 1);
+    }
+    for (const v of values) {
+      expect(got().has(v.path)).toBe(true);
+    }
+  }, 15000);
+
   test("a failed send of the first half still queues the second half for recovery", async () => {
     await connectAll();
     const [a, b] = clients;
@@ -1012,11 +1067,35 @@ describe("fleet session state", () => {
       fleetSession.retransmitQueue.add(seq, Buffer.alloc(1000));
     }
     await retransmit(ctx, session, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-    // A 1400-byte bucket at 256 B/s covers two 1000-byte packets, not ten.
-    expect(sent.length).toBe(2);
-    expect(fleetSession.tokens).toBeGreaterThan(-1000);
+    // A full 1400-byte bucket at 256 B/s covers one 1000-byte packet; the
+    // second would overspend it, so it waits.
+    expect(sent.length).toBe(1);
+    expect(fleetSession.tokens).toBeGreaterThanOrEqual(0);
     // The rest keep their place and go out once the budget refills.
     expect(fleetSession.retransmitQueue.get(9)).toBeDefined();
+  });
+
+  test("values put back after a deferred send never replace newer ones", () => {
+    const {
+      createSessionState,
+      requeuePending
+    } = require("../../src/transport/pipeline/reliable-server/fleet");
+    const { pendingKey } = require("../../src/transport/pipeline/reliable-server/fleet-meta");
+    const ctx = { fleet: { config: { maxBytesPerSec: 8192 } }, metrics: {} };
+    const session = createSessionState(ctx, { self: urn("230000001"), nonce: "0123456789abcdef" });
+    const value = (path, v) => ({
+      kind: "value",
+      context: "vessels.x",
+      $source: "n2k.1",
+      source: undefined,
+      timestamp: undefined,
+      path,
+      value: v
+    });
+    session.pending.set(pendingKey("value", "vessels.x", "n2k.1", "a"), value("a", 2));
+    requeuePending(session, [value("a", 1), value("b", 1)]);
+    expect(session.pending.get(pendingKey("value", "vessels.x", "n2k.1", "a")).value).toBe(2);
+    expect(session.pending.get(pendingKey("value", "vessels.x", "n2k.1", "b")).value).toBe(1);
   });
 
   test("a dropped FLEET_DATA makes the next values carry metadata again", () => {

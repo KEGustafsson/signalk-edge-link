@@ -28,13 +28,14 @@ import type { ServerContext, ClientSession } from "./context";
 import { bindBuilderEpochForPeer } from "./context";
 import { sendUDP } from "./sessions";
 import { withFirstSightMeta } from "./fleet-meta";
-import { backOff, recoverRate, refillTokens } from "./fleet-rate";
+import { backOff, budgetCovers, recoverRate, refillTokens } from "./fleet-rate";
 import {
   acceptedSessions,
   memberSession,
   onFleetDelta,
   queueJoinSnapshots,
   refreshMemberCount,
+  requeuePending,
   secretKeyOf,
   sendHelloAck,
   type FleetSessionState,
@@ -123,7 +124,8 @@ function forgetMeta(fleetSession: FleetSessionState, keys: string[]): void {
 /**
  * Send `values` as two halves. If the first half throws, the second is still
  * queued (its values have left `pending`) so a NAK can recover it, and the
- * first error is rethrown.
+ * first error is rethrown. If the first half waits for budget, the second
+ * goes back to `pending` with it.
  */
 async function sendSplit(
   ctx: ServerContext,
@@ -139,14 +141,34 @@ async function sendSplit(
     await sendChunk(ctx, session, fleetSession, values.slice(half)).catch(() => false);
     throw err;
   }
-  return headSent && sendChunk(ctx, session, fleetSession, values.slice(half));
+  if (!headSent) {
+    if (session.fleet === fleetSession) {
+      requeuePending(fleetSession, values.slice(half));
+    }
+    return false;
+  }
+  return sendChunk(ctx, session, fleetSession, values.slice(half));
+}
+
+/** Leave `values` for a later flush: the budget does not cover their packet. */
+function deferChunk(
+  ctx: ServerContext,
+  fleetSession: FleetSessionState,
+  values: PendingValue[],
+  metaAdded: string[]
+): false {
+  forgetMeta(fleetSession, metaAdded);
+  requeuePending(fleetSession, values);
+  ensureFleetMetrics(ctx.metrics).rateLimitedFlushes++;
+  return false;
 }
 
 /**
  * Encode, build, queue and send `values` as FLEET_DATA. A packet over
  * MAX_SAFE_UDP_PAYLOAD is split in half and each half sent on its own, so a
  * large value travels alone instead of fragmenting its neighbours' packet.
- * False if the session left.
+ * Each packet goes out only when the byte budget covers it (budgetCovers).
+ * False if the session left or the budget ran out.
  */
 async function sendChunk(
   ctx: ServerContext,
@@ -194,6 +216,9 @@ async function sendChunk(
       `[fleet] ${values[0].context} ${values[0].path} needs ${packet.length} bytes; sent alone`
     );
   }
+  if (!budgetCovers(fleetSession, packet.length)) {
+    return deferChunk(ctx, fleetSession, values, withMeta.added);
+  }
   fleetSession.nextSeq = (seq + 1) >>> 0;
   // Queue before sending so a failed send is still recoverable by NAK.
   fleetSession.retransmitQueue.add(seq, packet);
@@ -239,10 +264,10 @@ async function flushSession(ctx: ServerContext, session: ClientSession): Promise
 }
 
 /**
- * Resend `sequences` within the session's byte budget. A sequence left over
- * when the budget runs out keeps its retry state and goes out on a later NAK
- * or stale tick, so loss recovery cannot push the budget far below zero and
- * stall new values.
+ * Resend `sequences` within the session's byte budget, each only when the
+ * budget covers its packet. A sequence left over when the budget runs out
+ * keeps its retry state and goes out on a later NAK or stale tick, so loss
+ * recovery cannot overspend the budget and stall new values.
  */
 export async function retransmit(
   ctx: ServerContext,
@@ -256,7 +281,11 @@ export async function retransmit(
   const metrics = ensureFleetMetrics(ctx.metrics);
   for (const sequence of sequences) {
     refillTokens(fleetSession, Date.now());
-    if (fleetSession.tokens < MAX_SAFE_UDP_PAYLOAD / 4) {
+    const entry = fleetSession.retransmitQueue.get(sequence);
+    if (!entry) {
+      continue;
+    }
+    if (!budgetCovers(fleetSession, entry.packet.length)) {
       return;
     }
     for (const item of fleetSession.retransmitQueue.retransmit([sequence])) {

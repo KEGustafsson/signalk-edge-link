@@ -27,13 +27,28 @@ export function effectiveRate(fleetSession: FleetSessionState): number {
   return Math.max(FLEET_MIN_MAX_BYTES_PER_SEC, fleetSession.bytesPerSec * fleetSession.rateFactor);
 }
 
+/** Bucket depth: one second of rate, never less than one full packet. */
+export function bucketDepth(fleetSession: FleetSessionState): number {
+  return Math.max(effectiveRate(fleetSession), MAX_SAFE_UDP_PAYLOAD);
+}
+
 export function refillTokens(fleetSession: FleetSessionState, now: number): void {
   const elapsed = Math.max(0, now - fleetSession.lastRefillAt);
   fleetSession.lastRefillAt = now;
   const rate = effectiveRate(fleetSession);
-  // Bucket depth: one second of rate, never less than one full packet.
-  const depth = Math.max(rate, MAX_SAFE_UDP_PAYLOAD);
-  fleetSession.tokens = Math.min(depth, fleetSession.tokens + (rate * elapsed) / 1000);
+  fleetSession.tokens = Math.min(
+    bucketDepth(fleetSession),
+    fleetSession.tokens + (rate * elapsed) / 1000
+  );
+}
+
+/**
+ * True when the byte budget covers a packet of `length` bytes. A packet larger
+ * than the bucket can never be covered, so it waits for a full bucket and then
+ * spends ahead; later packets wait until that debt is repaid.
+ */
+export function budgetCovers(fleetSession: FleetSessionState, length: number): boolean {
+  return fleetSession.tokens >= Math.min(length, bucketDepth(fleetSession));
 }
 
 /**

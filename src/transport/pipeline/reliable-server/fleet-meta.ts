@@ -18,6 +18,18 @@ import type { DeltaUpdate } from "../../../foundation/types";
 import type { ServerContext } from "./context";
 import type { FleetSessionState, PendingValue } from "./fleet";
 
+/** Coalescing key in `pending`: one entry per value or metadata path. */
+export function pendingKey(
+  kind: PendingValue["kind"],
+  context: string,
+  $source: string | undefined,
+  path: string
+): string {
+  return kind === "meta"
+    ? `m\u0000${context}\u0000${path}`
+    : `${context}\u0000${$source ?? ""}\u0000${path}`;
+}
+
 /** Bound on remembered (context, path) metadata keys per session. */
 const MAX_META_KEYS = 20000;
 
@@ -126,7 +138,7 @@ export function enqueueMeta(
     if (!fleetPathAllowed(entry.path, serverFilter, fleetSession.pathFilter)) {
       continue;
     }
-    const key = `m\u0000${context}\u0000${entry.path}`;
+    const key = pendingKey("meta", context, undefined, entry.path);
     fleetSession.pending.delete(key);
     fleetSession.pending.set(key, {
       kind: "meta",
