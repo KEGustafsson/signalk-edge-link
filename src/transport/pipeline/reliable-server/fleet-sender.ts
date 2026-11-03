@@ -264,7 +264,13 @@ async function flushSession(ctx: ServerContext, session: ClientSession): Promise
   }
 }
 
-async function retransmit(
+/**
+ * Resend `sequences` within the session's byte budget. A sequence left over
+ * when the budget runs out keeps its retry state and goes out on a later NAK
+ * or stale tick, so loss recovery cannot push the budget far below zero and
+ * stall new values.
+ */
+export async function retransmit(
   ctx: ServerContext,
   session: ClientSession,
   sequences: number[]
@@ -274,11 +280,17 @@ async function retransmit(
     return;
   }
   const metrics = ensureFleetMetrics(ctx.metrics);
-  for (const item of fleetSession.retransmitQueue.retransmit(sequences)) {
-    fleetSession.tokens -= item.packet.length;
-    fleetSession.lastSentAt = Date.now();
-    await sendFleetPacket(ctx, session, item.packet);
-    metrics.retransmits++;
+  for (const sequence of sequences) {
+    refillTokens(fleetSession, Date.now());
+    if (fleetSession.tokens < MAX_SAFE_UDP_PAYLOAD / 4) {
+      return;
+    }
+    for (const item of fleetSession.retransmitQueue.retransmit([sequence])) {
+      fleetSession.tokens -= item.packet.length;
+      fleetSession.lastSentAt = Date.now();
+      await sendFleetPacket(ctx, session, item.packet);
+      metrics.retransmits++;
+    }
   }
 }
 
