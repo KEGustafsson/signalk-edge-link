@@ -788,6 +788,53 @@ describe("fleet sharing end-to-end", () => {
     }
   });
 
+  test("a failed send of the first half still queues the second half for recovery", async () => {
+    await connectAll();
+    const [a, b] = clients;
+    const crypto = require("crypto");
+    const values = Array.from({ length: 40 }, (_, i) => ({
+      path: `environment.test.v${i}`,
+      value: crypto.randomBytes(48).toString("hex")
+    }));
+    const send = hub.state.socketUdp.send;
+    const normal = send.getMockImplementation();
+    let failed = false;
+    send.mockImplementation((pkt, port, address, cb) => {
+      if (!failed && port === a.port && pkt[3] === PacketType.FLEET_DATA) {
+        failed = true;
+        cb(new Error("EHOSTUNREACH"));
+        return;
+      }
+      normal(pkt, port, address, cb);
+    });
+    await b.client.sendDelta(
+      [
+        {
+          context: b.self,
+          updates: [{ $source: "n2k.115", timestamp: new Date().toISOString(), values }]
+        }
+      ],
+      secretKey,
+      HUB_ADDR,
+      HUB_PORT
+    );
+    // Pump often: the client gives up on a gap after maxNakRounds x nakTimeout.
+    for (let i = 0; i < 30; i++) {
+      await pump(hub, clients);
+      await wait(10);
+    }
+    expect(failed).toBe(true);
+    const got = new Map(
+      a.bus.received
+        .filter((d) => d.context === b.self)
+        .flatMap((d) => d.updates.flatMap((u) => u.values || []))
+        .map((v) => [v.path, v.value])
+    );
+    for (const v of values) {
+      expect(got.get(v.path)).toBe(v.value);
+    }
+  });
+
   test("a join snapshot held back by the rate limit is sent once the limit passes", async () => {
     await connectAll();
     const before = hub.metricsApi.metrics.fleet.snapshotsSent;

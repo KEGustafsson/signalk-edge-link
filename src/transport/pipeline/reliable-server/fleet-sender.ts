@@ -206,10 +206,15 @@ async function sendChunk(
         fleetSession.metaSent.delete(key);
       }
       const half = Math.ceil(values.length / 2);
-      return (
-        (await sendChunk(ctx, session, fleetSession, values.slice(0, half))) &&
-        sendChunk(ctx, session, fleetSession, values.slice(half))
-      );
+      let headSent: boolean;
+      try {
+        headSent = await sendChunk(ctx, session, fleetSession, values.slice(0, half));
+      } catch (err: unknown) {
+        // The tail has left `pending`: queue it so a NAK can still recover it.
+        await sendChunk(ctx, session, fleetSession, values.slice(half)).catch(() => false);
+        throw err;
+      }
+      return headSent && sendChunk(ctx, session, fleetSession, values.slice(half));
     }
     ctx.app.debug(
       `[fleet] ${values[0].context} ${values[0].path} needs ${packet.length} bytes; sent alone`

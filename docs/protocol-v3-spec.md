@@ -700,13 +700,13 @@ A server built before this extension never reads `capabilities` and never sends 
 }
 ```
 
-| Field            | Required | Meaning                                                                                                      |
-| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
-| `v`              | yes      | Field version. Receivers ignore a `fleet` field whose `v` they do not know and treat the HELLO as non-fleet. |
-| `self`           | yes      | The client's own context. The server never sends this context to this client.                                |
-| `nonce`          | yes      | 16 hex characters, new for every HELLO. Echoed in HELLO_ACK to bind the answer to this HELLO.                |
-| `pathFilter`     | no       | Paths the client wants, same globs as `pathFilter` elsewhere. Applied on the server before sending.          |
-| `maxBytesPerSec` | no       | Ceiling the client requests. The server uses the lower of this and its own limit.                            |
+| Field            | Required | Meaning                                                                                                                         |
+| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `v`              | yes      | Field version. Receivers ignore a `fleet` field whose `v` they do not know and treat the HELLO as non-fleet.                    |
+| `self`           | yes      | The client's own context. The server never sends this context to this client.                                                   |
+| `nonce`          | yes      | 16 hex characters, new for every HELLO. Echoed in HELLO_ACK to bind the answer to this HELLO.                                   |
+| `pathFilter`     | no       | Paths the client wants, same globs as `pathFilter` elsewhere. Applied on the server before sending.                             |
+| `maxBytesPerSec` | no       | Ceiling the client requests. A request below 256 bytes/s is raised to 256. The server uses the lower of this and its own limit. |
 
 The vessel identity is encrypted because HELLO is authenticated but not encrypted; a plaintext `self` would expose the vessel's MMSI to anyone on the path. Receivers ignore unknown keys inside the decrypted object.
 
@@ -725,7 +725,7 @@ Control packet, Server → Client. Payload: UTF-8 JSON followed by the 16-byte H
 
 - `nonce` echoes the HELLO's `fleet.nonce`. The client accepts a HELLO_ACK only when it matches the nonce of its most recent HELLO.
 - `fleet.stream` is a random uint32 the server picks when it accepts the session. It names the FLEET_DATA sequence space (§15.4).
-- The server re-sends HELLO_ACK as a keepalive when it has sent nothing to an accepted session for 20 s. A client that receives no fleet packet for 60 s sends a new HELLO; the server answers it with a new HELLO_ACK and a join snapshot. This is how a session survives a server restart.
+- The server re-sends HELLO_ACK as a keepalive when it has sent nothing to an accepted session for 20 s. A client that receives no fleet packet for 60 s sends a new HELLO; the server answers it with a new HELLO_ACK. After a server restart that HELLO starts a new stream, which brings a join snapshot (§15.6). This is how a session survives a server restart.
 
 ### 15.4 FLEET_DATA (0x0A)
 
@@ -764,7 +764,7 @@ For an accepted session `s` the server sends a context `C` when all of these hol
 
 Values are coalesced per `(context, $source, path)` between flushes (`batchIntervalMs`, default 1000 ms): only the newest value is sent. Each session has a token bucket at `min(server maxBytesPerSec, client maxBytesPerSec) × rate factor` (§15.9); when it is empty, pending values wait for the next flush and newer values replace them.
 
-On accepting a session (and on every HELLO with a new nonce, at most once per 10 s), the server sends a snapshot of the in-scope values from its Signal K tree. A snapshot that falls inside the 10 s limit is deferred, not dropped: the server sends it once the limit has passed, to whichever stream the session then has. When a session joins the fleet, the server also queues that vessel's current values for every other accepted session.
+Whenever a session starts a new fleet stream (first fleet HELLO, a client restart, or a session re-created after a server restart), the server sends a snapshot of the in-scope values from its Signal K tree. A snapshot that falls inside the 10 s limit is deferred, not dropped: the server sends it once the limit has passed, to whichever stream the session then has. When a session joins the fleet, the server also queues that vessel's current values for every other accepted session.
 
 ### 15.7 Identity and loop rules
 
@@ -787,21 +787,22 @@ The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming at
 
 ### 15.10 Limits
 
-| Constant                               | Value                                  | Where  |
-| -------------------------------------- | -------------------------------------- | ------ |
-| HELLO_ACK keepalive after idle         | 20 s                                   | Server |
-| Client re-HELLO after no fleet packet  | 60 s                                   | Client |
-| Join snapshot minimum interval         | 10 s                                   | Server |
-| Retransmit unacknowledged FLEET_DATA   | 2 s                                    | Server |
-| Maximum retransmits per FLEET_DATA     | 3                                      | Server |
-| Retransmit queue per session           | 512                                    | Server |
-| Values per FLEET_DATA packet           | at most 40, fewer to stay ≤ 1400 bytes | Server |
-| FLEET_ACK minimum spacing              | 200 ms                                 | Client |
-| Inbound FLEET_DATA per second          | 200                                    | Client |
-| Encrypted `fleet` field, base64 length | 2048                                   | Both   |
-| Metadata keys remembered per session   | 20000                                  | Server |
-| Rate cut on loss / floor               | ×0.7 / 0.1, at most once per 1 s       | Server |
-| Rate recovery after 2 s without loss   | +0.05 per second                       | Server |
+| Constant                                    | Value                                   | Where  |
+| ------------------------------------------- | --------------------------------------- | ------ |
+| HELLO_ACK keepalive after idle              | 20 s                                    | Server |
+| Client re-HELLO after no fleet packet       | 60 s                                    | Client |
+| Join snapshot minimum interval              | 10 s                                    | Server |
+| Retransmit unacknowledged FLEET_DATA        | 2 s                                     | Server |
+| Maximum retransmits per FLEET_DATA          | 3                                       | Server |
+| Retransmit queue per session                | 512                                     | Server |
+| Values per FLEET_DATA packet                | at most 40, fewer to stay ≤ 1400 bytes  | Server |
+| FLEET_ACK minimum spacing                   | 200 ms                                  | Client |
+| Inbound FLEET_DATA per second               | 200                                     | Client |
+| Encrypted `fleet` field, base64 length      | 2048                                    | Both   |
+| Metadata keys remembered per session        | 20000                                   | Server |
+| Rate cut on loss / floor                    | ×0.7 / 0.1, at most once per 1 s        | Server |
+| Rate recovery after 2 s without loss        | +0.05 per second                        | Server |
+| Minimum `maxBytesPerSec` and effective rate | 256 bytes/s (lower requests are raised) | Server |
 
 The server splits a FLEET_DATA that would exceed 1400 bytes in half until each part fits. A single value too large to fit is sent alone, so it cannot take other values with it if that packet is lost.
 
