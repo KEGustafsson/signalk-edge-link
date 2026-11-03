@@ -1101,6 +1101,50 @@ describe("fleet session state", () => {
     expect(session.pending.get(pendingKey("value", "vessels.x", "n2k.1", "b")).value).toBe(1);
   });
 
+  test("a tree lookup that throws leaves metadata to be sent with a later packet", () => {
+    const { createSessionState } = require("../../src/transport/pipeline/reliable-server/fleet");
+    const {
+      withFirstSightMeta
+    } = require("../../src/transport/pipeline/reliable-server/fleet-meta");
+    let fail = true;
+    const tree = {
+      vessels: { x: { navigation: { speedOverGround: { value: 3, meta: { units: "m/s" } } } } }
+    };
+    const ctx = {
+      fleet: { config: { maxBytesPerSec: 8192 } },
+      metrics: {},
+      app: {
+        signalk: {
+          retrieve: () => {
+            if (fail) {
+              throw new Error("tree unavailable");
+            }
+            return tree;
+          }
+        }
+      }
+    };
+    const session = createSessionState(ctx, { self: urn("230000001"), nonce: "0123456789abcdef" });
+    const values = [
+      {
+        kind: "value",
+        context: "vessels.x",
+        $source: "n2k.1",
+        source: undefined,
+        timestamp: undefined,
+        path: "navigation.speedOverGround",
+        value: 3
+      }
+    ];
+    const first = withFirstSightMeta(ctx, session, values);
+    expect(first.values).toHaveLength(1);
+    expect(first.added).toEqual([]);
+    fail = false;
+    const second = withFirstSightMeta(ctx, session, values);
+    expect(second.values).toHaveLength(2);
+    expect(second.values[1]).toMatchObject({ kind: "meta", value: { units: "m/s" } });
+  });
+
   test("a dropped FLEET_DATA makes the next values carry metadata again", () => {
     const { createSessionState } = require("../../src/transport/pipeline/reliable-server/fleet");
     const { FLEET_RETRANSMIT_QUEUE_SIZE } = require("../../src/foundation/constants");
