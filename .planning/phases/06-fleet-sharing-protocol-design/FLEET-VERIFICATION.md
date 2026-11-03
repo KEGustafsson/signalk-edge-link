@@ -1,6 +1,6 @@
 # v2 Fleet Data Sharing - Verification
 
-**Date:** 2026-11-02
+**Date:** 2026-11-03
 
 ## Commands Run
 
@@ -28,7 +28,7 @@
 | FLEET-ID-003    | Met    | "scope 'fleet' excludes AIS targets; scope 'all' includes them"; "includeServerVessel shares the hub's own vessel"                                                                                                                                                                                                                         |
 | FLEET-LOOP-001  | Met    | "the client uplink drops contexts learned from the fleet (no echo)"; server side: "origin authority"                                                                                                                                                                                                                                       |
 | FLEET-SNAP-001  | Met    | "a late-joining vessel gets a snapshot of the fleet"; "join snapshots stay rate-limited across repeated client restarts"                                                                                                                                                                                                                   |
-| FLEET-BW-001    | Met    | "the per-session byte budget defers values and keeps only the newest"                                                                                                                                                                                                                                                                      |
+| FLEET-BW-001    | Met    | "the per-session byte budget defers values and keeps only the newest"; "a batch split into several packets stays within the byte budget and loses nothing"; "retransmissions stay within the session's byte budget"; "values put back after a deferred send never replace newer ones"                                                      |
 | FLEET-SEC-001   | Met    | "tampered FLEET_DATA is rejected"; "a replayed FLEET_DATA is counted as a duplicate and not applied again"; wrong key / wrong epoch in `fleet-codec.test.js`; real-socket run with `epochBoundAuth` in `real-socket-fleet.test.js`; replayed HELLO from another session: "a replayed HELLO from another address cannot take over a vessel" |
 | FLEET-SEC-002   | Met    | "a client accepts at most 200 FLEET_DATA per second" (260 sent, ≤200 accepted, ≥60 rejected); option-off client tested                                                                                                                                                                                                                     |
 | FLEET-SEC-003   | Met    | `docs/security.md` "Fleet sharing" section                                                                                                                                                                                                                                                                                                 |
@@ -48,6 +48,8 @@
 - **Fleet Sharing card** on the client and server dashboards.
 - **Server `fleet.state`** reads `active` while sharing runs.
 - **Loop guard placement**: the client drops fleet-learned contexts before live-metadata extraction, so neither fleet values nor fleet metadata go back upstream.
+- **Packet size and pacing** (spec §15.6, §15.10): every FLEET_DATA send, first or retransmitted, waits until the session's byte budget covers it; a packet larger than the bucket goes out once the bucket is full. Batches over 1400 bytes are split so a large value travels alone, and a value whose packet would exceed 65,507 bytes is dropped and counted in `fleet.packetsAbandoned`. Tests: "a batch too large for one datagram is split and every value arrives", "a value too large for any UDP datagram is dropped, not queued", "a failed send of the first half still queues the second half for recovery", plus the FLEET-BW-001 tests.
+- **Metadata after failures**: metadata marked as sent is cleared when its packet is dropped, and is not marked at all when the tree lookup throws, so it is sent again with a later packet. Tests: "a dropped FLEET_DATA makes the next values carry metadata again", "a tree lookup that throws leaves metadata to be sent with a later packet".
 
 ## Known Limitations and Follow-Up
 

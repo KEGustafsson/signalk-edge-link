@@ -24,6 +24,11 @@ All notable changes to signalk-edge-link are documented here.
 - Reliable delivery with NAK and timeout retransmit; a member's rate backs off
   on downlink loss and recovers when loss stops; older values never overwrite
   newer ones.
+- Every FLEET_DATA send, first or retransmitted, waits until the member's byte
+  budget covers it, so a large batch is paced instead of sent as one burst.
+  Packets target 1400 bytes; a value too large for that travels alone. A value
+  whose packet would exceed the 65,507-byte UDP limit is not shared and is
+  counted in `fleet.packetsAbandoned`.
 - `fleet` block in `GET /metrics`, `signalk_edge_link_fleet_*` in Prometheus,
   and a Fleet Sharing card on the client and server dashboards.
 - `npm run smoke:fleet -- <signalk-server bin>` runs a hub and two vessels as
