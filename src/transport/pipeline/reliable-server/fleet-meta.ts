@@ -60,24 +60,27 @@ function retrieveTree(ctx: ServerContext): Record<string, unknown> | null {
 
 /**
  * Return `values` plus a meta entry for every (context, path) this session
- * has not had metadata for yet, and record what is now sent.
+ * has not had metadata for yet, and record those keys as sent. `added` lists
+ * the keys recorded, so a caller that does not send the packet can undo them.
  */
 export function withFirstSightMeta(
   ctx: ServerContext,
   fleetSession: FleetSessionState,
   values: PendingValue[]
-): PendingValue[] {
+): { values: PendingValue[]; added: string[] } {
   if (fleetSession.metaSent.size >= MAX_META_KEYS) {
     fleetSession.metaSent.clear();
   }
   let tree: Record<string, unknown> | null | undefined;
   const extra: PendingValue[] = [];
+  const added: string[] = [];
   for (const v of values) {
     const key = `${v.context}\u0000${v.path}`;
     if (fleetSession.metaSent.has(key)) {
       continue;
     }
     fleetSession.metaSent.add(key);
+    added.push(key);
     if (v.kind === "meta") {
       continue;
     }
@@ -96,7 +99,7 @@ export function withFirstSightMeta(
       });
     }
   }
-  return extra.length > 0 ? [...values, ...extra] : values;
+  return { values: extra.length > 0 ? [...values, ...extra] : values, added };
 }
 
 /** Queue live `updates[].meta` entries (units, zones, display names). */

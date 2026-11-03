@@ -70,6 +70,8 @@ export interface FleetSessionState {
   retransmitQueue: RetransmitQueue;
   lastSentAt: number;
   lastSnapshotAt: number;
+  /** A join snapshot was rate-limited; fleetTick sends it when allowed. */
+  snapshotDue: boolean;
   flushing: boolean;
   /** `context\0path` keys whose metadata this session already has. */
   metaSent: Set<string>;
@@ -272,6 +274,7 @@ export function createSessionState(ctx: ServerContext, identity: FleetIdentity):
     }),
     lastSentAt: 0,
     lastSnapshotAt: 0,
+    snapshotDue: false,
     flushing: false,
     metaSent,
     rateFactor: 1,
@@ -378,13 +381,19 @@ function claimMembership(
   return !keepStream;
 }
 
-/** Snapshot for the new member, and the new member's values for the others. */
-function queueJoinSnapshots(ctx: ServerContext, session: ClientSession, self: string): void {
+/**
+ * Snapshot for the new member, and the new member's values for the others.
+ * Inside the rate limit the snapshot is deferred, not dropped: a client that
+ * restarted has an empty stream and would otherwise wait for values to change.
+ */
+export function queueJoinSnapshots(ctx: ServerContext, session: ClientSession, self: string): void {
   const fleetSession = session.fleet!;
   const now = Date.now();
   if (now - fleetSession.lastSnapshotAt < FLEET_SNAPSHOT_MIN_INTERVAL_MS) {
+    fleetSession.snapshotDue = true;
     return;
   }
+  fleetSession.snapshotDue = false;
   fleetSession.lastSnapshotAt = now;
   const snapshot = takeSnapshot(ctx);
   for (const delta of snapshot) {
