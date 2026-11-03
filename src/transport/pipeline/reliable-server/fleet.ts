@@ -41,7 +41,7 @@ import type { Delta, DeltaUpdate, PathFilterConfig } from "../../../foundation/t
 import type { ServerContext, ClientSession } from "./context";
 import { bindBuilderEpochForPeer } from "./context";
 import { sendUDP } from "./sessions";
-import { enqueueMeta } from "./fleet-meta";
+import { enqueueMeta, pendingKey } from "./fleet-meta";
 import { helloReplayed } from "./fleet-replay";
 
 /** One coalesced value (or metadata entry) waiting to be sent to a session. */
@@ -107,6 +107,19 @@ export function createFleetServerState(ctx: Pick<ServerContext, "state">): Fleet
     timer: null,
     serverSelf: null
   };
+}
+
+/**
+ * Put values that were taken but not sent back into `pending`. A key that has
+ * since received a newer value keeps the newer one.
+ */
+export function requeuePending(fleetSession: FleetSessionState, values: PendingValue[]): void {
+  for (const value of values) {
+    const key = pendingKey(value.kind, value.context, value.$source, value.path);
+    if (!fleetSession.pending.has(key)) {
+      fleetSession.pending.set(key, value);
+    }
+  }
 }
 
 export function secretKeyOf(ctx: ServerContext): string {
@@ -185,7 +198,7 @@ function enqueueUpdate(
     if (!fleetPathAllowed(entry.path, serverFilter, fleetSession.pathFilter)) {
       continue;
     }
-    const key = `${context}\u0000${sourceRef ?? ""}\u0000${entry.path}`;
+    const key = pendingKey("value", context, sourceRef, entry.path);
     // Delete-then-set moves the key to the end, so flush order follows the
     // most recent change and a constantly-updating path cannot starve others.
     fleetSession.pending.delete(key);
