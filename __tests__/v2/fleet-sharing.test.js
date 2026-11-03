@@ -843,6 +843,9 @@ describe("fleet sharing end-to-end", () => {
       }
       normal(pkt, port, address, cb);
     });
+    // The bucket holds at most one full bucket at this moment, whenever it
+    // last refilled, so the bound below is measured from here.
+    const start = Date.now();
     await b.client.sendDelta(
       [
         {
@@ -869,11 +872,11 @@ describe("fleet sharing end-to-end", () => {
     // More than one bucket of data, so it had to be paced.
     expect(total).toBeGreaterThan(rate);
     // Token-bucket bound: by each send, at most one full bucket plus what
-    // has refilled since the first send.
+    // has refilled since the start.
     let sent = 0;
     for (const s of sends) {
       sent += s.bytes;
-      expect(sent).toBeLessThanOrEqual(rate + (rate * (s.at - sends[0].at)) / 1000 + 1);
+      expect(sent).toBeLessThanOrEqual(rate + (rate * (s.at - start)) / 1000 + 1);
     }
     for (const v of values) {
       expect(got().has(v.path)).toBe(true);
