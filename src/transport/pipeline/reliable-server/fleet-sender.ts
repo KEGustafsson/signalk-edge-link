@@ -19,12 +19,7 @@ import {
   FLEET_VALUES_PER_PACKET,
   FLEET_MAX_NAK_SEQUENCES,
   MAX_SAFE_UDP_PAYLOAD,
-  FLEET_MIN_MAX_BYTES_PER_SEC,
-  FLEET_RATE_BACKOFF_FACTOR,
-  FLEET_RATE_MIN_FACTOR,
-  FLEET_RATE_BACKOFF_INTERVAL_MS,
-  FLEET_RATE_RECOVERY_DELAY_MS,
-  FLEET_RATE_RECOVERY_PER_SEC,
+  MAX_UDP_DATAGRAM_PAYLOAD,
   FLEET_SNAPSHOT_MIN_INTERVAL_MS
 } from "../../../foundation/constants";
 import { ensureFleetMetrics } from "../../fleet/common";
@@ -33,6 +28,7 @@ import type { ServerContext, ClientSession } from "./context";
 import { bindBuilderEpochForPeer } from "./context";
 import { sendUDP } from "./sessions";
 import { withFirstSightMeta } from "./fleet-meta";
+import { backOff, recoverRate, refillTokens } from "./fleet-rate";
 import {
   acceptedSessions,
   memberSession,
@@ -44,56 +40,6 @@ import {
   type FleetSessionState,
   type PendingValue
 } from "./fleet";
-
-/** Current byte rate: the session ceiling scaled by its loss-adaptive factor. */
-export function effectiveRate(fleetSession: FleetSessionState): number {
-  return Math.max(FLEET_MIN_MAX_BYTES_PER_SEC, fleetSession.bytesPerSec * fleetSession.rateFactor);
-}
-
-function refillTokens(fleetSession: FleetSessionState, now: number): void {
-  const elapsed = Math.max(0, now - fleetSession.lastRefillAt);
-  fleetSession.lastRefillAt = now;
-  const rate = effectiveRate(fleetSession);
-  // Bucket depth: one second of rate, never less than one full packet.
-  const depth = Math.max(rate, MAX_SAFE_UDP_PAYLOAD);
-  fleetSession.tokens = Math.min(depth, fleetSession.tokens + (rate * elapsed) / 1000);
-}
-
-/**
- * Loss seen on this session's downlink (a NAK, or a packet that went
- * unacknowledged): cut the rate multiplicatively, at most once per interval
- * so one burst of loss counts once. The vessel's link — usually the
- * bottleneck — sets the pace without any configuration.
- */
-function backOff(ctx: ServerContext, fleetSession: FleetSessionState, now: number): void {
-  if (now - fleetSession.lastBackoffAt < FLEET_RATE_BACKOFF_INTERVAL_MS) {
-    return;
-  }
-  fleetSession.lastBackoffAt = now;
-  fleetSession.lastRateIncreaseAt = now;
-  fleetSession.rateFactor = Math.max(
-    FLEET_RATE_MIN_FACTOR,
-    fleetSession.rateFactor * FLEET_RATE_BACKOFF_FACTOR
-  );
-  ensureFleetMetrics(ctx.metrics).rateBackoffs++;
-}
-
-/** Recover additively once the session has been loss-free for a while. */
-function recoverRate(fleetSession: FleetSessionState, now: number): void {
-  if (
-    fleetSession.rateFactor >= 1 ||
-    now - fleetSession.lastBackoffAt < FLEET_RATE_RECOVERY_DELAY_MS
-  ) {
-    fleetSession.lastRateIncreaseAt = now;
-    return;
-  }
-  const seconds = Math.max(0, now - fleetSession.lastRateIncreaseAt) / 1000;
-  fleetSession.lastRateIncreaseAt = now;
-  fleetSession.rateFactor = Math.min(
-    1,
-    fleetSession.rateFactor + FLEET_RATE_RECOVERY_PER_SEC * seconds
-  );
-}
 
 /**
  * Group pending entries into deltas by context, then ($source, timestamp).
@@ -167,6 +113,35 @@ function takeChunk(fleetSession: FleetSessionState): PendingValue[] {
   return chunk;
 }
 
+/** Undo the first-sight metadata recorded for a packet that is not sent. */
+function forgetMeta(fleetSession: FleetSessionState, keys: string[]): void {
+  for (const key of keys) {
+    fleetSession.metaSent.delete(key);
+  }
+}
+
+/**
+ * Send `values` as two halves. If the first half throws, the second is still
+ * queued (its values have left `pending`) so a NAK can recover it, and the
+ * first error is rethrown.
+ */
+async function sendSplit(
+  ctx: ServerContext,
+  session: ClientSession,
+  fleetSession: FleetSessionState,
+  values: PendingValue[]
+): Promise<boolean> {
+  const half = Math.ceil(values.length / 2);
+  let headSent: boolean;
+  try {
+    headSent = await sendChunk(ctx, session, fleetSession, values.slice(0, half));
+  } catch (err: unknown) {
+    await sendChunk(ctx, session, fleetSession, values.slice(half)).catch(() => false);
+    throw err;
+  }
+  return headSent && sendChunk(ctx, session, fleetSession, values.slice(half));
+}
+
 /**
  * Encode, build, queue and send `values` as FLEET_DATA. A packet over
  * MAX_SAFE_UDP_PAYLOAD is split in half and each half sent on its own, so a
@@ -202,19 +177,18 @@ async function sendChunk(
   if (packet.length > MAX_SAFE_UDP_PAYLOAD) {
     if (values.length > 1) {
       // Not sent: the halves attach this metadata again.
-      for (const key of withMeta.added) {
-        fleetSession.metaSent.delete(key);
-      }
-      const half = Math.ceil(values.length / 2);
-      let headSent: boolean;
-      try {
-        headSent = await sendChunk(ctx, session, fleetSession, values.slice(0, half));
-      } catch (err: unknown) {
-        // The tail has left `pending`: queue it so a NAK can still recover it.
-        await sendChunk(ctx, session, fleetSession, values.slice(half)).catch(() => false);
-        throw err;
-      }
-      return headSent && sendChunk(ctx, session, fleetSession, values.slice(half));
+      forgetMeta(fleetSession, withMeta.added);
+      return sendSplit(ctx, session, fleetSession, values);
+    }
+    if (packet.length > MAX_UDP_DATAGRAM_PAYLOAD) {
+      // No datagram can carry it: queueing it would only fail again on every
+      // retransmit and drain the byte budget each time.
+      forgetMeta(fleetSession, withMeta.added);
+      ensureFleetMetrics(ctx.metrics).packetsAbandoned++;
+      ctx.app.debug(
+        `[fleet] ${values[0].context} ${values[0].path} needs ${packet.length} bytes; dropped`
+      );
+      return true;
     }
     ctx.app.debug(
       `[fleet] ${values[0].context} ${values[0].path} needs ${packet.length} bytes; sent alone`

@@ -647,6 +647,7 @@ v1 (Basic) packets do not start with these magic bytes (they start with the rand
 | `src/transport/pipeline/reliable-server/fleet.ts`          | Fleet membership, scope, origin authority (§15.6-15.7) |
 | `src/transport/pipeline/reliable-server/fleet-sender.ts`   | Fleet flush, retransmit, keepalive, lifecycle          |
 | `src/transport/pipeline/reliable-server/fleet-meta.ts`     | First-sight fleet metadata (§15.8)                     |
+| `src/transport/pipeline/reliable-server/fleet-rate.ts`     | Fleet token bucket and loss-adaptive rate (§15.9)      |
 | `src/transport/pipeline/reliable-client/fleet.ts`          | Fleet HELLO fields, HELLO_ACK, FLEET_DATA receive      |
 | `src/transport/pipeline/reliable-client/fleet-dispatch.ts` | Fleet delta dispatch, newest-value guard               |
 
@@ -804,7 +805,7 @@ The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming at
 | Rate recovery after 2 s without loss        | +0.05 per second                        | Server |
 | Minimum `maxBytesPerSec` and effective rate | 256 bytes/s (lower requests are raised) | Server |
 
-The server splits a FLEET_DATA that would exceed 1400 bytes in half until each part fits. A single value too large to fit is sent alone, so it cannot take other values with it if that packet is lost.
+The server splits a FLEET_DATA that would exceed 1400 bytes in half until each part fits. A single value too large to fit is sent alone, so it cannot take other values with it if that packet is lost. A value too large for any UDP datagram (over 65,507 bytes) is dropped and counted in `fleet.packetsAbandoned`.
 
 ### 15.11 Test vectors
 

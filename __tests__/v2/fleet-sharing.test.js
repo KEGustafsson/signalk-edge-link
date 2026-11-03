@@ -788,6 +788,36 @@ describe("fleet sharing end-to-end", () => {
     }
   });
 
+  test("a value too large for any UDP datagram is dropped, not queued", async () => {
+    await connectAll();
+    const [a, b] = clients;
+    const crypto = require("crypto");
+    hub.state.socketUdp.send.mockClear();
+    const before = hub.metricsApi.metrics.fleet.packetsAbandoned;
+    hub.bus.app.handleMessage("test", {
+      context: b.self,
+      updates: [
+        {
+          $source: "n2k.115",
+          timestamp: new Date().toISOString(),
+          values: [
+            { path: "environment.test.huge", value: crypto.randomBytes(70000).toString("hex") },
+            { path: "navigation.speedOverGround", value: 3.3 }
+          ]
+        }
+      ]
+    });
+    await wait(250);
+    await pump(hub, clients);
+    const sizes = hub.state.socketUdp.send.mock.calls
+      .filter((call) => call[1] === a.port && Buffer.from(call[0])[3] === PacketType.FLEET_DATA)
+      .map((call) => call[0].length);
+    expect(sizes.length).toBeGreaterThan(0);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(65507);
+    expect(hub.metricsApi.metrics.fleet.packetsAbandoned).toBeGreaterThan(before);
+    expect(lastSog(a, b.self)).toBeCloseTo(3.3);
+  });
+
   test("a failed send of the first half still queues the second half for recovery", async () => {
     await connectAll();
     const [a, b] = clients;

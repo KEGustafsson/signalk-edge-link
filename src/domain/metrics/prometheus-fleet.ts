@@ -42,7 +42,7 @@ function fleetCounters(fleet: NonNullable<Metrics["fleet"]>): Array<[string, str
     ["fleet_snapshots_sent_total", "Fleet join snapshots queued", fleet.snapshotsSent],
     [
       "fleet_packets_abandoned_total",
-      "FLEET_DATA dropped after exhausting retransmits",
+      "FLEET_DATA given up: retransmits exhausted, evicted from a full queue, or too large to send",
       fleet.packetsAbandoned
     ],
     ["fleet_packets_received_total", "FLEET_DATA packets accepted", fleet.packetsReceived],
@@ -88,7 +88,7 @@ export function emitFleet(e: FleetMetricSink, metrics: Metrics): void {
   e.gauge("fleet_members", "Sessions currently accepted into the fleet", fleet.members);
   e.gauge(
     "fleet_active",
-    "1 when this client's fleet stream is active",
+    "1 when fleet sharing is active on this instance",
     fleet.state === "active" ? 1 : 0
   );
   e.gauge("fleet_contexts_known", "Fleet vessels this client has received", fleet.contextsKnown);
