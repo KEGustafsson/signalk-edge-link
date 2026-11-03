@@ -39,7 +39,15 @@ export const PacketType = Object.freeze({
   METADATA: 0x06,
   META_REQUEST: 0x07,
   /** Server → client: request a full values snapshot replay. */
-  FULL_STATUS_REQUEST: 0x08
+  FULL_STATUS_REQUEST: 0x08,
+  /** Server → client: capability answer to HELLO; fleet keepalive. */
+  HELLO_ACK: 0x09,
+  /** Server → client: other fleet members' deltas (capability `fleet-v1`). */
+  FLEET_DATA: 0x0a,
+  /** Client → server: cumulative acknowledgement of FLEET_DATA. */
+  FLEET_ACK: 0x0b,
+  /** Client → server: missing FLEET_DATA sequences. */
+  FLEET_NAK: 0x0c
 });
 
 /**
@@ -146,7 +154,11 @@ const TYPE_NAMES: Record<number, string> = {
   [PacketType.HELLO]: "HELLO",
   [PacketType.METADATA]: "METADATA",
   [PacketType.META_REQUEST]: "META_REQUEST",
-  [PacketType.FULL_STATUS_REQUEST]: "FULL_STATUS_REQUEST"
+  [PacketType.FULL_STATUS_REQUEST]: "FULL_STATUS_REQUEST",
+  [PacketType.HELLO_ACK]: "HELLO_ACK",
+  [PacketType.FLEET_DATA]: "FLEET_DATA",
+  [PacketType.FLEET_ACK]: "FLEET_ACK",
+  [PacketType.FLEET_NAK]: "FLEET_NAK"
 };
 
 export function getTypeName(type: number): string {

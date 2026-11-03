@@ -2,6 +2,48 @@
 
 All notable changes to signalk-edge-link are documented here.
 
+## [Unreleased]
+
+### Added — fleet sharing (`fleetSharing`, protocol v3)
+
+- Every client of one server connection can receive the other clients' vessel
+  data over the link it already opened; a vessel never receives its own data
+  and needs no inbound port. Opt-in on both ends; with either end off, HELLO
+  and the uplink are byte-identical to before. Wire format:
+  `docs/protocol-v3-spec.md` §15 (new packet types `0x09`-`0x0C`).
+- Vessel identity travels encrypted in HELLO; answers are bound to a per-HELLO
+  nonce; FLEET_DATA is always HMAC-tagged and replay-checked.
+- Scope `fleet` (default) or `all`, `includeServerVessel`, server and
+  client-requested path filters and byte rates.
+- Origin authority on the hub and echo suppression on the vessel prevent loops,
+  including with `subscription.json` `context: "*"`.
+- A captured HELLO replayed from another address cannot take a vessel from its
+  live owner: a takeover needs a HELLO newer than the owner's newest one.
+- Metadata (units, zones, display names) is sent with each path the first time
+  a vessel receives it, and again when it changes.
+- Reliable delivery with NAK and timeout retransmit; a member's rate backs off
+  on downlink loss and recovers when loss stops; older values never overwrite
+  newer ones.
+- Every FLEET_DATA send, first or retransmitted, waits until the member's byte
+  budget covers it, so a large batch is paced instead of sent as one burst.
+  Packets target 1400 bytes; a value too large for that travels alone. A value
+  whose packet would exceed the 65,507-byte UDP limit is not shared and is
+  counted in `fleet.packetsAbandoned`.
+- `fleet` block in `GET /metrics`, `signalk_edge_link_fleet_*` in Prometheus,
+  and a Fleet Sharing card on the client and server dashboards.
+- `npm run smoke:fleet -- <signalk-server bin>` runs a hub and two vessels as
+  real signalk-server processes and checks the result over REST.
+
+Not available on bonded clients or protocol v1.
+
+### Changed
+
+- **Node.js 24 or later is required** (`engines.node` `>=24.0.0`, was
+  `>=20.9.0`). Node 20 and 22 are no longer supported or tested. Upgrade Node
+  on the Signal K server before installing this version.
+- CI tests Node 24 and 26, including the signalk-server plugin CI. Coverage,
+  audits and package publishing run on Node 24.
+
 ## [4.3.0] - 2026-09-03
 
 Hot-path performance release. No protocol or wire-format change: the

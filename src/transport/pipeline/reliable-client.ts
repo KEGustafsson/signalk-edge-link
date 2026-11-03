@@ -59,6 +59,7 @@ import {
   initBonding,
   stopBonding
 } from "./reliable-client/lifecycle";
+import { createFleetClientRuntime, sendFleetNak, stopFleetClient } from "./reliable-client/fleet";
 
 /** Seed the four meta bandwidth counters so consumers see numeric zeros. */
 function seedMetaBandwidthCounters(metrics: MetricsApi["metrics"]): void {
@@ -231,6 +232,7 @@ function buildClientContext(
     // RTT tracking for jitter (CircularBuffer gives O(1) push w/ auto-eviction)
     rttSamples: new CircularBuffer<number>(10),
     lossWindow: new CircularBuffer<boolean>(LOSS_WINDOW_SIZE),
+    fleet: null,
     mut: createMutableState()
   };
 }
@@ -325,6 +327,7 @@ function buildControlApi(ctx: ClientContext) {
       stopMetricsPublishing(ctx);
       stopCongestionControl(ctx);
       stopBonding(ctx);
+      stopFleetClient(ctx);
     },
     setMonitoring(hooks: MonitoringState | null) {
       ctx.mut.monitoringHooks = hooks;
@@ -341,6 +344,7 @@ function buildControlApi(ctx: ClientContext) {
  */
 function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
   const ctx = buildClientContext(app, state, metricsApi);
+  ctx.fleet = createFleetClientRuntime(state, (missing) => sendFleetNak(ctx, missing));
   return { ...buildSendApi(ctx), ...buildControlApi(ctx) };
 }
 

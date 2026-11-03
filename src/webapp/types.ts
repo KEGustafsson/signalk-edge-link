@@ -92,6 +92,39 @@ export interface MetricsData {
   };
   lastError?: { message: string; timeAgo: number };
   recentErrors?: Array<{ category: string; message: string; timestamp: number }>;
+  /** Fleet sharing counters; null when fleet sharing is not running. */
+  fleet?: FleetMetricsData | null;
+}
+
+/** Mirrors `FleetMetrics` in src/foundation/types/metrics.ts (GET /metrics `fleet`). */
+export interface FleetMetricsData {
+  members: number;
+  packetsSent: number;
+  bytesSent: number;
+  valuesSent: number;
+  retransmits: number;
+  rateLimitedFlushes: number;
+  originDrops: number;
+  identityConflicts: number;
+  identityRejected: number;
+  replayedHellos?: number;
+  keepalivesSent: number;
+  snapshotsSent: number;
+  staleStreamPackets: number;
+  packetsAbandoned: number;
+  rateBackoffs?: number;
+  minRateFactor?: number;
+  state: "disabled" | "offered" | "active" | "declined" | "not-offered";
+  packetsReceived: number;
+  valuesReceived: number;
+  metaReceived?: number;
+  contextsKnown: number;
+  loopDrops: number;
+  duplicatePackets: number;
+  staleValues?: number;
+  rejectedPackets: number;
+  acksSent: number;
+  naksSent: number;
 }
 
 export interface MonitoringData {

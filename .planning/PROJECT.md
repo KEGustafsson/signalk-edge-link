@@ -81,7 +81,7 @@ Future security and scaling work remains deliberately unimplemented and document
 
 ## Next Milestone Goals
 
-The next milestone should start with fresh requirements. Good candidates include promoting one 999.x backlog item, tightening remaining operational validation, or preparing a package/release cycle around the completed hardening work.
+Active milestone: v2 Fleet Data Sharing (`.planning/REQUIREMENTS.md`). Each client of one server receives the other clients' vessel data over its existing session, never its own vessel. The work adds server → client packet types under a HELLO capability, so Phase 6 is the dedicated protocol design phase that the out-of-scope rule above requires.
 
 ## Planning Artifacts
 
@@ -94,4 +94,4 @@ The next milestone should start with fresh requirements. Good candidates include
 
 ---
 
-_Last updated: 2026-05-01 after v1-maintenance-hardening milestone_
+_Last updated: 2026-11-02 after defining v2-fleet-sharing milestone_

@@ -10,7 +10,7 @@
 2. Encryption keys identical on both sides? (32 ASCII, 64 hex, or 44 base64)
 3. UDP port open in firewall? (`ufw status` or `iptables -L`)
 4. Plugin enabled in Signal K Admin UI?
-5. Node.js ≥ 20.9.0? (`node --version`)
+5. Node.js ≥ 24? (`node --version`)
 
 ---
 
@@ -165,6 +165,29 @@ but the two hops need not match each other.
 > `packet tampered or wrong key` or as a possible `stretchAsciiKey` /
 > key-format mismatch. If you are chasing a key problem that does not exist on
 > a link where `epochBoundAuth` is enabled anywhere, upgrade first.
+
+---
+
+## Fleet Sharing
+
+`GET /connections/<id>/metrics` → `fleet.state` on a client tells you which end to look at. The fields are defined in [Fleet Sharing Metrics](metrics.md#fleet-sharing-metrics).
+
+| `fleet.state` | Meaning                                                                | Fix                                                                                                                                                                                                                                                                              |
+| ------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `offered`     | Fleet sharing is pending; the server has not answered yet              | Normal for a few seconds after start. Persisting: the client may not know its own vessel ID yet, and sends no fleet request until it does. Check that `mmsi`, `uuid` or the Signal K `self` alias is set                                                                         |
+| `declined`    | The server answered and has `fleetSharing.enabled` off                 | Enable it on the server connection                                                                                                                                                                                                                                               |
+| `not-offered` | Three HELLOs got no answer                                             | If the uplink also shows no traffic, nothing reaches the server: check the server address and port, firewalls on the path, and that the server is running. If the uplink works, the server runs a version without fleet sharing; upgrade it. The uplink keeps working either way |
+| `active`      | The server accepted fleet sharing and the client uses its fleet stream | Other vessels appear once they are members and uplink data; see the symptoms below                                                                                                                                                                                               |
+
+| Symptom                                           | Check                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `active` but no other vessels appear              | Server `fleet.members` ≥ 2? A vessel only appears once it is a member and uplinks data. With scope `fleet`, AIS targets are not shared                                                                                                                                                                                                                                                                                                                                   |
+| Some paths missing                                | Client and server `fleetSharing.pathFilter` both apply; `networking.edgeLink.*` is never shared                                                                                                                                                                                                                                                                                                                                                                          |
+| Values update slowly                              | Server `fleet.minRateFactor` below 1: a member's downlink is losing packets and its rate is cut; it recovers by itself once loss stops. `fleet.rateLimitedFlushes` rising at factor 1: raise `maxBytesPerSec` on the server (and the client's requested value, if set). Every FLEET_DATA packet uses the byte budget for its full length, so a packet longer than the 1400-byte target delays the values queued after it by about its length divided by the session rate |
+| `fleet.packetsAbandoned` rising                   | Server: FLEET_DATA was given up because its retransmits ran out (sustained loss on that member's downlink), it was evicted from a full retransmit queue, or the packet for a single value, fully encoded, would exceed the 65,507-byte UDP limit and can never be sent. For the last case, find the path whose value produces that packet and leave it out with `fleetSharing.pathFilter`                                                                                |
+| Data stops after a while, resumes within a minute | The vessel's NAT mapping expired: fleet data reaches it only while its outbound packets keep the mapping open. Lower `heartbeatInterval` (default 25000 ms) below the NAT's UDP timeout                                                                                                                                                                                                                                                                                  |
+| `fleet.originDrops` rising on the server          | A client relays another member's vessel (e.g. AIS copy). Expected and harmless: the member's own data wins                                                                                                                                                                                                                                                                                                                                                               |
+| `fleet.identityConflicts` rising                  | Two sessions claim the same vessel: duplicate `mmsi` across vessels, or one vessel with two client connections to this server                                                                                                                                                                                                                                                                                                                                            |
 
 ---
 

@@ -16,6 +16,7 @@ import type * as dgram from "dgram";
 import type { ClientContext } from "./context";
 import { receiveACK, receiveNAK } from "./reliability";
 import { confirmHelloAcknowledged } from "./lifecycle";
+import { handleHelloAck, handleFleetData } from "./fleet";
 import { resetValueDedupState } from "../../../codec/value-dedup";
 import { resetPathThrottleState } from "../../../codec/delta-sanitizer";
 
@@ -257,6 +258,10 @@ export async function handleControlPacket(
       resetValueDedupState(ctx.dedupState);
       resetPathThrottleState(ctx.throttleState);
       invokeRequestHandler(ctx, mut.fullStatusRequestHandler, "FULL_STATUS_REQUEST");
+    } else if (parsed.type === PacketType.HELLO_ACK) {
+      handleHelloAck(ctx, parsed);
+    } else if (parsed.type === PacketType.FLEET_DATA) {
+      await handleFleetData(ctx, parsed);
     }
     // Ignore other packet types on client side
   } catch (err: unknown) {

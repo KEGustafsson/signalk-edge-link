@@ -123,6 +123,19 @@ hunting for a key problem that does not exist.
 
 ---
 
+### Fleet sharing (`fleetSharing`)
+
+Fleet sharing ([protocol-v3-spec.md §15](protocol-v3-spec.md)) sends each client of a server connection the other clients' vessel data. Security-relevant behavior:
+
+- **Trust group = one server connection.** Every client of a server connection already shares that connection's `secretKey`, so any of them can decrypt any other's captured traffic. Fleet sharing does not widen that group: with scope `fleet` the server shares only vessels declared by clients of the same server connection. Use a separate server connection (port and key) for vessels that must not see each other.
+- **Vessel ID is encrypted.** HELLO is HMAC-authenticated but plaintext. The client's own vessel context, which usually contains its MMSI, is carried in HELLO only as AES-256-GCM ciphertext.
+- **Answers are bound to the HELLO.** Each fleet HELLO carries a fresh nonce; the client adopts a new fleet stream only from a HELLO_ACK echoing its latest nonce, and drops FLEET_DATA for any other stream. FLEET_DATA always carries the HMAC header tag (independent of `authenticatedHeaders`) and is checked by a per-stream replay window. Under `epochBoundAuth`, fleet packets are bound to the client's epoch like other control packets.
+- **One owner per vessel — a claim, not a proof.** A vessel can be claimed by one session at a time; the newest HELLO wins (`fleet.identityConflicts`). While fleet sharing is on, the server drops uplink deltas for a member's vessel from any other session (`fleet.originDrops`). This enforces the _current claim_: a client that holds the connection's `secretKey` can send a HELLO claiming another vessel and take ownership of it. Clients that must not be able to impersonate each other need separate server connections with separate keys.
+- **Replayed HELLOs cannot move ownership.** HELLO authentication does not bind the source address, so a captured HELLO could be replayed from another address. Another session takes a vessel from its live owner only with a HELLO whose tag-covered `timestamp` is strictly greater than that of the owner's newest accepted HELLO (`fleet.replayedHellos`). Clients write `timestamp` strictly increasing, so while the owner is live no HELLO it sent earlier, including one from the same millisecond, can displace it. Residuals: the record is in memory, so right after a _server_ restart, or while the vessel has no live session, a replayed HELLO can claim the vessel until the owner's next HELLO (at most 60 s after it stops receiving fleet packets). A vessel client restarted with its clock set back, that also changes source port, cannot reclaim itself until its old session expires.
+- **Own data is never accepted from the fleet.** A client discards fleet deltas for its own vessel and drops from its uplink every vessel it learned from the fleet (`fleet.loopDrops`).
+- **Bounded inbound work.** Clients cap how many FLEET_DATA they accept per second, and servers cap retransmits per packet and the retransmit queue per client. The values are in [protocol-v3-spec.md §15.10](protocol-v3-spec.md).
+- **AES-GCM nonce budget.** IVs are random 96-bit values (`src/codec/crypto.ts`). NIST SP 800-38D limits random IVs to 2^32 encryptions per key. With fleet sharing one key encrypts the uplink of every client plus the fleet traffic to every client: at 100 clients × 10 packets/s in each direction (2,000 packets/s) that limit is reached after about 25 days. Rotate `secretKey` well before that on high-rate hubs (see [Key Rotation](#key-rotation)).
+
 ## Security Properties
 
 | Property                       | Status          | Detail                                                                                                                           |

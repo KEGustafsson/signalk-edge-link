@@ -63,6 +63,7 @@ are preserved across the switch.
 | Encryption Key                    | ✓            | ✓              |
 | Protocol (Basic v1 / Advanced v3) | ✓            | ✓              |
 | `requestFullStatusOnRestart`      | ✓ (advanced) | —              |
+| `fleetSharing`                    | ✓ (advanced) | ✓ (advanced)   |
 | v1 ping-monitor fields            | —            | ✓ (Basic only) |
 
 The encryption key field is a password input; the helper text accepts a
@@ -149,6 +150,10 @@ Grouped into three sections:
 - **Congestion Control** _(v3)_ — AIMD state and delta-timer auto-adjustment.
 - **Connection Bonding** _(v3)_ — per-link status and a **manual failover**
   button (primary ↔ backup).
+- **Fleet Sharing** _(v3, when `fleetSharing` is enabled)_ — fleet state
+  (`active`, `offered`, `declined`, `not-offered`) with the next step for any
+  state other than `active`, vessels and values received, echo suppression,
+  duplicates and rejections.
 - **Monitoring & Alerts** _(v3)_ — packet loss, retransmission tracking, and
   alert thresholds.
 - **Status** — summarizes the active delta timer, subscription, and sentence
@@ -169,6 +174,10 @@ congestion/bonding cards:
 
 - **Performance Metrics** (always shown).
 - **Network Quality**, **Bandwidth Monitor**, **Path Analytics** _(v3)_.
+- **Fleet Sharing** _(v3, when `fleetSharing` is enabled)_ — members, values and
+  bytes sent, the slowest member's loss-adaptive pacing (with an explanation
+  when it is below 100%), retransmits, relayed copies dropped, and identity
+  conflicts.
 - **Monitoring & Alerts** _(v3, when monitoring data is available)_.
 
 **Advanced:**

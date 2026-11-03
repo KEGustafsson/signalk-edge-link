@@ -155,6 +155,48 @@ Nested under `alertThresholds`. Each metric has `warning` and `critical` levels.
 
 ---
 
+## Fleet Sharing (Advanced/v3 Only)
+
+`fleetSharing` lets every client of one server receive the other clients' vessel data over the link the client already opened. The server sends to the address and port the client's packets come from, so a vessel behind NAT needs no inbound port. A client never receives its own vessel. Both ends must enable it; with either end off, the link behaves exactly as without the field. Wire format: [protocol-v3-spec.md §15](protocol-v3-spec.md).
+
+| Field                 | Mode   | Type    | Default   | Range       | Description                                                                                                                                                                                                                                                                                                          |
+| --------------------- | ------ | ------- | --------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`             | both   | boolean | `false`   | —           | Server: share. Client: request.                                                                                                                                                                                                                                                                                      |
+| `scope`               | server | string  | `"fleet"` | fleet / all | `fleet`: only vessels declared by clients of this server connection. `all`: every context in the server's tree, including AIS targets.                                                                                                                                                                               |
+| `includeServerVessel` | server | boolean | `false`   | —           | Also share the server's own vessel (a hub that is itself a vessel).                                                                                                                                                                                                                                                  |
+| `pathFilter`          | both   | object  | —         | —           | `{ allow, deny }` globs. Server: what is shared at all. Client: what this vessel asks for. The server applies both. `networking.edgeLink.*` is never shared. At most 32 patterns per list, 128 characters each; a client filter must also fit the encrypted HELLO field (validation says when it does not).          |
+| `maxBytesPerSec`      | both   | integer | `8192`    | 256–1048576 | Fleet bytes per second per client. The client value is a requested ceiling; the server uses the lower of the two. Over budget, only the newest value per path is sent. The server lowers a member's rate automatically while its downlink loses packets and restores it when the loss stops (`fleet.minRateFactor`). |
+| `batchIntervalMs`     | server | integer | `1000`    | 100–10000   | How often coalesced fleet values are flushed.                                                                                                                                                                                                                                                                        |
+
+Validation rejects `enabled: true` on `protocolVersion: 1`, on a client with `bonding.enabled`, and server-only keys on a client.
+
+Metadata (units, zones, display names) is sent with each path the first time a vessel receives it, and again when it changes.
+
+Each client's own vessel ID (its `vessels.urn:…` context) is sent to the server encrypted inside HELLO. Data for that vessel is never sent back to it, and while fleet sharing is on, the server accepts a member's vessel only from that member's own session.
+
+```json
+{
+  "serverType": "server",
+  "udpPort": 4446,
+  "protocolVersion": 3,
+  "fleetSharing": { "enabled": true, "scope": "fleet", "maxBytesPerSec": 8192 }
+}
+```
+
+```json
+{
+  "serverType": "client",
+  "udpAddress": "hub.example.net",
+  "udpPort": 4446,
+  "protocolVersion": 3,
+  "fleetSharing": { "enabled": true, "pathFilter": { "allow": ["navigation.*"] } }
+}
+```
+
+A complete pair is in [`samples/v3-fleet-sharing.json`](../samples/v3-fleet-sharing.json).
+
+---
+
 ## Runtime Configuration Files (Hot-Reload)
 
 Three JSON files can be edited or updated via the API **without restarting the plugin**. Stored in:

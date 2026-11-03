@@ -19,6 +19,8 @@ import { ReplayWindow } from "../../reliability/replay-window";
 import { MetricsPublisher } from "../../metrics/publisher";
 import type { ValueDedupState } from "../../../codec/value-dedup";
 import type { SignalKApp, MetricsApi, InstanceState } from "../../../foundation/types";
+import { createFleetServerState } from "./fleet";
+import type { FleetServerState, FleetSessionState } from "./fleet";
 
 import {
   MAX_CLIENT_SESSIONS,
@@ -72,6 +74,9 @@ export interface ClientSession {
   /** Per-(context, path) cache for same-as-last value dedup expansion.
    *  Created lazily on first sentinel/absolute-value receipt. */
   valueDedupState: ValueDedupState | null;
+  /** Fleet sharing state while this session is accepted (protocol-v3-spec
+   *  §15); null or absent otherwise. */
+  fleet?: FleetSessionState | null;
 }
 
 /**
@@ -168,6 +173,8 @@ export interface ServerContext {
    * {@link handshakedPeerAddress}. LRU-bounded like {@link replayGuards}.
    */
   handshakedAddresses: Map<string, number>;
+  /** Fleet sharing state; null when `fleetSharing.enabled` is off. */
+  fleet: FleetServerState | null;
   mut: ServerMutableState;
 }
 
@@ -414,6 +421,7 @@ export function createServerContext(deps: CreateContextDeps): ServerContext {
     preAuthByIp: new Map<string, { count: number; windowStart: number }>(),
     replayGuards: new Map<string, ReplayGuard>(),
     handshakedAddresses: new Map<string, number>(),
+    fleet: createFleetServerState({ state }),
     mut: createMutableState()
   };
 }
