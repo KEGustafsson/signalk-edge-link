@@ -792,6 +792,8 @@ describe("fleet sharing end-to-end", () => {
     await connectAll();
     const [a, b] = clients;
     const crypto = require("crypto");
+    const { RetransmitQueue } = require("../../src/transport/reliability/retransmit-queue");
+    const queued = jest.spyOn(RetransmitQueue.prototype, "add");
     hub.state.socketUdp.send.mockClear();
     const before = hub.metricsApi.metrics.fleet.packetsAbandoned;
     hub.bus.app.handleMessage("test", {
@@ -809,6 +811,8 @@ describe("fleet sharing end-to-end", () => {
     });
     await wait(250);
     await pump(hub, clients);
+    const queuedSizes = queued.mock.calls.map((call) => call[1].length);
+    queued.mockRestore();
     const sizes = hub.state.socketUdp.send.mock.calls
       .filter((call) => call[1] === a.port && Buffer.from(call[0])[3] === PacketType.FLEET_DATA)
       .map((call) => call[0].length);
@@ -816,6 +820,9 @@ describe("fleet sharing end-to-end", () => {
     expect(Math.max(...sizes)).toBeLessThanOrEqual(65507);
     expect(hub.metricsApi.metrics.fleet.packetsAbandoned).toBeGreaterThan(before);
     expect(lastSog(a, b.self)).toBeCloseTo(3.3);
+    // The oversized packet never entered any retransmit queue.
+    expect(queuedSizes.length).toBeGreaterThan(0);
+    expect(Math.max(...queuedSizes)).toBeLessThanOrEqual(65507);
   });
 
   test("a failed send of the first half still queues the second half for recovery", async () => {
