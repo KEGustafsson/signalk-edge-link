@@ -805,7 +805,7 @@ The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming at
 | Rate recovery after 2 s without loss        | +0.05 per second                        | Server |
 | Minimum `maxBytesPerSec` and effective rate | 256 bytes/s (lower requests are raised) | Server |
 
-The server splits a FLEET_DATA that would exceed 1400 bytes in half until each part fits. A single value too large to fit is sent alone, so it cannot take other values with it if that packet is lost. A value too large for any UDP datagram (over 65,507 bytes) is dropped and counted in `fleet.packetsAbandoned`.
+FLEET_DATA packets target 1400 bytes. A value whose packet alone exceeds 1400 bytes travels in a packet of its own, so losing that packet costs no other value. A value too large for any UDP datagram (over 65,507 bytes) is dropped and counted in `fleet.packetsAbandoned`. A large packet spends the session's byte budget like any other, so values queued after it wait about its size divided by the session rate.
 
 ### 15.11 Test vectors
 
