@@ -4,6 +4,16 @@ All notable changes to signalk-edge-link are documented here.
 
 ## [Unreleased]
 
+## [4.4.0-beta.1] - 2026-11-04
+
+Beta of 4.4.0, published under the npm `beta` dist-tag; `latest` stays at
+4.3.0. Fleet sharing is new and off by default. With `fleetSharing` off on
+either end, the wire format is unchanged and this release interoperates with
+4.3.0 peers in both directions; the conformance vectors regenerate
+byte-identical. A fleet-enabled client connected to a 4.3.0 server reports
+`not-offered` and its uplink keeps working (`docs/protocol-v3-spec.md` §15.1).
+Node.js 24 or later is required (see Changed).
+
 ### Added — fleet sharing (`fleetSharing`, protocol v3)
 
 - Every client of one server connection can receive the other clients' vessel
