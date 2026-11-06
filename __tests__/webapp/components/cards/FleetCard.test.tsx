@@ -87,6 +87,13 @@ describe("FleetCard", () => {
     expect(conflicts?.className ?? "").not.toMatch(/error/);
   });
 
+  test("server view shows deferred HELLOs as a running total, not an error", () => {
+    render(<FleetCard fleet={fleet({ helloDeferred: 3 })} mode="server" />);
+    const deferred = screen.getByText(/^HELLOs deferred, own vessel ID unknown/).parentElement;
+    expect(deferred?.textContent).toMatch(/3/);
+    expect(deferred?.className ?? "").not.toMatch(/error/);
+  });
+
   test("server view has no pacing hint at full rate", () => {
     render(<FleetCard fleet={fleet({ members: 2 })} mode="server" />);
     expect(screen.queryByTestId("fleet-hint")).toBeNull();

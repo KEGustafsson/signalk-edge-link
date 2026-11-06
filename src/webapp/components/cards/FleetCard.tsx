@@ -119,10 +119,11 @@ function ServerView({ fleet }: { fleet: FleetMetricsData }) {
             value={fleet.replayedHellos ?? 0}
             hasError={(fleet.replayedHellos ?? 0) > 0}
           />
+          {/* A running total: it stays above zero after the vessel ID resolves,
+              so it is not shown as an error. */}
           <StatItem
-            label="Joins waiting for own vessel ID"
+            label="HELLOs deferred, own vessel ID unknown"
             value={fleet.helloDeferred ?? 0}
-            hasError={(fleet.helloDeferred ?? 0) > 0}
           />
           <StatItem
             label="Refused identities"
