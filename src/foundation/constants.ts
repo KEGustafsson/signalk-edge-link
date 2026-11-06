@@ -296,6 +296,13 @@ export const FLEET_LEARNED_SAVE_INTERVAL_MS = 60000;
 export const FLEET_SNAPSHOT_MIN_INTERVAL_MS = 10000;
 /** Retransmit FLEET_DATA still unacknowledged after this long. */
 export const FLEET_RETRANSMIT_AFTER_MS = 2000;
+/**
+ * A FLEET_NAK resends a packet at most this often. The client repeats its
+ * NAK every nakTimeout until the gap fills; without the spacing those
+ * repeats would spend every retransmit within one round trip, inside the
+ * same burst of loss.
+ */
+export const FLEET_NAK_RETRANSMIT_MIN_MS = 1000;
 /** Retransmits per FLEET_DATA packet. Values are coalesced and re-sent when
  *  they change, so a packet lost three times is cheaper to drop than to chase. */
 export const FLEET_MAX_RETRANSMITS = 3;

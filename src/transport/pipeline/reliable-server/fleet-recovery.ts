@@ -11,7 +11,11 @@
  */
 
 import { ParsedPacket } from "../../../codec/packet-codec";
-import { FLEET_MAX_NAK_SEQUENCES, FLEET_RETRANSMIT_AFTER_MS } from "../../../foundation/constants";
+import {
+  FLEET_MAX_NAK_SEQUENCES,
+  FLEET_NAK_RETRANSMIT_MIN_MS,
+  FLEET_RETRANSMIT_AFTER_MS
+} from "../../../foundation/constants";
 import { ensureFleetMetrics } from "../../fleet/common";
 import type { ServerContext, ClientSession } from "./context";
 import { sendUDP } from "./sessions";
@@ -129,8 +133,18 @@ export async function handleFleetNak(
   // Cut the rate for new loss only: a client NAKs a gap repeatedly until it
   // is filled (§15.5), and each repeat is the same loss, not more of it.
   const queue = session.fleet.retransmitQueue;
+  const now = Date.now();
   if (missing.some((sequence) => queue.get(sequence)?.attempts === 0)) {
-    backOff(ctx, session.fleet, Date.now());
+    backOff(ctx, session.fleet, now);
   }
-  await retransmit(ctx, session, missing.slice(0, FLEET_MAX_NAK_SEQUENCES));
+  // A repeat of a NAK already answered within the last second is the same
+  // request still in flight; resending again would spend the packet's
+  // retransmits inside one burst of loss.
+  const due = missing.slice(0, FLEET_MAX_NAK_SEQUENCES).filter((sequence) => {
+    const entry = queue.get(sequence);
+    return (
+      !!entry && (entry.attempts === 0 || now - entry.timestamp >= FLEET_NAK_RETRANSMIT_MIN_MS)
+    );
+  });
+  await retransmit(ctx, session, due);
 }

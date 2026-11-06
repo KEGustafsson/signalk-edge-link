@@ -285,4 +285,22 @@ describe("fleet loss-adaptive rate", () => {
     expect(session.fleet.rateFactor).toBe(1);
     expect(ctx.metrics.fleet.minRateFactor).toBe(1);
   });
+
+  test("repeated NAKs of one gap spread its retransmits instead of spending them at once", async () => {
+    const { ctx, session } = makeServer({ scope: "all" });
+    enqueueValues(ctx, 1, now);
+    await fleetTick(ctx);
+    const from = { address: session.address, port: session.port };
+    // The client NAKs every 100 ms while the round trip is 700 ms.
+    for (let i = 0; i < 7; i++) {
+      await handleFleetNak(ctx, nakFor(ctx, session.fleet.stream, [0]), from);
+      now += 100;
+    }
+    expect(ctx.metrics.fleet.retransmits).toBe(1);
+    expect(session.fleet.retransmitQueue.get(0).attempts).toBe(1);
+    // A second later the gap is still open: the next NAK is answered.
+    now += 400;
+    await handleFleetNak(ctx, nakFor(ctx, session.fleet.stream, [0]), from);
+    expect(ctx.metrics.fleet.retransmits).toBe(2);
+  });
 });

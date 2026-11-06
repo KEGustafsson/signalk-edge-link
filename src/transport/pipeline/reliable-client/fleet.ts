@@ -312,7 +312,7 @@ export function handleHelloAck(ctx: ClientContext, parsed: ParsedPacket): void {
   if (nonce === fleet.nonce && stream !== fleet.stream) {
     adoptStream(fleet, stream);
     ctx.app.debug(`[fleet] fleet stream ${stream} active`);
-    // Confirms the stream from this address (§15.4): the server holds all but
+    // Confirms the stream from this address (§15.1 rule 4): the server holds all but
     // one FLEET_DATA until a FLEET_ACK or FLEET_NAK for the stream arrives.
     sendAck(ctx);
   }
