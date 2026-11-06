@@ -143,6 +143,9 @@ export function handleFleetHello(
     ensureFleetMetrics(ctx.metrics).identityRejected++;
     ctx.app.debug(`[fleet] ${session.key} declared the server's own vessel; refused`);
     leaveFleet(ctx, session);
+    // Answer, so the client reports `declined` instead of waiting it out as
+    // `not-offered` and blaming the server version.
+    void answer(false);
     return;
   }
   if (helloReplayed(ctx, session, identity, memberSession(ctx, identity.self), order)) {

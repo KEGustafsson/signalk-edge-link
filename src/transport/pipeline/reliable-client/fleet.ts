@@ -315,6 +315,10 @@ export function handleHelloAck(ctx: ClientContext, parsed: ParsedPacket): void {
     // Confirms the stream from this address (§15.1 rule 4): the server holds all but
     // one FLEET_DATA until a FLEET_ACK or FLEET_NAK for the stream arrives.
     sendAck(ctx);
+  } else if (stream === fleet.stream) {
+    // A keepalive or repeat answer for the stream we use: ACK it too, so a
+    // lost confirmation is repeated every keepalive instead of never.
+    scheduleAck(ctx);
   }
   if (fleet.stream !== null) {
     setState(ctx, "active");

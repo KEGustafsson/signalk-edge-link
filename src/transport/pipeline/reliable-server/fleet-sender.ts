@@ -207,10 +207,10 @@ async function sendChunk(
       `[fleet] ${values[0].context} ${values[0].path} needs ${packet.length} bytes; sent alone`
     );
   }
-  if (!fleetSession.confirmed && fleetSession.nextSeq !== 0) {
-    // One FLEET_DATA per stream until the client proves it receives here.
-    // Keyed on the sequence, not the retransmit queue, so abandoning that
-    // packet does not let another one out.
+  if (!fleetSession.confirmed && unconfirmedHeld(fleetSession)) {
+    // Until the client proves it receives here: one FLEET_DATA in flight,
+    // and a new one at most once per keepalive interval, so a lost first
+    // packet cannot stall the stream and a spoofed address gets a trickle.
     forgetMeta(fleetSession, withMeta.added);
     requeuePending(fleetSession, values);
     return false;
@@ -220,6 +220,15 @@ async function sendChunk(
   }
   await transmitFleetData(ctx, session, fleetSession, packet, values.length);
   return true;
+}
+
+/** An unconfirmed stream waits while a packet is in flight or one went out recently. */
+function unconfirmedHeld(fleetSession: FleetSessionState): boolean {
+  return (
+    fleetSession.retransmitQueue.getSize() > 0 ||
+    (fleetSession.unconfirmedSentAt !== 0 &&
+      Date.now() - fleetSession.unconfirmedSentAt < FLEET_KEEPALIVE_MS)
+  );
 }
 
 /** Take the next sequence, queue the packet for recovery, charge and send it. */
@@ -236,6 +245,9 @@ async function transmitFleetData(
   fleetSession.retransmitQueue.add(seq, packet);
   fleetSession.tokens -= packet.length;
   fleetSession.lastSentAt = Date.now();
+  if (!fleetSession.confirmed) {
+    fleetSession.unconfirmedSentAt = fleetSession.lastSentAt;
+  }
   await sendFleetPacket(ctx, session, packet);
   const metrics = ensureFleetMetrics(ctx.metrics);
   metrics.packetsSent++;

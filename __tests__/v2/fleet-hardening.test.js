@@ -10,7 +10,8 @@ const { createServerContext } = require("../../src/transport/pipeline/reliable-s
 const { getOrCreateSession } = require("../../src/transport/pipeline/reliable-server/sessions");
 const {
   createSessionState,
-  onFleetDelta
+  onFleetDelta,
+  requeuePending
 } = require("../../src/transport/pipeline/reliable-server/fleet");
 const { fleetTick } = require("../../src/transport/pipeline/reliable-server/fleet-sender");
 const {
@@ -180,6 +181,19 @@ describe("fleet coalescing", () => {
     const values = (await decodeAll(packets)).flatMap((d) => d.updates.flatMap((u) => u.values));
     expect(values.map((v) => v.value)).toEqual([3]);
   });
+
+  test("values put back after a deferred send go to the head of the queue", () => {
+    const { ctx, session } = makeServer({ scope: "all" });
+    enqueueValues(ctx, 3, Date.now());
+    const pending = session.fleet.pending;
+    const [first, second, third] = [...pending.values()];
+    // The sender took the first two, could not send them, and puts them back
+    // while the third waited.
+    pending.delete([...pending.keys()][0]);
+    pending.delete([...pending.keys()][0]);
+    requeuePending(session.fleet, [first, second]);
+    expect([...session.fleet.pending.values()]).toEqual([first, second, third]);
+  });
 });
 
 describe("fleet HELLO hardening", () => {
@@ -240,6 +254,20 @@ describe("fleet HELLO hardening", () => {
     expect(ctx.fleet.members.has("vessels.urn:mrn:imo:mmsi:999000999")).toBe(false);
     expect(ctx.metrics.fleet.identityRejected).toBe(1);
   });
+
+  test("refusing the server's own vessel answers, so the client reports declined", async () => {
+    const { ctx, packets } = makeServer({}, { serverMmsi: "999000999" });
+    const other = getOrCreateSession(ctx, { address: "10.0.0.2", port: 2 });
+    handleFleetHello(ctx, other, fleetHelloInfo("vessels.urn:mrn:imo:mmsi:999000999", 1000), false);
+    await new Promise((resolve) => setImmediate(resolve));
+    const parser = new PacketParser({ secretKey });
+    const acks = packets
+      .map((pkt) => parser.parseHeader(pkt, { epoch: 0 }))
+      .filter((parsed) => parsed.type === PacketType.HELLO_ACK)
+      .map((parsed) => JSON.parse(parsed.payload.toString()));
+    expect(acks).toHaveLength(1);
+    expect(acks[0].accepted).not.toContain(FLEET_CAPABILITY);
+  });
 });
 
 describe("fleet return routability", () => {
@@ -271,6 +299,14 @@ describe("fleet return routability", () => {
     const held = fleetDataSent(packets);
     expect(held.distinct).toBe(1);
     expect(held.sends).toBeLessThanOrEqual(1 + FLEET_MAX_RETRANSMITS);
+    // Once a keepalive interval has passed, one more packet may go, so a
+    // real client whose first packet was lost is not stalled for good.
+    for (let tick = 0; tick < 7; tick++) {
+      session.lastPacketTime = now;
+      await fleetTick(ctx);
+      now += 1000;
+    }
+    expect(fleetDataSent(packets).distinct).toBe(2);
     expect(session.fleet.pending.size).toBeGreaterThan(0);
     // FLEET_ACK(stream, 0xFFFFFFFF), as a client sends on adopting the stream.
     const ack = ctx.packetParser.parseHeader(
@@ -339,6 +375,21 @@ describe("fleet loss-adaptive rate", () => {
     }
     expect(session.fleet.rateFactor).toBe(1);
     expect(ctx.metrics.fleet.minRateFactor).toBe(1);
+  });
+
+  test("a gap whose retransmit the budget holds back cuts the rate once, not on every NAK", async () => {
+    const { ctx, session } = makeServer({ scope: "all" });
+    enqueueValues(ctx, 5, now);
+    await fleetTick(ctx);
+    const from = { address: session.address, port: session.port };
+    // An empty budget: the retransmit waits, so the packet is never resent.
+    session.fleet.tokens = -1e9;
+    for (let i = 0; i < 5; i++) {
+      await handleFleetNak(ctx, nakFor(ctx, session.fleet.stream, [0]), from);
+      now += 1500;
+    }
+    expect(session.fleet.retransmitQueue.get(0).attempts).toBe(0);
+    expect(ctx.metrics.fleet.rateBackoffs).toBe(1);
   });
 
   test("repeated NAKs of one gap spread its retransmits instead of spending them at once", async () => {

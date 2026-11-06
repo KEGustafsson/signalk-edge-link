@@ -84,12 +84,16 @@ export interface FleetSessionState {
   lastHello: HelloOrder;
   /**
    * A FLEET_ACK or FLEET_NAK naming this stream has arrived, so the client
-   * receives at its source address. Until then the stream sends one
-   * FLEET_DATA and nothing more but its retransmits (§15.1), so a HELLO
-   * replayed with a spoofed source cannot make the server stream fleet data
-   * to that address.
+   * receives at its source address. Until then the stream has at most one
+   * FLEET_DATA in flight and starts a new one at most once per keepalive
+   * interval (§15.1), so a HELLO replayed with a spoofed source cannot make
+   * the server stream fleet data to that address.
    */
   confirmed: boolean;
+  /** When the last new FLEET_DATA went out while unconfirmed (0 = none yet). */
+  unconfirmedSentAt: number;
+  /** Highest sequence a FLEET_NAK has named on this stream (rate backoff). */
+  highestNaked: number | null;
 }
 
 /** Server-wide fleet state, present only when `fleetSharing.enabled`. */
@@ -196,16 +200,19 @@ function contextInScope(ctx: ServerContext, session: ClientSession, context: str
   if (!session.fleet || context === session.fleet.self || context === "vessels.self") {
     return false;
   }
-  if (relaysContext(ctx, session, context)) {
-    return false;
-  }
-  if (fleet.config.scope === "all") {
-    return true;
-  }
+  // A member's own vessel, and the hub's when shared, always go out: their
+  // data enters the hub only from their owner (origin authority), so a copy
+  // this session once uplinked (an AIS target, say) is not its own data.
   if (memberSession(ctx, context)) {
     return true;
   }
-  return fleet.config.includeServerVessel && context === serverSelf(ctx);
+  if (fleet.config.includeServerVessel && context === serverSelf(ctx)) {
+    return true;
+  }
+  // Scope `all` adds every other context, except those this session's vessel
+  // uplinked itself: sending them back would make its loop guard drop them
+  // from its own uplink (§15.6).
+  return fleet.config.scope === "all" && !relaysContext(ctx, session, context);
 }
 
 /** Queue one update's in-scope values for a session, newest value wins. */
@@ -320,7 +327,9 @@ export function createSessionState(ctx: ServerContext, identity: FleetIdentity):
     lastBackoffAt: 0,
     lastRateIncreaseAt: Date.now(),
     lastHello: { epoch: 0, ts: 0 },
-    confirmed: false
+    confirmed: false,
+    unconfirmedSentAt: 0,
+    highestNaked: null
   };
 }
 

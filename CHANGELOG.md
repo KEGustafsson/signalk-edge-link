@@ -18,11 +18,12 @@ fixes below take effect when both ends are updated, except where noted.
   address took the member out of the fleet. A fleet session now ignores any
   HELLO not newer than the one it was accepted with (`fleet.replayedHellos`).
 - **No traffic reflection.** A fleet HELLO replayed with a spoofed source
-  address drew the whole fleet stream to that address. The server now sends
-  one FLEET_DATA until the client confirms the stream with a FLEET_ACK or
-  FLEET_NAK, even after that packet is abandoned; a current client sends that
-  FLEET_ACK as soon as it adopts the stream. A beta.1 client confirms with its
-  first regular FLEET_ACK.
+  address drew the whole fleet stream to that address. Until the client
+  confirms the stream with a FLEET_ACK or FLEET_NAK, the server now keeps one
+  FLEET_DATA in flight and starts a new one at most every 20 s. A current
+  client confirms as soon as it adopts the stream and again on every
+  keepalive, so a lost confirmation does not stall the stream; a beta.1 client
+  confirms with its first regular FLEET_ACK.
 - **Fleet HELLOs are ordered by epoch, then timestamp.** A vessel restarted
   with its clock set back sent HELLOs older than its previous run's and was
   refused as a replay until its old session expired. The persisted connection
@@ -45,8 +46,18 @@ false` cannot be bypassed.
   its replay window has not seen, whenever it arrives. The server answers
   repeated NAKs of one packet at most once a second, so its 3 retransmits are
   not spent within a single burst of loss.
-- **The rate backs off once per loss.** Repeated NAKs of a packet already
-  retransmitted no longer cut the member's rate again.
+- **The rate backs off once per loss.** Repeated NAKs of the same gap no
+  longer cut the member's rate again, including while the byte budget holds
+  its retransmit back.
+- **Scope never hides a member from another member.** A member whose vessel
+  another member had uplinked earlier (an AIS copy, before it joined) is
+  always shared with that member; only the extra contexts of scope `all` are
+  subject to the relay rule.
+- **Refusing the server's own vessel is answered.** The client then reports
+  `declined` instead of `not-offered`.
+- **The learned set is saved safely on stop.** A forced save waits for a
+  periodic save in flight, and writes go through a uniquely named, synced
+  temporary file.
 - **`not-offered` recovers by itself (client).** A client that started while
   the server was unreachable, or whose HELLO answers were lost in an outage,
   stayed `not-offered` until the 5-minute HELLO refresh. It now asks again

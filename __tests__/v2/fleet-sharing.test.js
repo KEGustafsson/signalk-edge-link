@@ -21,7 +21,8 @@ const {
   sog,
   contextsReceived,
   lastSog,
-  typesSentTo
+  typesSentTo,
+  deliverToHub
 } = require("../helpers/fleet-harness");
 
 describe("fleet sharing end-to-end", () => {
@@ -934,6 +935,30 @@ describe("fleet sharing end-to-end", () => {
     expect(contextsReceived(a).has(ais)).toBe(false);
     expect(a.state.fleetLearnedContexts.has(ais)).toBe(false);
   });
+
+  test.each(["fleet", "all"])(
+    "scope %s: a vessel another member uplinked before it joined still reaches that member",
+    async (scope) => {
+      hub = makeHub({ enabled: true, batchIntervalMs: 50, scope });
+      const a = makeClient("230000001", 40001);
+      const b = makeClient("230000002", 40002);
+      clients = [a, b];
+      hub.server.startACKTimer();
+      await b.client.sendHello(HUB_ADDR, HUB_PORT);
+      await pump(hub, [b]);
+      // B's AIS receiver reports A while A is not yet a member.
+      await b.client.sendDelta([sog(a.self, 1.1, "ais.1")], secretKey, HUB_ADDR, HUB_PORT);
+      await deliverToHub(hub, b);
+      await a.client.sendHello(HUB_ADDR, HUB_PORT);
+      await pump(hub, clients);
+      await a.client.sendDelta([sog(a.self, 5.5)], secretKey, HUB_ADDR, HUB_PORT);
+      await pump(hub, clients);
+      await wait(150);
+      await pump(hub, clients);
+      // A is a member now: its own data goes to B, whatever B uplinked before.
+      expect(lastSog(b, a.self)).toBe(5.5);
+    }
+  );
 
   test("METADATA for another member's vessel is refused like its DATA", async () => {
     await connectAll();

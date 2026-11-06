@@ -124,6 +124,21 @@ describe("fleet client recovery", () => {
     expect(a.metricsApi.metrics.fleet.state).toBe("active");
   });
 
+  test("a keepalive for the current stream is acknowledged, so a lost confirmation is repeated", async () => {
+    const { a } = await connect();
+    const acks = a.metricsApi.metrics.fleet.acksSent;
+    // The adopt FLEET_ACK may have been lost; a later keepalive HELLO_ACK
+    // for the same stream must bring another FLEET_ACK.
+    a.toHub.length = 0;
+    offset += 21000;
+    await wait(250);
+    const keepalives = hub.toClients.filter((out) => out.port === a.port);
+    expect(keepalives.length).toBeGreaterThan(0);
+    await deliverToClient(hub, a);
+    expect(a.metricsApi.metrics.fleet.acksSent).toBeGreaterThan(acks);
+    expect(a.toHub.length).toBeGreaterThan(0);
+  });
+
   test("a FLEET_DATA lost on a 700 ms round-trip link is recovered with default NAK timing", async () => {
     const { a, b } = await connect({ reliability: {} });
     await wait(300);
@@ -276,6 +291,35 @@ describe("learned fleet contexts", () => {
     edited.load(10);
     expect(edited.has("vessels.a")).toBe(false);
     expect(edited.has("vessels.b")).toBe(true);
+  });
+
+  test("a forced save waits for a save in flight and writes what changed since", async () => {
+    const file = path.join(dir, "fleet-learned.json");
+    const learned = new LearnedContexts(file, 1e9, 10);
+    learned.touch("vessels.a", 100_000);
+    const periodic = learned.save(100_000);
+    // Learned while the periodic save is writing, then the connection stops.
+    learned.touch("vessels.b", 200_000);
+    await learned.save(200_000, true);
+    await periodic;
+    expect(Object.keys(JSON.parse(fs.readFileSync(file, "utf-8")).contexts)).toEqual([
+      "vessels.a",
+      "vessels.b"
+    ]);
+  });
+
+  test("a new runtime starts from the instance's saved file", async () => {
+    const file = path.join(dir, "fleet-learned.json");
+    const saved = new LearnedContexts(file);
+    saved.touch("vessels.other", Date.now());
+    await saved.save(Date.now(), true);
+    // A fresh instance state, as after a plugin restart.
+    const runtime = createFleetClientRuntime(
+      { options: { fleetSharing: { enabled: true } } },
+      () => {},
+      file
+    );
+    expect(runtime.learnedContexts.has("vessels.other")).toBe(true);
   });
 
   test("a failed write is retried at the next save", async () => {

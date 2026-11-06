@@ -201,7 +201,7 @@ A complete pair is in [`samples/v3-fleet-sharing.json`](../samples/v3-fleet-shar
 
 - On the relay's **server** connection it shares the vessels connected to the relay with each other. With scope `fleet` that is only those vessels (plus the relay's own with `includeServerVessel`); with scope `all` it also shares every other vessel in the relay's tree, such as vessels the relay receives from upstream.
 - On the relay's **client** connection it makes the relay a member of the upstream server's fleet, under the relay's own vessel ID. The relay receives the upstream fleet into its tree and does not send those vessels back upstream.
-- The vessels behind the relay reach the upstream server as the relay's uplink data. They are not members there, so an upstream server with scope `fleet` does not share them with its other clients; scope `all` does. The upstream server never sends the relay the vessels the relay itself uplinks.
+- The vessels behind the relay reach the upstream server as the relay's uplink data. They are not members there, so an upstream server with scope `fleet` does not share them with its other clients; scope `all` does. With scope `all`, the upstream server does not send the relay the vessels the relay itself uplinks, unless they are members of the upstream fleet.
 
 ---
 

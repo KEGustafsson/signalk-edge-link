@@ -18,7 +18,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { rename, writeFile } from "node:fs/promises";
+import { saveConfigFile } from "../../../foundation/config-io";
 import {
   FLEET_LEARNED_MAX,
   FLEET_LEARNED_SAVE_INTERVAL_MS,
@@ -107,11 +107,19 @@ export class LearnedContexts {
 
   /**
    * Write the set when it changed, at most every FLEET_LEARNED_SAVE_INTERVAL_MS
-   * unless `force`. Writes to a temporary file and renames it, so a crash
-   * mid-write leaves the previous file intact.
+   * unless `force`. saveConfigFile writes a uniquely named, synced temporary
+   * file and renames it, so a crash or a second instance mid-write leaves a
+   * complete file. A forced save (connection stop) waits for a save already
+   * in flight and then writes whatever changed since that one's snapshot.
    */
   async save(now: number, force = false): Promise<void> {
-    if (!this.file || !this.dirty || this.saving) {
+    if (this.saving) {
+      if (!force) {
+        return;
+      }
+      await this.saving;
+    }
+    if (!this.file || !this.dirty) {
       return;
     }
     if (!force && now - this.lastSavedAt < FLEET_LEARNED_SAVE_INTERVAL_MS) {
@@ -119,13 +127,13 @@ export class LearnedContexts {
     }
     this.dirty = false;
     this.lastSavedAt = now;
-    const body = JSON.stringify({ v: 1, contexts: Object.fromEntries(this.seen) });
-    const tmp = `${this.file}.tmp`;
-    this.saving = writeFile(tmp, body, "utf-8")
-      .then(() => rename(tmp, this.file as string))
-      .catch(() => {
-        // Not fatal: the in-memory set still guards this run.
-        this.dirty = true;
+    const body = { v: 1, contexts: Object.fromEntries(this.seen) };
+    this.saving = saveConfigFile(this.file, body)
+      .then((saved) => {
+        if (!saved) {
+          // Not fatal: the in-memory set still guards this run.
+          this.dirty = true;
+        }
       })
       .finally(() => {
         this.saving = null;

@@ -682,7 +682,7 @@ Fleet sharing is an additive extension of protocol v3: the version byte stays `0
 1. A client with `fleetSharing.enabled` adds `"fleet-v1"` to the HELLO `capabilities` array and a `fleet` field (§15.2).
 2. A server that receives such a HELLO answers with HELLO_ACK (§15.3). `accepted` contains `"fleet-v1"` only when the server's own `fleetSharing.enabled` is true.
 3. The server sends FLEET_DATA only to sessions it has accepted. The client sends FLEET_ACK and FLEET_NAK only after it has received a HELLO_ACK accepting `fleet-v1`.
-4. On adopting a stream the client sends FLEET_ACK with that stream and cumulative sequence `0xFFFFFFFF` (nothing received yet). Until a FLEET_ACK or FLEET_NAK naming the stream arrives, the server sends the session one FLEET_DATA on that stream and nothing more but its retransmits (§15.5), even after that packet is abandoned. This proves the client receives at the address the HELLO came from, so a HELLO replayed with a spoofed source draws at most one FLEET_DATA and its retransmits. A client built for 4.4.0-beta.1 does not send this FLEET_ACK; it confirms the stream with its first FLEET_ACK after that one packet arrives. If that packet and all its retransmits are lost, such a client receives nothing more until its next HELLO, at most 60 s later (§15.3), starts a new stream.
+4. On adopting a stream the client sends FLEET_ACK with that stream and cumulative sequence `0xFFFFFFFF` (nothing received yet). It also answers every later HELLO_ACK for that stream, keepalives included, with a FLEET_ACK, so a lost confirmation is repeated at the next keepalive. Until a FLEET_ACK or FLEET_NAK naming the stream arrives, the server has at most one FLEET_DATA in flight to the session and starts a new one at most once every 20 s (the keepalive interval), counting from the previous one even after it is abandoned. This proves the client receives at the address the HELLO came from, so a HELLO replayed with a spoofed source draws one FLEET_DATA, with its retransmits, per 20 s until the session expires. A client built for 4.4.0-beta.1 sends neither of these FLEET_ACKs; it confirms the stream with its first FLEET_ACK after a FLEET_DATA arrives.
 
 Receivers built before this extension reject packet types `0x09`-`0x0C` as unknown (`Unknown packet type`) and count them in `malformedPackets`. Rules 2-4 guarantee such a peer never receives them.
 
@@ -763,7 +763,7 @@ The server retransmits on FLEET_NAK, and retransmits any packet still unacknowle
 For an accepted session `s` the server sends a context `C` when all of these hold:
 
 1. `C` is not `s.self`.
-2. Scope `fleet` (default): `C` is the `self` of another accepted session on the same server instance, or `C` is the server's own vessel and `includeServerVessel` is true. Scope `all`: any context, including AIS targets, except contexts that `s`'s vessel uplinked itself in the last 24 h (its AIS targets, or vessels it relays from a fleet of its own). Sending a client its own uplink back would make the client treat those contexts as fleet data and stop uplinking them (§15.7).
+2. Scope `fleet` (default): `C` is the `self` of another accepted session on the same server instance, or `C` is the server's own vessel and `includeServerVessel` is true. Scope `all`: in addition, any other context, including AIS targets, except contexts that `s`'s vessel uplinked itself in the last 24 h (its AIS targets, or vessels it relays from a fleet of its own). Sending a client its own uplink back would make the client treat those contexts as fleet data and stop uplinking them (§15.7). Members' vessels and the shared server vessel are always sent, in both scopes, even if `s` once uplinked a copy of them: their data enters the hub only from their owner.
 3. The path does not start with `networking.edgeLink.`.
 4. The path passes the server's `fleetSharing.pathFilter` and the client's requested `pathFilter`.
 
@@ -791,7 +791,7 @@ Metadata (units, zones, display names) rides inside FLEET_DATA as standard `upda
 
 ### 15.9 Loss-adaptive rate
 
-The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming at least one sequence not yet retransmitted, or a FLEET_DATA still unacknowledged after 2 s, multiplies the factor by 0.7, at most once per second, down to 0.1. After 2 s without loss the factor grows by 0.05 per second back to 1. The effective rate never drops below 256 bytes/s. The vessel's downlink, usually the slowest hop, therefore sets the pace without configuration, and a burst of loss counts once rather than once per lost packet.
+The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming a sequence later than any NAKed before on the stream, or a FLEET_DATA still unacknowledged after 2 s, multiplies the factor by 0.7, at most once per second, down to 0.1. After 2 s without loss the factor grows by 0.05 per second back to 1. The effective rate never drops below 256 bytes/s. The vessel's downlink, usually the slowest hop, therefore sets the pace without configuration, and a burst of loss counts once rather than once per lost packet.
 
 ### 15.10 Limits
 

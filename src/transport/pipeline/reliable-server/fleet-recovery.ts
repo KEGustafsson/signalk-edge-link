@@ -20,6 +20,7 @@ import { ensureFleetMetrics } from "../../fleet/common";
 import type { ServerContext, ClientSession } from "./context";
 import { sendUDP } from "./sessions";
 import { backOff, budgetCovers, refillTokens } from "./fleet-rate";
+import { serialAhead } from "../../../foundation/serial";
 
 /** Send one fleet packet to a session and count it as link traffic. */
 export async function sendFleetPacket(
@@ -131,11 +132,20 @@ export async function handleFleetNak(
   session.lastPacketTime = Date.now();
   session.fleet.confirmed = true;
   // Cut the rate for new loss only: a client NAKs a gap repeatedly until it
-  // is filled (§15.5), and each repeat is the same loss, not more of it.
-  const queue = session.fleet.retransmitQueue;
+  // is filled (§15.5), and each repeat is the same loss, not more of it, even
+  // while the byte budget still holds its retransmit back. A NAK names the
+  // gaps in order, so new loss is a held sequence past any NAKed before.
+  const fleetSession = session.fleet;
+  const queue = fleetSession.retransmitQueue;
   const now = Date.now();
-  if (missing.some((sequence) => queue.get(sequence)?.attempts === 0)) {
-    backOff(ctx, session.fleet, now);
+  const newLoss = missing.filter(
+    (sequence) =>
+      !!queue.get(sequence) &&
+      (fleetSession.highestNaked === null || serialAhead(sequence, fleetSession.highestNaked))
+  );
+  if (newLoss.length > 0) {
+    fleetSession.highestNaked = newLoss.reduce((a, b) => (serialAhead(b, a) ? b : a));
+    backOff(ctx, fleetSession, now);
   }
   // A repeat of a NAK already answered within the last second is the same
   // request still in flight; resending again would spend the packet's
