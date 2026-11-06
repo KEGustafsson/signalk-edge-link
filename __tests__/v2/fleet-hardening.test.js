@@ -156,6 +156,27 @@ function fleetDataSent(packets) {
   return { distinct: new Set(data.map((parsed) => parsed.sequence)).size, sends: data.length };
 }
 
+describe("fleet coalescing", () => {
+  test("a value replaced while it waits is sent only in its newest form", async () => {
+    const { ctx, packets } = makeServer({ scope: "all" });
+    for (const value of [1, 2, 3]) {
+      onFleetDelta(ctx, {
+        context: "vessels.other",
+        updates: [
+          {
+            $source: "gps",
+            timestamp: new Date(Date.now() + value).toISOString(),
+            values: [{ path: "navigation.speedOverGround", value }]
+          }
+        ]
+      });
+    }
+    await fleetTick(ctx);
+    const values = (await decodeAll(packets)).flatMap((d) => d.updates.flatMap((u) => u.values));
+    expect(values.map((v) => v.value)).toEqual([3]);
+  });
+});
+
 describe("fleet HELLO hardening", () => {
   test("a replayed HELLO without a fleet request cannot take a member out of the fleet", () => {
     const { ctx, session } = makeServer({});

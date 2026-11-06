@@ -170,6 +170,15 @@ describe("fleet sharing end-to-end", () => {
     await pump(hub, clients);
     expect(hub.metricsApi.metrics.fleet.identityConflicts).toBe(1);
     expect(hub.metricsApi.metrics.fleet.members).toBe(3);
+    // The newest session now owns the vessel: its data is accepted, the
+    // previous owner's is dropped.
+    const drops = hub.metricsApi.metrics.fleet.originDrops;
+    await clients[0].client.sendDelta([sog(impostor.self, 1.1)], secretKey, HUB_ADDR, HUB_PORT);
+    await pump(hub, clients);
+    expect(hub.metricsApi.metrics.fleet.originDrops).toBe(drops + 1);
+    await impostor.client.sendDelta([sog(impostor.self, 2.2)], secretKey, HUB_ADDR, HUB_PORT);
+    await pump(hub, clients);
+    expect(lastSog(hub, impostor.self)).toBe(2.2);
   });
 
   test("a client without fleet sharing never receives fleet packet types", async () => {
@@ -417,20 +426,31 @@ describe("fleet sharing end-to-end", () => {
     const builder = new PacketBuilder({ secretKey });
     const stream = streamOf(a);
     const packets = [];
-    for (let seq = 0; seq < 260; seq++) {
+    // Sequences well ahead of anything the hub sent, so none is a duplicate.
+    for (let seq = 1000; seq < 1261; seq++) {
       const encrypted = await encodeFleetPayload([sog(clients[1].self, seq)], { secretKey });
       packets.push(builder.buildFleetDataPacket(stream, seq, encrypted));
     }
     const before = { ...a.metricsApi.metrics.fleet };
-    const started = Date.now();
-    for (const pkt of packets) {
-      await a.client.handleControlPacket(pkt, { address: HUB_ADDR, port: HUB_PORT });
+    // All 260 inside one second of the client's clock, whatever the CI speed.
+    const realNow = Date.now;
+    let now = realNow();
+    Date.now = () => now;
+    try {
+      for (const pkt of packets.slice(0, 260)) {
+        await a.client.handleControlPacket(pkt, { address: HUB_ADDR, port: HUB_PORT });
+      }
+      const accepted = a.metricsApi.metrics.fleet.packetsReceived - before.packetsReceived;
+      const rejected = a.metricsApi.metrics.fleet.rejectedPackets - before.rejectedPackets;
+      expect(accepted).toBe(200);
+      expect(rejected).toBe(60);
+      // The next second accepts again.
+      now += 1000;
+      await a.client.handleControlPacket(packets[260], { address: HUB_ADDR, port: HUB_PORT });
+      expect(a.metricsApi.metrics.fleet.packetsReceived - before.packetsReceived).toBe(201);
+    } finally {
+      Date.now = realNow;
     }
-    expect(Date.now() - started).toBeLessThan(1000);
-    const accepted = a.metricsApi.metrics.fleet.packetsReceived - before.packetsReceived;
-    const rejected = a.metricsApi.metrics.fleet.rejectedPackets - before.rejectedPackets;
-    expect(accepted).toBeLessThanOrEqual(200);
-    expect(rejected).toBeGreaterThanOrEqual(60);
   });
 
   test("a server that never answers is reported as 'not-offered' after three HELLOs", async () => {
