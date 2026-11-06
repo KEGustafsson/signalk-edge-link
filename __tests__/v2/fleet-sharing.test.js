@@ -194,6 +194,43 @@ describe("fleet sharing end-to-end", () => {
     expect(contextsReceived(member).has(urn("999000999"))).toBe(false);
   });
 
+  test("with includeServerVessel, a claim made before the hub knows its vessel is dropped once it does", async () => {
+    hub = makeHub({ enabled: true, includeServerVessel: true, batchIntervalMs: 100 });
+    const identity = { mmsi: undefined };
+    hub.bus.app.getSelfPath = (path) => (path === "mmsi" ? identity.mmsi : undefined);
+    const impostor = makeClient("999000999", 40001);
+    const member = makeClient("230000002", 40002);
+    clients = [impostor, member];
+    hub.server.startACKTimer();
+    for (const c of clients) {
+      await c.client.sendHello(HUB_ADDR, HUB_PORT);
+    }
+    await pump(hub, clients);
+    // Not deferred: the hub's vessel is shared anyway, so both join.
+    expect(hub.metricsApi.metrics.fleet.members).toBe(2);
+    identity.mmsi = "999000999";
+    const realNow = Date.now.bind(Date);
+    const clock = jest.spyOn(Date, "now").mockImplementation(() => realNow() + 6000);
+    try {
+      await impostor.client.sendDelta(
+        [sog(urn("999000999"), 9.9, "gps.fake")],
+        secretKey,
+        HUB_ADDR,
+        HUB_PORT
+      );
+      await pump(hub, clients);
+      expect(hub.metricsApi.metrics.fleet.members).toBe(1);
+      expect(hub.metricsApi.metrics.fleet.identityRejected).toBe(1);
+      hub.bus.app.handleMessage("local", sog(urn("999000999"), 0.5, "gps.1"));
+      await wait(250);
+      await pump(hub, clients);
+    } finally {
+      clock.mockRestore();
+    }
+    // The member gets the hub's own vessel from the hub, not the impostor's copy.
+    expect(lastSog(member, urn("999000999"))).toBe(0.5);
+  });
+
   test("scope all does not share the hub's own vessel unless includeServerVessel is set", async () => {
     await connectAll({ enabled: true, scope: "all", batchIntervalMs: 100 });
     hub.bus.app.handleMessage("local", sog(urn("999000999"), 0.5, "gps.1"));
@@ -1037,6 +1074,28 @@ describe("fleet sharing end-to-end", () => {
       expect(lastSog(b, a.self)).toBe(5.5);
     }
   );
+
+  test("scope all never sends a member the contexts it relays as metadata first", async () => {
+    await connectAll({ enabled: true, scope: "all", batchIntervalMs: 100 });
+    const [a, b] = clients;
+    const ais = urn("219999999");
+    // A's relay reports the target's metadata before any of its values.
+    await a.client.sendMetadata(
+      [{ context: ais, path: "navigation.speedOverGround", meta: { units: "m/s" } }],
+      "snapshot",
+      secretKey,
+      HUB_ADDR,
+      HUB_PORT
+    );
+    await pump(hub, clients);
+    await wait(250);
+    await pump(hub, clients);
+    expect(metaReceived(b, ais)).toEqual([
+      { path: "navigation.speedOverGround", value: { units: "m/s" } }
+    ]);
+    expect(contextsReceived(a).has(ais)).toBe(false);
+    expect(a.state.fleetLearnedContexts.has(ais)).toBe(false);
+  });
 
   test("METADATA for another member's vessel is refused like its DATA", async () => {
     await connectAll();

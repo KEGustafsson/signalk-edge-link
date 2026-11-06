@@ -25,7 +25,22 @@ import type { PathFilterConfig } from "../foundation/types";
 /** Version of the decrypted `fleet` object this code understands. */
 export const FLEET_IDENTITY_VERSION = 1;
 
+/**
+ * Longest `self`, in bytes as it appears in the identity JSON. Bounding the
+ * encoded form, not the character count, keeps fleetPathFilterFits' worst
+ * case exact for multibyte or escaped characters.
+ */
 const MAX_CONTEXT_LENGTH = 256;
+
+/** True when `self` is a vessel context the identity may carry. */
+function fleetSelfValid(self: unknown): self is string {
+  return (
+    typeof self === "string" &&
+    self.startsWith("vessels.") &&
+    self !== "vessels.self" &&
+    Buffer.byteLength(JSON.stringify(self)) - 2 <= MAX_CONTEXT_LENGTH
+  );
+}
 /** AES-256-GCM adds a 12-byte IV and a 16-byte tag (codec/crypto). */
 const ENCRYPTION_OVERHEAD = 28;
 
@@ -79,12 +94,7 @@ export function parseFleetIdentityObject(value: unknown): FleetIdentity | null {
     return null;
   }
   const self = record.self;
-  if (
-    typeof self !== "string" ||
-    !self.startsWith("vessels.") ||
-    self.length > MAX_CONTEXT_LENGTH ||
-    self === "vessels.self"
-  ) {
+  if (!fleetSelfValid(self)) {
     return null;
   }
   const nonce = record.nonce;
@@ -129,6 +139,11 @@ export function encodeFleetIdentity(
   secretKey: string,
   options: { stretchAsciiKey?: boolean } = {}
 ): string {
+  if (!fleetSelfValid(identity.self)) {
+    throw new Error(
+      `own vessel context is longer than ${MAX_CONTEXT_LENGTH} bytes encoded; fleet sharing cannot be requested`
+    );
+  }
   const body: Record<string, unknown> = {
     v: FLEET_IDENTITY_VERSION,
     self: identity.self,

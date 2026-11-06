@@ -30,6 +30,7 @@ describe("fleet Prometheus metrics", () => {
     fleet.members = 3;
     fleet.packetsSent = 12;
     fleet.originDrops = 2;
+    fleet.helloDeferred = 7;
     fleet.minRateFactor = 0.5;
     fleet.state = "active";
     const text = render(metrics);
@@ -37,6 +38,10 @@ describe("fleet Prometheus metrics", () => {
     expect(text).toMatch(/signalk_edge_link_fleet_members\{mode="server",instance="hub"\} 3/);
     expect(text).toMatch(/signalk_edge_link_fleet_packets_sent_total\{[^}]*\} 12/);
     expect(text).toMatch(/signalk_edge_link_fleet_origin_drops_total\{[^}]*\} 2/);
+    expect(text).toContain("# TYPE signalk_edge_link_fleet_hello_deferred_total counter");
+    expect(text).toMatch(
+      /signalk_edge_link_fleet_hello_deferred_total\{mode="server",instance="hub"\} 7(?:\n|$)/
+    );
     expect(text).toMatch(/signalk_edge_link_fleet_active\{[^}]*\} 1/);
     expect(text).toMatch(/signalk_edge_link_fleet_min_rate_factor\{[^}]*\} 0\.5(?:\n|$)/);
     for (const line of text

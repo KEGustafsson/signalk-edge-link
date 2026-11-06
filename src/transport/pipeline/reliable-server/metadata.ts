@@ -20,6 +20,7 @@ import { mergeSourceSnapshot } from "../../../codec/source-snapshot";
 import { ParsedPacket } from "../../../codec/packet-codec";
 import { getOrCreateSession } from "./sessions";
 import { fleetOriginRejected } from "./fleet";
+import { noteUplink } from "./fleet-relay";
 import { getReplayGuard, handshakedPeerAddress } from "./context";
 import { metaEntryWithinBounds } from "./meta-bounds";
 import type { ServerContext, ClientSession } from "./context";
@@ -355,6 +356,9 @@ function dispatchMetaEntries(
     if (fleetOriginRejected(ctx, { context, updates: [] } as Delta, session)) {
       continue;
     }
+    // Recorded like a DATA uplink, so a scope-all hub never sends this
+    // member's relayed context back to it (§15.6).
+    noteUplink(ctx, session, context);
     const deltaMessage: Delta = {
       context,
       updates: [

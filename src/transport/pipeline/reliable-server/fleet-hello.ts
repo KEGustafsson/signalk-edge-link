@@ -16,6 +16,7 @@ import { ensureFleetMetrics } from "../../fleet/common";
 import type { ServerContext, ClientSession } from "./context";
 import {
   createSessionState,
+  leaveFleet,
   memberSession,
   queueJoinSnapshots,
   refreshMemberCount,
@@ -24,18 +25,6 @@ import {
   serverSelf
 } from "./fleet";
 import { helloNewer, helloOrder, helloReplayed, type HelloOrder } from "./fleet-replay";
-
-function leaveFleet(ctx: ServerContext, session: ClientSession): void {
-  if (!session.fleet) {
-    return;
-  }
-  if (ctx.fleet?.members.get(session.fleet.self) === session.key) {
-    ctx.fleet.members.delete(session.fleet.self);
-  }
-  session.fleet.retransmitQueue.clear();
-  session.fleet = null;
-  refreshMemberCount(ctx);
-}
 
 function helloRequestsFleet(info: Record<string, unknown>): boolean {
   return Array.isArray(info.capabilities) && info.capabilities.includes(FLEET_CAPABILITY);

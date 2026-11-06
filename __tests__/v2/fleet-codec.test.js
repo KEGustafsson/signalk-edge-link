@@ -9,6 +9,7 @@ const { PacketBuilder, PacketParser, PacketType } = require("../../lib/packet");
 const {
   encodeFleetIdentity,
   decodeFleetIdentity,
+  fleetPathFilterFits,
   newFleetNonce,
   parseFleetIdentityObject
 } = require("../../src/codec/fleet-identity");
@@ -163,6 +164,48 @@ describe("encrypted fleet identity", () => {
     expect(parseFleetIdentityObject({ ...ok, maxBytesPerSec: 0 }).maxBytesPerSec).toBe(256);
     expect(parseFleetIdentityObject({ ...ok, maxBytesPerSec: -5 }).maxBytesPerSec).toBe(256);
     expect(parseFleetIdentityObject({ ...ok, maxBytesPerSec: 4096 }).maxBytesPerSec).toBe(4096);
+  });
+});
+
+describe("fleet identity size", () => {
+  /** The largest allow list fleetPathFilterFits accepts. */
+  function largestFittingFilter() {
+    const allow = [];
+    for (let i = 0; i < 32; i++) {
+      const next = [...allow, `${"x".repeat(100)}.${String(i).padStart(2, "0")}`];
+      if (!fleetPathFilterFits({ allow: next })) {
+        break;
+      }
+      allow.push(next[next.length - 1]);
+    }
+    return { allow, deny: [] };
+  }
+
+  test("a path filter the check accepts fits with any valid own context", () => {
+    const pathFilter = largestFittingFilter();
+    expect(pathFilter.allow.length).toBeGreaterThan(0);
+    const contexts = [
+      `vessels.${"a".repeat(248)}`,
+      // 2-byte UTF-8 characters, 256 bytes in all
+      `vessels.${"é".repeat(124)}`,
+      // escaped in JSON: 6 bytes each
+      `vessels.${"\u0001".repeat(41)}`
+    ];
+    for (const self of contexts) {
+      const field = encodeFleetIdentity(
+        { self, nonce: newFleetNonce(), pathFilter, maxBytesPerSec: 10_000_000 },
+        KEY
+      );
+      expect(decodeFleetIdentity(field, KEY).self).toBe(self);
+    }
+  });
+
+  test("an own context longer than 256 bytes encoded is refused, whatever its length in characters", () => {
+    const self = `vessels.${"é".repeat(200)}`; // 208 characters, 408 bytes
+    expect(parseFleetIdentityObject({ v: 1, self, nonce: "0123456789abcdef" })).toBeNull();
+    expect(() => encodeFleetIdentity({ self, nonce: newFleetNonce() }, KEY)).toThrow(
+      /longer than 256 bytes/
+    );
   });
 });
 

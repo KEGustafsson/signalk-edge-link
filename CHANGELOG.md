@@ -67,6 +67,17 @@ false` cannot be bypassed.
 - **The server raises a requested rate of 0 or below to 256 bytes/s**
   instead of ignoring it (such a request can only come from a crafted HELLO:
   a configured client `maxBytesPerSec` must be at least 256).
+- **A claim on the hub's vessel made before its ID resolved is dropped.**
+  With `includeServerVessel` on, HELLOs are answered while the hub's own
+  vessel ID is unknown; once it resolves, a member declaring that vessel
+  leaves the fleet (`fleet.identityRejected`).
+- **Metadata counts as an uplink in scope `all`.** A relay that sent a
+  vessel's metadata before its values got that vessel back and stopped
+  uplinking it.
+- **The own vessel context is bounded in bytes.** A context of multibyte
+  characters within 256 characters could make the HELLO identity too large
+  for an accepted `pathFilter`, so the fleet request was left out; the bound
+  is now 256 bytes encoded, on both sides.
 - **Fleet sharing fails closed while the hub's own vessel ID is unknown.**
   Unless `includeServerVessel` is set, the hub then leaves fleet HELLOs
   unanswered (so no client can claim the hub's vessel) and scope `all`

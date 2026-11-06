@@ -206,8 +206,40 @@ export function serverSelf(ctx: ServerContext): string | null {
     } catch {
       fleet.serverSelf = null;
     }
+    if (fleet.serverSelf !== null) {
+      dropServerSelfClaim(ctx, fleet.serverSelf);
+    }
   }
   return fleet.serverSelf;
+}
+
+/** Take `session` out of the fleet, releasing its vessel claim. */
+export function leaveFleet(ctx: ServerContext, session: ClientSession): void {
+  if (!session.fleet) {
+    return;
+  }
+  if (ctx.fleet?.members.get(session.fleet.self) === session.key) {
+    ctx.fleet.members.delete(session.fleet.self);
+  }
+  session.fleet.retransmitQueue.clear();
+  session.fleet = null;
+  refreshMemberCount(ctx);
+}
+
+/**
+ * With includeServerVessel on, HELLOs are accepted before the server knows
+ * its own vessel, so a member may already claim it. Once the ID resolves,
+ * that claim is refused like a new one: the member leaves the fleet and its
+ * next HELLO is answered with a refusal.
+ */
+function dropServerSelfClaim(ctx: ServerContext, self: string): void {
+  const claimant = memberSession(ctx, self);
+  if (!claimant) {
+    return;
+  }
+  ensureFleetMetrics(ctx.metrics).identityRejected++;
+  ctx.app.debug(`[fleet] ${claimant.key} declared the server's own vessel; removed from the fleet`);
+  leaveFleet(ctx, claimant);
 }
 
 /** §15.6 rules 1-2: may `context` be sent to `session`? */
