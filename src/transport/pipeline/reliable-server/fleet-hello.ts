@@ -137,7 +137,18 @@ export function handleFleetHello(
     void answer(false);
     return;
   }
-  if (identity.self === serverSelf(ctx)) {
+  const self = serverSelf(ctx);
+  if (self === null && !ctx.fleet.config.includeServerVessel) {
+    // Until the server knows its own vessel, it cannot tell whether this
+    // client claims it, and accepting such a claim would share the server's
+    // vessel with every member. Leave the HELLO unanswered: the client asks
+    // again every minute and joins, with a snapshot, once the ID resolves.
+    ctx.app.debug(
+      `[fleet] own vessel ID not resolved yet; fleet HELLO from ${session.key} deferred`
+    );
+    return;
+  }
+  if (identity.self === self) {
     // A member declaring the server's own vessel would make that vessel
     // "a member" and bypass includeServerVessel.
     ensureFleetMetrics(ctx.metrics).identityRejected++;

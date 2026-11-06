@@ -57,8 +57,11 @@ false` cannot be bypassed.
 - **The server raises a requested rate of 0 or below to 256 bytes/s**
   instead of ignoring it (such a request can only come from a crafted HELLO:
   a configured client `maxBytesPerSec` must be at least 256).
-- **Scope `all` fails closed while the hub's own vessel ID is unknown.** It
-  then shares only members' vessels, unless `includeServerVessel` is set.
+- **Fleet sharing fails closed while the hub's own vessel ID is unknown.**
+  Unless `includeServerVessel` is set, the hub then leaves fleet HELLOs
+  unanswered (so no client can claim the hub's vessel) and scope `all`
+  shares no other context. Clients retry every minute and join once the ID
+  resolves.
 - **Scope never hides a member from another member.** A member whose vessel
   another member had uplinked earlier (an AIS copy, before it joined) is
   always shared with that member; only the extra contexts of scope `all` are

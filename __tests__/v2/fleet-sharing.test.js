@@ -153,23 +153,41 @@ describe("fleet sharing end-to-end", () => {
     expect(contextsReceived(a).has(urn("999000999"))).toBe(false);
   });
 
-  test("scope all shares only members while the hub does not know its own vessel", async () => {
+  test("fleet HELLOs wait until the hub knows its own vessel, so it cannot be claimed", async () => {
     hub = makeHub({ enabled: true, scope: "all", batchIntervalMs: 100 });
-    hub.bus.app.getSelfPath = () => undefined; // no mmsi, no uuid, no tree alias yet
-    clients = [makeClient("230000001", 40001), makeClient("230000002", 40002)];
+    const identity = { mmsi: undefined }; // unknown at first: no mmsi, no uuid, no tree alias
+    hub.bus.app.getSelfPath = (path) => (path === "mmsi" ? identity.mmsi : undefined);
+    // One client claims the hub's own vessel, another is an ordinary member.
+    const impostor = makeClient("999000999", 40001);
+    const member = makeClient("230000002", 40002);
+    clients = [impostor, member];
     hub.server.startACKTimer();
     for (const c of clients) {
       await c.client.sendHello(HUB_ADDR, HUB_PORT);
     }
     await pump(hub, clients);
-    // Either context could be the hub's own vessel.
-    hub.bus.app.handleMessage("local", sog(urn("219999999"), 3.3, "ais.1"));
-    await clients[1].client.sendDelta([sog(clients[1].self, 2.2)], secretKey, HUB_ADDR, HUB_PORT);
-    await pump(hub, clients);
+    expect(hub.metricsApi.metrics.fleet.members).toBe(0);
+    expect(member.metricsApi.metrics.fleet.state).not.toBe("active");
+    // The hub learns its own vessel; the next HELLOs are answered (the
+    // lookup is retried at most every 5 s).
+    identity.mmsi = "999000999";
+    const realNow = Date.now.bind(Date);
+    const clock = jest.spyOn(Date, "now").mockImplementation(() => realNow() + 6000);
+    try {
+      for (const c of clients) {
+        await c.client.sendHello(HUB_ADDR, HUB_PORT);
+      }
+      await pump(hub, clients);
+    } finally {
+      clock.mockRestore();
+    }
+    expect(member.metricsApi.metrics.fleet.state).toBe("active");
+    expect(hub.metricsApi.metrics.fleet.members).toBe(1);
+    expect(hub.metricsApi.metrics.fleet.identityRejected).toBe(1);
+    hub.bus.app.handleMessage("local", sog(urn("999000999"), 0.5, "gps.1"));
     await wait(250);
     await pump(hub, clients);
-    expect(lastSog(clients[0], clients[1].self)).toBe(2.2);
-    expect(contextsReceived(clients[0]).has(urn("219999999"))).toBe(false);
+    expect(contextsReceived(member).has(urn("999000999"))).toBe(false);
   });
 
   test("scope all does not share the hub's own vessel unless includeServerVessel is set", async () => {
