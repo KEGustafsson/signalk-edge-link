@@ -189,6 +189,9 @@ export interface FleetMetrics {
   identityConflicts: number;
   /** Fleet HELLOs refused: unreadable `fleet` field, or the server's own vessel. */
   identityRejected: number;
+  /** Fleet HELLOs left unanswered because the server's own vessel ID is not
+   *  resolved yet (no mmsi or uuid) and includeServerVessel is off. */
+  helloDeferred: number;
   /**
    * Fleet HELLOs ignored as replays: from another session with a `timestamp`
    * not newer than the vessel owner's newest accepted HELLO, or on a fleet

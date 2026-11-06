@@ -38,6 +38,11 @@ function fleetCounters(fleet: NonNullable<Metrics["fleet"]>): Array<[string, str
       "Fleet HELLOs refused: unreadable identity or the server's own vessel",
       fleet.identityRejected
     ],
+    [
+      "fleet_hello_deferred_total",
+      "Fleet HELLOs deferred: the server's own vessel ID is not resolved yet",
+      fleet.helloDeferred ?? 0
+    ],
     ["fleet_keepalives_sent_total", "HELLO_ACK keepalives sent", fleet.keepalivesSent],
     ["fleet_snapshots_sent_total", "Fleet join snapshots queued", fleet.snapshotsSent],
     [

@@ -71,7 +71,8 @@ false` cannot be bypassed.
   Unless `includeServerVessel` is set, the hub then leaves fleet HELLOs
   unanswered (so no client can claim the hub's vessel) and scope `all`
   shares no other context. Clients retry every minute and join once the ID
-  resolves.
+  resolves. `fleet.helloDeferred` counts the deferred HELLOs, and the server
+  logs a warning naming the cause at most every ten minutes.
 - **Scope never hides a member from another member.** A member whose vessel
   another member had uplinked earlier (an AIS copy, before it joined) is
   always shared with that member; only the extra contexts of scope `all` are

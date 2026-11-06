@@ -17,6 +17,7 @@ function fleet(overrides: Partial<FleetMetricsData> = {}): FleetMetricsData {
     originDrops: 0,
     identityConflicts: 0,
     identityRejected: 0,
+    helloDeferred: 0,
     keepalivesSent: 0,
     snapshotsSent: 0,
     staleStreamPackets: 0,

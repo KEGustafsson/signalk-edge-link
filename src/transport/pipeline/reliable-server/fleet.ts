@@ -112,6 +112,8 @@ export interface FleetServerState {
   serverSelf: string | null;
   /** When resolving serverSelf last failed; retried at most every few seconds. */
   serverSelfCheckedAt: number;
+  /** When the operator was last warned that HELLOs wait for serverSelf. */
+  unresolvedSelfWarnedAt: number;
 }
 
 /** Build the fleet state for a server whose options enable fleet sharing. */
@@ -129,7 +131,8 @@ export function createFleetServerState(ctx: Pick<ServerContext, "state">): Fleet
     timer: null,
     ticking: false,
     serverSelf: null,
-    serverSelfCheckedAt: 0
+    serverSelfCheckedAt: 0,
+    unresolvedSelfWarnedAt: 0
   };
 }
 

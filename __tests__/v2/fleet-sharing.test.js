@@ -167,6 +167,10 @@ describe("fleet sharing end-to-end", () => {
     }
     await pump(hub, clients);
     expect(hub.metricsApi.metrics.fleet.members).toBe(0);
+    expect(hub.metricsApi.metrics.fleet.helloDeferred).toBeGreaterThan(0);
+    expect(hub.bus.app.error).toHaveBeenCalledWith(
+      expect.stringMatching(/own vessel ID is not resolved/)
+    );
     expect(member.metricsApi.metrics.fleet.state).not.toBe("active");
     // The hub learns its own vessel; the next HELLOs are answered (the
     // lookup is retried at most every 5 s).

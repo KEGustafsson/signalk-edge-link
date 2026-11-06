@@ -100,6 +100,38 @@ function claimMembership(
   return !keepStream;
 }
 
+/** At most one operator warning per this interval while HELLOs are deferred. */
+const UNRESOLVED_SELF_WARN_MS = 10 * 60 * 1000;
+
+/** Tell the operator, at most every ten minutes, why fleet members cannot join. */
+function warnUnresolvedSelf(ctx: ServerContext): void {
+  const fleet = ctx.fleet!;
+  const now = Date.now();
+  if (
+    fleet.unresolvedSelfWarnedAt !== 0 &&
+    now - fleet.unresolvedSelfWarnedAt < UNRESOLVED_SELF_WARN_MS
+  ) {
+    return;
+  }
+  fleet.unresolvedSelfWarnedAt = now;
+  ctx.app.error(
+    "[fleet] fleet sharing is waiting: this server's own vessel ID is not resolved " +
+      "(set the vessel MMSI or UUID in Signal K). Fleet HELLOs are deferred until it is."
+  );
+}
+
+/**
+ * Until the server knows its own vessel, it cannot tell whether a client
+ * claims it, and accepting such a claim would share the server's vessel with
+ * every member. Leave the HELLO unanswered: the client asks again every
+ * minute and joins, with a snapshot, once the ID resolves.
+ */
+function deferHello(ctx: ServerContext, session: ClientSession): void {
+  ensureFleetMetrics(ctx.metrics).helloDeferred++;
+  warnUnresolvedSelf(ctx);
+  ctx.app.debug(`[fleet] own vessel ID not resolved yet; fleet HELLO from ${session.key} deferred`);
+}
+
 /**
  * Handle the fleet part of an authenticated HELLO. `restarted` is true when
  * the HELLO advanced the peer's epoch (client restart).
@@ -139,13 +171,7 @@ export function handleFleetHello(
   }
   const self = serverSelf(ctx);
   if (self === null && !ctx.fleet.config.includeServerVessel) {
-    // Until the server knows its own vessel, it cannot tell whether this
-    // client claims it, and accepting such a claim would share the server's
-    // vessel with every member. Leave the HELLO unanswered: the client asks
-    // again every minute and joins, with a snapshot, once the ID resolves.
-    ctx.app.debug(
-      `[fleet] own vessel ID not resolved yet; fleet HELLO from ${session.key} deferred`
-    );
+    deferHello(ctx, session);
     return;
   }
   if (identity.self === self) {
