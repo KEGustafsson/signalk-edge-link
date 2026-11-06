@@ -25,7 +25,7 @@ function fleetCounters(fleet: NonNullable<Metrics["fleet"]>): Array<[string, str
     ],
     [
       "fleet_origin_drops_total",
-      "Uplink deltas dropped: context owned by another member",
+      "Uplink deltas or metadata dropped: context owned by another member",
       fleet.originDrops
     ],
     [
@@ -57,7 +57,11 @@ function fleetCounters(fleet: NonNullable<Metrics["fleet"]>): Array<[string, str
       "Uplink deltas dropped: context learned from the fleet",
       fleet.loopDrops
     ],
-    ["fleet_duplicate_packets_total", "Duplicate or late FLEET_DATA", fleet.duplicatePackets],
+    [
+      "fleet_duplicate_packets_total",
+      "FLEET_DATA already received, replayed, or older than the replay window",
+      fleet.duplicatePackets
+    ],
     ["fleet_stale_values_total", "Fleet values older than one already applied", fleet.staleValues],
     ["fleet_rejected_packets_total", "FLEET_DATA or HELLO_ACK rejected", fleet.rejectedPackets],
     [
@@ -87,7 +91,11 @@ export function emitFleet(e: FleetMetricSink, metrics: Metrics): void {
     "1 when fleet sharing is active on this instance",
     fleet.state === "active" ? 1 : 0
   );
-  e.gauge("fleet_contexts_known", "Fleet vessels this client has received", fleet.contextsKnown);
+  e.gauge(
+    "fleet_contexts_known",
+    "Fleet vessels this client remembers (received in the last 24 h)",
+    fleet.contextsKnown
+  );
   e.gauge(
     "fleet_min_rate_factor",
     "Lowest loss-adaptive rate factor among members (1 = configured rate)",

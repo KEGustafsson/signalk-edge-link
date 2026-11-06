@@ -13,10 +13,15 @@ interface Props {
  * question an operator has when the state is not `active`.
  */
 const CLIENT_STATE_HINTS: Record<string, { cls: string; hint: string }> = {
-  active: { cls: "success", hint: "Receiving other vessels from the server." },
+  active: {
+    cls: "success",
+    hint: "Receiving other vessels from the server. A vessel appears once it is a member and sends data."
+  },
   offered: {
     cls: "warning",
-    hint: "Waiting for the server's answer. If this persists, check that this vessel has an MMSI or UUID set."
+    hint:
+      "Waiting for the server's answer, as at start-up or after a minute without fleet data. " +
+      "If this persists, check that this vessel has an MMSI, UUID or Signal K self set."
   },
   declined: {
     cls: "error",
@@ -24,7 +29,9 @@ const CLIENT_STATE_HINTS: Record<string, { cls: string; hint: string }> = {
   },
   "not-offered": {
     cls: "error",
-    hint: "The server never answered. It probably runs a version without fleet sharing; the uplink still works."
+    hint:
+      "The server has not answered the fleet request. Either it was unreachable (this client asks again " +
+      "every minute) or it runs a version before 4.4.0 and needs an upgrade. The uplink still works."
   },
   disabled: { cls: "", hint: "Fleet sharing is off for this connection." }
 };
@@ -45,7 +52,7 @@ function ClientView({ fleet }: { fleet: FleetMetricsData }) {
           value={<span className={`congestion-state ${info.cls}`}>{fleet.state}</span>}
           statusClass={info.cls || undefined}
         />
-        <MetricItem label="Vessels received" value={fleet.contextsKnown} />
+        <MetricItem label="Vessels known" value={fleet.contextsKnown} />
         <MetricItem label="Values received" value={fleet.valuesReceived} />
         <MetricItem label="Metadata received" value={fleet.metaReceived ?? 0} />
       </div>
@@ -76,6 +83,11 @@ function ServerView({ fleet }: { fleet: FleetMetricsData }) {
   return (
     <>
       <div className="metrics-grid">
+        <MetricItem
+          label="State"
+          value={fleet.state}
+          statusClass={fleet.state === "active" ? "success" : undefined}
+        />
         <MetricItem label="Members" value={fleet.members} />
         <MetricItem label="Values sent" value={fleet.valuesSent} />
         <MetricItem label="Data sent" value={formatBytes(fleet.bytesSent)} />
@@ -99,18 +111,16 @@ function ServerView({ fleet }: { fleet: FleetMetricsData }) {
           <StatItem label="Rate cuts on loss" value={fleet.rateBackoffs ?? 0} />
           <StatItem label="Deferred by budget" value={fleet.rateLimitedFlushes} />
           <StatItem label="Relayed copies dropped" value={fleet.originDrops} />
-          <StatItem
-            label="Identity conflicts"
-            value={fleet.identityConflicts}
-            hasError={fleet.identityConflicts > 0}
-          />
+          {/* A vessel reconnecting from a new port moves its claim too, so a
+              conflict alone is not an error. */}
+          <StatItem label="Identity conflicts" value={fleet.identityConflicts} />
           <StatItem
             label="Replayed HELLOs ignored"
             value={fleet.replayedHellos ?? 0}
             hasError={(fleet.replayedHellos ?? 0) > 0}
           />
           <StatItem
-            label="Unreadable identities"
+            label="Refused identities"
             value={fleet.identityRejected}
             hasError={fleet.identityRejected > 0}
           />

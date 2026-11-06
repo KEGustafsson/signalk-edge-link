@@ -46,8 +46,8 @@ describe("FleetCard", () => {
 
   test.each([
     ["declined", /Enable fleetSharing on the server/],
-    ["not-offered", /never answered/],
-    ["offered", /MMSI or UUID/],
+    ["not-offered", /unreachable.*before 4\.4\.0/],
+    ["offered", /MMSI, UUID or Signal K self/],
     ["active", /Receiving other vessels/]
   ] as const)("client state %s shows its next step", (state, hint) => {
     render(<FleetCard fleet={fleet({ state, contextsKnown: 2 })} mode="client" />);
@@ -66,6 +66,24 @@ describe("FleetCard", () => {
     expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("49%")).toBeInTheDocument();
     expect(screen.getByTestId("fleet-hint").textContent).toMatch(/cut to 49%/);
+  });
+
+  test("server view shows its state, and a stopped server reads disabled", () => {
+    const { rerender } = render(
+      <FleetCard fleet={fleet({ state: "active", members: 2 })} mode="server" />
+    );
+    expect(screen.getByText("active")).toBeInTheDocument();
+    rerender(<FleetCard fleet={fleet({ state: "disabled", members: 0 })} mode="server" />);
+    expect(screen.getByText("disabled")).toBeInTheDocument();
+  });
+
+  test("server view labels refused identities and does not flag identity conflicts", () => {
+    render(
+      <FleetCard fleet={fleet({ identityConflicts: 2, identityRejected: 1 })} mode="server" />
+    );
+    expect(screen.getByText(/^Refused identities/)).toBeInTheDocument();
+    const conflicts = screen.getByText(/^Identity conflicts/).parentElement;
+    expect(conflicts?.className ?? "").not.toMatch(/error/);
   });
 
   test("server view has no pacing hint at full rate", () => {

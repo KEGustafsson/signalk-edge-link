@@ -182,7 +182,8 @@ export interface FleetMetrics {
   retransmits: number;
   /** Flushes that left values pending because the session's byte budget ran out. */
   rateLimitedFlushes: number;
-  /** Uplink deltas dropped because their context belongs to another member. */
+  /** Uplink deltas and METADATA entries dropped because their context belongs
+   *  to another member. */
   originDrops: number;
   /** HELLOs whose vessel was already declared by another session (newest wins). */
   identityConflicts: number;
@@ -198,7 +199,8 @@ export interface FleetMetrics {
   snapshotsSent: number;
   /** FLEET_ACK/FLEET_NAK naming a stream the session no longer uses. */
   staleStreamPackets: number;
-  /** FLEET_DATA dropped after exhausting retransmits or evicted from the queue. */
+  /** FLEET_DATA dropped after exhausting retransmits, evicted from the queue,
+   *  or too large for one UDP datagram. */
   packetsAbandoned: number;
   /** Loss-driven rate cuts across all sessions. */
   rateBackoffs: number;
@@ -210,15 +212,18 @@ export interface FleetMetrics {
   valuesReceived: number;
   /** Metadata entries (units, zones, display names) received. */
   metaReceived: number;
-  /** Fleet contexts this client has received (never includes its own). */
+  /** Fleet contexts this client remembers: received within the last 24 h,
+   *  across restarts, at most 10000 (never includes its own). */
   contextsKnown: number;
   /** Uplink deltas dropped because their context arrived over the fleet channel. */
   loopDrops: number;
+  /** FLEET_DATA already received, replayed, or older than the replay window. */
   duplicatePackets: number;
   /** Values older than one already applied for the same (context, $source,
    *  path), e.g. from a retransmit overtaken by newer data. */
   staleValues: number;
-  /** FLEET_DATA rejected: wrong stream, replayed, over rate, or undecodable. */
+  /** FLEET_DATA or HELLO_ACK rejected: wrong stream, stale nonce, over the
+   *  inbound packet cap, or undecodable. */
   rejectedPackets: number;
   acksSent: number;
   naksSent: number;
