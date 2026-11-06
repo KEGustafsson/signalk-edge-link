@@ -28,7 +28,7 @@ const { makeMetricsApi } = require("../helpers/metrics-fixture");
 const secretKey = "12345678901234567890123456789012";
 
 /** A server context with one accepted fleet session and a captured socket. */
-function makeServer(fleetSharing, { confirmed = true, serverMmsi } = {}) {
+function makeServer(fleetSharing, { confirmed = true, serverMmsi = "999000000" } = {}) {
   const packets = [];
   const app = {
     debug: () => {},

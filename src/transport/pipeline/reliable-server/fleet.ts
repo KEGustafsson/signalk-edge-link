@@ -110,6 +110,8 @@ export interface FleetServerState {
   /** A tick is running; the next one is skipped rather than overlapping it. */
   ticking: boolean;
   serverSelf: string | null;
+  /** When resolving serverSelf last failed; retried at most every few seconds. */
+  serverSelfCheckedAt: number;
 }
 
 /** Build the fleet state for a server whose options enable fleet sharing. */
@@ -126,7 +128,8 @@ export function createFleetServerState(ctx: Pick<ServerContext, "state">): Fleet
     unsubscribes: [],
     timer: null,
     ticking: false,
-    serverSelf: null
+    serverSelf: null,
+    serverSelfCheckedAt: 0
   };
 }
 
@@ -185,9 +188,16 @@ export function refreshMemberCount(ctx: ServerContext): void {
   ensureFleetMetrics(ctx.metrics).members = acceptedSessions(ctx).length;
 }
 
+/** How often an unresolved server vessel ID is looked up again. */
+const SERVER_SELF_RETRY_MS = 5000;
+
 export function serverSelf(ctx: ServerContext): string | null {
   const fleet = ctx.fleet!;
-  if (fleet.serverSelf === null) {
+  const now = Date.now();
+  // Resolving can read the whole tree; while it fails, retry at most every
+  // SERVER_SELF_RETRY_MS instead of on every delta.
+  if (fleet.serverSelf === null && now - fleet.serverSelfCheckedAt >= SERVER_SELF_RETRY_MS) {
+    fleet.serverSelfCheckedAt = now;
     try {
       fleet.serverSelf = resolveSelfContext(ctx.app);
     } catch {
@@ -204,7 +214,8 @@ function contextInScope(ctx: ServerContext, session: ClientSession, context: str
     return false;
   }
   // The hub's own vessel goes out only when it is shared, in either scope.
-  if (context === serverSelf(ctx)) {
+  const self = serverSelf(ctx);
+  if (context === self) {
     return fleet.config.includeServerVessel;
   }
   // A member's own vessel always goes out: its data enters the hub only from
@@ -216,6 +227,11 @@ function contextInScope(ctx: ServerContext, session: ClientSession, context: str
   // Scope `all` adds every other context, except those this session's vessel
   // uplinked itself: sending them back would make its loop guard drop them
   // from its own uplink (§15.6).
+  // While the hub does not know its own vessel yet, any other context might
+  // be it, so scope `all` withholds them unless the hub vessel is shared.
+  if (self === null && !fleet.config.includeServerVessel) {
+    return false;
+  }
   return fleet.config.scope === "all" && !relaysContext(ctx, session, context);
 }
 

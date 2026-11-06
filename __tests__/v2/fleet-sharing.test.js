@@ -126,6 +126,52 @@ describe("fleet sharing end-to-end", () => {
     expect(contextsReceived(clients[1]).has(urn("999000999"))).toBe(true);
   });
 
+  test("a scope all join snapshot includes AIS targets but not the hub's own vessel", async () => {
+    const at = new Date().toISOString();
+    const sogLeaf = (value) => ({
+      navigation: { speedOverGround: { value, $source: "gps.1", timestamp: at } }
+    });
+    hub = makeHub({ enabled: true, scope: "all", batchIntervalMs: 100 });
+    hub.bus.app.signalk = {
+      retrieve: () => ({
+        self: "vessels.urn:mrn:imo:mmsi:999000999",
+        vessels: {
+          "urn:mrn:imo:mmsi:999000999": sogLeaf(0.5),
+          "urn:mrn:imo:mmsi:219999999": sogLeaf(3.3)
+        },
+        sources: {}
+      })
+    };
+    const a = makeClient("230000001", 40001);
+    clients = [a];
+    hub.server.startACKTimer();
+    await a.client.sendHello(HUB_ADDR, HUB_PORT);
+    await pump(hub, clients);
+    await wait(250);
+    await pump(hub, clients);
+    expect(lastSog(a, urn("219999999"))).toBeCloseTo(3.3);
+    expect(contextsReceived(a).has(urn("999000999"))).toBe(false);
+  });
+
+  test("scope all shares only members while the hub does not know its own vessel", async () => {
+    hub = makeHub({ enabled: true, scope: "all", batchIntervalMs: 100 });
+    hub.bus.app.getSelfPath = () => undefined; // no mmsi, no uuid, no tree alias yet
+    clients = [makeClient("230000001", 40001), makeClient("230000002", 40002)];
+    hub.server.startACKTimer();
+    for (const c of clients) {
+      await c.client.sendHello(HUB_ADDR, HUB_PORT);
+    }
+    await pump(hub, clients);
+    // Either context could be the hub's own vessel.
+    hub.bus.app.handleMessage("local", sog(urn("219999999"), 3.3, "ais.1"));
+    await clients[1].client.sendDelta([sog(clients[1].self, 2.2)], secretKey, HUB_ADDR, HUB_PORT);
+    await pump(hub, clients);
+    await wait(250);
+    await pump(hub, clients);
+    expect(lastSog(clients[0], clients[1].self)).toBe(2.2);
+    expect(contextsReceived(clients[0]).has(urn("219999999"))).toBe(false);
+  });
+
   test("scope all does not share the hub's own vessel unless includeServerVessel is set", async () => {
     await connectAll({ enabled: true, scope: "all", batchIntervalMs: 100 });
     hub.bus.app.handleMessage("local", sog(urn("999000999"), 0.5, "gps.1"));

@@ -54,8 +54,11 @@ false` cannot be bypassed.
 - **Fleet ticks do not overlap.** A tick still sending on a slow socket made
   the next one resend the same timed-out packet and spend an extra
   retransmit.
-- **A requested rate of 0 or below is raised to 256 bytes/s** instead of
-  being ignored.
+- **The server raises a requested rate of 0 or below to 256 bytes/s**
+  instead of ignoring it (such a request can only come from a crafted HELLO:
+  a configured client `maxBytesPerSec` must be at least 256).
+- **Scope `all` fails closed while the hub's own vessel ID is unknown.** It
+  then shares only members' vessels, unless `includeServerVessel` is set.
 - **Scope never hides a member from another member.** A member whose vessel
   another member had uplinked earlier (an AIS copy, before it joined) is
   always shared with that member; only the extra contexts of scope `all` are
