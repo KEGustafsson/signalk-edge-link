@@ -12,12 +12,9 @@
  */
 
 import { encodeFleetPayload } from "../../../codec/fleet-payload";
-import { ParsedPacket } from "../../../codec/packet-codec";
 import {
   FLEET_KEEPALIVE_MS,
-  FLEET_RETRANSMIT_AFTER_MS,
   FLEET_VALUES_PER_PACKET,
-  FLEET_MAX_NAK_SEQUENCES,
   MAX_SAFE_UDP_PAYLOAD,
   MAX_UDP_DATAGRAM_PAYLOAD,
   FLEET_SNAPSHOT_MIN_INTERVAL_MS
@@ -26,9 +23,9 @@ import { ensureFleetMetrics } from "../../fleet/common";
 import type { Delta, DeltaUpdate } from "../../../foundation/types";
 import type { ServerContext, ClientSession } from "./context";
 import { bindBuilderEpochForPeer } from "./context";
-import { sendUDP } from "./sessions";
 import { withFirstSightMeta } from "./fleet-meta";
-import { backOff, budgetCovers, recoverRate, refillTokens } from "./fleet-rate";
+import { budgetCovers, recoverRate, refillTokens } from "./fleet-rate";
+import { retransmitStale, sendFleetPacket } from "./fleet-recovery";
 import {
   acceptedSessions,
   memberSession,
@@ -89,16 +86,6 @@ function buildDeltas(values: PendingValue[]): Delta[] {
     deltas.push({ context, updates: [...updates.values()] } as Delta);
   }
   return deltas;
-}
-
-async function sendFleetPacket(
-  ctx: ServerContext,
-  session: ClientSession,
-  packet: Buffer
-): Promise<void> {
-  await sendUDP(ctx, packet, { address: session.address, port: session.port });
-  ctx.metrics.bandwidth.bytesOut += packet.length;
-  ctx.metrics.bandwidth.packetsOut++;
 }
 
 /** Remove up to one packet's worth of values from the head of the queue. */
@@ -191,11 +178,15 @@ async function sendChunk(
   // Bind and build synchronously so no other destination's epoch can
   // interleave (see bindBuilderEpochForPeer).
   bindBuilderEpochForPeer(ctx, session.key);
-  const seq = fleetSession.nextSeq;
-  const packet = ctx.packetBuilder.buildFleetDataPacket(fleetSession.stream, seq, encrypted, {
-    messagepack: !!options.useMsgpack,
-    pathDictionary: !!options.usePathDictionary
-  });
+  const packet = ctx.packetBuilder.buildFleetDataPacket(
+    fleetSession.stream,
+    fleetSession.nextSeq,
+    encrypted,
+    {
+      messagepack: !!options.useMsgpack,
+      pathDictionary: !!options.usePathDictionary
+    }
+  );
   if (packet.length > MAX_SAFE_UDP_PAYLOAD) {
     if (values.length > 1) {
       // Not sent: the halves attach this metadata again.
@@ -216,9 +207,28 @@ async function sendChunk(
       `[fleet] ${values[0].context} ${values[0].path} needs ${packet.length} bytes; sent alone`
     );
   }
+  if (!fleetSession.confirmed && fleetSession.retransmitQueue.getSize() > 0) {
+    // One FLEET_DATA in flight until the client proves it receives here.
+    forgetMeta(fleetSession, withMeta.added);
+    requeuePending(fleetSession, values);
+    return false;
+  }
   if (!budgetCovers(fleetSession, packet.length)) {
     return deferChunk(ctx, fleetSession, values, withMeta.added);
   }
+  await transmitFleetData(ctx, session, fleetSession, packet, values.length);
+  return true;
+}
+
+/** Take the next sequence, queue the packet for recovery, charge and send it. */
+async function transmitFleetData(
+  ctx: ServerContext,
+  session: ClientSession,
+  fleetSession: FleetSessionState,
+  packet: Buffer,
+  valueCount: number
+): Promise<void> {
+  const seq = fleetSession.nextSeq;
   fleetSession.nextSeq = (seq + 1) >>> 0;
   // Queue before sending so a failed send is still recoverable by NAK.
   fleetSession.retransmitQueue.add(seq, packet);
@@ -228,8 +238,7 @@ async function sendChunk(
   const metrics = ensureFleetMetrics(ctx.metrics);
   metrics.packetsSent++;
   metrics.bytesSent += packet.length;
-  metrics.valuesSent += values.length;
-  return true;
+  metrics.valuesSent += valueCount;
 }
 
 /** Send as much of one session's pending values as its byte budget allows. */
@@ -261,60 +270,6 @@ async function flushSession(ctx: ServerContext, session: ClientSession): Promise
   } finally {
     fleetSession.flushing = false;
   }
-}
-
-/**
- * Resend `sequences` within the session's byte budget, each only when the
- * budget covers its packet. A sequence left over when the budget runs out
- * keeps its retry state and goes out on a later NAK or stale tick, so loss
- * recovery cannot overspend the budget and stall new values.
- */
-export async function retransmit(
-  ctx: ServerContext,
-  session: ClientSession,
-  sequences: number[]
-): Promise<void> {
-  const fleetSession = session.fleet;
-  if (!fleetSession || sequences.length === 0) {
-    return;
-  }
-  const metrics = ensureFleetMetrics(ctx.metrics);
-  for (const sequence of sequences) {
-    refillTokens(fleetSession, Date.now());
-    const entry = fleetSession.retransmitQueue.get(sequence);
-    if (!entry) {
-      continue;
-    }
-    if (!budgetCovers(fleetSession, entry.packet.length)) {
-      return;
-    }
-    for (const item of fleetSession.retransmitQueue.retransmit([sequence])) {
-      fleetSession.tokens -= item.packet.length;
-      fleetSession.lastSentAt = Date.now();
-      await sendFleetPacket(ctx, session, item.packet);
-      metrics.retransmits++;
-    }
-  }
-}
-
-/** Retransmit packets that stayed unacknowledged past the timeout. */
-async function retransmitStale(
-  ctx: ServerContext,
-  session: ClientSession,
-  now: number
-): Promise<void> {
-  const fleetSession = session.fleet;
-  if (!fleetSession || fleetSession.retransmitQueue.getSize() === 0) {
-    return;
-  }
-  const stale = fleetSession.retransmitQueue.getOldestSequences(16).filter((seq) => {
-    const entry = fleetSession.retransmitQueue.get(seq);
-    return !!entry && now - entry.timestamp >= FLEET_RETRANSMIT_AFTER_MS;
-  });
-  if (stale.length > 0) {
-    backOff(ctx, fleetSession, now);
-  }
-  await retransmit(ctx, session, stale);
 }
 
 /** One fleet tick: retransmit, flush, keepalive, member bookkeeping. */
@@ -353,54 +308,6 @@ export async function fleetTick(ctx: ServerContext): Promise<void> {
   refreshMemberCount(ctx);
   const factors = acceptedSessions(ctx).map((s) => s.fleet!.rateFactor);
   ensureFleetMetrics(ctx.metrics).minRateFactor = factors.length ? Math.min(...factors) : 1;
-}
-
-function sessionFor(
-  ctx: ServerContext,
-  rinfo?: { address: string; port: number }
-): ClientSession | null {
-  return rinfo ? (ctx.clientSessions.get(`${rinfo.address}:${rinfo.port}`) ?? null) : null;
-}
-
-/** FLEET_ACK from a client: release acknowledged packets. */
-export function handleFleetAck(
-  ctx: ServerContext,
-  parsed: ParsedPacket,
-  rinfo?: { address: string; port: number }
-): void {
-  const session = sessionFor(ctx, rinfo);
-  if (!session?.fleet) {
-    return;
-  }
-  const { stream, sequence } = ctx.packetParser.parseFleetAckPayload(parsed.payload);
-  if (stream !== session.fleet.stream) {
-    ensureFleetMetrics(ctx.metrics).staleStreamPackets++;
-    return;
-  }
-  session.lastPacketTime = Date.now();
-  session.fleet.retransmitQueue.acknowledge(sequence);
-}
-
-/** FLEET_NAK from a client: retransmit the named sequences. */
-export async function handleFleetNak(
-  ctx: ServerContext,
-  parsed: ParsedPacket,
-  rinfo?: { address: string; port: number }
-): Promise<void> {
-  const session = sessionFor(ctx, rinfo);
-  if (!session?.fleet) {
-    return;
-  }
-  const { stream, missing } = ctx.packetParser.parseFleetNakPayload(parsed.payload);
-  if (stream !== session.fleet.stream) {
-    ensureFleetMetrics(ctx.metrics).staleStreamPackets++;
-    return;
-  }
-  session.lastPacketTime = Date.now();
-  if (missing.length > 0) {
-    backOff(ctx, session.fleet, Date.now());
-  }
-  await retransmit(ctx, session, missing.slice(0, FLEET_MAX_NAK_SEQUENCES));
 }
 
 /** Subscribe to the tree and start the fleet tick. Idempotent. */

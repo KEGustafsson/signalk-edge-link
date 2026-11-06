@@ -653,9 +653,16 @@ describe("fleet sharing end-to-end", () => {
     await pump(hub, clients);
     expect(hub.bus.received.some((d) => d.context === a.self)).toBe(true);
     expect(fleet.originDrops).toBe(0);
-    // The same session repeating its HELLO is accepted.
+    // The same HELLO replayed on A's own session is not newer than the one A
+    // was accepted with: ignored, and A keeps its vessel.
     await hub.server.receivePacket(hello, secretKey, { address: "10.0.0.1", port: a.port });
-    expect(fleet.replayedHellos).toBe(1);
+    expect(fleet.replayedHellos).toBe(2);
+    expect(fleet.members).toBe(3);
+    hub.bus.received.length = 0;
+    await a.client.sendDelta([sog(a.self, 9.9)], secretKey, HUB_ADDR, HUB_PORT);
+    await pump(hub, clients);
+    expect(hub.bus.received.some((d) => d.context === a.self)).toBe(true);
+    expect(fleet.originDrops).toBe(0);
   });
 
   test("an old HELLO replayed after many newer ones cannot take over a vessel", async () => {
@@ -1047,7 +1054,7 @@ describe("fleet sharing end-to-end", () => {
 describe("fleet session state", () => {
   test("retransmissions stay within the session's byte budget", async () => {
     const { createSessionState } = require("../../src/transport/pipeline/reliable-server/fleet");
-    const { retransmit } = require("../../src/transport/pipeline/reliable-server/fleet-sender");
+    const { retransmit } = require("../../src/transport/pipeline/reliable-server/fleet-recovery");
     const sent = [];
     const ctx = {
       fleet: { config: { maxBytesPerSec: 256 } },

@@ -186,9 +186,13 @@ export interface FleetMetrics {
   originDrops: number;
   /** HELLOs whose vessel was already declared by another session (newest wins). */
   identityConflicts: number;
-  /** HELLOs that requested fleet sharing with an unreadable `fleet` field. */
+  /** Fleet HELLOs refused: unreadable `fleet` field, or the server's own vessel. */
   identityRejected: number;
-  /** Fleet HELLOs ignored because another session already presented their nonce. */
+  /**
+   * Fleet HELLOs ignored as replays: from another session with a `timestamp`
+   * not newer than the vessel owner's newest accepted HELLO, or on a fleet
+   * session with a `timestamp` not newer than the HELLO it was accepted with.
+   */
   replayedHellos: number;
   keepalivesSent: number;
   snapshotsSent: number;

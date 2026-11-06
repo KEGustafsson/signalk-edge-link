@@ -21,8 +21,8 @@ import {
 } from "./sessions";
 import { handleMetadataPacket } from "./metadata";
 import { handleDataPacket } from "./data-handler";
-import { handleFleetHello } from "./fleet";
-import { handleFleetAck, handleFleetNak } from "./fleet-sender";
+import { handleFleetHello } from "./fleet-hello";
+import { handleFleetAck, handleFleetNak } from "./fleet-recovery";
 import { preAuthRateLimited, verifyHbProbe, applyHelloEpoch, markPeerHandshaked } from "./context";
 import type { ServerContext, ClientSession } from "./context";
 

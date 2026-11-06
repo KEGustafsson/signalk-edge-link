@@ -33,6 +33,11 @@ function remember(ctx: ServerContext, self: string, timestamp: number): void {
  * strictly increasing (PacketBuilder), so no clock agreement with the server
  * is needed and no two HELLOs of one client share a value.
  */
+/** The HMAC-covered HELLO `timestamp`, or 0 when absent or not a number. */
+export function helloTimestamp(timestamp: unknown): number {
+  return typeof timestamp === "number" && Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 export function helloReplayed(
   ctx: ServerContext,
   session: ClientSession,
@@ -40,7 +45,7 @@ export function helloReplayed(
   owner: ClientSession | null,
   timestamp: unknown
 ): boolean {
-  const ts = typeof timestamp === "number" && Number.isFinite(timestamp) ? timestamp : 0;
+  const ts = helloTimestamp(timestamp);
   const mark = ctx.fleet!.helloMarks.get(identity.self);
   const newer = mark === undefined || ts > mark;
   if (owner && owner !== session && (mark === undefined || !newer)) {

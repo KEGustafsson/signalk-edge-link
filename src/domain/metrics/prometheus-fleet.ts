@@ -35,7 +35,7 @@ function fleetCounters(fleet: NonNullable<Metrics["fleet"]>): Array<[string, str
     ],
     [
       "fleet_identity_rejected_total",
-      "Fleet HELLOs with an unreadable identity",
+      "Fleet HELLOs refused: unreadable identity or the server's own vessel",
       fleet.identityRejected
     ],
     ["fleet_keepalives_sent_total", "HELLO_ACK keepalives sent", fleet.keepalivesSent],
@@ -65,11 +65,7 @@ function fleetCounters(fleet: NonNullable<Metrics["fleet"]>): Array<[string, str
       "FLEET_ACK/FLEET_NAK naming a stream no longer in use",
       fleet.staleStreamPackets
     ],
-    [
-      "fleet_replayed_hellos_total",
-      "Fleet HELLOs ignored as replays from another session",
-      fleet.replayedHellos
-    ],
+    ["fleet_replayed_hellos_total", "Fleet HELLOs ignored as replays", fleet.replayedHellos],
     ["fleet_acks_sent_total", "FLEET_ACKs sent", fleet.acksSent],
     ["fleet_naks_sent_total", "FLEET_NAKs sent", fleet.naksSent]
   ];
