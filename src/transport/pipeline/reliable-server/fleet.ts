@@ -110,16 +110,25 @@ export function createFleetServerState(ctx: Pick<ServerContext, "state">): Fleet
 }
 
 /**
- * Put values that were taken but not sent back into `pending`. A key that has
- * since received a newer value keeps the newer one.
+ * Put values that were taken but not sent back at the head of `pending`, so
+ * they go out first once the budget allows. A key that has since received a
+ * newer value keeps the newer one.
  */
 export function requeuePending(fleetSession: FleetSessionState, values: PendingValue[]): void {
+  if (values.length === 0) {
+    return;
+  }
+  const head = new Map<string, PendingValue>();
   for (const value of values) {
     const key = pendingKey(value.kind, value.context, value.$source, value.path);
-    if (!fleetSession.pending.has(key)) {
-      fleetSession.pending.set(key, value);
+    head.set(key, fleetSession.pending.get(key) ?? value);
+  }
+  for (const [key, value] of fleetSession.pending) {
+    if (!head.has(key)) {
+      head.set(key, value);
     }
   }
+  fleetSession.pending = head;
 }
 
 export function secretKeyOf(ctx: ServerContext): string {
@@ -199,9 +208,9 @@ function enqueueUpdate(
       continue;
     }
     const key = pendingKey("value", context, sourceRef, entry.path);
-    // Delete-then-set moves the key to the end, so flush order follows the
-    // most recent change and a constantly-updating path cannot starve others.
-    fleetSession.pending.delete(key);
+    // A key already waiting keeps its place and only takes the newer value,
+    // so flushes go oldest-waiting first and a path that changes every
+    // interval cannot be pushed behind the others forever.
     fleetSession.pending.set(key, {
       kind: "value",
       context,

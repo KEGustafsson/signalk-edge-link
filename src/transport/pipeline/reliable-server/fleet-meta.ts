@@ -147,7 +147,7 @@ export function enqueueMeta(
       continue;
     }
     const key = pendingKey("meta", context, undefined, entry.path);
-    fleetSession.pending.delete(key);
+    // Keeps its place if already waiting (see enqueueUpdate).
     fleetSession.pending.set(key, {
       kind: "meta",
       context,
