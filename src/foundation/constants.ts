@@ -276,6 +276,22 @@ export const FLEET_KEEPALIVE_MS = 20000;
 export const FLEET_LIVENESS_TIMEOUT_MS = 60000;
 /** HELLOs without a HELLO_ACK before the client reports `not-offered`. */
 export const FLEET_HELLO_ATTEMPTS_BEFORE_NOT_OFFERED = 3;
+/**
+ * How long a client keeps NAKing a fleet gap before giving up on it: at least
+ * the server's whole recovery (2 s × (3 + 1) retransmit chances), so a lost
+ * packet ends delivered or abandoned on the server, never ACKed past.
+ */
+export const FLEET_NAK_WINDOW_MS = 8000;
+/** Contexts a client remembers as learned from the fleet (§15.7). */
+export const FLEET_LEARNED_MAX = 10000;
+/** A learned context is forgotten after this long without a fleet packet. */
+export const FLEET_LEARNED_TTL_MS = 24 * 60 * 60 * 1000;
+/** A server remembers which members relay a context for this long (§15.6). */
+export const FLEET_RELAY_MEMORY_MS = 24 * 60 * 60 * 1000;
+/** Contexts whose relaying members a server remembers. */
+export const FLEET_RELAY_MAX_CONTEXTS = 20000;
+/** The learned-context set is saved to disk at most this often. */
+export const FLEET_LEARNED_SAVE_INTERVAL_MS = 60000;
 /** Minimum spacing of join snapshots per session. */
 export const FLEET_SNAPSHOT_MIN_INTERVAL_MS = 10000;
 /** Retransmit FLEET_DATA still unacknowledged after this long. */

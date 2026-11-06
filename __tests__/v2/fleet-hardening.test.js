@@ -13,7 +13,10 @@ const {
   onFleetDelta
 } = require("../../src/transport/pipeline/reliable-server/fleet");
 const { fleetTick } = require("../../src/transport/pipeline/reliable-server/fleet-sender");
-const { handleFleetAck } = require("../../src/transport/pipeline/reliable-server/fleet-recovery");
+const {
+  handleFleetAck,
+  handleFleetNak
+} = require("../../src/transport/pipeline/reliable-server/fleet-recovery");
 const { handleFleetHello } = require("../../src/transport/pipeline/reliable-server/fleet-hello");
 const { encodeFleetIdentity } = require("../../src/codec/fleet-identity");
 const { FLEET_CAPABILITY, FLEET_MAX_RETRANSMITS } = require("../../src/foundation/constants");
@@ -235,5 +238,51 @@ describe("fleet return routability", () => {
     handleFleetAck(ctx, ack, { address: session.address, port: session.port });
     expect(session.fleet.confirmed).toBe(false);
     expect(ctx.metrics.fleet.staleStreamPackets).toBe(1);
+  });
+});
+
+describe("fleet loss-adaptive rate", () => {
+  let now;
+  let clock;
+
+  beforeEach(() => {
+    now = 3_000_000;
+    clock = jest.spyOn(Date, "now").mockImplementation(() => now);
+  });
+
+  afterEach(() => {
+    clock.mockRestore();
+  });
+
+  const nakFor = (ctx, stream, sequences) =>
+    ctx.packetParser.parseHeader(ctx.packetBuilder.buildFleetNakPacket(stream, sequences), {
+      epoch: 0
+    });
+
+  test("downlink loss cuts the rate once per burst; repeated NAKs of the same gap do not", async () => {
+    const { ctx, session } = makeServer({ scope: "all" });
+    enqueueValues(ctx, 5, now);
+    await fleetTick(ctx);
+    expect(session.fleet.retransmitQueue.getSize()).toBeGreaterThan(0);
+    const from = { address: session.address, port: session.port };
+    await handleFleetNak(ctx, nakFor(ctx, session.fleet.stream, [0]), from);
+    expect(ctx.metrics.fleet.rateBackoffs).toBe(1);
+    expect(session.fleet.rateFactor).toBeCloseTo(0.7);
+    // The client re-NAKs the same gap until it is filled; a second later
+    // that is still the same loss, already retransmitted once.
+    now += 1500;
+    await handleFleetNak(ctx, nakFor(ctx, session.fleet.stream, [0]), from);
+    // A sequence the server no longer holds (abandoned or never sent).
+    await handleFleetNak(ctx, nakFor(ctx, session.fleet.stream, [999]), from);
+    expect(ctx.metrics.fleet.rateBackoffs).toBe(1);
+    // Loss stops: everything is acknowledged and the rate recovers.
+    session.fleet.retransmitQueue.acknowledge((session.fleet.nextSeq - 1) >>> 0);
+    for (let tick = 0; tick < 12; tick++) {
+      now += 1000;
+      session.lastPacketTime = now;
+      await fleetTick(ctx);
+    }
+    expect(session.fleet.rateFactor).toBe(1);
+    expect(ctx.metrics.fleet.minRateFactor).toBe(1);
   });
 });

@@ -19,6 +19,7 @@ import { EDGE_LINK_PROVIDER_ID } from "../../../codec/source-dispatch";
 import { mergeSourceSnapshot } from "../../../codec/source-snapshot";
 import { ParsedPacket } from "../../../codec/packet-codec";
 import { getOrCreateSession } from "./sessions";
+import { fleetOriginRejected } from "./fleet";
 import { getReplayGuard, handshakedPeerAddress } from "./context";
 import { metaEntryWithinBounds } from "./meta-bounds";
 import type { ServerContext, ClientSession } from "./context";
@@ -324,7 +325,12 @@ function decodeMetaItem(
   return { context, item: { path, value: entry.meta as Record<string, unknown> } };
 }
 
-function dispatchMetaEntries(ctx: ServerContext, parsed: ParsedPacket, env: MetaEnvelope): void {
+function dispatchMetaEntries(
+  ctx: ServerContext,
+  parsed: ParsedPacket,
+  env: MetaEnvelope,
+  session: ClientSession | null
+): void {
   const { app } = ctx;
   const entries = Array.isArray(env.entries) ? env.entries : [];
   const nowIso = new Date().toISOString();
@@ -343,6 +349,12 @@ function dispatchMetaEntries(ctx: ServerContext, parsed: ParsedPacket, env: Meta
   }
 
   for (const [context, metaItems] of byContext) {
+    // Same origin rule as DATA (§15.7): a member's metadata enters the hub
+    // only from that member, so a stale copy another client re-sends (e.g.
+    // in its periodic snapshot) cannot overwrite it.
+    if (fleetOriginRejected(ctx, { context, updates: [] } as Delta, session)) {
+      continue;
+    }
     const deltaMessage: Delta = {
       context,
       updates: [
@@ -446,7 +458,7 @@ function processMetaEnvelope(
     return;
   }
 
-  dispatchMetaEntries(ctx, parsed, env);
+  dispatchMetaEntries(ctx, parsed, env, activeSession);
 }
 
 /** Map a caught metadata error to the right log + recordError category. */

@@ -126,7 +126,10 @@ export async function handleFleetNak(
   }
   session.lastPacketTime = Date.now();
   session.fleet.confirmed = true;
-  if (missing.length > 0) {
+  // Cut the rate for new loss only: a client NAKs a gap repeatedly until it
+  // is filled (§15.5), and each repeat is the same loss, not more of it.
+  const queue = session.fleet.retransmitQueue;
+  if (missing.some((sequence) => queue.get(sequence)?.attempts === 0)) {
     backOff(ctx, session.fleet, Date.now());
   }
   await retransmit(ctx, session, missing.slice(0, FLEET_MAX_NAK_SEQUENCES));

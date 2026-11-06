@@ -7,169 +7,22 @@
  * old peers must never receive fleet packets.
  */
 
-const { createPipelineV2Client } = require("../../lib/pipeline-v2-client");
-const { createPipelineV2Server } = require("../../lib/pipeline-v2-server");
 const { PacketParser, PacketType } = require("../../lib/packet");
 const { processDelta } = require("../../src/app/connection/process-delta");
-const { makeMetricsApi } = require("../helpers/metrics-fixture");
-
-const secretKey = "12345678901234567890123456789012";
-const HUB_PORT = 9300;
-const HUB_ADDR = "127.0.0.1";
-
-const urn = (mmsi) => `vessels.urn:mrn:imo:mmsi:${mmsi}`;
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** A minimal Signal K bus: handleMessage feeds every subscriber synchronously. */
-function makeBusApp(mmsi) {
-  const subscribers = [];
-  const received = [];
-  const app = {
-    debug: jest.fn(),
-    error: jest.fn(),
-    getSelfPath: (path) => (path === "mmsi" ? mmsi : undefined),
-    handleMessage: jest.fn((_id, delta) => {
-      received.push(delta);
-      for (const fn of subscribers) {
-        fn(delta);
-      }
-    }),
-    subscriptionmanager: {
-      subscribe: (_sub, unsubscribes, _onError, onDelta) => {
-        subscribers.push(onDelta);
-        unsubscribes.push(() => {
-          const i = subscribers.indexOf(onDelta);
-          if (i >= 0) {
-            subscribers.splice(i, 1);
-          }
-        });
-      }
-    }
-  };
-  return { app, received, subscribers };
-}
-
-function makeHub(fleetSharing, extraOptions = {}) {
-  const bus = makeBusApp("999000999");
-  const toClients = [];
-  const state = {
-    instanceId: "hub",
-    options: {
-      secretKey,
-      udpPort: HUB_PORT,
-      protocolVersion: 3,
-      reliability: { nakTimeout: 20 },
-      fleetSharing,
-      ...extraOptions
-    },
-    socketUdp: {
-      send: jest.fn((pkt, port, address, cb) => {
-        toClients.push({ pkt: Buffer.from(pkt), port, address });
-        if (cb) {
-          cb(null);
-        }
-      })
-    }
-  };
-  const metricsApi = makeMetricsApi();
-  const server = createPipelineV2Server(bus.app, state, metricsApi);
-  return { server, state, bus, toClients, metricsApi };
-}
-
-function makeClient(mmsi, port, fleetSharing = { enabled: true }, extraOptions = {}) {
-  const bus = makeBusApp(mmsi);
-  const toHub = [];
-  const state = {
-    instanceId: `client-${port}`,
-    options: {
-      secretKey,
-      udpPort: HUB_PORT,
-      udpAddress: HUB_ADDR,
-      protocolVersion: 3,
-      reliability: { nakTimeout: 20 },
-      fleetSharing,
-      ...extraOptions
-    },
-    socketUdp: {
-      send: jest.fn((pkt, _port, _addr, cb) => {
-        toHub.push(Buffer.from(pkt));
-        if (cb) {
-          cb(null);
-        }
-      })
-    },
-    deltaTimerTime: 1000,
-    avgBytesPerDelta: 100,
-    maxDeltasPerBatch: 10,
-    stopped: false
-  };
-  const metricsApi = makeMetricsApi();
-  const client = createPipelineV2Client(bus.app, state, metricsApi);
-  return { mmsi, self: urn(mmsi), port, client, state, bus, toHub, metricsApi };
-}
-
-/** Move every queued datagram until both directions are quiet. */
-async function pump(hub, clients, rounds = 6) {
-  for (let r = 0; r < rounds; r++) {
-    let moved = 0;
-    for (const c of clients) {
-      const batch = c.toHub.splice(0);
-      moved += batch.length;
-      for (const pkt of batch) {
-        await hub.server.receivePacket(pkt, secretKey, { address: "10.0.0.1", port: c.port });
-      }
-    }
-    const out = hub.toClients.splice(0);
-    moved += out.length;
-    for (const { pkt, port } of out) {
-      const c = clients.find((x) => x.port === port);
-      if (c) {
-        await c.client.handleControlPacket(pkt, { address: HUB_ADDR, port: HUB_PORT });
-      }
-    }
-    if (moved === 0) {
-      return;
-    }
-  }
-}
-
-function sog(context, value, source = "n2k.115") {
-  return {
-    context,
-    updates: [
-      {
-        $source: source,
-        timestamp: new Date().toISOString(),
-        values: [{ path: "navigation.speedOverGround", value }]
-      }
-    ]
-  };
-}
-
-function contextsReceived(c) {
-  return new Set(c.bus.received.map((d) => d.context));
-}
-
-function lastSog(c, context) {
-  const values = c.bus.received
-    .filter((d) => d.context === context)
-    .flatMap((d) => d.updates.flatMap((u) => u.values))
-    .filter((v) => v.path === "navigation.speedOverGround");
-  return values.length ? values[values.length - 1].value : undefined;
-}
-
-const typesSentTo = (hub, port) => {
-  const parser = new PacketParser({ secretKey });
-  return hub.state.socketUdp.send.mock.calls
-    .filter((call) => call[1] === port)
-    .map((call) => {
-      try {
-        return parser.parseHeader(Buffer.from(call[0]), { epoch: 0 }).type;
-      } catch {
-        return -1;
-      }
-    });
-};
+const {
+  secretKey,
+  HUB_PORT,
+  HUB_ADDR,
+  urn,
+  wait,
+  makeHub,
+  makeClient,
+  pump,
+  sog,
+  contextsReceived,
+  lastSog,
+  typesSentTo
+} = require("../helpers/fleet-harness");
 
 describe("fleet sharing end-to-end", () => {
   let hub;
@@ -527,30 +380,6 @@ describe("fleet sharing end-to-end", () => {
     }
     return null;
   }
-
-  test("downlink loss cuts the fleet rate once per burst and it recovers when loss stops", async () => {
-    await connectAll();
-    const a = clients[0];
-    const { PacketBuilder } = require("../../lib/packet");
-    const nak = new PacketBuilder({ secretKey }).buildFleetNakPacket(streamOf(a), [5, 6]);
-    const from = { address: "10.0.0.1", port: a.port };
-    await hub.server.receivePacket(nak, secretKey, from);
-    await hub.server.receivePacket(nak, secretKey, from);
-    const fleet = hub.metricsApi.metrics.fleet;
-    expect(fleet.rateBackoffs).toBe(1);
-    await wait(150);
-    expect(fleet.minRateFactor).toBeCloseTo(0.7);
-
-    const realNow = Date.now;
-    const shifted = realNow() + 10000;
-    const spy = jest.spyOn(Date, "now").mockImplementation(() => shifted);
-    try {
-      await wait(250);
-      expect(fleet.minRateFactor).toBe(1);
-    } finally {
-      spy.mockRestore();
-    }
-  });
 
   test("a replayed FLEET_DATA is counted as a duplicate and not applied again", async () => {
     await connectAll();
@@ -1048,6 +877,49 @@ describe("fleet sharing end-to-end", () => {
     await pump(hub, clients);
     expect(lastSog(late, b.self)).toBeCloseTo(6.6);
     expect(hub.metricsApi.metrics.fleet.snapshotsSent).toBeGreaterThan(0);
+  });
+  test("scope all never sends a member the contexts it relays itself", async () => {
+    await connectAll({ enabled: true, scope: "all", batchIntervalMs: 100 });
+    const [a, b] = clients;
+    // An AIS target only A's receiver sees.
+    const ais = urn("219999999");
+    await a.client.sendDelta([sog(ais, 4.4, "ais.a")], secretKey, HUB_ADDR, HUB_PORT);
+    await pump(hub, clients);
+    await wait(250);
+    await pump(hub, clients);
+    expect(contextsReceived(b).has(ais)).toBe(true);
+    // Getting it back would make A's loop guard drop its own AIS uplink.
+    expect(contextsReceived(a).has(ais)).toBe(false);
+    expect(a.state.fleetLearnedContexts.has(ais)).toBe(false);
+  });
+
+  test("METADATA for another member's vessel is refused like its DATA", async () => {
+    await connectAll();
+    const [a, b, c] = clients;
+    hub.bus.received.length = 0;
+    const drops = hub.metricsApi.metrics.fleet.originDrops;
+    await a.client.sendMetadata(
+      [
+        {
+          context: b.self,
+          path: "navigation.speedOverGround",
+          meta: { units: "m/s", displayName: "STALE-from-A" }
+        }
+      ],
+      "snapshot",
+      secretKey,
+      HUB_ADDR,
+      HUB_PORT
+    );
+    await pump(hub, clients);
+    await wait(250);
+    await pump(hub, clients);
+    expect(hub.bus.received.some((d) => d.context === b.self)).toBe(false);
+    expect(hub.metricsApi.metrics.fleet.originDrops).toBe(drops + 1);
+    const seenByC = c.bus.received
+      .filter((d) => d.context === b.self)
+      .flatMap((d) => d.updates.flatMap((u) => u.meta || []));
+    expect(seenByC.some((m) => m.value?.displayName === "STALE-from-A")).toBe(false);
   });
 });
 

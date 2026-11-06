@@ -42,6 +42,7 @@ import type { ServerContext, ClientSession } from "./context";
 import { bindBuilderEpochForPeer } from "./context";
 import { sendUDP } from "./sessions";
 import { enqueueMeta, pendingKey } from "./fleet-meta";
+import { relaysContext } from "./fleet-relay";
 
 /** One coalesced value (or metadata entry) waiting to be sent to a session. */
 export interface PendingValue {
@@ -96,6 +97,8 @@ export interface FleetServerState {
   members: Map<string, string>;
   /** Vessel context → `timestamp` of its newest accepted HELLO (replay guard). */
   helloMarks: Map<string, number>;
+  /** Context → member vessels that uplink it → when last seen (fleet-relay). */
+  relays: Map<string, Map<string, number>>;
   unsubscribes: Array<() => void>;
   timer: ReturnType<typeof setInterval> | null;
   serverSelf: string | null;
@@ -111,6 +114,7 @@ export function createFleetServerState(ctx: Pick<ServerContext, "state">): Fleet
     config: resolveFleetConfig(fleetOptions),
     members: new Map(),
     helloMarks: new Map(),
+    relays: new Map(),
     unsubscribes: [],
     timer: null,
     serverSelf: null
@@ -188,6 +192,9 @@ export function serverSelf(ctx: ServerContext): string | null {
 function contextInScope(ctx: ServerContext, session: ClientSession, context: string): boolean {
   const fleet = ctx.fleet!;
   if (!session.fleet || context === session.fleet.self || context === "vessels.self") {
+    return false;
+  }
+  if (relaysContext(ctx, session, context)) {
     return false;
   }
   if (fleet.config.scope === "all") {

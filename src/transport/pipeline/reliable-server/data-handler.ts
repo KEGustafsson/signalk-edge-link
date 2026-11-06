@@ -28,6 +28,7 @@ import {
 } from "./sessions";
 import { ingestRemoteTelemetry } from "./telemetry";
 import { fleetOriginRejected } from "./fleet";
+import { noteUplink } from "./fleet-relay";
 import type { ServerContext, ClientSession } from "./context";
 import type { Delta } from "../../../foundation/types";
 
@@ -177,6 +178,8 @@ function processDelta(
   if (fleetOriginRejected(ctx, deltaMessage, session)) {
     return;
   }
+  // Before dispatch: dispatch fans the delta out to the fleet synchronously.
+  noteUplink(ctx, session, deltaMessage.context);
 
   ingestRemoteTelemetry(ctx, deltaMessage, session);
   if (!Array.isArray(deltaMessage.updates) || deltaMessage.updates.length === 0) {
