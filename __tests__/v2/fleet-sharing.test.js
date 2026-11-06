@@ -310,19 +310,29 @@ describe("fleet sharing end-to-end", () => {
     const before = hub.metricsApi.metrics.fleet.snapshotsSent;
     const { PacketBuilder } = require("../../lib/packet");
     const { encodeFleetIdentity, newFleetNonce } = require("../../src/codec/fleet-identity");
+    const replayedBefore = hub.metricsApi.metrics.fleet.replayedHellos;
+    const start = Date.now();
     for (let epoch = 10; epoch < 15; epoch++) {
-      const builder = new PacketBuilder({ secretKey });
-      const hello = builder.buildHelloPacket({
-        clientId: "x",
-        epoch: Date.now() + epoch * 1000,
-        capabilities: ["fleet-v1"],
-        fleet: encodeFleetIdentity({ self: clients[0].self, nonce: newFleetNonce() }, secretKey)
-      });
+      // Each restarted process stamps its HELLO later than the last one, so
+      // every restart is accepted rather than ignored as a replay (§15.7).
+      const buildClock = jest.spyOn(Date, "now").mockReturnValue(start + epoch);
+      let hello;
+      try {
+        hello = new PacketBuilder({ secretKey }).buildHelloPacket({
+          clientId: "x",
+          epoch: start + epoch * 1000,
+          capabilities: ["fleet-v1"],
+          fleet: encodeFleetIdentity({ self: clients[0].self, nonce: newFleetNonce() }, secretKey)
+        });
+      } finally {
+        buildClock.mockRestore();
+      }
       await hub.server.receivePacket(hello, secretKey, {
         address: "10.0.0.1",
         port: clients[0].port
       });
     }
+    expect(hub.metricsApi.metrics.fleet.replayedHellos).toBe(replayedBefore);
     expect(hub.metricsApi.metrics.fleet.snapshotsSent).toBe(before);
   });
 
@@ -792,16 +802,28 @@ describe("fleet sharing end-to-end", () => {
     const { PacketBuilder } = require("../../lib/packet");
     const { encodeFleetIdentity, newFleetNonce } = require("../../src/codec/fleet-identity");
     // A client restart (higher epoch) inside the limit: new stream, no snapshot yet.
-    const hello = new PacketBuilder({ secretKey }).buildHelloPacket({
-      clientId: "x",
-      epoch: Date.now() + 60000,
-      capabilities: ["fleet-v1"],
-      fleet: encodeFleetIdentity({ self: clients[0].self, nonce: newFleetNonce() }, secretKey)
-    });
+    // The restarted process stamps its HELLO later than the old one did; on a
+    // fast runtime a fresh builder could otherwise land in the same
+    // millisecond and be ignored as a replay (§15.7).
+    const replayedBefore = hub.metricsApi.metrics.fleet.replayedHellos;
+    const builtAt = Date.now() + 1000;
+    const buildClock = jest.spyOn(Date, "now").mockReturnValue(builtAt);
+    let hello;
+    try {
+      hello = new PacketBuilder({ secretKey }).buildHelloPacket({
+        clientId: "x",
+        epoch: builtAt + 60000,
+        capabilities: ["fleet-v1"],
+        fleet: encodeFleetIdentity({ self: clients[0].self, nonce: newFleetNonce() }, secretKey)
+      });
+    } finally {
+      buildClock.mockRestore();
+    }
     await hub.server.receivePacket(hello, secretKey, {
       address: "10.0.0.1",
       port: clients[0].port
     });
+    expect(hub.metricsApi.metrics.fleet.replayedHellos).toBe(replayedBefore);
     expect(hub.metricsApi.metrics.fleet.snapshotsSent).toBe(before);
     const realNow = Date.now.bind(Date);
     const nowSpy = jest.spyOn(Date, "now").mockImplementation(() => realNow() + 11000);
