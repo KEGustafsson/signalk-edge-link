@@ -256,7 +256,8 @@ describe("learned fleet contexts", () => {
     next.load(11_500); // vessels.a is now past the TTL
     expect(next.has("vessels.a")).toBe(false);
     expect(next.has("vessels.b")).toBe(true);
-    expect(fs.existsSync(`${file}.tmp`)).toBe(false);
+    // Written through a temporary file that is renamed into place.
+    expect(fs.readdirSync(dir)).toEqual(["fleet-learned.json"]);
   });
 
   test("saves at most once per interval unless forced, and only after a change", async () => {

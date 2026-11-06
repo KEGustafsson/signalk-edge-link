@@ -268,6 +268,10 @@ async function flushSession(ctx: ServerContext, session: ClientSession): Promise
   try {
     refillTokens(fleetSession, Date.now());
     while (fleetSession.pending.size > 0) {
+      if (!fleetSession.confirmed && unconfirmedHeld(fleetSession)) {
+        // Nothing can go out yet; do not encode values only to put them back.
+        return;
+      }
       if (fleetSession.tokens < MAX_SAFE_UDP_PAYLOAD / 4) {
         // Values stay queued; newer values for the same key replace them.
         ensureFleetMetrics(ctx.metrics).rateLimitedFlushes++;
@@ -288,6 +292,21 @@ async function flushSession(ctx: ServerContext, session: ClientSession): Promise
 
 /** One fleet tick: retransmit, flush, keepalive, member bookkeeping. */
 export async function fleetTick(ctx: ServerContext): Promise<void> {
+  if (!ctx.fleet || ctx.fleet.ticking) {
+    // A tick still sending (slow socket) is not overlapped: a second one
+    // could resend a sequence from the first one's stale list and spend an
+    // extra retransmit on it.
+    return;
+  }
+  ctx.fleet.ticking = true;
+  try {
+    await runFleetTick(ctx);
+  } finally {
+    ctx.fleet.ticking = false;
+  }
+}
+
+async function runFleetTick(ctx: ServerContext): Promise<void> {
   if (!ctx.fleet) {
     return;
   }

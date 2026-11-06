@@ -763,7 +763,7 @@ The server retransmits on FLEET_NAK, and retransmits any packet still unacknowle
 For an accepted session `s` the server sends a context `C` when all of these hold:
 
 1. `C` is not `s.self`.
-2. Scope `fleet` (default): `C` is the `self` of another accepted session on the same server instance, or `C` is the server's own vessel and `includeServerVessel` is true. Scope `all`: in addition, any other context, including AIS targets, except contexts that `s`'s vessel uplinked itself in the last 24 h (its AIS targets, or vessels it relays from a fleet of its own). Sending a client its own uplink back would make the client treat those contexts as fleet data and stop uplinking them (§15.7). Members' vessels and the shared server vessel are always sent, in both scopes, even if `s` once uplinked a copy of them: their data enters the hub only from their owner.
+2. Scope `fleet` (default): `C` is the `self` of another accepted session on the same server instance, or `C` is the server's own vessel and `includeServerVessel` is true. Scope `all`: in addition, any other context, including AIS targets, except contexts that `s`'s vessel uplinked itself in the last 24 h (its AIS targets, or vessels it relays from a fleet of its own). Sending a client its own uplink back would make the client treat those contexts as fleet data and stop uplinking them (§15.7). Members' vessels are always sent, in both scopes, even if `s` once uplinked a copy of them: their data enters the hub only from their owner. The server's own vessel is sent only when `includeServerVessel` is true, in either scope.
 3. The path does not start with `networking.edgeLink.`.
 4. The path passes the server's `fleetSharing.pathFilter` and the client's requested `pathFilter`.
 
@@ -791,7 +791,7 @@ Metadata (units, zones, display names) rides inside FLEET_DATA as standard `upda
 
 ### 15.9 Loss-adaptive rate
 
-The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming a sequence later than any NAKed before on the stream, or a FLEET_DATA still unacknowledged after 2 s, multiplies the factor by 0.7, at most once per second, down to 0.1. After 2 s without loss the factor grows by 0.05 per second back to 1. The effective rate never drops below 256 bytes/s. The vessel's downlink, usually the slowest hop, therefore sets the pace without configuration, and a burst of loss counts once rather than once per lost packet.
+The server keeps a rate factor per session, starting at 1. A FLEET_DATA counted lost for the first time, because a FLEET_NAK names it or it is still unacknowledged after 2 s, multiplies the factor by 0.7, at most once per second, down to 0.1. After 2 s without loss the factor grows by 0.05 per second back to 1. The effective rate never drops below 256 bytes/s. The vessel's downlink, usually the slowest hop, therefore sets the pace without configuration, and a burst of loss counts once rather than once per lost packet.
 
 ### 15.10 Limits
 

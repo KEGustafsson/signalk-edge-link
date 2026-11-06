@@ -377,6 +377,41 @@ describe("fleet loss-adaptive rate", () => {
     expect(ctx.metrics.fleet.minRateFactor).toBe(1);
   });
 
+  test("a timed-out packet the budget holds back cuts the rate once, not on every tick", async () => {
+    const { ctx, session } = makeServer({ scope: "all" });
+    enqueueValues(ctx, 5, now);
+    await fleetTick(ctx);
+    session.fleet.tokens = -1e9;
+    for (let tick = 0; tick < 6; tick++) {
+      now += 2500;
+      session.lastPacketTime = now;
+      session.fleet.tokens = -1e9;
+      await fleetTick(ctx);
+    }
+    expect(session.fleet.retransmitQueue.get(0).attempts).toBe(0);
+    expect(ctx.metrics.fleet.rateBackoffs).toBe(1);
+  });
+
+  test("a tick still running is not overlapped by the next one", async () => {
+    const { ctx, session } = makeServer({ scope: "all", maxBytesPerSec: 1048576 });
+    enqueueValues(ctx, 120, now);
+    await fleetTick(ctx);
+    expect(session.fleet.retransmitQueue.getSize()).toBeGreaterThan(1);
+    now += 2500;
+    session.lastPacketTime = now;
+    // A slow socket: each send completes a little later.
+    const socket = ctx.state.socketUdp;
+    const send = socket.send;
+    socket.send = (pkt, port, address, cb) =>
+      send(pkt, port, address, () => setTimeout(() => cb(null), 5));
+    // Two ticks started back to back, as setInterval does while one is still
+    // sending. Each timed-out packet is resent once, not once per tick.
+    await Promise.all([fleetTick(ctx), fleetTick(ctx)]);
+    const queue = session.fleet.retransmitQueue;
+    const attempts = queue.getOldestSequences(100).map((seq) => queue.get(seq).attempts);
+    expect(Math.max(...attempts)).toBe(1);
+  });
+
   test("a gap whose retransmit the budget holds back cuts the rate once, not on every NAK", async () => {
     const { ctx, session } = makeServer({ scope: "all" });
     enqueueValues(ctx, 5, now);

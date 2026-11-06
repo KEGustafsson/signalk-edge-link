@@ -18,6 +18,7 @@ import {
 } from "../../../foundation/constants";
 import { ensureFleetMetrics } from "../../fleet/common";
 import type { ServerContext, ClientSession } from "./context";
+import type { FleetSessionState } from "./fleet";
 import { sendUDP } from "./sessions";
 import { backOff, budgetCovers, refillTokens } from "./fleet-rate";
 import { serialAhead } from "../../../foundation/serial";
@@ -67,6 +68,34 @@ export async function retransmit(
   }
 }
 
+/**
+ * Cut the rate for new loss only (§15.9). A sequence counts once, whether a
+ * FLEET_NAK names it or it times out, and however often the client re-NAKs
+ * it or the byte budget holds its retransmit back. NAKs and timeouts both
+ * report gaps in order, so new loss is a held sequence past the highest one
+ * already counted.
+ */
+function countLoss(
+  ctx: ServerContext,
+  fleetSession: FleetSessionState,
+  sequences: number[],
+  now: number
+): void {
+  let highest = fleetSession.highestLost;
+  for (const sequence of sequences) {
+    if (
+      fleetSession.retransmitQueue.get(sequence) &&
+      (highest === null || serialAhead(sequence, highest))
+    ) {
+      highest = sequence;
+    }
+  }
+  if (highest !== fleetSession.highestLost) {
+    fleetSession.highestLost = highest;
+    backOff(ctx, fleetSession, now);
+  }
+}
+
 /** Retransmit packets that stayed unacknowledged past the timeout. */
 export async function retransmitStale(
   ctx: ServerContext,
@@ -81,9 +110,7 @@ export async function retransmitStale(
     const entry = fleetSession.retransmitQueue.get(seq);
     return !!entry && now - entry.timestamp >= FLEET_RETRANSMIT_AFTER_MS;
   });
-  if (stale.length > 0) {
-    backOff(ctx, fleetSession, now);
-  }
+  countLoss(ctx, fleetSession, stale, now);
   await retransmit(ctx, session, stale);
 }
 
@@ -131,22 +158,10 @@ export async function handleFleetNak(
   }
   session.lastPacketTime = Date.now();
   session.fleet.confirmed = true;
-  // Cut the rate for new loss only: a client NAKs a gap repeatedly until it
-  // is filled (§15.5), and each repeat is the same loss, not more of it, even
-  // while the byte budget still holds its retransmit back. A NAK names the
-  // gaps in order, so new loss is a held sequence past any NAKed before.
   const fleetSession = session.fleet;
   const queue = fleetSession.retransmitQueue;
   const now = Date.now();
-  const newLoss = missing.filter(
-    (sequence) =>
-      !!queue.get(sequence) &&
-      (fleetSession.highestNaked === null || serialAhead(sequence, fleetSession.highestNaked))
-  );
-  if (newLoss.length > 0) {
-    fleetSession.highestNaked = newLoss.reduce((a, b) => (serialAhead(b, a) ? b : a));
-    backOff(ctx, fleetSession, now);
-  }
+  countLoss(ctx, fleetSession, missing, now);
   // A repeat of a NAK already answered within the last second is the same
   // request still in flight; resending again would spend the packet's
   // retransmits inside one burst of loss.

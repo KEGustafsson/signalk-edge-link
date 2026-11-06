@@ -92,8 +92,8 @@ export interface FleetSessionState {
   confirmed: boolean;
   /** When the last new FLEET_DATA went out while unconfirmed (0 = none yet). */
   unconfirmedSentAt: number;
-  /** Highest sequence a FLEET_NAK has named on this stream (rate backoff). */
-  highestNaked: number | null;
+  /** Highest sequence counted as lost on this stream, by NAK or timeout. */
+  highestLost: number | null;
 }
 
 /** Server-wide fleet state, present only when `fleetSharing.enabled`. */
@@ -107,6 +107,8 @@ export interface FleetServerState {
   relays: Map<string, Map<string, number>>;
   unsubscribes: Array<() => void>;
   timer: ReturnType<typeof setInterval> | null;
+  /** A tick is running; the next one is skipped rather than overlapping it. */
+  ticking: boolean;
   serverSelf: string | null;
 }
 
@@ -123,6 +125,7 @@ export function createFleetServerState(ctx: Pick<ServerContext, "state">): Fleet
     relays: new Map(),
     unsubscribes: [],
     timer: null,
+    ticking: false,
     serverSelf: null
   };
 }
@@ -200,13 +203,14 @@ function contextInScope(ctx: ServerContext, session: ClientSession, context: str
   if (!session.fleet || context === session.fleet.self || context === "vessels.self") {
     return false;
   }
-  // A member's own vessel, and the hub's when shared, always go out: their
-  // data enters the hub only from their owner (origin authority), so a copy
-  // this session once uplinked (an AIS target, say) is not its own data.
-  if (memberSession(ctx, context)) {
-    return true;
+  // The hub's own vessel goes out only when it is shared, in either scope.
+  if (context === serverSelf(ctx)) {
+    return fleet.config.includeServerVessel;
   }
-  if (fleet.config.includeServerVessel && context === serverSelf(ctx)) {
+  // A member's own vessel always goes out: its data enters the hub only from
+  // its owner (origin authority), so a copy this session once uplinked (an
+  // AIS target, say) is not its own data.
+  if (memberSession(ctx, context)) {
     return true;
   }
   // Scope `all` adds every other context, except those this session's vessel
@@ -329,7 +333,7 @@ export function createSessionState(ctx: ServerContext, identity: FleetIdentity):
     lastHello: { epoch: 0, ts: 0 },
     confirmed: false,
     unconfirmedSentAt: 0,
-    highestNaked: null
+    highestLost: null
   };
 }
 

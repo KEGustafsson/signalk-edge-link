@@ -46,9 +46,16 @@ false` cannot be bypassed.
   its replay window has not seen, whenever it arrives. The server answers
   repeated NAKs of one packet at most once a second, so its 3 retransmits are
   not spent within a single burst of loss.
-- **The rate backs off once per loss.** Repeated NAKs of the same gap no
-  longer cut the member's rate again, including while the byte budget holds
-  its retransmit back.
+- **The rate backs off once per loss.** A lost FLEET_DATA cuts the member's
+  rate once, whether a NAK names it or it times out, and however often it is
+  re-NAKed or the byte budget holds its retransmit back.
+- **The server's own vessel is private in scope `all` too.** With scope
+  `all` it was shared even with `includeServerVessel: false`.
+- **Fleet ticks do not overlap.** A tick still sending on a slow socket made
+  the next one resend the same timed-out packet and spend an extra
+  retransmit.
+- **A requested rate of 0 or below is raised to 256 bytes/s** instead of
+  being ignored.
 - **Scope never hides a member from another member.** A member whose vessel
   another member had uplinked earlier (an AIS copy, before it joined) is
   always shared with that member; only the extra contexts of scope `all` are

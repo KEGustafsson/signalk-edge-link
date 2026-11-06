@@ -126,6 +126,16 @@ describe("fleet sharing end-to-end", () => {
     expect(contextsReceived(clients[1]).has(urn("999000999"))).toBe(true);
   });
 
+  test("scope all does not share the hub's own vessel unless includeServerVessel is set", async () => {
+    await connectAll({ enabled: true, scope: "all", batchIntervalMs: 100 });
+    hub.bus.app.handleMessage("local", sog(urn("999000999"), 0.5, "gps.1"));
+    hub.bus.app.handleMessage("local", sog(urn("219999999"), 3.3, "ais.1"));
+    await wait(250);
+    await pump(hub, clients);
+    expect(contextsReceived(clients[1]).has(urn("219999999"))).toBe(true);
+    expect(contextsReceived(clients[1]).has(urn("999000999"))).toBe(false);
+  });
+
   test("the client uplink drops contexts learned from the fleet (no echo)", async () => {
     await connectAll();
     await uplinkAndDeliver([[clients[1], 2.2]]);

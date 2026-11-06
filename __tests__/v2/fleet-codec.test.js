@@ -158,6 +158,10 @@ describe("encrypted fleet identity", () => {
     });
     expect(capped.pathFilter.allow).toHaveLength(32);
     expect(parseFleetIdentityObject({ ...ok, maxBytesPerSec: 0.5 }).maxBytesPerSec).toBe(256);
+    // Zero or negative is still a request, raised to the minimum, not ignored
+    // (ignoring it would leave the session at the server's full rate).
+    expect(parseFleetIdentityObject({ ...ok, maxBytesPerSec: 0 }).maxBytesPerSec).toBe(256);
+    expect(parseFleetIdentityObject({ ...ok, maxBytesPerSec: -5 }).maxBytesPerSec).toBe(256);
     expect(parseFleetIdentityObject({ ...ok, maxBytesPerSec: 4096 }).maxBytesPerSec).toBe(4096);
   });
 });
