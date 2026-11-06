@@ -207,8 +207,10 @@ async function sendChunk(
       `[fleet] ${values[0].context} ${values[0].path} needs ${packet.length} bytes; sent alone`
     );
   }
-  if (!fleetSession.confirmed && fleetSession.retransmitQueue.getSize() > 0) {
-    // One FLEET_DATA in flight until the client proves it receives here.
+  if (!fleetSession.confirmed && fleetSession.nextSeq !== 0) {
+    // One FLEET_DATA per stream until the client proves it receives here.
+    // Keyed on the sequence, not the retransmit queue, so abandoning that
+    // packet does not let another one out.
     forgetMeta(fleetSession, withMeta.added);
     requeuePending(fleetSession, values);
     return false;

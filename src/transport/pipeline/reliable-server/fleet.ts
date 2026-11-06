@@ -19,6 +19,7 @@
  * @module transport/pipeline/reliable-server/fleet
  */
 
+import type { HelloOrder } from "./fleet-replay";
 import * as crypto from "node:crypto";
 import { RetransmitQueue } from "../../reliability/retransmit-queue";
 import type { FleetIdentity } from "../../../codec/fleet-identity";
@@ -79,13 +80,14 @@ export interface FleetSessionState {
   rateFactor: number;
   lastBackoffAt: number;
   lastRateIncreaseAt: number;
-  /** `timestamp` of the newest fleet HELLO this session was accepted with. */
-  lastHelloTs: number;
+  /** Order of the newest fleet HELLO this session was accepted with. */
+  lastHello: HelloOrder;
   /**
    * A FLEET_ACK or FLEET_NAK naming this stream has arrived, so the client
-   * receives at its source address. Until then at most one FLEET_DATA is in
-   * flight (§15.4), so a HELLO replayed with a spoofed source cannot make the
-   * server stream fleet data to that address.
+   * receives at its source address. Until then the stream sends one
+   * FLEET_DATA and nothing more but its retransmits (§15.1), so a HELLO
+   * replayed with a spoofed source cannot make the server stream fleet data
+   * to that address.
    */
   confirmed: boolean;
 }
@@ -95,8 +97,8 @@ export interface FleetServerState {
   config: ResolvedFleetConfig;
   /** Declared vessel context → session key of its current owner. */
   members: Map<string, string>;
-  /** Vessel context → `timestamp` of its newest accepted HELLO (replay guard). */
-  helloMarks: Map<string, number>;
+  /** Vessel context → order of its newest accepted HELLO (replay guard). */
+  helloMarks: Map<string, HelloOrder>;
   /** Context → member vessels that uplink it → when last seen (fleet-relay). */
   relays: Map<string, Map<string, number>>;
   unsubscribes: Array<() => void>;
@@ -317,7 +319,7 @@ export function createSessionState(ctx: ServerContext, identity: FleetIdentity):
     rateFactor: 1,
     lastBackoffAt: 0,
     lastRateIncreaseAt: Date.now(),
-    lastHelloTs: 0,
+    lastHello: { epoch: 0, ts: 0 },
     confirmed: false
   };
 }

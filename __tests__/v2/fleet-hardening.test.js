@@ -131,6 +131,11 @@ function fleetHelloInfo(self, timestamp) {
   };
 }
 
+/** A fleet HELLO `info` with an explicit epoch and timestamp. */
+function fleetHelloInfoAt(epoch, timestamp, self = "vessels.me") {
+  return { ...fleetHelloInfo(self, timestamp), epoch };
+}
+
 /** Queue one value per context for every session. */
 function enqueueValues(ctx, count, at) {
   for (let i = 0; i < count; i++) {
@@ -180,9 +185,9 @@ describe("fleet coalescing", () => {
 describe("fleet HELLO hardening", () => {
   test("a replayed HELLO without a fleet request cannot take a member out of the fleet", () => {
     const { ctx, session } = makeServer({});
-    session.fleet.lastHelloTs = 5000;
+    session.fleet.lastHello = { epoch: 100, ts: 5000 };
     // Captured earlier, before the client asked for fleet sharing.
-    handleFleetHello(ctx, session, { timestamp: 4000 }, false);
+    handleFleetHello(ctx, session, { epoch: 100, timestamp: 4000 }, false);
     expect(session.fleet).not.toBeNull();
     expect(ctx.fleet.members.get("vessels.me")).toBe(session.key);
     expect(ctx.metrics.fleet.replayedHellos).toBe(1);
@@ -190,15 +195,41 @@ describe("fleet HELLO hardening", () => {
     handleFleetHello(
       ctx,
       session,
-      { capabilities: [FLEET_CAPABILITY], fleet: "not-an-identity", timestamp: 4500 },
+      { capabilities: [FLEET_CAPABILITY], fleet: "not-an-identity", epoch: 100, timestamp: 4500 },
       false
     );
     expect(session.fleet).not.toBeNull();
     expect(ctx.metrics.fleet.identityRejected).toBe(0);
     // A newer HELLO without the request is the client turning sharing off.
-    handleFleetHello(ctx, session, { timestamp: 6000 }, false);
+    handleFleetHello(ctx, session, { epoch: 100, timestamp: 6000 }, false);
     expect(session.fleet).toBeNull();
     expect(ctx.fleet.members.has("vessels.me")).toBe(false);
+  });
+
+  test("a client restarted with its clock set back is accepted by its higher epoch", () => {
+    const { ctx, session } = makeServer({});
+    session.fleet.lastHello = { epoch: 100, ts: 5000 };
+    // The epoch is persisted and raised on every restart; the clock is not.
+    handleFleetHello(ctx, session, fleetHelloInfoAt(101, 1000), true);
+    expect(ctx.metrics.fleet.replayedHellos).toBe(0);
+    expect(session.fleet.lastHello).toEqual({ epoch: 101, ts: 1000 });
+    // A HELLO captured in the previous run stays a replay.
+    handleFleetHello(ctx, session, fleetHelloInfoAt(100, 9000), false);
+    expect(ctx.metrics.fleet.replayedHellos).toBe(1);
+    expect(session.fleet.lastHello).toEqual({ epoch: 101, ts: 1000 });
+  });
+
+  test("a restarted vessel on a new port takes over from its stale session by epoch", () => {
+    const { ctx, session } = makeServer({});
+    ctx.fleet.helloMarks.set("vessels.me", { epoch: 100, ts: 5000 });
+    const restarted = getOrCreateSession(ctx, { address: "10.0.0.1", port: 2 });
+    // A replay of the old run from the new port is refused...
+    handleFleetHello(ctx, restarted, fleetHelloInfoAt(100, 4000, "vessels.me"), false);
+    expect(ctx.fleet.members.get("vessels.me")).toBe(session.key);
+    expect(ctx.metrics.fleet.replayedHellos).toBe(1);
+    // ...the restarted run, clock behind, is not.
+    handleFleetHello(ctx, restarted, fleetHelloInfoAt(101, 1000, "vessels.me"), false);
+    expect(ctx.fleet.members.get("vessels.me")).toBe(restarted.key);
   });
 
   test("a client cannot declare the server's own vessel", () => {
@@ -227,11 +258,14 @@ describe("fleet return routability", () => {
   test("a session sends one FLEET_DATA until the client confirms its stream", async () => {
     const { ctx, session, packets } = makeServer({ scope: "all" }, { confirmed: false });
     enqueueValues(ctx, 200, now);
-    for (let tick = 0; tick < 5; tick++) {
+    // Long enough for the one packet to use up its retransmits and be
+    // abandoned: that must not let a second one out.
+    for (let tick = 0; tick < 15; tick++) {
       session.lastPacketTime = now;
       await fleetTick(ctx);
       now += 1000;
     }
+    expect(session.fleet.retransmitQueue.getSize()).toBe(0);
     // A HELLO replayed with a spoofed source gets one packet and at most its
     // retransmits, not a stream.
     const held = fleetDataSent(packets);

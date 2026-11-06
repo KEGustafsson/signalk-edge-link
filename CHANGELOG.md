@@ -20,8 +20,14 @@ fixes below take effect when both ends are updated, except where noted.
 - **No traffic reflection.** A fleet HELLO replayed with a spoofed source
   address drew the whole fleet stream to that address. The server now sends
   one FLEET_DATA until the client confirms the stream with a FLEET_ACK or
-  FLEET_NAK; a current client sends that FLEET_ACK as soon as it adopts the
-  stream. A beta.1 client confirms with its first regular FLEET_ACK.
+  FLEET_NAK, even after that packet is abandoned; a current client sends that
+  FLEET_ACK as soon as it adopts the stream. A beta.1 client confirms with its
+  first regular FLEET_ACK.
+- **Fleet HELLOs are ordered by epoch, then timestamp.** A vessel restarted
+  with its clock set back sent HELLOs older than its previous run's and was
+  refused as a replay until its old session expired. The persisted connection
+  epoch, which rises on every restart, now orders HELLOs first; a replay still
+  carries an epoch no higher than the client's current one.
 - **The server's own vessel stays private.** A client declaring the server's
   own vessel is refused (`fleet.identityRejected`), so `includeServerVessel:
 false` cannot be bypassed.

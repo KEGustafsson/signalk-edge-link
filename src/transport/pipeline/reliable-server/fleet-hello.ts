@@ -23,7 +23,7 @@ import {
   sendHelloAck,
   serverSelf
 } from "./fleet";
-import { helloReplayed, helloTimestamp } from "./fleet-replay";
+import { helloNewer, helloOrder, helloReplayed, type HelloOrder } from "./fleet-replay";
 
 function leaveFleet(ctx: ServerContext, session: ClientSession): void {
   if (!session.fleet) {
@@ -72,7 +72,7 @@ function claimMembership(
   session: ClientSession,
   identity: FleetIdentity,
   restarted: boolean,
-  helloTs: number
+  order: HelloOrder
 ): boolean {
   // Newest HELLO wins a duplicate vessel claim.
   const owner = memberSession(ctx, identity.self);
@@ -94,7 +94,7 @@ function claimMembership(
     session.fleet = createSessionState(ctx, identity);
     session.fleet.lastSnapshotAt = lastSnapshotAt;
   }
-  session.fleet!.lastHelloTs = helloTs;
+  session.fleet!.lastHello = order;
   ctx.fleet!.members.set(identity.self, session.key);
   refreshMemberCount(ctx);
   return !keepStream;
@@ -110,13 +110,14 @@ export function handleFleetHello(
   info: Record<string, unknown>,
   restarted: boolean
 ): void {
-  const helloTs = helloTimestamp(info.timestamp);
-  // A client writes HELLO timestamps strictly increasing, so a HELLO that is
-  // not newer than the one this fleet session was accepted with is a replay.
+  const order = helloOrder(info);
+  // A client's HELLOs are strictly ordered (fleet-replay HelloOrder), so a
+  // HELLO not newer than the one this fleet session was accepted with is a
+  // replay.
   // Checked before anything else: a replayed HELLO without a fleet request,
   // or with a broken identity, would otherwise take the session out of the
   // fleet and let an older HELLO claim the vessel from another address.
-  if (session.fleet && helloTs <= session.fleet.lastHelloTs) {
+  if (session.fleet && !helloNewer(order, session.fleet.lastHello)) {
     ensureFleetMetrics(ctx.metrics).replayedHellos++;
     ctx.app.debug(`[fleet] stale HELLO on fleet session ${session.key} ignored`);
     return;
@@ -144,12 +145,12 @@ export function handleFleetHello(
     leaveFleet(ctx, session);
     return;
   }
-  if (helloReplayed(ctx, session, identity, memberSession(ctx, identity.self), info.timestamp)) {
+  if (helloReplayed(ctx, session, identity, memberSession(ctx, identity.self), order)) {
     ensureFleetMetrics(ctx.metrics).replayedHellos++;
     ctx.app.debug(`[fleet] replayed fleet HELLO for ${identity.self} from ${session.key} ignored`);
     return;
   }
-  const newStream = claimMembership(ctx, session, identity, restarted, helloTs);
+  const newStream = claimMembership(ctx, session, identity, restarted, order);
   void answer(true);
   if (newStream) {
     queueJoinSnapshots(ctx, session, identity.self);
