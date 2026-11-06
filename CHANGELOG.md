@@ -4,9 +4,19 @@ All notable changes to signalk-edge-link are documented here.
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-11-06
+
+Fleet sharing, released. This is 4.4.0-beta.1 (below) plus the fixes listed
+here, which came from a review of the beta and from field testing. Fleet
+sharing stays opt-in. With `fleetSharing` off on either end, the wire format is
+unchanged and 4.4.0 interoperates with 4.3.0 peers in both directions. Every
+node that takes part in fleet sharing, relays included, must run 4.4.0:
+earlier versions drop `fleetSharing` from their configuration on save. Node.js
+24 or later is required (see 4.4.0-beta.1, Changed).
+
 ### Fixed — fleet sharing (since 4.4.0-beta.1)
 
-A beta.1 client and a current server, or the reverse, still work together; the
+A beta.1 client and a 4.4.0 server, or the reverse, still work together; the
 fixes below take effect when both ends are updated, except where noted.
 
 - **Busy paths no longer starve quiet ones.** Under a saturated byte budget, a
