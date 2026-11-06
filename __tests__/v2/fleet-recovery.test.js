@@ -347,3 +347,86 @@ describe("fleet value staleness bound", () => {
     expect(ctx.metricsApi.metrics.fleet.staleValues).toBe(1);
   });
 });
+
+describe("fleet lifecycle", () => {
+  let dir;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-lifecycle-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("stopping the server ends its subscription, timer and state, even if an unsubscribe throws", async () => {
+    const hub = makeHub({ enabled: true, batchIntervalMs: 100 });
+    const a = makeClient("230000001", 40001);
+    const b = makeClient("230000002", 40002);
+    const clients = [a, b];
+    // The fleet subscription is taken when sharing starts; make the first
+    // unsubscribe it registers throw.
+    const manager = hub.bus.app.subscriptionmanager;
+    const subscribe = manager.subscribe;
+    manager.subscribe = (sub, unsubscribes, onError, onDelta) => {
+      unsubscribes.push(() => {
+        throw new Error("unsubscribe failed");
+      });
+      subscribe(sub, unsubscribes, onError, onDelta);
+    };
+    try {
+      hub.server.startACKTimer();
+      for (const c of clients) {
+        await c.client.sendHello(HUB_ADDR, HUB_PORT);
+      }
+      await pump(hub, clients);
+      expect(hub.bus.subscribers.length).toBeGreaterThan(0);
+      expect(hub.metricsApi.metrics.fleet.state).toBe("active");
+      hub.server.stop();
+      expect(hub.bus.subscribers).toHaveLength(0);
+      expect(hub.metricsApi.metrics.fleet.state).toBe("disabled");
+      hub.toClients.length = 0;
+      hub.bus.app.handleMessage("local", sog(b.self, 9.9));
+      await wait(250);
+      expect(hub.toClients).toHaveLength(0);
+    } finally {
+      hub.server.stop();
+      for (const c of clients) {
+        c.client.stop();
+      }
+    }
+  });
+
+  test("stopping the client clears its ACK timer and saves what it learned", async () => {
+    const instanceDir = path.join(dir, "instances", "client-40001");
+    fs.mkdirSync(instanceDir, { recursive: true });
+    const hub = makeHub({ enabled: true, batchIntervalMs: 100 });
+    const a = makeClient("230000001", 40001, { enabled: true }, {}, { getDataDirPath: () => dir });
+    const b = makeClient("230000002", 40002);
+    const clients = [a, b];
+    try {
+      hub.server.startACKTimer();
+      for (const c of clients) {
+        await c.client.sendHello(HUB_ADDR, HUB_PORT);
+      }
+      await pump(hub, clients);
+      await b.client.sendDelta([sog(b.self, 4.4)], secretKey, HUB_ADDR, HUB_PORT);
+      await deliverToHub(hub, b);
+      await wait(250);
+      await deliverToClient(hub, a); // FLEET_DATA arrives; an ACK is now scheduled
+      a.toHub.length = 0;
+      a.client.stop();
+      await wait(300);
+      expect(a.toHub).toHaveLength(0);
+      const saved = JSON.parse(
+        fs.readFileSync(path.join(instanceDir, "fleet-learned.json"), "utf-8")
+      );
+      expect(Object.keys(saved.contexts)).toEqual([b.self]);
+    } finally {
+      hub.server.stop();
+      for (const c of clients) {
+        c.client.stop();
+      }
+    }
+  });
+});

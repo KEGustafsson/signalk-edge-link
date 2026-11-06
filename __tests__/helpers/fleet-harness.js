@@ -74,8 +74,15 @@ function makeHub(fleetSharing, extraOptions = {}) {
   return { server, state, bus, toClients, metricsApi };
 }
 
-function makeClient(mmsi, port, fleetSharing = { enabled: true }, extraOptions = {}) {
+function makeClient(
+  mmsi,
+  port,
+  fleetSharing = { enabled: true },
+  extraOptions = {},
+  appExtras = {}
+) {
   const bus = makeBusApp(mmsi);
+  Object.assign(bus.app, appExtras);
   const toHub = [];
   const state = {
     instanceId: `client-${port}`,
