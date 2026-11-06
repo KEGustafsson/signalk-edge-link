@@ -77,7 +77,10 @@ function cleanup() {
   }
 }
 process.on("exit", cleanup);
+// Exit through process.exit so the "exit" handler stops the child servers,
+// which would otherwise keep the smoke ports bound for the next run.
 process.on("SIGINT", () => process.exit(1));
+process.on("SIGTERM", () => process.exit(1));
 
 function startNode(n) {
   const dir = path.join(base, n.name);

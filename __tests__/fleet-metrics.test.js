@@ -30,6 +30,7 @@ describe("fleet Prometheus metrics", () => {
     fleet.members = 3;
     fleet.packetsSent = 12;
     fleet.originDrops = 2;
+    fleet.minRateFactor = 0.5;
     fleet.state = "active";
     const text = render(metrics);
     expect(validatePrometheusFormat(text).valid).toBe(true);
@@ -37,10 +38,11 @@ describe("fleet Prometheus metrics", () => {
     expect(text).toMatch(/signalk_edge_link_fleet_packets_sent_total\{[^}]*\} 12/);
     expect(text).toMatch(/signalk_edge_link_fleet_origin_drops_total\{[^}]*\} 2/);
     expect(text).toMatch(/signalk_edge_link_fleet_active\{[^}]*\} 1/);
+    expect(text).toMatch(/signalk_edge_link_fleet_min_rate_factor\{[^}]*\} 0\.5(?:\n|$)/);
     for (const line of text
       .split("\n")
       .filter((l) => l.includes("_fleet_") && !l.startsWith("#"))) {
-      expect(line).toMatch(/^\S+\{mode="server",instance="hub"\} \d+$/);
+      expect(line).toMatch(/^\S+\{mode="server",instance="hub"\} \d+(?:\.\d+)?$/);
     }
   });
 });
