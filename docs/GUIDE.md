@@ -99,6 +99,18 @@ One Signal K instance can run **both** a server and a client simultaneously — 
   Client ─────UDP v3──────►
 ```
 
+### Fleet sharing topology
+
+With `fleetSharing` enabled on a server connection and on its clients (v3 only, every node 4.4.0 or later), each vessel also receives the other vessels' data back over the link it already opened. No inbound port is needed on the vessels, and a vessel never receives its own data.
+
+```text
+  [Vessel A] ──┐             ┌──► A gets B, C
+  [Vessel B] ──┼──► [Hub] ───┼──► B gets A, C
+  [Vessel C] ──┘             └──► C gets A, B
+```
+
+On a relay, each connection's `fleetSharing` setting covers its own hop only. Configuration, scope and relay behaviour: [configuration-reference.md — Fleet Sharing](configuration-reference.md#fleet-sharing-advancedv3-only). Wire format: [protocol-v3-spec.md §15](protocol-v3-spec.md). Metrics: [metrics.md — Fleet Sharing Metrics](metrics.md#fleet-sharing-metrics).
+
 ### Dual-link (bonding) topology
 
 ```text

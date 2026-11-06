@@ -73,8 +73,10 @@ the UI, one per hop, and each dashboard reports only its own link — see
 receives the other vessels' data back over the link it already opened. No
 inbound port is needed on the vessels, and a vessel never receives its own
 data. Enable `fleetSharing` on the hub's server connection and on each
-vessel's client connection; see
-[Fleet Sharing](docs/configuration-reference.md#fleet-sharing-advancedv3-only).
+vessel's client connection; every node, relays included, must run 4.4.0 or
+later. See
+[Fleet Sharing](docs/configuration-reference.md#fleet-sharing-advancedv3-only),
+including how fleet sharing behaves on a relay.
 
 ```text
   [Vessel A] ──┐             ┌──► A gets B, C

@@ -91,6 +91,11 @@ Returns comprehensive real-time statistics. Available in client and server mode.
 > configured**. In open-access mode it is omitted from `/status` and `/metrics`,
 > and the equivalent management-auth metrics are omitted from `/prometheus`.
 
+> A `fleet` object is present once fleet sharing has started on the connection
+> (v3, `fleetSharing.enabled`), and `null` otherwise. Its fields are listed in
+> [metrics.md — Fleet Sharing Metrics](metrics.md#fleet-sharing-metrics).
+> `GET /connections/:id/metrics` returns the same shape for one connection.
+
 ### GET /network-metrics
 
 Current network quality. Available in client and server mode.

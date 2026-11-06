@@ -686,7 +686,7 @@ Fleet sharing is an additive extension of protocol v3: the version byte stays `0
 
 Receivers built before this extension reject packet types `0x09`-`0x0C` as unknown (`Unknown packet type`) and count them in `malformedPackets`. Rules 2-4 guarantee such a peer never receives them.
 
-A server built before this extension never reads `capabilities` and never sends HELLO_ACK. The client reports `not-offered` after three HELLOs without an answer and keeps the uplink working.
+A server built before this extension never reads `capabilities` and never sends HELLO_ACK. The client reports `not-offered` after three HELLOs without an answer and keeps the uplink working. The same state appears when a current server was unreachable for those three HELLOs, for example at vessel start-up or during a downlink outage. While `not-offered`, the client sends a HELLO every 60 s; the first HELLO_ACK accepting `fleet-v1`, or FLEET_DATA on the current stream, makes it `active` again.
 
 ### 15.2 HELLO `fleet` field
 
@@ -725,7 +725,7 @@ Control packet, Server → Client. Payload: UTF-8 JSON followed by the 16-byte H
 }
 ```
 
-- `nonce` echoes the HELLO's `fleet.nonce`. The client accepts a HELLO_ACK only when it matches the nonce of its most recent HELLO.
+- `nonce` echoes the HELLO's `fleet.nonce`. The client ignores a HELLO_ACK whose nonce is not one of its four most recent HELLOs. An answer to any of those four counts as liveness and keeps a known stream `active`; only an answer to the most recent HELLO can adopt a new stream or report `declined`.
 - `fleet.stream` is a random uint32 the server picks when it accepts the session. It names the FLEET_DATA sequence space (§15.4).
 - The server re-sends HELLO_ACK as a keepalive when it has sent nothing to an accepted session for 20 s. A client that receives no fleet packet for 60 s sends a new HELLO; the server answers it with a new HELLO_ACK. After a server restart that HELLO starts a new stream, which brings a join snapshot (§15.6). This is how a session survives a server restart.
 
@@ -739,7 +739,8 @@ Server → Client. Always authenticated with the 16-byte HMAC tag over header by
 
 - Plaintext before encryption: Brotli-compressed delta array, JSON or MessagePack (`MESSAGEPACK` flag), optionally path-dictionary encoded (`PATH_DICTIONARY` flag). Same encoding as DATA; no compact deltas, no value-dedup sentinels.
 - Header sequence: the FLEET_DATA sequence of this stream, starting at 0, independent of DATA and METADATA sequence spaces.
-- The client drops FLEET_DATA whose stream is not the stream of its accepted HELLO_ACK, and FLEET_DATA rejected by its replay window for that stream.
+- The client drops FLEET_DATA whose stream is not the stream of its accepted HELLO_ACK, and FLEET_DATA rejected by its replay window for that stream. It checks both from the authenticated header before decrypting, so a replayed packet costs no decryption and does not count toward the inbound limit (§15.10).
+- FLEET_DATA on the current stream sets the client state to `active`.
 - Each delta keeps its `context`, `$source` and `timestamp`. The client writes them into its Signal K tree the way the server writes DATA.
 
 ### 15.5 FLEET_ACK (0x0B) and FLEET_NAK (0x0C)
@@ -753,14 +754,16 @@ FLEET_NAK: [stream uint32 BE][missing seq uint32 BE] × n   [HMAC 16]   (n ≤ 6
 
 Receivers ignore bytes after the defined fields in FLEET_ACK so later versions can append fields. The server ignores either packet when the stream is not the session's current stream.
 
-The client sends FLEET_ACK at most every 200 ms while FLEET_DATA arrives. It sends FLEET_NAK for gaps using the same timers as the server's DATA NAKs (`nakTimeout`, `maxNakRounds`). The server retransmits on FLEET_NAK, and retransmits any packet still unacknowledged after 2 s, at most 3 times per packet.
+The client sends FLEET_ACK at most every 200 ms while FLEET_DATA arrives. It sends FLEET_NAK for a gap every `nakTimeout` (default 100 ms) until the gap fills or 8 s pass: `maxNakRounds` is raised as far as needed to cover 8 s. That outlasts the server's recovery, so the cumulative FLEET_ACK does not move past a packet the server can still deliver. The replay window, not the NAK schedule, decides what is new: a packet it has not seen is applied whenever it arrives, and per-path timestamps keep its older values from replacing newer ones (§15.7).
+
+The server retransmits on FLEET_NAK, and retransmits any packet still unacknowledged after 2 s, at most 3 times per packet. A NAK for a packet retransmitted less than 1 s ago is not answered again; the client's repeats would otherwise spend all 3 retransmits within one round trip, inside the same burst of loss.
 
 ### 15.6 What the server sends
 
 For an accepted session `s` the server sends a context `C` when all of these hold:
 
 1. `C` is not `s.self`.
-2. Scope `fleet` (default): `C` is the `self` of another accepted session on the same server instance, or `C` is the server's own vessel and `includeServerVessel` is true. Scope `all`: any context, including AIS targets.
+2. Scope `fleet` (default): `C` is the `self` of another accepted session on the same server instance, or `C` is the server's own vessel and `includeServerVessel` is true. Scope `all`: any context, including AIS targets, except contexts that `s`'s vessel uplinked itself in the last 24 h (its AIS targets, or vessels it relays from a fleet of its own). Sending a client its own uplink back would make the client treat those contexts as fleet data and stop uplinking them (§15.7).
 3. The path does not start with `networking.edgeLink.`.
 4. The path passes the server's `fleetSharing.pathFilter` and the client's requested `pathFilter`.
 
@@ -774,8 +777,9 @@ Whenever a session starts a new fleet stream (first fleet HELLO, a client restar
 - **No ownership by replay.** For each vessel the server records the `timestamp` of the newest accepted fleet HELLO. `timestamp` is the HELLO's own field, covered by the HELLO tag and strictly increasing per client process (HELLO Packet section), so no clock agreement with the server is needed. While the vessel has a live owner, a HELLO from any other session is ignored (`fleet.replayedHellos`) unless its `timestamp` is strictly greater than the record. A HELLO without a numeric `timestamp` counts as `0`. The owner's own HELLOs never move the record back. With no live owner, any HELLO is accepted and becomes the record. Records cover up to 1024 vessels; a live owner without a record cannot be displaced until its next HELLO.
 - **No eviction by replay.** A session in the fleet ignores any HELLO whose `timestamp` is not strictly greater than that of the HELLO it was last accepted with (`fleet.replayedHellos`). This check comes first, so an old HELLO without a fleet request, or with an unreadable identity, replayed with a member's source address cannot take that member out of the fleet.
 - **The server's own vessel is not a member.** A HELLO declaring the server's own vessel context is refused (`fleet.identityRejected`); otherwise a member could make that vessel shareable while `includeServerVessel` is `false`.
-- **Origin authority on the server.** While fleet sharing is enabled, the server drops uplink deltas from session `X` whose context is the declared `self` of another accepted session (`fleet.originDrops`). Vessel B's data enters the hub only from B.
-- **No echo on the client.** The client records every context it received in FLEET_DATA and drops those contexts from its own uplink (`fleet.loopDrops`). Its own `self` is never recorded. This holds with `subscription.json` `context: "*"`.
+- **Origin authority on the server.** While fleet sharing is enabled, the server drops uplink DATA deltas and METADATA entries from session `X` whose context is the declared `self` of another accepted session (`fleet.originDrops`). Vessel B's data and metadata enter the hub only from B.
+- **No echo on the client.** The client records every context it received in FLEET_DATA and drops those contexts from its own uplink (`fleet.loopDrops`), live deltas and the values snapshot replayed after a restart alike. Its periodic metadata snapshot leaves them out as well. Its own `self` is never recorded. This holds with `subscription.json` `context: "*"`.
+- **The record survives restarts.** The local Signal K tree keeps fleet vessels after a socket recovery or a plugin restart, so the recorded set is carried over to the next pipeline of the same connection and saved to `instances/<id>/fleet-learned.json` in the plugin data directory, at most once a minute and when the connection stops. A context not received for 24 h is forgotten, and the set keeps at most 10000 contexts, dropping the least recently received first. A missing or unreadable file starts an empty set.
 
 ### 15.8 Metadata
 
@@ -787,26 +791,32 @@ Metadata (units, zones, display names) rides inside FLEET_DATA as standard `upda
 
 ### 15.9 Loss-adaptive rate
 
-The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming at least one sequence, or a FLEET_DATA still unacknowledged after 2 s, multiplies the factor by 0.7, at most once per second, down to 0.1. After 2 s without loss the factor grows by 0.05 per second back to 1. The effective rate never drops below 256 bytes/s. The vessel's downlink, usually the slowest hop, therefore sets the pace without configuration, and a burst of loss counts once rather than once per lost packet.
+The server keeps a rate factor per session, starting at 1. A FLEET_NAK naming at least one sequence not yet retransmitted, or a FLEET_DATA still unacknowledged after 2 s, multiplies the factor by 0.7, at most once per second, down to 0.1. After 2 s without loss the factor grows by 0.05 per second back to 1. The effective rate never drops below 256 bytes/s. The vessel's downlink, usually the slowest hop, therefore sets the pace without configuration, and a burst of loss counts once rather than once per lost packet.
 
 ### 15.10 Limits
 
-| Constant                                    | Value                                   | Where  |
-| ------------------------------------------- | --------------------------------------- | ------ |
-| HELLO_ACK keepalive after idle              | 20 s                                    | Server |
-| Client re-HELLO after no fleet packet       | 60 s                                    | Client |
-| Join snapshot minimum interval              | 10 s                                    | Server |
-| Retransmit unacknowledged FLEET_DATA        | 2 s                                     | Server |
-| Maximum retransmits per FLEET_DATA          | 3                                       | Server |
-| Retransmit queue per session                | 512                                     | Server |
-| Values per FLEET_DATA packet                | at most 40, fewer to stay ≤ 1400 bytes  | Server |
-| FLEET_ACK minimum spacing                   | 200 ms                                  | Client |
-| Inbound FLEET_DATA per second               | 200                                     | Client |
-| Encrypted `fleet` field, base64 length      | 2048                                    | Both   |
-| Metadata keys remembered per session        | 20000                                   | Server |
-| Rate cut on loss / floor                    | ×0.7 / 0.1, at most once per 1 s        | Server |
-| Rate recovery after 2 s without loss        | +0.05 per second                        | Server |
-| Minimum `maxBytesPerSec` and effective rate | 256 bytes/s (lower requests are raised) | Server |
+| Constant                                    | Value                                    | Where  |
+| ------------------------------------------- | ---------------------------------------- | ------ |
+| HELLO_ACK keepalive after idle              | 20 s                                     | Server |
+| Client re-HELLO after no fleet packet       | 60 s                                     | Client |
+| Join snapshot minimum interval              | 10 s                                     | Server |
+| Retransmit unacknowledged FLEET_DATA        | 2 s                                      | Server |
+| Maximum retransmits per FLEET_DATA          | 3                                        | Server |
+| Retransmit queue per session                | 512                                      | Server |
+| Values per FLEET_DATA packet                | at most 40, fewer to stay ≤ 1400 bytes   | Server |
+| FLEET_ACK minimum spacing                   | 200 ms                                   | Client |
+| Inbound FLEET_DATA per second               | 200 (replays and duplicates not counted) | Client |
+| FLEET_NAK repeats for one gap               | every `nakTimeout`, for 8 s              | Client |
+| Re-HELLO while `not-offered`                | 60 s                                     | Client |
+| Fleet contexts remembered                   | 10000, forgotten after 24 h unseen       | Client |
+| Per-path timestamps remembered              | 20000, least recently updated dropped    | Client |
+| NAK-triggered resend of one packet          | at most once per 1 s                     | Server |
+| Contexts remembered as uplinked by a member | 20000, forgotten after 24 h              | Server |
+| Encrypted `fleet` field, base64 length      | 2048                                     | Both   |
+| Metadata keys remembered per session        | 20000                                    | Server |
+| Rate cut on loss / floor                    | ×0.7 / 0.1, at most once per 1 s         | Server |
+| Rate recovery after 2 s without loss        | +0.05 per second                         | Server |
+| Minimum `maxBytesPerSec` and effective rate | 256 bytes/s (lower requests are raised)  | Server |
 
 FLEET_DATA packets target 1400 bytes. A value whose packet alone exceeds 1400 bytes travels in a packet of its own, so losing that packet costs no other value. A value whose own FLEET_DATA datagram, fully encoded (header, stream id, encrypted payload and tag), exceeds 65,507 bytes, the UDP payload limit, is dropped and counted in `fleet.packetsAbandoned`. A packet larger than the bucket waits for a full bucket and is then sent, leaving the bucket in debt, so values queued after it wait about its size divided by the session rate.
 

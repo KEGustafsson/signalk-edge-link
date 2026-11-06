@@ -4,6 +4,75 @@ All notable changes to signalk-edge-link are documented here.
 
 ## [Unreleased]
 
+### Fixed — fleet sharing (since 4.4.0-beta.1)
+
+A beta.1 client and a current server, or the reverse, still work together; the
+fixes below take effect when both ends are updated, except where noted.
+
+- **Busy paths no longer starve quiet ones.** Under a saturated byte budget, a
+  value updated while waiting moved to the back of the queue, so frequently
+  updated paths could wait forever. A waiting value now keeps its place, and
+  values deferred by the budget go back to the front.
+- **Replayed HELLOs cannot evict a member.** An old HELLO without a fleet
+  request, or with an unreadable identity, replayed with a member's source
+  address took the member out of the fleet. A fleet session now ignores any
+  HELLO not newer than the one it was accepted with (`fleet.replayedHellos`).
+- **No traffic reflection.** A fleet HELLO replayed with a spoofed source
+  address drew the whole fleet stream to that address. The server now sends
+  one FLEET_DATA until the client confirms the stream with a FLEET_ACK or
+  FLEET_NAK; a current client sends that FLEET_ACK as soon as it adopts the
+  stream. A beta.1 client confirms with its first regular FLEET_ACK.
+- **The server's own vessel stays private.** A client declaring the server's
+  own vessel is refused (`fleet.identityRejected`), so `includeServerVessel:
+false` cannot be bypassed.
+- **Scope `all` no longer echoes a member's own uplink.** AIS targets and
+  relayed vessels a member uplinked came back to it, its loop guard learned
+  them, and it stopped uplinking them. The server now remembers, for 24 h,
+  which member uplinked each context and does not send it back.
+- **Metadata is under origin authority.** METADATA for another member's
+  vessel is refused like its DATA (`fleet.originDrops`), so a client's
+  periodic metadata snapshot cannot overwrite the owner's.
+- **Loss on slow links is recovered (client).** With the default NAK timing
+  the client gave up a gap after about 0.6 s and acknowledged past it, so a
+  retransmit on a link with a long round trip arrived as a duplicate and the
+  value was lost. The client now NAKs a gap for 8 s and applies any packet
+  its replay window has not seen, whenever it arrives. The server answers
+  repeated NAKs of one packet at most once a second, so its 3 retransmits are
+  not spent within a single burst of loss.
+- **The rate backs off once per loss.** Repeated NAKs of a packet already
+  retransmitted no longer cut the member's rate again.
+- **`not-offered` recovers by itself (client).** A client that started while
+  the server was unreachable, or whose HELLO answers were lost in an outage,
+  stayed `not-offered` until the 5-minute HELLO refresh. It now asks again
+  every minute, and FLEET_DATA on its stream makes it `active` at once.
+- **Fleet vessels stay off the uplink after a restart (client).** The set of
+  vessels learned from the fleet was lost on socket recovery and plugin
+  restart, so the values snapshot replayed after a restart sent them
+  upstream. The set is now carried over and saved to
+  `instances/<id>/fleet-learned.json`; a vessel not received for 24 h is
+  forgotten, and at most 10000 are kept. The periodic metadata snapshot
+  leaves them out too.
+- **Replays cost nothing (client).** A replayed or duplicate FLEET_DATA is
+  recognised from its authenticated header before it is decrypted or counted
+  toward the 200-per-second inbound cap, so a flood of replays cannot crowd
+  out new data.
+- **Staleness protection survives many paths (client).** Past 20000 tracked
+  paths, every path's newest-timestamp record was cleared at once; now the
+  least recently updated one is dropped.
+- **Fleet card.** Client hints cover a server that was unreachable at
+  start-up, and the Signal K `self` alias as a vessel ID. The server card shows
+  its state, no longer flags identity conflicts (a vessel reconnecting from a
+  new port counts as one) as errors, and labels refused identities as such.
+
+### Documentation
+
+- Every node, relays included, must run 4.4.0 or later for fleet sharing: an
+  earlier version drops `fleetSharing` from its configuration on save. How
+  fleet sharing behaves on a relay is described in the configuration
+  reference, troubleshooting, web UI and security docs.
+- The client `fleetSharing.maxBytesPerSec` has no default: unset, the server's
+  limit applies.
+
 ## [4.4.0-beta.1] - 2026-11-04
 
 Beta of 4.4.0, published under the npm `beta` dist-tag; `latest` stays at

@@ -151,9 +151,9 @@ Grouped into three sections:
 - **Connection Bonding** _(v3)_ — per-link status and a **manual failover**
   button (primary ↔ backup).
 - **Fleet Sharing** _(v3, when `fleetSharing` is enabled)_ — fleet state
-  (`active`, `offered`, `declined`, `not-offered`) with the next step for any
-  state other than `active`, vessels and values received, echo suppression,
-  duplicates and rejections.
+  (`active`, `offered`, `declined`, `not-offered`) with a hint for each state,
+  vessels known (received in the last 24 h, kept across restarts), values
+  received, echo suppression, duplicates and rejections.
 - **Monitoring & Alerts** _(v3)_ — packet loss, retransmission tracking, and
   alert thresholds.
 - **Status** — summarizes the active delta timer, subscription, and sentence
@@ -174,10 +174,12 @@ congestion/bonding cards:
 
 - **Performance Metrics** (always shown).
 - **Network Quality**, **Bandwidth Monitor**, **Path Analytics** _(v3)_.
-- **Fleet Sharing** _(v3, when `fleetSharing` is enabled)_ — members, values and
-  bytes sent, the slowest member's loss-adaptive pacing (with an explanation
-  when it is below 100%), retransmits, relayed copies dropped, and identity
-  conflicts.
+- **Fleet Sharing** _(v3, when `fleetSharing` is enabled)_ — state (`active`,
+  or `disabled` after the connection stops), members, values and bytes sent,
+  the slowest member's loss-adaptive pacing (with an explanation when it is
+  below 100%), retransmits, relayed copies dropped, identity conflicts (a
+  vessel reconnecting from a new port counts too, so these are not flagged as
+  errors), replayed HELLOs and refused identities.
 - **Monitoring & Alerts** _(v3, when monitoring data is available)_.
 
 **Advanced:**
@@ -232,6 +234,12 @@ of confusion here.
   Each hop must agree with itself; the hops need not agree with each other.
 - Both ends of **each hop** must run 4.0.0+ before that hop reports RTT and
   jitter, since a receiver never computes them — it reports what its peer sends.
+
+With fleet sharing, each tab has its own **Fleet Sharing** card for its own
+hop: the server tab shows the fleet of vessels connected to the relay, the
+client tab shows the relay's membership in the upstream fleet. Which vessels
+cross the relay is described under
+[Relays](configuration-reference.md#fleet-sharing-advancedv3-only).
 
 So a healthy relay normally shows populated figures on **both** tabs. Figures on
 the client tab with `N/A` on the server tab means hop 2 is fine and hop 1 has

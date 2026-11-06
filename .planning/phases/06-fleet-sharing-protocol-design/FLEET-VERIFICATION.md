@@ -1,6 +1,6 @@
 # v2 Fleet Data Sharing - Verification
 
-**Date:** 2026-11-03
+**Date:** 2026-11-03, review hardening 2026-11-06
 
 ## Commands Run
 
@@ -43,13 +43,37 @@
 
 - **Newest value wins on the client.** The client drops a fleet value older than one already applied for the same `(context, $source, path)` (`fleet.staleValues`), because a retransmitted packet can arrive after newer data.
 - **Metadata inside FLEET_DATA** (FLEET-FUT-002, metadata part): `updates[].meta` is attached the first time a session receives a `(context, path)`, read from the hub's tree, and forwarded when it changes (spec §15.8). Tests: "metadata travels with a path the first time a vessel receives it", "live metadata changes are forwarded to the other members".
-- **Loss-adaptive rate** (FLEET-FUT-003): each member's send rate drops on downlink loss and recovers when loss stops (spec §15.9). Test: "downlink loss cuts the fleet rate once per burst and it recovers when loss stops".
+- **Loss-adaptive rate** (FLEET-FUT-003): each member's send rate drops on downlink loss and recovers when loss stops (spec §15.9). Test: "downlink loss cuts the rate once per burst; repeated NAKs of the same gap do not" (`__tests__/v2/fleet-hardening.test.js`).
 - **HELLO replay guard**: a session other than the live owner can claim a vessel only with a HELLO whose HMAC-covered `timestamp` is strictly greater than the owner's newest accepted one, and clients write that field strictly increasing (`fleet.replayedHellos`, spec §15.7). Residuals after a server restart are listed in `docs/security.md`. Tests: "a replayed HELLO from another address cannot take over a vessel", "an old HELLO replayed after many newer ones cannot take over a vessel", "a fleet HELLO without a timestamp cannot take over a vessel", "an earlier HELLO from the same millisecond cannot take over a vessel".
 - **Fleet Sharing card** on the client and server dashboards.
 - **Server `fleet.state`** reads `active` while sharing runs.
 - **Loop guard placement**: the client drops fleet-learned contexts before live-metadata extraction, so neither fleet values nor fleet metadata go back upstream.
 - **Packet size and pacing** (spec §15.6, §15.10): every FLEET_DATA send, first or retransmitted, waits until the session's byte budget covers it; a packet larger than the bucket goes out once the bucket is full. Batches over 1400 bytes are split so a large value travels alone, and a value whose packet would exceed 65,507 bytes is dropped and counted in `fleet.packetsAbandoned`. Tests: "a batch too large for one datagram is split and every value arrives", "a value too large for any UDP datagram is dropped, not queued", "a failed send of the first half still queues the second half for recovery", plus the FLEET-BW-001 tests.
 - **Metadata after failures**: metadata marked as sent is cleared when its packet is dropped, and is not marked at all when the tree lookup throws, so it is sent again with a later packet. Tests: "a dropped FLEET_DATA makes the next values carry metadata again", "a tree lookup that throws leaves metadata to be sent with a later packet".
+
+## Review Hardening (2026-11-06)
+
+A review of the beta.1 branch (server, client, security, parity, test and field reviewers) found the issues below. Each fix has a test that fails without it.
+
+| Finding                                                                       | Test                                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Busy paths starved quiet ones under a saturated budget                        | `fleet-hardening.test.js` "under a saturated budget every path is still sent, oldest-waiting first"                                                                                                           |
+| A replayed non-fleet HELLO evicted a member                                   | `fleet-hardening.test.js` "a replayed HELLO without a fleet request cannot take a member out of the fleet"                                                                                                    |
+| A replayed fleet HELLO with a spoofed source reflected the fleet stream       | `fleet-hardening.test.js` "a session sends one FLEET_DATA until the client confirms its stream", "an ACK for another stream does not confirm the session"                                                     |
+| A member could declare the server's own vessel                                | `fleet-hardening.test.js` "a client cannot declare the server's own vessel"                                                                                                                                   |
+| Scope `all` echoed a member's own uplink, which its loop guard then dropped   | `fleet-sharing.test.js` "scope all never sends a member the contexts it relays itself"                                                                                                                        |
+| METADATA bypassed origin authority                                            | `fleet-sharing.test.js` "METADATA for another member's vessel is refused like its DATA"                                                                                                                       |
+| Default NAK timing gave up a gap after 0.6 s; slow links lost the value       | `fleet-recovery.test.js` "a FLEET_DATA lost on a 700 ms round-trip link is recovered with default NAK timing"                                                                                                 |
+| Repeated NAKs spent all retransmits inside one burst                          | `fleet-hardening.test.js` "repeated NAKs of one gap spread its retransmits instead of spending them at once"                                                                                                  |
+| `not-offered` latched after an outage or an unreachable server at start       | `fleet-recovery.test.js` "data resuming after an outage that lost the HELLO answers makes the state active again"                                                                                             |
+| Fleet vessels went upstream after a restart; metadata snapshot carried them   | `fleet-recovery.test.js` "a new pipeline of the same instance keeps the vessels learned by the previous one", learned-set unit tests; `metadata-streamer.test.js` "leaves out vessels learned from the fleet" |
+| Replays used up the inbound cap before the replay check                       | `fleet-recovery.test.js` "replayed FLEET_DATA does not use up the inbound packet cap"                                                                                                                         |
+| The per-path timestamp bound cleared every path at once                       | `fleet-recovery.test.js` "past the bound the quietest path is forgotten, not every path"                                                                                                                      |
+| Fleet card hints stale; identity conflicts flagged as errors; no server state | `FleetCard.test.tsx`                                                                                                                                                                                          |
+
+Field report (two vessels on mobile networks through a relay, no fleet data): the nodes ran 4.3.0, the npm `latest`, which drops `fleetSharing` on save. Every node must run 4.4.0 or later; this is now stated in the README, configuration reference and troubleshooting.
+
+Accepted residuals, documented in `docs/security.md` and `docs/troubleshooting.md`: after a NAT rebinding, the server refuses the uplink from the unhandshaked new port and keeps sending fleet data to the old one, until the client re-runs HELLO (30 s without ACKs, or 60 s without fleet packets); that HELLO restores both; a vessel restarted with its clock set back cannot reclaim itself until its old session expires.
 
 ## Known Limitations and Follow-Up
 
