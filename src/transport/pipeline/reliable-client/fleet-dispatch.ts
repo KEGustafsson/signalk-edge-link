@@ -19,7 +19,7 @@ import type { ClientContext } from "./context";
 import type { FleetClientRuntime } from "./fleet";
 
 /** Bound on remembered (context, $source, path) timestamps. */
-const MAX_TRACKED_VALUE_TIMES = 20000;
+export const MAX_TRACKED_VALUE_TIMES = 20000;
 
 type FleetMetricsRef = ReturnType<typeof ensureFleetMetrics>;
 type MetaEntry = { path?: unknown; value?: unknown };
@@ -49,8 +49,12 @@ function filterValues(
       metrics.staleValues++;
       return false;
     }
-    if (fleet.appliedTimes.size >= MAX_TRACKED_VALUE_TIMES && previous === undefined) {
-      fleet.appliedTimes.clear();
+    // Least recently updated first, so the bound forgets a quiet path rather
+    // than dropping every path's protection at once.
+    if (previous !== undefined) {
+      fleet.appliedTimes.delete(key);
+    } else if (fleet.appliedTimes.size >= MAX_TRACKED_VALUE_TIMES) {
+      fleet.appliedTimes.delete(fleet.appliedTimes.keys().next().value as string);
     }
     fleet.appliedTimes.set(key, at);
     return true;
@@ -106,10 +110,8 @@ export function dispatchFleetDeltas(
     const delta = normalizeDeltaSourceRefs(sanitized);
     // Record before dispatch: handleMessage re-emits synchronously on the
     // local bus, and the uplink must already know to drop it.
-    if (!fleet.learnedContexts.has(context)) {
-      fleet.learnedContexts.add(context);
-      metrics.contextsKnown = fleet.learnedContexts.size;
-    }
+    fleet.learnedContexts.touch(context, Date.now());
+    metrics.contextsKnown = fleet.learnedContexts.size;
     try {
       handleMessageBySource(ctx.app, delta);
     } catch (err: unknown) {

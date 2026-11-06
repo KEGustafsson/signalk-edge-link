@@ -31,6 +31,7 @@ import {
   FLEET_ACK_MIN_INTERVAL_MS,
   FLEET_MAX_INBOUND_PACKETS_PER_SEC,
   FLEET_MAX_NAK_SEQUENCES,
+  FLEET_NAK_WINDOW_MS,
   HELLO_PAYLOAD_MAX_BYTES
 } from "../../../foundation/constants";
 import { ensureFleetMetrics } from "../../fleet/common";
@@ -43,6 +44,7 @@ import type {
 import type { ClientContext } from "./context";
 import { udpSendAsync } from "./lifecycle";
 import { dispatchFleetDeltas } from "./fleet-dispatch";
+import { LearnedContexts } from "./fleet-learned";
 
 /** Capabilities a current client advertises without fleet sharing. */
 const BASE_CAPABILITIES = ["compression", "encryption", "reliability", "authenticated-control"];
@@ -60,7 +62,7 @@ export interface FleetClientRuntime {
   stream: number | null;
   tracker: SequenceTracker;
   replay: ReplayWindow;
-  learnedContexts: Set<string>;
+  learnedContexts: LearnedContexts;
   /** Newest applied timestamp per (context, $source, path). A retransmitted
    *  packet can arrive after a newer one; its older values must not win. */
   appliedTimes: Map<string, number>;
@@ -74,7 +76,8 @@ export interface FleetClientRuntime {
 /** Build the runtime when the connection asks for fleet sharing. */
 export function createFleetClientRuntime(
   state: InstanceState,
-  onLoss: (missing: number[]) => void
+  onLoss: (missing: number[]) => void,
+  learnedFile: string | null = null
 ): FleetClientRuntime | null {
   const options = state.options;
   const fleet = options?.fleetSharing;
@@ -82,9 +85,18 @@ export function createFleetClientRuntime(
   if (!fleet?.enabled || options?.bonding?.enabled) {
     return null;
   }
-  const learnedContexts = new Set<string>();
+  // Reuse the set of a previous pipeline of this instance (socket recovery,
+  // connection restart); a new set starts from the saved file.
+  let learnedContexts: LearnedContexts;
+  if (state.fleetLearnedContexts instanceof LearnedContexts) {
+    learnedContexts = state.fleetLearnedContexts;
+  } else {
+    learnedContexts = new LearnedContexts(learnedFile);
+    learnedContexts.load(Date.now());
+  }
   state.fleetLearnedContexts = learnedContexts;
   const reliability = options?.reliability || {};
+  const nakTimeout = reliability.nakTimeout || 100;
   return {
     pathFilter:
       fleet.pathFilter && (fleet.pathFilter.allow?.length || fleet.pathFilter.deny?.length)
@@ -100,8 +112,14 @@ export function createFleetClientRuntime(
     helloAttemptsWithoutAck: 0,
     stream: null,
     tracker: new SequenceTracker({
-      nakTimeout: reliability.nakTimeout || 100,
-      maxNakRounds: reliability.maxNakRounds || 5,
+      nakTimeout,
+      // As many rounds as it takes to cover the server's recovery: with the
+      // uplink defaults (100 ms × 5) the client gave up after 0.6 s and
+      // ACKed past packets a slow link would still have delivered.
+      maxNakRounds: Math.max(
+        reliability.maxNakRounds || 5,
+        Math.ceil(FLEET_NAK_WINDOW_MS / nakTimeout)
+      ),
       onLossDetected: onLoss
     }),
     replay: new ReplayWindow(),
@@ -312,21 +330,33 @@ function inboundRateLimited(fleet: FleetClientRuntime, now: number): boolean {
   return fleet.inboundCount > FLEET_MAX_INBOUND_PACKETS_PER_SEC;
 }
 
-/** Rate cap, stream check and decrypt. Null when the packet is rejected. */
+/**
+ * Stream check, replay check, rate cap and decrypt, in that order: the header
+ * (stream position and sequence) is already HMAC-verified, so a replayed or
+ * duplicate packet is recognised before it is counted toward the inbound cap
+ * or costs a decryption. Null when the packet is rejected.
+ */
 async function admitFleetPacket(
   ctx: ClientContext,
   fleet: FleetClientRuntime,
   parsed: ParsedPacket,
   now: number
-): Promise<{ stream: number; deltas: Delta[] } | null> {
+): Promise<{ stream: number; deltas: Delta[] } | "duplicate" | null> {
   const metrics = ensureFleetMetrics(ctx.metricsApi.metrics);
   const secretKey = ctx.state.options?.secretKey;
-  if (!secretKey || fleet.stream === null || inboundRateLimited(fleet, now)) {
+  if (!secretKey || fleet.stream === null) {
     metrics.rejectedPackets++;
     return null;
   }
   const { stream, encrypted } = ctx.packetParser.parseFleetDataPayload(parsed.payload);
   if (stream !== fleet.stream) {
+    metrics.rejectedPackets++;
+    return null;
+  }
+  if (!fleet.replay.wouldAccept(parsed.sequence >>> 0)) {
+    return "duplicate";
+  }
+  if (inboundRateLimited(fleet, now)) {
     metrics.rejectedPackets++;
     return null;
   }
@@ -355,19 +385,27 @@ export async function handleFleetData(ctx: ClientContext, parsed: ParsedPacket):
   }
   const now = Date.now();
   const admitted = await admitFleetPacket(ctx, fleet, parsed, now);
-  if (!admitted || fleet.stream !== admitted.stream) {
+  if (admitted === null || (admitted !== "duplicate" && fleet.stream !== admitted.stream)) {
     return;
   }
   const seq = parsed.sequence >>> 0;
-  const fresh = fleet.replay.accept(seq);
-  const seqResult = fresh ? fleet.tracker.processSequence(seq) : null;
-  if (!seqResult || seqResult.duplicate || seqResult.lateArrival) {
+  // The replay window decides what is new. The tracker only drives ACK/NAK:
+  // a retransmit arriving after the tracker gave up on its gap is still new
+  // data, and appliedTimes keeps any older value in it from winning.
+  if (admitted === "duplicate" || !fleet.replay.accept(seq)) {
     metrics.duplicatePackets++;
     scheduleAck(ctx);
     return;
   }
+  fleet.tracker.processSequence(seq);
   fleet.lastFleetPacketAt = now;
   metrics.packetsReceived++;
+  // Data on the current stream proves the server is serving us, whatever
+  // the HELLO bookkeeping says (e.g. after an outage that lost the answers).
+  fleet.helloAttemptsWithoutAck = 0;
+  if (metrics.state !== "active") {
+    setState(ctx, "active");
+  }
   dispatchFleetDeltas(ctx, fleet, admitted.deltas);
   scheduleAck(ctx);
 }
@@ -385,22 +423,33 @@ export function fleetMaintenance(ctx: ClientContext, resendHello: () => void): v
   }
   const metrics = ensureFleetMetrics(ctx.metricsApi.metrics);
   const now = Date.now();
+  fleet.learnedContexts.prune(now);
+  metrics.contextsKnown = fleet.learnedContexts.size;
+  void fleet.learnedContexts.save(now);
   if (
     metrics.state !== "active" &&
+    metrics.state !== "declined" &&
     fleet.helloAttemptsWithoutAck >= FLEET_HELLO_ATTEMPTS_BEFORE_NOT_OFFERED
   ) {
-    // Old server or feature unreachable: stop the extra HELLOs and rely on
-    // the normal HELLO refresh, which still carries the request.
-    if (metrics.state !== "not-offered" && metrics.state !== "declined") {
-      setState(ctx, "not-offered");
-    }
-    return;
+    setState(ctx, "not-offered");
   }
-  if (metrics.state === "declined" || metrics.state === "not-offered") {
+  if (metrics.state === "declined") {
+    // The server answered: it has fleet sharing off. The normal HELLO
+    // refresh still carries the request in case that changes.
     return;
   }
   const silentFor = now - fleet.lastFleetPacketAt;
   const sinceHello = now - ctx.mut.lastHelloSentAt;
+  if (metrics.state === "not-offered") {
+    // No answer yet: the server may be an old version, or it was not
+    // reachable when we started. Keep asking once per liveness interval
+    // rather than waiting for the 5-minute HELLO refresh; the uplink's own
+    // HELLO retries stop as soon as its DATA is acknowledged.
+    if (sinceHello >= FLEET_LIVENESS_TIMEOUT_MS) {
+      resendHello();
+    }
+    return;
+  }
   if (silentFor >= FLEET_LIVENESS_TIMEOUT_MS && sinceHello >= FLEET_LIVENESS_TIMEOUT_MS) {
     ctx.app.debug(`[fleet] no fleet packet for ${silentFor}ms; re-sending HELLO`);
     if (metrics.state === "active") {
@@ -424,4 +473,5 @@ export function stopFleetClient(ctx: ClientContext): void {
   // fail the stream check instead of being dispatched and ACKed after stop.
   fleet.stream = null;
   fleet.tracker.reset();
+  void fleet.learnedContexts.save(Date.now(), true);
 }

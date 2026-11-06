@@ -104,6 +104,22 @@ describe("domain/metadata-streamer", () => {
 
       expect(metaCache.replaceAll).not.toHaveBeenCalled();
     });
+
+    test("leaves out vessels learned from the fleet", async () => {
+      const own = { context: "vessels.self", path: "nav.x", meta: { units: "m" } };
+      const fleetVessel = { context: "vessels.other", path: "nav.x", meta: { units: "m" } };
+      collectSnapshot.mockReturnValue([own, fleetVessel]);
+      const sendMetadata = jest.fn().mockResolvedValue(undefined);
+      const state = makeState({
+        pipeline: { sendMetadata },
+        fleetLearnedContexts: { has: (context) => context === "vessels.other", size: 1 }
+      });
+      const { streamer } = makeStreamer({ state });
+
+      await streamer.sendMetadataSnapshot();
+
+      expect(sendMetadata).toHaveBeenCalledWith([own], "snapshot", "k", "1.2.3.4", 9000);
+    });
   });
 
   describe("enqueueMetaDiff", () => {

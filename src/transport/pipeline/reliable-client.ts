@@ -19,6 +19,7 @@
 
 import CircularBuffer from "../../foundation/circular-buffer";
 import * as nodeCrypto from "node:crypto";
+import * as path from "node:path";
 import { PacketBuilder, PacketParser } from "../../codec/packet-codec";
 import { RetransmitQueue } from "../reliability/retransmit-queue";
 import { resetValueDedupState } from "../../codec/value-dedup";
@@ -336,6 +337,21 @@ function buildControlApi(ctx: ClientContext) {
 }
 
 /**
+ * Where this instance keeps the contexts it learned from the fleet, next to
+ * its subscription and delta-timer files; null when the app has no data dir.
+ */
+function learnedContextsFile(app: SignalKApp, state: InstanceState): string | null {
+  if (typeof app.getDataDirPath !== "function" || !state.instanceId) {
+    return null;
+  }
+  try {
+    return path.join(app.getDataDirPath(), "instances", state.instanceId, "fleet-learned.json");
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Creates the reliable (v3) client pipeline
  * @param app       - SignalK app object (for logging)
  * @param state     - Shared mutable state
@@ -344,7 +360,11 @@ function buildControlApi(ctx: ClientContext) {
  */
 function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
   const ctx = buildClientContext(app, state, metricsApi);
-  ctx.fleet = createFleetClientRuntime(state, (missing) => sendFleetNak(ctx, missing));
+  ctx.fleet = createFleetClientRuntime(
+    state,
+    (missing) => sendFleetNak(ctx, missing),
+    learnedContextsFile(app, state)
+  );
   return { ...buildSendApi(ctx), ...buildControlApi(ctx) };
 }
 

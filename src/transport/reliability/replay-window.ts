@@ -55,6 +55,18 @@ export class ReplayWindow {
   }
 
   /**
+   * Whether `accept(sequence)` would accept, without recording anything.
+   * Lets a receiver skip work (rate accounting, decryption) for a replay.
+   */
+  wouldAccept(sequence: number): boolean {
+    const seq = sequence >>> 0;
+    if (this.highest === null || serialAhead(seq, this.highest)) {
+      return true;
+    }
+    return serialDistance(seq, this.highest) < this.size && !this.seen.has(seq);
+  }
+
+  /**
    * Check-and-record a received sequence.
    * @returns true if the sequence is fresh (accept); false if it is a replay of
    *   an already-seen sequence, or older than the window (reject).
