@@ -250,6 +250,10 @@ function contextInScope(ctx: ServerContext, session: ClientSession, context: str
   }
   // The hub's own vessel goes out only when it is shared, in either scope.
   const self = serverSelf(ctx);
+  if (!session.fleet) {
+    // Resolving the ID just removed this session's claim on the hub vessel.
+    return false;
+  }
   if (context === self) {
     return fleet.config.includeServerVessel;
   }

@@ -231,6 +231,38 @@ describe("fleet sharing end-to-end", () => {
     expect(lastSog(member, urn("999000999"))).toBe(0.5);
   });
 
+  test("a claim dropped while a delta fans out does not stop the delta reaching other members", async () => {
+    hub = makeHub({ enabled: true, includeServerVessel: true, batchIntervalMs: 100 });
+    const identity = { mmsi: undefined };
+    hub.bus.app.getSelfPath = (path) => (path === "mmsi" ? identity.mmsi : undefined);
+    // The impostor joins first, so the fan-out reaches it first.
+    const impostor = makeClient("999000999", 40001);
+    const a = makeClient("230000002", 40002);
+    const b = makeClient("230000003", 40003);
+    clients = [impostor, a, b];
+    hub.server.startACKTimer();
+    for (const c of clients) {
+      await c.client.sendHello(HUB_ADDR, HUB_PORT);
+    }
+    await pump(hub, clients);
+    expect(hub.metricsApi.metrics.fleet.members).toBe(3);
+    identity.mmsi = "999000999";
+    const realNow = Date.now.bind(Date);
+    const clock = jest.spyOn(Date, "now").mockImplementation(() => realNow() + 6000);
+    try {
+      // The ID resolves while A's value is checked against the impostor.
+      await a.client.sendDelta([sog(a.self, 7.7)], secretKey, HUB_ADDR, HUB_PORT);
+      await pump(hub, clients);
+      await wait(250);
+      await pump(hub, clients);
+    } finally {
+      clock.mockRestore();
+    }
+    expect(hub.metricsApi.metrics.fleet.identityRejected).toBe(1);
+    expect(hub.metricsApi.metrics.fleet.members).toBe(2);
+    expect(lastSog(b, a.self)).toBe(7.7);
+  });
+
   test("scope all does not share the hub's own vessel unless includeServerVessel is set", async () => {
     await connectAll({ enabled: true, scope: "all", batchIntervalMs: 100 });
     hub.bus.app.handleMessage("local", sog(urn("999000999"), 0.5, "gps.1"));

@@ -168,8 +168,11 @@ describe("encrypted fleet identity", () => {
 });
 
 describe("fleet identity size", () => {
-  /** The largest allow list fleetPathFilterFits accepts. */
-  function largestFittingFilter() {
+  /**
+   * A near-limit allow list: as many 103-character patterns as
+   * fleetPathFilterFits accepts, to test encoding with large own contexts.
+   */
+  function nearLimitFilter() {
     const allow = [];
     for (let i = 0; i < 32; i++) {
       const next = [...allow, `${"x".repeat(100)}.${String(i).padStart(2, "0")}`];
@@ -182,7 +185,7 @@ describe("fleet identity size", () => {
   }
 
   test("a path filter the check accepts fits with any valid own context", () => {
-    const pathFilter = largestFittingFilter();
+    const pathFilter = nearLimitFilter();
     expect(pathFilter.allow.length).toBeGreaterThan(0);
     const contexts = [
       `vessels.${"a".repeat(248)}`,
