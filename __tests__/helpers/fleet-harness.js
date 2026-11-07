@@ -113,26 +113,44 @@ function makeClient(
   return { mmsi, self: urn(mmsi), port, client, state, bus, toHub, metricsApi };
 }
 
+/**
+ * Wait until the Brotli work in flight now (tracked in jest.setup.ts) has
+ * finished, so a packet whose compression or decompression already started is
+ * built or applied before the next step. Work that starts later, such as the
+ * next fleet tick, is not waited for. Bounded, so a stuck operation fails the
+ * test instead of hanging it.
+ */
+async function settleBrotli() {
+  const inFlight = require("node:zlib").edgeLinkBrotliInFlight;
+  if (!inFlight || inFlight.size === 0) {
+    return;
+  }
+  const started = [...inFlight];
+  for (let i = 0; i < 1000 && started.some((id) => inFlight.has(id)); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+}
+
 /** Move every queued datagram until both directions are quiet. */
 async function pump(hub, clients, rounds = 6) {
   for (let r = 0; r < rounds; r++) {
-    let moved = 0;
+    await settleBrotli();
     for (const c of clients) {
       const batch = c.toHub.splice(0);
-      moved += batch.length;
       for (const pkt of batch) {
         await hub.server.receivePacket(pkt, secretKey, { address: "10.0.0.1", port: c.port });
       }
     }
     const out = hub.toClients.splice(0);
-    moved += out.length;
     for (const { pkt, port } of out) {
       const c = clients.find((x) => x.port === port);
       if (c) {
         await c.client.handleControlPacket(pkt, { address: HUB_ADDR, port: HUB_PORT });
       }
     }
-    if (moved === 0) {
+    // Packets this round's decoding or encoding produced count as traffic too.
+    await settleBrotli();
+    if (hub.toClients.length === 0 && clients.every((c) => c.toHub.length === 0)) {
       return;
     }
   }
