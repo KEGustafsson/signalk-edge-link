@@ -1,6 +1,6 @@
 {
   "name": "signalk-edge-link",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "description": "SignalK Edge Link. Secure UDP link for data exchange.",
   "main": "lib/index.js",
   "files": [
@@ -32,6 +32,7 @@
     "build:ts": "npm run clean:lib && tsc",
     "check:ts": "tsc --noEmit",
     "check:release-docs": "node scripts/check-release-truth.js",
+    "smoke:fleet": "node scripts/fleet-smoke.js",
     "verify": "npm run check:ts && npm run lint && npm test",
     "check:ts:webapp": "tsc -p tsconfig.webapp.json --noEmit",
     "verify:ci-local": "npm run check:ts && npm run lint && npm run test:coverage && npm run check:ts:webapp && npm run build && npm run conformance:generate && git diff --exit-code -- __conformance__/vectors/golden.json && npm run check:release-docs",
@@ -98,7 +99,7 @@
     "fast-uri": "^3.1.7"
   },
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=24.0.0"
   },
   "author": "Karl-Erik Gustafsson",
   "repository": "https://github.com/KEGustafsson/signalk-edge-link",

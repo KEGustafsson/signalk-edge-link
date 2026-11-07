@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/signalk-edge-link)](https://www.npmjs.com/package/signalk-edge-link)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D24-brightgreen)](https://nodejs.org)
 
 Signal K Edge Link is a Signal K plugin that transfers vessel deltas between Signal K servers over encrypted UDP.
 
@@ -69,12 +69,27 @@ the UI, one per hop, and each dashboard reports only its own link — see
 [Reading a relay (proxy) node](docs/web-ui.md) for how to interpret them, and
 [Relay / Proxy Chains](docs/troubleshooting.md) for hop-by-hop diagnosis.
 
+**Fleet sharing** — several vessels report to one hub, and each vessel also
+receives the other vessels' data back over the link it already opened. No
+inbound port is needed on the vessels, and a vessel never receives its own
+data. Enable `fleetSharing` on the hub's server connection and on each
+vessel's client connection; every node, relays included, must run 4.4.0 or
+later. See
+[Fleet Sharing](docs/configuration-reference.md#fleet-sharing-advancedv3-only),
+including how fleet sharing behaves on a relay.
+
+```text
+  [Vessel A] ──┐             ┌──► A gets B, C
+  [Vessel B] ──┼──► [Hub] ───┼──► B gets A, C
+  [Vessel C] ──┘             └──► C gets A, B
+```
+
 ## Requirements
 
 - Two Signal K instances (source and destination)
 - UDP reachability from client to server on your chosen port
 - Shared encryption key on both ends (32-character ASCII, 64-character hex, or 44-character base64)
-- Node.js 20.9.0+ (if installing from source: dev dependencies including TypeScript are installed automatically via `npm install`)
+- Node.js 24+ (if installing from source: dev dependencies including TypeScript are installed automatically via `npm install`)
 
 ## Installation
 

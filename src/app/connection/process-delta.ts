@@ -22,6 +22,7 @@ import { extractLiveMeta, resolveSelfContext } from "../../codec/metadata-codec"
 import type { SignalKApp } from "../../foundation/types";
 import { sanitizeDeltaForSignalK, stripOwnDataFromDelta } from "../../codec/delta-sanitizer";
 import type { Delta } from "../../foundation/types";
+import { ensureFleetMetrics } from "../../transport/fleet/common";
 import type { ConnectionContext } from "./context";
 
 /** Build a deterministic dedupe key for an outbound delta (hot path). */
@@ -158,6 +159,18 @@ export function processDelta(ctx: ConnectionContext, delta: Delta): void {
   // readyToSend is kept in sync with the lifecycle FSM (set true on Ready,
   // false on stop). Tests may also set it directly without going through start().
   if (!state.readyToSend || state.subscribing) return;
+
+  // Fleet loop guard: a context that arrived over the fleet channel belongs to
+  // another vessel and must not be sent back upstream —
+  // neither its values nor its metadata.
+  if (
+    state.fleetLearnedContexts &&
+    typeof delta.context === "string" &&
+    state.fleetLearnedContexts.has(delta.context)
+  ) {
+    ensureFleetMetrics(metrics).loopDrops++;
+    return;
+  }
 
   if (state.metaConfig?.enabled) {
     const liveMeta = extractLiveMeta(delta, state.metaConfig, cachedSelfContext(appProxy));

@@ -157,6 +157,54 @@
             }
           }
         },
+        "fleetSharing": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Reliable protocol v3 only. Server: share other clients' vessel data with each client over its existing session. Client: request that data. scope, includeServerVessel and batchIntervalMs are server-only. Not supported together with bonding on a client. See docs/protocol-v3-spec.md section 15.",
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "scope": {
+              "type": "string",
+              "enum": ["fleet", "all"],
+              "default": "fleet",
+              "description": "Server-only."
+            },
+            "includeServerVessel": {
+              "type": "boolean",
+              "default": false,
+              "description": "Server-only."
+            },
+            "pathFilter": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "allow": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+                },
+                "deny": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+                }
+              }
+            },
+            "maxBytesPerSec": {
+              "type": "integer",
+              "minimum": 256,
+              "maximum": 1048576,
+              "description": "Server default 8192. Client value is a requested ceiling."
+            },
+            "batchIntervalMs": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 10000,
+              "default": 1000,
+              "description": "Server-only."
+            }
+          }
+        },
         "congestionControl": {
           "type": "object",
           "additionalProperties": true,

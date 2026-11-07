@@ -3,6 +3,7 @@ import { MetricsData } from "../types";
 import { MetricsCard } from "./cards/MetricsCard";
 import { NetworkQualityCard } from "./cards/NetworkQualityCard";
 import { BandwidthCard } from "./cards/BandwidthCard";
+import { FleetCard } from "./cards/FleetCard";
 import { PathAnalyticsCard } from "./cards/PathAnalyticsCard";
 import { MonitoringAlertsCard } from "./cards/MonitoringAlertsCard";
 import { ConfigFileEditorCard } from "./cards/ConfigFileEditorCard";
@@ -91,6 +92,7 @@ export function ServerDashboard({
               <NetworkQualityCard metrics={metrics} />
               <BandwidthCard metrics={metrics} />
               <PathAnalyticsCard metrics={metrics} />
+              <FleetCard fleet={metrics?.fleet} mode="server" />
               {monitoring && <MonitoringAlertsCard data={monitoring} />}
             </>
           )}

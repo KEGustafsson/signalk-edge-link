@@ -11,6 +11,7 @@
 
 import type { Metrics, InstanceState } from "../../foundation/types";
 import type { ManagementAuthSnapshot } from "../../routes/types";
+import { emitFleet } from "./prometheus-fleet";
 
 interface PrometheusOpts {
   sharedMeta?: Set<string>;
@@ -302,6 +303,7 @@ export function formatPrometheusMetrics(
   emitStatus(e, state);
   emitExtra(e, extra);
   emitBonding(e, extra);
+  emitFleet(e, metrics);
 
   e.lines.push(""); // trailing newline
   return e.lines.join("\n");

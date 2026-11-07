@@ -23,6 +23,7 @@ import { BandwidthCard } from "./cards/BandwidthCard";
 import { PathAnalyticsCard } from "./cards/PathAnalyticsCard";
 import { CongestionControlCard } from "./cards/CongestionControlCard";
 import { BondingCard } from "./cards/BondingCard";
+import { FleetCard } from "./cards/FleetCard";
 import { MonitoringAlertsCard } from "./cards/MonitoringAlertsCard";
 import { StatusCard } from "./cards/StatusCard";
 import { DeltaTimerCard } from "./cards/DeltaTimerCard";
@@ -230,6 +231,7 @@ export function ClientDashboard({
               <PathAnalyticsCard metrics={metrics} />
               <CongestionControlCard data={congestion} />
               <BondingCard data={bonding} onFailover={handleFailover} />
+              <FleetCard fleet={metrics?.fleet} mode="client" />
               <MonitoringAlertsCard data={monitoring} />
             </>
           )}

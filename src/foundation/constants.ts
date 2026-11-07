@@ -27,6 +27,8 @@ export const WATCHER_RECOVERY_DELAY = 5000; // milliseconds
 
 // UDP and network
 export const MAX_SAFE_UDP_PAYLOAD = 1400; // Maximum safe UDP payload size (avoid fragmentation)
+/** Largest payload one IPv4 UDP datagram can carry (65535 - 8 UDP - 20 IP header bytes). */
+export const MAX_UDP_DATAGRAM_PAYLOAD = 65507;
 // Assumed minimum compression ratio for source-snapshot chunking. The greedy
 // fill packs up to MAX_SAFE_UDP_PAYLOAD * this factor of *uncompressed* bytes
 // per chunk; the verification loop builds the real (compressed+encrypted) packet
@@ -264,3 +266,75 @@ export function clampBytesPerDeltaSample(bytesPerDelta: number): number {
  * previous value.
  */
 export const CURRENT_CONFIG_SCHEMA_VERSION = 1;
+
+// ── Fleet sharing (protocol-v3-spec §15) ─────────────────────────────────────
+
+export const FLEET_CAPABILITY = "fleet-v1";
+/** Server re-sends HELLO_ACK to an accepted session idle this long. */
+export const FLEET_KEEPALIVE_MS = 20000;
+/** Client re-sends HELLO when no fleet packet arrived for this long. */
+export const FLEET_LIVENESS_TIMEOUT_MS = 60000;
+/** HELLOs without a HELLO_ACK before the client reports `not-offered`. */
+export const FLEET_HELLO_ATTEMPTS_BEFORE_NOT_OFFERED = 3;
+/**
+ * How long a client keeps NAKing a fleet gap before giving up on it: at least
+ * the server's whole recovery (2 s × (3 + 1) retransmit chances), so a lost
+ * packet ends delivered or abandoned on the server, never ACKed past.
+ */
+export const FLEET_NAK_WINDOW_MS = 8000;
+/** Contexts a client remembers as learned from the fleet (§15.7). */
+export const FLEET_LEARNED_MAX = 10000;
+/** A learned context is forgotten after this long without a fleet packet. */
+export const FLEET_LEARNED_TTL_MS = 24 * 60 * 60 * 1000;
+/** A server remembers which members relay a context for this long (§15.6). */
+export const FLEET_RELAY_MEMORY_MS = 24 * 60 * 60 * 1000;
+/** Contexts whose relaying members a server remembers. */
+export const FLEET_RELAY_MAX_CONTEXTS = 20000;
+/** The learned-context set is saved to disk at most this often. */
+export const FLEET_LEARNED_SAVE_INTERVAL_MS = 60000;
+/** Minimum spacing of join snapshots per session. */
+export const FLEET_SNAPSHOT_MIN_INTERVAL_MS = 10000;
+/** Retransmit FLEET_DATA still unacknowledged after this long. */
+export const FLEET_RETRANSMIT_AFTER_MS = 2000;
+/**
+ * A FLEET_NAK resends a packet at most this often. The client repeats its
+ * NAK every nakTimeout until the gap fills; without the spacing those
+ * repeats would spend every retransmit within one round trip, inside the
+ * same burst of loss.
+ */
+export const FLEET_NAK_RETRANSMIT_MIN_MS = 1000;
+/** Retransmits per FLEET_DATA packet. Values are coalesced and re-sent when
+ *  they change, so a packet lost three times is cheaper to drop than to chase. */
+export const FLEET_MAX_RETRANSMITS = 3;
+/** Per-session FLEET_DATA retransmit queue capacity. */
+export const FLEET_RETRANSMIT_QUEUE_SIZE = 512;
+/** Values packed into one FLEET_DATA packet. */
+export const FLEET_VALUES_PER_PACKET = 40;
+/** Minimum spacing between FLEET_ACKs sent by a client. */
+export const FLEET_ACK_MIN_INTERVAL_MS = 200;
+/** Inbound FLEET_DATA packets per second a client accepts. */
+export const FLEET_MAX_INBOUND_PACKETS_PER_SEC = 200;
+/** Maximum base64 length of the encrypted HELLO `fleet` field. */
+export const FLEET_IDENTITY_MAX_LENGTH = 2048;
+/** Limits on each fleet `pathFilter` list; validation and the HELLO decoder share them. */
+export const FLEET_PATH_FILTER_MAX_PATTERNS = 32;
+export const FLEET_PATH_PATTERN_MAX_LENGTH = 128;
+/** Maximum missing sequences in one FLEET_NAK. */
+export const FLEET_MAX_NAK_SEQUENCES = 64;
+/** Default and bounds for the per-session fleet byte rate. */
+export const FLEET_DEFAULT_MAX_BYTES_PER_SEC = 8192;
+export const FLEET_MIN_MAX_BYTES_PER_SEC = 256;
+export const FLEET_MAX_MAX_BYTES_PER_SEC = 1048576;
+/** Default and bounds for the fleet flush interval. */
+export const FLEET_DEFAULT_BATCH_INTERVAL_MS = 1000;
+export const FLEET_MIN_BATCH_INTERVAL_MS = 100;
+export const FLEET_MAX_BATCH_INTERVAL_MS = 10000;
+/** Loss-adaptive fleet rate: multiplicative decrease on loss, at most once
+ *  per backoff interval; additive recovery per second once loss stops. */
+export const FLEET_RATE_BACKOFF_FACTOR = 0.7;
+export const FLEET_RATE_MIN_FACTOR = 0.1;
+export const FLEET_RATE_BACKOFF_INTERVAL_MS = 1000;
+export const FLEET_RATE_RECOVERY_DELAY_MS = 2000;
+export const FLEET_RATE_RECOVERY_PER_SEC = 0.05;
+/** Path prefix never shared over the fleet channel (link telemetry). */
+export const FLEET_EXCLUDED_PATH_PREFIX = "networking.edgeLink.";

@@ -1,0 +1,34 @@
+{
+  "connections": [
+    {
+      "name": "fleet-hub",
+      "serverType": "server",
+      "udpPort": 4446,
+      "secretKey": "CHANGE_ME_TO_YOUR_OWN_SECRET_KEY",
+      "protocolVersion": 3,
+      "fleetSharing": {
+        "enabled": true,
+        "scope": "fleet",
+        "includeServerVessel": false,
+        "maxBytesPerSec": 8192,
+        "batchIntervalMs": 1000
+      }
+    },
+    {
+      "name": "fleet-vessel",
+      "serverType": "client",
+      "udpPort": 4446,
+      "udpAddress": "hub.example.net",
+      "secretKey": "CHANGE_ME_TO_YOUR_OWN_SECRET_KEY",
+      "protocolVersion": 3,
+      "fleetSharing": {
+        "enabled": true,
+        "pathFilter": {
+          "allow": ["navigation.*", "environment.wind.*"],
+          "deny": []
+        },
+        "maxBytesPerSec": 4096
+      }
+    }
+  ]
+}

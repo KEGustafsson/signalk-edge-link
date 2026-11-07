@@ -5,7 +5,7 @@
 #   .github/workflows/signalk-ci.yml
 #
 # It calls the shared SignalK workflow which tests your plugin
-# across Linux, macOS, and Windows (Node 22 + 24). The Signal K
+# across Linux, macOS, and Windows (Node 24 + 26). The Signal K
 # integration test is enabled on the auto-run job too, so every push
 # and PR exercises that matrix.
 #
@@ -17,8 +17,8 @@
 # before a release, or when touching anything architecture-sensitive
 # (native deps, Buffer/endianness, timing).
 #
-# node-versions must be a JSON array — '["22","24"]', not '22, 24'.
-# A bare list collapses to a single matrix leg named "Node 22, 24"
+# node-versions must be a JSON array — '["24","26"]', not '24, 26'.
+# A bare list collapses to a single matrix leg named "Node 24, 26"
 # that fails in the Node setup step.
 #
 # On push/PR it runs with sensible defaults.
@@ -72,9 +72,9 @@ on:
         default: ''
         type: string
       node-versions:
-        description: 'JSON array of Node versions, example: ["22","24"]'
+        description: 'JSON array of Node versions, example: ["24","26"]'
         required: false
-        default: '["22","24"]'
+        default: '["24","26"]'
         type: string
       enable-armv7:
         description: Run armv7 (Cerbo GX) tests via QEMU (slow, ~13 min)
@@ -101,7 +101,7 @@ jobs:
       test-command: npm run test
       build-command: npm run build --if-present
       format-check-command: npm run format:check
-      node-versions: '["22","24"]'
+      node-versions: '["24","26"]'
       # Off by default — see the header note. Enable per-run via
       # workflow_dispatch when architecture coverage actually matters.
       enable-armv7: false

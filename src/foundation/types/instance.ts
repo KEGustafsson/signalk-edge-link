@@ -72,6 +72,10 @@ export interface InstanceState {
   unsubscribes: Array<() => void>;
   /** The active Signal K subscription handle; null when unsubscribed. */
   localSubscription: unknown | null;
+  /** Contexts received over the fleet channel (protocol-v3-spec §15.7). The
+   *  uplink and the metadata snapshot drop these so fleet data is never
+   *  echoed back. Kept across client pipelines of the instance. */
+  fleetLearnedContexts?: { has(context: string): boolean; readonly size: number };
   /** Periodic HELLO retransmit timer handle; null when not active. */
   helloMessageSender: ReturnType<typeof setInterval> | null;
   /** Pending subscription retry timer; null when not scheduled. */

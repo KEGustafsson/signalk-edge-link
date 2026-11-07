@@ -110,6 +110,22 @@ if (releaseCheckIndex !== -1 && packIndex !== -1 && releaseCheckIndex > packInde
   fail(".github/workflows/publish-packages.yml must check release docs before packing.");
 }
 
+// Documented fleet pathFilter limits must match the constants that enforce them.
+const constantsSource = readText("src/foundation/constants.ts");
+const fleetLimit = (name) => {
+  const match = constantsSource.match(new RegExp(`export const ${name} = (\\d+);`));
+  if (!match) {
+    fail(`src/foundation/constants.ts must define ${name}.`);
+  }
+  return match ? match[1] : "";
+};
+requireIncludes(
+  readText("docs/configuration-reference.md"),
+  `At most ${fleetLimit("FLEET_PATH_FILTER_MAX_PATTERNS")} patterns per list, ` +
+    `${fleetLimit("FLEET_PATH_PATTERN_MAX_LENGTH")} characters each`,
+  "docs/configuration-reference.md"
+);
+
 if (failures.length > 0) {
   process.stderr.write("Release truth check failed:\n");
   for (const failure of failures) {
