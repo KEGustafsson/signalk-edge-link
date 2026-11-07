@@ -702,13 +702,13 @@ A server built before this extension never reads `capabilities` and never sends 
 }
 ```
 
-| Field            | Required | Meaning                                                                                                                         |
-| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `v`              | yes      | Field version. Receivers ignore a `fleet` field whose `v` they do not know and treat the HELLO as non-fleet.                    |
-| `self`           | yes      | The client's own context, at most 256 bytes as JSON-encoded UTF-8. The server never sends this context to this client.          |
-| `nonce`          | yes      | 16 hex characters, new for every HELLO. Echoed in HELLO_ACK to bind the answer to this HELLO.                                   |
-| `pathFilter`     | no       | Paths the client wants, same globs as `pathFilter` elsewhere. Applied on the server before sending.                             |
-| `maxBytesPerSec` | no       | Ceiling the client requests. A request below 256 bytes/s is raised to 256. The server uses the lower of this and its own limit. |
+| Field            | Required | Meaning                                                                                                                                                         |
+| ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `v`              | yes      | Field version. Receivers ignore a `fleet` field whose `v` they do not know and treat the HELLO as non-fleet.                                                    |
+| `self`           | yes      | The client's own context, at most 256 bytes as JSON-encoded UTF-8. The server never sends this context to this client.                                          |
+| `nonce`          | yes      | 16 hex characters, new for every HELLO. Echoed in HELLO_ACK to bind the answer to this HELLO.                                                                   |
+| `pathFilter`     | no       | Paths the client wants, same globs as `pathFilter` elsewhere. Applied on the server before sending.                                                             |
+| `maxBytesPerSec` | no       | Ceiling the client requests. A request below 256 bytes/s is raised to 256. The server uses the lower of this and its own limit, taken from each accepted HELLO. |
 
 The vessel identity is encrypted because HELLO is authenticated but not encrypted; a plaintext `self` would expose the vessel's MMSI to anyone on the path. Receivers ignore unknown keys inside the decrypted object.
 

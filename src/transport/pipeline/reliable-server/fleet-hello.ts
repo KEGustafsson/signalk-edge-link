@@ -22,7 +22,8 @@ import {
   refreshMemberCount,
   secretKeyOf,
   sendHelloAck,
-  serverSelf
+  serverSelf,
+  sessionRateCeiling
 } from "./fleet";
 import { helloNewer, helloOrder, helloReplayed, type HelloOrder } from "./fleet-replay";
 
@@ -75,6 +76,9 @@ function claimMembership(
   if (keepStream) {
     existing!.nonce = identity.nonce;
     existing!.pathFilter = identity.pathFilter ?? null;
+    // A newer HELLO may ask for a different rate; the bucket refill caps
+    // any tokens above the new depth.
+    existing!.bytesPerSec = sessionRateCeiling(ctx, identity);
   } else {
     // Carry the snapshot time across re-creation: a client that keeps
     // advancing its epoch must not get a fresh snapshot allowance each time.

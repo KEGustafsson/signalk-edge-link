@@ -347,13 +347,15 @@ function takeSnapshot(ctx: ServerContext): Delta[] {
   }
 }
 
-export function createSessionState(ctx: ServerContext, identity: FleetIdentity): FleetSessionState {
-  const fleet = ctx.fleet!;
+/** The session's byte-rate ceiling: the lower of the server's and the client's request. */
+export function sessionRateCeiling(ctx: ServerContext, identity: FleetIdentity): number {
+  const limit = ctx.fleet!.config.maxBytesPerSec;
   const requested = identity.maxBytesPerSec;
-  const bytesPerSec =
-    requested && requested > 0
-      ? Math.min(fleet.config.maxBytesPerSec, requested)
-      : fleet.config.maxBytesPerSec;
+  return requested && requested > 0 ? Math.min(limit, requested) : limit;
+}
+
+export function createSessionState(ctx: ServerContext, identity: FleetIdentity): FleetSessionState {
+  const bytesPerSec = sessionRateCeiling(ctx, identity);
   const metrics = ensureFleetMetrics(ctx.metrics);
   const metaSent = new Set<string>();
   return {

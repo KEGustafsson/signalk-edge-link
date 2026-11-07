@@ -67,6 +67,10 @@ false` cannot be bypassed.
 - **The server raises a requested rate of 0 or below to 256 bytes/s**
   instead of ignoring it (such a request can only come from a crafted HELLO:
   a configured client `maxBytesPerSec` must be at least 256).
+- **A newer HELLO's rate request applies to the running stream.** It took
+  effect only when a new stream started.
+- **A fleet packet still encoding at server stop is not sent.** It could go
+  out through the socket of the next start.
 - **A claim on the hub's vessel made before its ID resolved is dropped.**
   With `includeServerVessel` on, HELLOs are answered while the hub's own
   vessel ID is unknown; once it resolves, a member declaring that vessel

@@ -129,6 +129,12 @@ function stopServer(ctx: ServerContext): void {
   stopMetricsPublishing(ctx);
   for (const session of ctx.clientSessions.values()) {
     session.sequenceTracker.reset();
+    // A fleet flush still encoding checks session.fleet before it sends, so
+    // clearing it here keeps that packet off the socket a restart installs.
+    if (session.fleet) {
+      session.fleet.retransmitQueue.clear();
+      session.fleet = null;
+    }
   }
   ctx.clientSessions.clear();
   ctx.replayGuards.clear();

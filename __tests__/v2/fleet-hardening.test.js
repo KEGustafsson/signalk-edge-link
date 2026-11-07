@@ -255,6 +255,31 @@ describe("fleet HELLO hardening", () => {
     expect(ctx.metrics.fleet.identityRejected).toBe(1);
   });
 
+  test("a newer HELLO on the same stream applies its requested rate", async () => {
+    const { ctx, session, packets } = makeServer({ maxBytesPerSec: 8192 });
+    const stream = session.fleet.stream;
+    const helloAsking = (maxBytesPerSec, timestamp) => ({
+      capabilities: [FLEET_CAPABILITY],
+      fleet: encodeFleetIdentity(
+        { self: "vessels.me", nonce: "fedcba9876543210", maxBytesPerSec },
+        secretKey
+      ),
+      epoch: 1,
+      timestamp
+    });
+    handleFleetHello(ctx, session, helloAsking(4096, 1000), false);
+    handleFleetHello(ctx, session, helloAsking(1024, 2000), false);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(session.fleet.stream).toBe(stream);
+    expect(session.fleet.bytesPerSec).toBe(1024);
+    const parser = new PacketParser({ secretKey });
+    const acks = packets
+      .map((pkt) => parser.parseHeader(pkt, { epoch: 0 }))
+      .filter((parsed) => parsed.type === PacketType.HELLO_ACK)
+      .map((parsed) => JSON.parse(parsed.payload.toString()));
+    expect(acks.at(-1).fleet).toEqual({ stream, maxBytesPerSec: 1024 });
+  });
+
   test("refusing the server's own vessel answers, so the client reports declined", async () => {
     const { ctx, packets } = makeServer({}, { serverMmsi: "999000999" });
     const other = getOrCreateSession(ctx, { address: "10.0.0.2", port: 2 });

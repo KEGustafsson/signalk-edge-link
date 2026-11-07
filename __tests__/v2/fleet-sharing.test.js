@@ -1123,6 +1123,37 @@ describe("fleet sharing end-to-end", () => {
     expect(a.state.fleetLearnedContexts.has(ais)).toBe(false);
   });
 
+  test("a fleet packet still encoding when the server stops is not sent", async () => {
+    await connectAll();
+    const [a, b] = clients;
+    const payload = require("../../src/codec/fleet-payload");
+    const encode = payload.encodeFleetPayload;
+    let release;
+    const gate = new Promise((resolve) => (release = resolve));
+    const held = jest.spyOn(payload, "encodeFleetPayload").mockImplementation(async (...args) => {
+      await gate;
+      return encode(...args);
+    });
+    try {
+      await b.client.sendDelta([sog(b.self, 6.6)], secretKey, HUB_ADDR, HUB_PORT);
+      await deliverToHub(hub, b);
+      for (let i = 0; i < 100 && held.mock.calls.length === 0; i++) {
+        await wait(10);
+      }
+      expect(held).toHaveBeenCalled();
+      hub.server.stop();
+      hub.state.socketUdp.send.mockClear();
+      release();
+      await wait(50);
+    } finally {
+      held.mockRestore();
+    }
+    const fleetDataToA = hub.state.socketUdp.send.mock.calls.filter(
+      (call) => call[1] === a.port && Buffer.from(call[0])[3] === PacketType.FLEET_DATA
+    );
+    expect(fleetDataToA).toHaveLength(0);
+  });
+
   test("METADATA for another member's vessel is refused like its DATA", async () => {
     await connectAll();
     const [a, b, c] = clients;
