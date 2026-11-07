@@ -87,11 +87,11 @@ Rejected by configuration validation in this milestone (FLEET-FUT-001). Stream i
 </decisions>
 
 <risks>
-## Risks to Address in the Spec
+## Risks and Where They Are Handled
 
-- **NAT expiry:** fleet packets reach the vessel only while its NAT mapping is open. The 25 s default heartbeat (`startHeartbeat` in `reliable-client/lifecycle.ts`) holds mappings with timeouts above 25 s. Some carrier NATs time out UDP at 30 s, so the margin is small. Document; consider recommending `heartbeatInterval` ≤ 20000 when fleet sharing is on.
-- **IV budget:** one `secretKey` now encrypts uplink from every client plus fleet packets to every client. NIST SP 800-38D limits random 96-bit IVs to 2^32 encryptions per key. At 100 sessions × 10 packets/s in each direction that is 2,000 packets/s, about 25 days to reach 2^32. Phase 10 documents this (FLEET-SEC-003); key rotation itself stays in FUT-SEC-001.
+- **NAT expiry:** fleet packets reach the vessel only while its NAT mapping is open. The 25 s default heartbeat (`startHeartbeat` in `reliable-client/lifecycle.ts`) holds mappings with timeouts above 25 s. Some carrier NATs time out UDP at 30 s, so the margin is small. `docs/troubleshooting.md` tells operators to lower `heartbeatInterval` below the NAT's UDP timeout.
+- **IV budget:** one `secretKey` now encrypts uplink from every client plus fleet packets to every client. NIST SP 800-38D limits random 96-bit IVs to 2^32 encryptions per key. At 100 sessions × 10 packets/s in each direction that is 2,000 packets/s, about 25 days to reach 2^32. `docs/security.md` (AES-GCM nonce budget) covers it; online key rotation stays out of scope (FUT-SEC-001).
 - **Downlink bandwidth:** each vessel receives data for N-1 vessels on a metered link. FLEET-BW-001 rate limit plus the `fleet` default scope (no AIS) bound it.
-- **Session churn:** a client that changes source port gets a new session (`getOrCreateSession`); its fleet sequence restarts. The spec must say the client resets its fleet `SequenceTracker` when the server's fleet sequence restarts after a new HELLO.
+- **Session churn:** a client that changes source port gets a new session (`getOrCreateSession`); its fleet sequence restarts. Each accepted session gets its own stream id and FLEET_DATA sequences start at 0 per stream (spec §15.1, §15.4), so the client starts a fresh sequence when it adopts the new stream.
 
 </risks>

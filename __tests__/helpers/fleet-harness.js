@@ -129,6 +129,9 @@ async function settleBrotli() {
   for (let i = 0; i < 1000 && started.some((id) => inFlight.has(id)); i++) {
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
+  if (started.some((id) => inFlight.has(id))) {
+    throw new Error("settleBrotli: a Brotli operation is still in flight after about 2 s");
+  }
 }
 
 /** Move every queued datagram until both directions are quiet. */
