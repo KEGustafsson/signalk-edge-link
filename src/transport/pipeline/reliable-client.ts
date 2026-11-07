@@ -19,6 +19,7 @@
 
 import CircularBuffer from "../../foundation/circular-buffer";
 import * as nodeCrypto from "node:crypto";
+import * as path from "node:path";
 import { PacketBuilder, PacketParser } from "../../codec/packet-codec";
 import { RetransmitQueue } from "../reliability/retransmit-queue";
 import { resetValueDedupState } from "../../codec/value-dedup";
@@ -59,6 +60,7 @@ import {
   initBonding,
   stopBonding
 } from "./reliable-client/lifecycle";
+import { createFleetClientRuntime, sendFleetNak, stopFleetClient } from "./reliable-client/fleet";
 
 /** Seed the four meta bandwidth counters so consumers see numeric zeros. */
 function seedMetaBandwidthCounters(metrics: MetricsApi["metrics"]): void {
@@ -231,6 +233,7 @@ function buildClientContext(
     // RTT tracking for jitter (CircularBuffer gives O(1) push w/ auto-eviction)
     rttSamples: new CircularBuffer<number>(10),
     lossWindow: new CircularBuffer<boolean>(LOSS_WINDOW_SIZE),
+    fleet: null,
     mut: createMutableState()
   };
 }
@@ -325,11 +328,27 @@ function buildControlApi(ctx: ClientContext) {
       stopMetricsPublishing(ctx);
       stopCongestionControl(ctx);
       stopBonding(ctx);
+      stopFleetClient(ctx);
     },
     setMonitoring(hooks: MonitoringState | null) {
       ctx.mut.monitoringHooks = hooks;
     }
   };
+}
+
+/**
+ * Where this instance keeps the contexts it learned from the fleet, next to
+ * its subscription and delta-timer files; null when the app has no data dir.
+ */
+function learnedContextsFile(app: SignalKApp, state: InstanceState): string | null {
+  if (typeof app.getDataDirPath !== "function" || !state.instanceId) {
+    return null;
+  }
+  try {
+    return path.join(app.getDataDirPath(), "instances", state.instanceId, "fleet-learned.json");
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -341,6 +360,11 @@ function buildControlApi(ctx: ClientContext) {
  */
 function createPipelineV2Client(app: SignalKApp, state: InstanceState, metricsApi: MetricsApi) {
   const ctx = buildClientContext(app, state, metricsApi);
+  ctx.fleet = createFleetClientRuntime(
+    state,
+    (missing) => sendFleetNak(ctx, missing),
+    learnedContextsFile(app, state)
+  );
   return { ...buildSendApi(ctx), ...buildControlApi(ctx) };
 }
 

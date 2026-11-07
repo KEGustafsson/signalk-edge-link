@@ -3,18 +3,26 @@
 **Project:** Signal K Edge Link
 **Project Code:** SKEL
 **Initialized:** 2026-04-30
-**Current Milestone:** v1 Maintenance and Hardening (archived)
-**Current Phase:** Milestone complete
-**Phase Status:** Archived
-**Plan Count:** 13
+**Current Milestone:** v2 Fleet Data Sharing (`v2-fleet-sharing`)
+**Current Phase:** 6-10 implemented
+**Phase Status:** Verified; ready to archive
+**Plan Count:** 0
 
 ## Current Focus
 
-Start the next milestone with fresh requirements.
+Fleet sharing is implemented and verified, including a real signalk-server run (`npm run smoke:fleet`); evidence is in `.planning/phases/06-fleet-sharing-protocol-design/FLEET-VERIFICATION.md`. Next: archive the milestone.
 
 ## Phase Status
 
-All five phases of the v1 Maintenance and Hardening milestone are complete:
+v2 Fleet Data Sharing (phases 6-10):
+
+- Phase 6: Fleet Sharing Protocol Design — Complete
+- Phase 7: Vessel Identity, Scope and Loop Prevention — Complete
+- Phase 8: Server-to-Client Fleet Transport — Complete
+- Phase 9: Fleet Configuration, UI and Observability — Complete
+- Phase 10: Fleet Integration, Security Review and Docs — Complete
+
+Archived v1 Maintenance and Hardening: all five phases of the v1 Maintenance and Hardening milestone are complete:
 
 - Phase 1: Documentation and Release Truth — Complete
 - Phase 2: Management API Hardening and Observability — Complete
@@ -24,6 +32,9 @@ All five phases of the v1 Maintenance and Hardening milestone are complete:
 
 ## Available Context
 
+- `.planning/REQUIREMENTS.md` defines v2 Fleet Data Sharing requirements, non-goals and deferred items.
+- `.planning/phases/06-fleet-sharing-protocol-design/06-CONTEXT.md` records code evidence, accepted decisions D-01 to D-08 and risks.
+- `.planning/phases/06-fleet-sharing-protocol-design/FLEET-VERIFICATION.md` maps every FLEET requirement to test evidence and lists open items.
 - `.planning/codebase/` contains the committed codebase map.
 - `.planning/research/` contains local brownfield research synthesis.
 - `.planning/PROJECT.md` defines the product context and project direction.
@@ -98,7 +109,10 @@ All five phases of the v1 Maintenance and Hardening milestone are complete:
 - 2026-05-01: Phase 5 planned with 2 execution plans in 2 waves.
 - 2026-05-01: Phase 5 completed in commits `d368eac` and `010666e`; validation passed.
 - 2026-05-01: v1 Maintenance and Hardening archived as `v1-maintenance-hardening`.
+- 2026-11-02: v2 Fleet Data Sharing milestone defined (phases 6-10); Phase 6 context gathered.
+- 2026-11-02: Decisions accepted and spec written (`89aca48`); transport (`218272c`) and config/metrics/docs (`eb1743e`) implemented; verification recorded.
+- 2026-11-02: Open items closed: metadata sharing, loss-adaptive rate, Fleet Sharing card, missing tests, real-socket test, real signalk-server smoke.
 
 ## Recommended Next Action
 
-Run `gsd-new-milestone` to define fresh requirements and roadmap for the next milestone.
+Archive `v2-fleet-sharing`.

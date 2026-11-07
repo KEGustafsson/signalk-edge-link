@@ -27,6 +27,8 @@ import {
   udpPacketRateLimited
 } from "./sessions";
 import { ingestRemoteTelemetry } from "./telemetry";
+import { fleetOriginRejected } from "./fleet";
+import { noteUplink } from "./fleet-relay";
 import type { ServerContext, ClientSession } from "./context";
 import type { Delta } from "../../../foundation/types";
 
@@ -171,6 +173,13 @@ function processDelta(
   }
   deltaMessage = sanitizedDelta;
   deltaMessage = normalizeDeltaSourceRefs(deltaMessage);
+
+  // Fleet origin authority: another member's vessel enters only from that member.
+  if (fleetOriginRejected(ctx, deltaMessage, session)) {
+    return;
+  }
+  // Before dispatch: dispatch fans the delta out to the fleet synchronously.
+  noteUplink(ctx, session, deltaMessage.context);
 
   ingestRemoteTelemetry(ctx, deltaMessage, session);
   if (!Array.isArray(deltaMessage.updates) || deltaMessage.updates.length === 0) {

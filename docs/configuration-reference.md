@@ -155,6 +155,56 @@ Nested under `alertThresholds`. Each metric has `warning` and `critical` levels.
 
 ---
 
+## Fleet Sharing (Advanced/v3 Only)
+
+`fleetSharing` lets every client of one server receive the other clients' vessel data over the link the client already opened. The server sends to the address and port the client's packets come from, so a vessel behind NAT needs no inbound port. A client never receives its own vessel. Both ends must enable it; with either end off, the link behaves exactly as without the field. Wire format: [protocol-v3-spec.md §15](protocol-v3-spec.md).
+
+| Field                 | Mode   | Type    | Default                    | Range       | Description                                                                                                                                                                                                                                                                                                                                             |
+| --------------------- | ------ | ------- | -------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`             | both   | boolean | `false`                    | —           | Server: share. Client: request.                                                                                                                                                                                                                                                                                                                         |
+| `scope`               | server | string  | `"fleet"`                  | fleet / all | `fleet`: only vessels declared by clients of this server connection. `all`: every context in the server's tree, including AIS targets; the server's own vessel still only with `includeServerVessel`.                                                                                                                                                   |
+| `includeServerVessel` | server | boolean | `false`                    | —           | Also share the server's own vessel (a hub that is itself a vessel).                                                                                                                                                                                                                                                                                     |
+| `pathFilter`          | both   | object  | —                          | —           | `{ allow, deny }` globs. Server: what is shared at all. Client: what this vessel asks for. The server applies both. `networking.edgeLink.*` is never shared. At most 32 patterns per list, 128 characters each; a client filter must also fit the encrypted HELLO field (validation says when it does not).                                             |
+| `maxBytesPerSec`      | both   | integer | server `8192`, client none | 256–1048576 | Fleet bytes per second per client. The client value is a requested ceiling; unset, the server's limit applies. The server uses the lower of the two. Over budget, only the newest value per path is sent. The server lowers a member's rate automatically while its downlink loses packets and restores it when the loss stops (`fleet.minRateFactor`). |
+| `batchIntervalMs`     | server | integer | `1000`                     | 100–10000   | How often coalesced fleet values are flushed.                                                                                                                                                                                                                                                                                                           |
+
+Validation rejects `enabled: true` on `protocolVersion: 1`, on a client with `bonding.enabled`, and server-only keys on a client.
+
+Metadata (units, zones, display names) is sent with each path the first time a vessel receives it, and again when it changes.
+
+Each client's own vessel ID (its `vessels.urn:…` context) is sent to the server encrypted inside HELLO. Data for that vessel is never sent back to it, and while fleet sharing is on, the server accepts a member's vessel only from that member's own session.
+
+```json
+{
+  "serverType": "server",
+  "udpPort": 4446,
+  "protocolVersion": 3,
+  "fleetSharing": { "enabled": true, "scope": "fleet", "maxBytesPerSec": 8192 }
+}
+```
+
+```json
+{
+  "serverType": "client",
+  "udpAddress": "hub.example.net",
+  "udpPort": 4446,
+  "protocolVersion": 3,
+  "fleetSharing": { "enabled": true, "pathFilter": { "allow": ["navigation.*"] } }
+}
+```
+
+A complete pair is in [`samples/v3-fleet-sharing.json`](../samples/v3-fleet-sharing.json).
+
+**Every node must run 4.4.0 or later.** Earlier versions do not know `fleetSharing`: they drop it from the configuration when it is saved and show no Fleet card. A server without fleet sharing never answers the request, and the client reports `not-offered`.
+
+**Relays.** A relay (one instance with a server connection and a client connection, see [Relay (proxy) chain](../README.md)) has a `fleetSharing` setting on each connection, and each applies to its own hop only:
+
+- On the relay's **server** connection it shares the vessels connected to the relay with each other. With scope `fleet` that is only those vessels (plus the relay's own with `includeServerVessel`); with scope `all` it also shares every other vessel in the relay's tree, such as vessels the relay receives from upstream.
+- On the relay's **client** connection it makes the relay a member of the upstream server's fleet, under the relay's own vessel ID. The relay receives the upstream fleet into its tree and does not send those vessels back upstream.
+- The vessels behind the relay reach the upstream server as the relay's uplink data. They are not members there, so an upstream server with scope `fleet` does not share them with its other clients; scope `all` does. With scope `all`, the upstream server does not send the relay the vessels the relay itself uplinks, unless they are members of the upstream fleet.
+
+---
+
 ## Runtime Configuration Files (Hot-Reload)
 
 Three JSON files can be edited or updated via the API **without restarting the plugin**. Stored in:

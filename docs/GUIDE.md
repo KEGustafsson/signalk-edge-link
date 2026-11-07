@@ -99,6 +99,18 @@ One Signal K instance can run **both** a server and a client simultaneously — 
   Client ─────UDP v3──────►
 ```
 
+### Fleet sharing topology
+
+With `fleetSharing` enabled on a server connection and on its clients (v3 only, every node 4.4.0 or later), each vessel also receives the other vessels' data back over the link it already opened. No inbound port is needed on the vessels, and a vessel never receives its own data.
+
+```text
+  [Vessel A] ──┐             ┌──► A gets B, C
+  [Vessel B] ──┼──► [Hub] ───┼──► B gets A, C
+  [Vessel C] ──┘             └──► C gets A, B
+```
+
+On a relay, each connection's `fleetSharing` setting covers its own hop only. Configuration, scope and relay behaviour: [configuration-reference.md — Fleet Sharing](configuration-reference.md#fleet-sharing-advancedv3-only). Wire format: [protocol-v3-spec.md §15](protocol-v3-spec.md). Metrics: [metrics.md — Fleet Sharing Metrics](metrics.md#fleet-sharing-metrics).
+
 ### Dual-link (bonding) topology
 
 ```text
@@ -271,7 +283,7 @@ sudo systemctl restart signalk
 
 ### Requirements
 
-- Node.js 20.9.0 or later (`node --version`; matches `engines.node` in package.json / CI)
+- Node.js 24 or later (`node --version`; matches `engines.node` in package.json / CI)
 - UDP reachability from client to server on your chosen port
 - Shared encryption key configured on both ends
 
@@ -1369,7 +1381,7 @@ Build a Grafana dashboard from the Prometheus metrics exposed at `/prometheus` (
 
 **Base path:** `/plugins/signalk-edge-link`  
 **Rate limit:** 120 requests/minute/IP → HTTP 429  
-**API version tracked (current: 4.3.0)** — see CHANGELOG.md for endpoint changes between releases
+**API version tracked (current: 4.4.0)** — see CHANGELOG.md for endpoint changes between releases
 
 ### 14.1 Core data endpoints
 
@@ -2194,7 +2206,7 @@ Also add `sentence_filter.json` excluding `GSV`, `GSA`, `VTG`.
 2. Encryption keys identical on both sides? (32 ASCII, 64 hex, or 44 base64)
 3. UDP port open in firewall? (`ufw status` or `iptables -L`)
 4. Plugin enabled in Signal K Admin UI?
-5. Node.js ≥ 20.9.0? (`node --version`)
+5. Node.js ≥ 24? (`node --version`)
 
 ### Encryption / decryption errors
 

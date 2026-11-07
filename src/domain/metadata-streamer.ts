@@ -110,7 +110,13 @@ async function sendMetadataSnapshot(ctx: StreamerContext): Promise<void> {
   if (!state.metaConfig?.enabled || state.stopped || !state.readyToSend) {
     return;
   }
-  const entries = collectSnapshot(appProxy, state.metaConfig);
+  // Metadata of vessels learned from the fleet is theirs to send, not ours
+  // (protocol-v3-spec §15.7): the tree holds it only because fleet sharing
+  // delivered it.
+  const learned = state.fleetLearnedContexts;
+  const entries = collectSnapshot(appProxy, state.metaConfig).filter(
+    (entry) => !learned?.has(entry.context)
+  );
   const sent = await sendMetaEntries(ctx, entries, "snapshot");
   // Only prime the diff cache on a successful send; on failure the next
   // snapshot (periodic or META_REQUEST-triggered) will still cover every

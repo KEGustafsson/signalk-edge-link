@@ -1,13 +1,19 @@
 "use strict";
 
 import { validateSecretKey } from "./codec/crypto";
+import { fleetPathFilterFits } from "./codec/fleet-identity";
+import {
+  FLEET_PATH_FILTER_MAX_PATTERNS,
+  FLEET_PATH_PATTERN_MAX_LENGTH
+} from "./foundation/constants";
 import { SENDER_ONLY_KEYS } from "./shared/connection-schema";
 import type {
   ConnectionConfig,
   BondingConfig,
   CongestionControlConfig,
   ReliabilityConfig,
-  AlertThresholds
+  AlertThresholds,
+  PathFilterConfig
 } from "./foundation/types";
 
 /** All recognised top-level keys for a ConnectionConfig object; unknown keys are stripped on sanitize. */
@@ -41,7 +47,8 @@ export const VALID_CONNECTION_KEYS: string[] = [
   "reliability",
   "congestionControl",
   "bonding",
-  "alertThresholds"
+  "alertThresholds",
+  "fleetSharing"
 ];
 
 function isFiniteNumber(value: unknown): value is number {
@@ -66,6 +73,125 @@ function numberRangeError(
       (object[key] as number) > max
     ) {
       return `${label} must be a number between ${min} and ${max}`;
+    }
+  }
+  return null;
+}
+
+const FLEET_SERVER_ONLY_KEYS = ["scope", "includeServerVessel", "batchIntervalMs"];
+const FLEET_KEYS = new Set(["enabled", "pathFilter", "maxBytesPerSec", ...FLEET_SERVER_ONLY_KEYS]);
+
+function validatePatternList(value: unknown, label: string): string | null {
+  if (!Array.isArray(value)) {
+    return `${label} must be an array of strings`;
+  }
+  if (value.length > FLEET_PATH_FILTER_MAX_PATTERNS) {
+    return `${label} allows at most ${FLEET_PATH_FILTER_MAX_PATTERNS} patterns`;
+  }
+  for (let i = 0; i < value.length; i++) {
+    if (typeof value[i] !== "string" || value[i].length === 0) {
+      return `${label}[${i}] must be a non-empty string`;
+    }
+    if (value[i].length > FLEET_PATH_PATTERN_MAX_LENGTH) {
+      return `${label}[${i}] is longer than ${FLEET_PATH_PATTERN_MAX_LENGTH} characters`;
+    }
+  }
+  return null;
+}
+
+/**
+ * `sentInHello` marks a client filter: it travels in the encrypted HELLO
+ * identity, so it must also fit that field (protocol-v3-spec §15.2).
+ */
+function validateFleetPathFilter(
+  value: unknown,
+  label: string,
+  sentInHello: boolean
+): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return `${label} must be an object`;
+  }
+  for (const [key, list] of Object.entries(value as Record<string, unknown>)) {
+    if (key !== "allow" && key !== "deny") {
+      return `${label}.${key} is not a supported property`;
+    }
+    const error = validatePatternList(list, `${label}.${key}`);
+    if (error) {
+      return error;
+    }
+  }
+  if (sentInHello && !fleetPathFilterFits(value as PathFilterConfig)) {
+    return `${label} is too large to send in HELLO; use fewer or shorter patterns`;
+  }
+  return null;
+}
+
+function integerRangeError(value: unknown, min: number, max: number, label: string): string | null {
+  if (value === undefined) {
+    return null;
+  }
+  if (!Number.isInteger(value) || (value as number) < min || (value as number) > max) {
+    return `${label} must be an integer between ${min} and ${max}`;
+  }
+  return null;
+}
+
+/**
+ * Validate `fleetSharing` (protocol-v3-spec §15). Server-only keys are
+ * rejected on a client so an operator cannot believe they take effect there.
+ */
+function validateFleetSharing(
+  conn: Record<string, unknown>,
+  p: string,
+  serverType: string
+): string | null {
+  if (conn.fleetSharing === undefined) {
+    return null;
+  }
+  const fleet = conn.fleetSharing as Record<string, unknown>;
+  if (!fleet || typeof fleet !== "object" || Array.isArray(fleet)) {
+    return `${p}fleetSharing must be an object`;
+  }
+  for (const key of Object.keys(fleet)) {
+    if (!FLEET_KEYS.has(key)) {
+      return `${p}fleetSharing.${key} is not a supported property`;
+    }
+    if (serverType === "client" && FLEET_SERVER_ONLY_KEYS.includes(key)) {
+      return `${p}fleetSharing.${key} is only supported in server mode`;
+    }
+  }
+  if (fleet.enabled !== undefined && typeof fleet.enabled !== "boolean") {
+    return `${p}fleetSharing.enabled must be a boolean`;
+  }
+  if (fleet.scope !== undefined && fleet.scope !== "fleet" && fleet.scope !== "all") {
+    return `${p}fleetSharing.scope must be 'fleet' or 'all'`;
+  }
+  if (fleet.includeServerVessel !== undefined && typeof fleet.includeServerVessel !== "boolean") {
+    return `${p}fleetSharing.includeServerVessel must be a boolean`;
+  }
+  const pathError =
+    fleet.pathFilter === undefined
+      ? null
+      : validateFleetPathFilter(
+          fleet.pathFilter,
+          `${p}fleetSharing.pathFilter`,
+          serverType === "client"
+        );
+  const rangeError =
+    pathError ??
+    integerRangeError(fleet.maxBytesPerSec, 256, 1048576, `${p}fleetSharing.maxBytesPerSec`) ??
+    integerRangeError(fleet.batchIntervalMs, 100, 10000, `${p}fleetSharing.batchIntervalMs`);
+  if (rangeError) {
+    return rangeError;
+  }
+  if (fleet.enabled === true) {
+    const pv = conn.protocolVersion;
+    if (pv === undefined || pv === 1 || pv === "basic") {
+      return `${p}fleetSharing requires protocolVersion 3`;
+    }
+    const bonding = conn.bonding as Record<string, unknown> | undefined;
+    if (serverType === "client" && bonding && bonding.enabled === true) {
+      return `${p}fleetSharing is not supported together with bonding`;
     }
   }
   return null;
@@ -565,7 +691,7 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     }
   }
 
-  return null;
+  return validateFleetSharing(conn, p, serverType);
 }
 
 /** Normalises a persisted config entry — strips unknown keys, fills in defaults, and rewrites legacy field names — so the rest of the runtime can assume a canonical ConnectionConfig shape without defensive checks. */
