@@ -23,10 +23,12 @@ Target topology:
 <evidence>
 ## Code Facts the Design Relies On
 
+These describe 4.3.0, the release the design started from. Peers that do not run fleet sharing still behave this way, which is what the compatibility rules rely on.
+
 - Server replies go to the client packet's source `address:port` (`sendUDP` to the packet's `rinfo` in `reliable-server/data-handler.ts`). Sessions are keyed the same way (`getOrCreateSession` keys on `address:port`). Fleet packets can use that address and need no new port on the vessel.
-- The client drops packets not from its configured peer, then verifies the v3 tag with its own epoch (`isExpectedPeer` and `handleControlPacket` in `reliable-client/control-packets.ts`). It dispatches ACK, NAK, META_REQUEST, FULL_STATUS_REQUEST and ignores other known types (`handleControlPacket`).
-- Unknown packet types throw in the header parser (`VALID_PACKET_TYPES` check in `src/codec/packet/parser.ts`). A current client receiving a new type counts it in `malformedPackets` and logs at debug level (`handleControlPacket`). The server must therefore never send fleet packets to a client that did not advertise the capability.
-- HELLO already carries `capabilities: string[]` (`buildHelloPacket` in `src/codec/packet/builder.ts`). No server code reads it, so current servers ignore a new entry. HELLO payload is plaintext JSON with an HMAC tag, capped at 4096 bytes (`HELLO_PAYLOAD_MAX_BYTES`), refreshed every 300 s (`HELLO_REFRESH_INTERVAL_MS`).
+- The client drops packets not from its configured peer, then verifies the v3 tag with its own epoch (`isExpectedPeer` and `handleControlPacket` in `reliable-client/control-packets.ts`). In 4.3.0 it dispatched ACK, NAK, META_REQUEST and FULL_STATUS_REQUEST and ignored other known types (`handleControlPacket`); 4.4.0 also handles HELLO_ACK and FLEET_DATA.
+- Unknown packet types throw in the header parser (`VALID_PACKET_TYPES` check in `src/codec/packet/parser.ts`). A 4.3.0 client receiving a new type counts it in `malformedPackets` and logs at debug level (`handleControlPacket`). The server must therefore never send fleet packets to a client that did not advertise the capability.
+- HELLO already carries `capabilities: string[]` (`buildHelloPacket` in `src/codec/packet/builder.ts`). A 4.3.0 server does not read it, so it ignores a new entry; a 4.4.0 server reads it for `fleet-v1` (`handleFleetHello`). HELLO payload is plaintext JSON with an HMAC tag, capped at 4096 bytes (`HELLO_PAYLOAD_MAX_BYTES`), refreshed every 300 s (`HELLO_REFRESH_INTERVAL_MS`).
 - AES-256-GCM, random 12-byte IV per packet (`src/codec/crypto.ts`).
 - All clients of one server instance share that instance's `secretKey`. Any client can already decrypt any other client's captured uplink, so the server instance is the existing trust group.
 - `SequenceTracker`, `RetransmitQueue` and `ReplayWindow` (`src/transport/reliability/`) hold no direction-specific state.
@@ -93,12 +95,3 @@ Rejected by configuration validation in this milestone (FLEET-FUT-001). Stream i
 - **Session churn:** a client that changes source port gets a new session (`getOrCreateSession`); its fleet sequence restarts. The spec must say the client resets its fleet `SequenceTracker` when the server's fleet sequence restarts after a new HELLO.
 
 </risks>
-
-<deliverables>
-## Phase 6 Outputs
-
-1. `docs/protocol-v3-spec.md` §15: HELLO_ACK, FLEET_DATA (`0x0A`), FLEET_ACK and FLEET_NAK byte layouts, flag use, tag inputs, the `fleet-v1` capability, the encrypted HELLO `fleet` field and sequence rules.
-2. Test vectors for each new packet (fixed key, epoch, sequence, payload → expected bytes), in spec §15.11 and checked inline in `__tests__/v2/fleet-codec.test.js`.
-3. Decision records D-01 to D-08, each accepted or changed.
-
-</deliverables>
