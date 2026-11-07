@@ -223,8 +223,7 @@ describe("fleet sharing end-to-end", () => {
       expect(hub.metricsApi.metrics.fleet.members).toBe(1);
       expect(hub.metricsApi.metrics.fleet.identityRejected).toBe(1);
       hub.bus.app.handleMessage("local", sog(urn("999000999"), 0.5, "gps.1"));
-      await wait(250);
-      await pump(hub, clients);
+      await pumpUntil(hub, clients, () => lastSog(member, urn("999000999")) === 0.5);
     } finally {
       clock.mockRestore();
     }
@@ -253,9 +252,7 @@ describe("fleet sharing end-to-end", () => {
     try {
       // The ID resolves while A's value is checked against the impostor.
       await a.client.sendDelta([sog(a.self, 7.7)], secretKey, HUB_ADDR, HUB_PORT);
-      await pump(hub, clients);
-      await wait(250);
-      await pump(hub, clients);
+      await pumpUntil(hub, clients, () => lastSog(b, a.self) === 7.7);
     } finally {
       clock.mockRestore();
     }
@@ -1118,9 +1115,7 @@ describe("fleet sharing end-to-end", () => {
       HUB_ADDR,
       HUB_PORT
     );
-    await pump(hub, clients);
-    await wait(250);
-    await pump(hub, clients);
+    await pumpUntil(hub, clients, () => metaReceived(b, ais).length > 0);
     expect(metaReceived(b, ais)).toEqual([
       { path: "navigation.speedOverGround", value: { units: "m/s" } }
     ]);
