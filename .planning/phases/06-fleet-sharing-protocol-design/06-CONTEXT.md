@@ -1,7 +1,6 @@
 # Phase 6: Fleet Sharing Protocol Design - Context
 
 **Gathered:** 2026-11-02
-**Status:** Decisions accepted; spec written (`docs/protocol-v3-spec.md` §15)
 **Milestone:** v2 Fleet Data Sharing
 **Requirements:** FLEET-PROTO-001 (and the decisions every later phase depends on)
 
@@ -24,17 +23,17 @@ Target topology:
 <evidence>
 ## Code Facts the Design Relies On
 
-- Server replies go to the client packet's source `address:port` (`src/transport/pipeline/reliable-server/data-handler.ts:60`). Sessions are keyed the same way (`reliable-server/sessions.ts:111`). Fleet packets can use that address and need no new port on the vessel.
-- The client drops packets not from its configured peer, then verifies the v3 tag with its own epoch (`reliable-client/control-packets.ts:219-227`). It dispatches ACK, NAK, META_REQUEST, FULL_STATUS_REQUEST and ignores other known types (`control-packets.ts:239-262`).
-- Unknown packet types throw in the header parser (`src/codec/packet/parser.ts:41-42`). A current client receiving a new type counts it in `malformedPackets` and logs at debug level (`control-packets.ts:262-267`). The server must therefore never send fleet packets to a client that did not advertise the capability.
-- HELLO already carries `capabilities: string[]` (`src/codec/packet/builder.ts:255-260`). No server code reads it, so current servers ignore a new entry. HELLO payload is plaintext JSON with an HMAC tag, capped at 4096 bytes (`src/foundation/constants.ts:181`), refreshed every 300 s (`constants.ts:220`).
-- AES-256-GCM, random 12-byte IV per packet (`src/codec/crypto.ts:211`).
+- Server replies go to the client packet's source `address:port` (`sendUDP` to the packet's `rinfo` in `reliable-server/data-handler.ts`). Sessions are keyed the same way (`getOrCreateSession` keys on `address:port`). Fleet packets can use that address and need no new port on the vessel.
+- The client drops packets not from its configured peer, then verifies the v3 tag with its own epoch (`isExpectedPeer` and `handleControlPacket` in `reliable-client/control-packets.ts`). It dispatches ACK, NAK, META_REQUEST, FULL_STATUS_REQUEST and ignores other known types (`handleControlPacket`).
+- Unknown packet types throw in the header parser (`VALID_PACKET_TYPES` check in `src/codec/packet/parser.ts`). A current client receiving a new type counts it in `malformedPackets` and logs at debug level (`handleControlPacket`). The server must therefore never send fleet packets to a client that did not advertise the capability.
+- HELLO already carries `capabilities: string[]` (`buildHelloPacket` in `src/codec/packet/builder.ts`). No server code reads it, so current servers ignore a new entry. HELLO payload is plaintext JSON with an HMAC tag, capped at 4096 bytes (`HELLO_PAYLOAD_MAX_BYTES`), refreshed every 300 s (`HELLO_REFRESH_INTERVAL_MS`).
+- AES-256-GCM, random 12-byte IV per packet (`src/codec/crypto.ts`).
 - All clients of one server instance share that instance's `secretKey`. Any client can already decrypt any other client's captured uplink, so the server instance is the existing trust group.
 - `SequenceTracker`, `RetransmitQueue` and `ReplayWindow` (`src/transport/reliability/`) hold no direction-specific state.
-- Server ingest keeps delta `context` and original `$source` (`src/codec/source-dispatch.ts:242-248`).
-- The default client subscription is `context: "*"` (`src/app/config/watcher.ts:260`), which includes AIS targets in the vessel's tree.
-- Bonding runs two hub server instances on separate ports (`docs/bonding.md:71`).
-- `SUPPORTED_PROTOCOL_VERSIONS` is `{3}` (`src/codec/packet/constants.ts:24`); a mismatched version is rejected, not negotiated.
+- Server ingest keeps delta `context` and original `$source` (`handleMessageBySource` in `src/codec/source-dispatch.ts`).
+- The default client subscription is `context: "*"` (`initializePersistentStorage` in `src/app/config/watcher.ts`), which includes AIS targets in the vessel's tree.
+- Bonding runs two hub server instances on separate ports (`docs/bonding.md`).
+- `SUPPORTED_PROTOCOL_VERSIONS` is `{3}` (`src/codec/packet/constants.ts`); a mismatched version is rejected, not negotiated.
 
 </evidence>
 
@@ -88,19 +87,18 @@ Rejected by configuration validation in this milestone (FLEET-FUT-001). Stream i
 <risks>
 ## Risks to Address in the Spec
 
-- **NAT expiry:** fleet packets reach the vessel only while its NAT mapping is open. The 25 s default heartbeat (`reliable-client/lifecycle.ts:255`) holds mappings with timeouts above 25 s. Some carrier NATs time out UDP at 30 s, so the margin is small. Document; consider recommending `heartbeatInterval` ≤ 20000 when fleet sharing is on.
+- **NAT expiry:** fleet packets reach the vessel only while its NAT mapping is open. The 25 s default heartbeat (`startHeartbeat` in `reliable-client/lifecycle.ts`) holds mappings with timeouts above 25 s. Some carrier NATs time out UDP at 30 s, so the margin is small. Document; consider recommending `heartbeatInterval` ≤ 20000 when fleet sharing is on.
 - **IV budget:** one `secretKey` now encrypts uplink from every client plus fleet packets to every client. NIST SP 800-38D limits random 96-bit IVs to 2^32 encryptions per key. At 100 sessions × 10 packets/s in each direction that is 2,000 packets/s, about 25 days to reach 2^32. Phase 10 documents this (FLEET-SEC-003); key rotation itself stays in FUT-SEC-001.
 - **Downlink bandwidth:** each vessel receives data for N-1 vessels on a metered link. FLEET-BW-001 rate limit plus the `fleet` default scope (no AIS) bound it.
-- **Session churn:** a client that changes source port gets a new session (`sessions.ts:111`); its fleet sequence restarts. The spec must say the client resets its fleet `SequenceTracker` when the server's fleet sequence restarts after a new HELLO.
+- **Session churn:** a client that changes source port gets a new session (`getOrCreateSession`); its fleet sequence restarts. The spec must say the client resets its fleet `SequenceTracker` when the server's fleet sequence restarts after a new HELLO.
 
 </risks>
 
 <deliverables>
-## Phase 6 Deliverables
+## Phase 6 Outputs
 
 1. `docs/protocol-v3-spec.md` §15: HELLO_ACK, FLEET_DATA (`0x0A`), FLEET_ACK and FLEET_NAK byte layouts, flag use, tag inputs, the `fleet-v1` capability, the encrypted HELLO `fleet` field and sequence rules.
 2. Test vectors for each new packet (fixed key, epoch, sequence, payload → expected bytes), in spec §15.11 and checked inline in `__tests__/v2/fleet-codec.test.js`.
-3. Each decision D-01 to D-08 marked accepted or changed in this file.
-4. Phases 7-10 ran without separate plan files; `FLEET-VERIFICATION.md` maps each requirement to its evidence.
+3. Decision records D-01 to D-08, each accepted or changed.
 
 </deliverables>
