@@ -138,6 +138,22 @@ async function pump(hub, clients, rounds = 6) {
   }
 }
 
+/**
+ * Pump until `done()` holds or `timeoutMs` passes. Fleet packets are
+ * Brotli-compressed and decoded on the libuv threadpool, so a fixed wait can
+ * end before a busy machine has built or applied them.
+ */
+async function pumpUntil(hub, clients, done, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    await pump(hub, clients);
+    if (done() || Date.now() >= deadline) {
+      return;
+    }
+    await wait(20);
+  }
+}
+
 function sog(context, value, source = "n2k.115") {
   return {
     context,
@@ -202,6 +218,7 @@ module.exports = {
   makeHub,
   makeClient,
   pump,
+  pumpUntil,
   sog,
   contextsReceived,
   lastSog,

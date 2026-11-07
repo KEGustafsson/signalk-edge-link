@@ -18,6 +18,7 @@ const {
   makeHub,
   makeClient,
   pump,
+  pumpUntil,
   sog,
   contextsReceived,
   lastSog,
@@ -1099,9 +1100,7 @@ describe("fleet sharing end-to-end", () => {
       await a.client.sendHello(HUB_ADDR, HUB_PORT);
       await pump(hub, clients);
       await a.client.sendDelta([sog(a.self, 5.5)], secretKey, HUB_ADDR, HUB_PORT);
-      await pump(hub, clients);
-      await wait(150);
-      await pump(hub, clients);
+      await pumpUntil(hub, clients, () => lastSog(b, a.self) === 5.5);
       // A is a member now: its own data goes to B, whatever B uplinked before.
       expect(lastSog(b, a.self)).toBe(5.5);
     }
