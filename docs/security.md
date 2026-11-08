@@ -30,7 +30,7 @@ Data payloads (v1 packets; v3 DATA, METADATA and FLEET_DATA) are encrypted with 
 
 v3 control packets are not encrypted: their payload is plaintext with a 16-byte HMAC-SHA256 tag. HELLO's JSON, including protocol version and client ID, is readable on the path; HEARTBEAT carries only the tag. The HELLO `fleet` field, which holds the vessel identity, is AES-256-GCM encrypted on its own.
 
-The GCM auth tag detects any bit flip in transit. Packets that fail authentication are dropped and counted in `encryptionErrors`.
+The GCM auth tag detects any change to the IV, ciphertext or tag. It does not cover the cleartext v3 packet header; with `authenticatedHeaders` (default `true`) a separate HMAC tag binds the DATA and METADATA header to the ciphertext. Packets that fail authentication are dropped and counted in `encryptionErrors`.
 
 ---
 
@@ -122,7 +122,7 @@ Enforcement is in the receiver:
 | on     | off      | Works, but unprotected: the receiver still accepts unbound packets from anyone. Enabling it on the sender alone does nothing. |
 | off    | on       | Link carries nothing. The receiver refuses every DATA and METADATA packet.                                                    |
 
-The last row is counted in `stats.epochAuthMismatches` and logged as a configuration mismatch naming `epochBoundAuth`, not as an authentication failure: the keys are correct and nothing was tampered with. See [troubleshooting.md](troubleshooting.md#epoch-bound-authentication-epochboundauth).
+The last row is counted in `stats.epochAuthMismatches` and logged as a configuration mismatch naming `epochBoundAuth`, not as an authentication failure. The receiver checks for the epoch flag before it verifies the HMAC tag, so a tampered or wrong-key packet without the flag is counted the same way; a rising count points to a configuration mismatch but does not prove one. See [troubleshooting.md](troubleshooting.md#epoch-bound-authentication-epochboundauth).
 
 ### Fleet sharing (`fleetSharing`)
 

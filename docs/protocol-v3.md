@@ -100,7 +100,7 @@ Settings are in [configuration-reference.md](configuration-reference.md); send-r
 
 ### Authentication
 
-Every control packet (all types except DATA and METADATA) carries a 16-byte truncated HMAC-SHA256 tag over the first 13 header bytes and the payload, keyed by `secretKey`. A host without the key cannot forge an ACK, NAK, HELLO or snapshot request.
+Control packets (ACK, NAK, HEARTBEAT, HELLO, HELLO_ACK, META_REQUEST, FULL_STATUS_REQUEST, FLEET_ACK and FLEET_NAK) carry a plaintext payload and a 16-byte truncated HMAC-SHA256 tag over the first 13 header bytes and the payload, keyed by `secretKey`. A host without the key cannot forge an ACK, NAK, HELLO or snapshot request. FLEET_DATA carries a 4-byte stream ID followed by AES-GCM ciphertext, and always carries the same HMAC tag over the header and that payload, whatever `authenticatedHeaders` is set to.
 
 DATA and METADATA are protected by the GCM tag. With `authenticatedHeaders` (default `true`) they also carry a 16-byte HMAC tag that binds the header to the ciphertext. `epochBoundAuth` (default `false`, both ends 4.0.0+) also binds each tag to the connection epoch to block replays across restarts ([spec §5.1](protocol-v3-spec.md#51-epoch-bound-authentication-optional)).
 

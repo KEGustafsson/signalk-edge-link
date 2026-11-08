@@ -14,16 +14,16 @@ The top-level JSON endpoints (`/metrics`, `/network-metrics`, `/monitoring/*`, `
 
 Errors are JSON `{ "error": "<message>" }`. `/plugin-config` routes also set `"success": false`; `/config/:filename` returns the error object alone.
 
-| Code | When                                                                                                                                                                                         |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400  | Validation failure                                                                                                                                                                           |
-| 401  | Missing or invalid token: `Unauthorized management API request`                                                                                                                              |
-| 403  | Token required but none configured (`requireManagementApiToken: true`); or a bodyless POST with `Sec-Fetch-Site` other than `same-origin`/`same-site`/`none`                                 |
-| 404  | Instance/connection not found; `Not available in server mode` on client-only routes when no client instance exists                                                                           |
-| 415  | JSON POST/PUT without `Content-Type: application/json`; bodyless POST (`/capture/start`, `/capture/stop`, `/bonding/failover`, `/connections/:id/bonding/failover`) with a form content type |
-| 429  | Rate limit exceeded: `Too many requests, please try again later`                                                                                                                             |
-| 500  | Handler error                                                                                                                                                                                |
-| 503  | `Plugin not started`, or the subsystem the route needs is not initialized                                                                                                                    |
+| Code | When                                                                                                                                                                                                       |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | Validation failure                                                                                                                                                                                         |
+| 401  | Missing or invalid token: `Unauthorized management API request`                                                                                                                                            |
+| 403  | Token required but none configured (`requireManagementApiToken: true`); or a bodyless POST with `Sec-Fetch-Site` other than `same-origin`/`same-site`/`none`                                               |
+| 404  | Instance/connection not found; `Not available in server mode` on client-only routes when no client instance exists                                                                                         |
+| 415  | JSON POST/PUT without `Content-Type: application/json`; bodyless POST (`/capture/start`, `/capture/stop`, `/bonding/failover`, `/connections/:id/bonding/failover`) with a form content type               |
+| 429  | Rate limit exceeded: `Too many requests, please try again later`                                                                                                                                           |
+| 500  | Handler error                                                                                                                                                                                              |
+| 503  | `Plugin not started`; the subsystem the route needs is not initialized; or the auth check could not read the plugin configuration (`Management API temporarily unavailable: unable to read configuration`) |
 
 ### Endpoint index
 
@@ -111,7 +111,7 @@ Full statistics for the first instance. Top-level keys:
 }
 ```
 
-`GET /connections/:id/metrics` returns the same shape for one connection.
+`GET /connections/:id/metrics` returns these keys for one connection, adds `instanceId`, and never includes `managementAuth`.
 
 ### GET /network-metrics
 
@@ -294,7 +294,7 @@ All instances: `[{ id, name, type, port, protocolVersion, status, healthy, ready
 
 ### GET /instances
 
-Query: `state` (case-insensitive match on the status string), `limit`, `page` (positive integers, else `400`). Without `limit` the response is a plain array; with `limit` it is `{ items, pagination: { page, limit, total, totalPages } }`.
+Query: `state` (case-insensitive match on the status string), `limit`, `page` (decimal digits only, a positive safe integer; `0`, `1.0`, `1e2` and `-1` return `400`). Without `limit` the response is a plain array; with `limit` it is `{ items, pagination: { page, limit, total, totalPages } }`.
 
 ```json
 [

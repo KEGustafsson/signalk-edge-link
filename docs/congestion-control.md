@@ -8,7 +8,7 @@
 
 The controller is AIMD (additive increase, multiplicative decrease) with a pull toward a nominal interval. Source: `src/transport/congestion.ts`.
 
-Inputs come from each ACK: the RTT of the acknowledged packet and the current loss ratio. Both are smoothed as `0.2 × new + 0.8 × previous`; the first sample is taken as is. The controller does nothing until it has a sample.
+Inputs come from each ACK: the current loss ratio, and an RTT sample only when the acknowledged sequence is still in the retransmit queue and was never retransmitted. Other ACKs update loss but not RTT. Both are smoothed as `0.2 × new + 0.8 × previous`; the first sample is taken as is. The controller does nothing until it has a sample.
 
 Every 5000 ms (`adjustInterval`) it compares smoothed RTT and loss with `targetRTT` and picks one of three bands:
 

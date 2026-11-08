@@ -659,7 +659,7 @@ The plugin publishes link metrics under `networking.edgeLink.*` (namespaced as `
 
 Fleet sharing lets every client of one server instance receive the other clients' vessel data over the session the client already opened. The server sends to the `address:port` the client's packets come from, so the client needs no listening socket and no inbound firewall or NAT rule. A client never receives its own vessel.
 
-FLEET_DATA reaches a client behind NAT only while the client's outbound packets keep the NAT mapping open. On an idle uplink those packets are the client's HEARTBEATs, sent every `heartbeatInterval` (default 25,000 ms), which must be shorter than the NAT's UDP mapping timeout. If the mapping moves to a new port, fleet data resumes once the client re-sends HELLO: after 30 s without an ACK, or 60 s without a fleet packet (§15.3).
+FLEET_DATA reaches a client behind NAT only while the client's outbound packets keep the NAT mapping open. On an idle uplink those packets are the client's HEARTBEATs, sent every `heartbeatInterval` (default 25,000 ms), which must be shorter than the NAT's UDP mapping timeout. If the mapping moves to a new port, fleet data resumes once the client re-sends HELLO: after 30 s without an ACK while its retransmit queue holds unacknowledged packets, or after 60 s without a fleet packet. A client with nothing outstanding to acknowledge relies on the 60 s timer (§15.3).
 
 Fleet sharing is an additive extension of protocol v3: the version byte stays `0x03`, and the uplink (DATA, METADATA, ACK, NAK, HEARTBEAT, HELLO) is byte-for-byte unchanged when the feature is off on either end. It is not available on v1 or on bonded clients.
 

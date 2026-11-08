@@ -16,7 +16,7 @@ Brotli compresses a batch better the more deltas it holds:
 | 20 deltas  | 4.5 KB   | 341 B        | 13.6× | 17 B        |
 | 50 deltas  | 11.3 KB  | 537 B        | 21.6× | 11 B        |
 
-Raise `deltaTimer` (`delta_timer.json`, 100–10000 ms) on bandwidth-constrained links to collect more deltas per batch. Packets have a fixed delta and size limit (see [internal constants](configuration-reference.md#internal-constants)); a batch that would exceed it is sent early (counted in `earlySends`).
+Raise `deltaTimer` (`delta_timer.json`, 100–10000 ms) on bandwidth-constrained links to collect more deltas per batch. The batch size is a target, not a hard limit: the client divides 85% of the 1400 B payload limit by the average bytes per delta of previous packets, capped at 50 deltas (see [internal constants](configuration-reference.md#internal-constants)). A buffer that reaches that count is sent before the timer fires (counted in `earlySends`). A packet that still exceeds 1400 B is sent whole, not split, and counted in `oversizedPackets`.
 
 ---
 
@@ -85,7 +85,7 @@ Compression dominates. On constrained hardware with high delta rates, raise `del
 
 - `deltaTimer` 2000–5000 ms for the best compression ratio.
 - `targetRTT: 800` keeps a high-RTT link out of the congested band (above 1200 ms).
-- `minDeltaTimer` accepts at most 1000 ms. The controller settles at `nominalDeltaTimer`, which defaults to the connection's `deltaTimer`, so the 2000–5000 ms interval holds on a healthy link.
+- `minDeltaTimer` accepts at most 1000 ms. The controller's timer starts at 1000 ms, not at `deltaTimer`. The `delta_timer.json` interval applies until the first adjustment (5 s after start, once an ACK has arrived); the send interval then drops to 1050 ms on a healthy link (1020 ms in the middle band) and rises 5% (2%) per 5 s step toward `nominalDeltaTimer`, which defaults to the connection's `deltaTimer`. With `deltaTimer` 4000 ms that takes about 29 steps (2.5 min) on a healthy link and about 71 steps (6 min) in the middle band. See [congestion-control.md](congestion-control.md#algorithm).
 - Exclude `GSV`, `GSA`, `VTG` and `GLL` in `sentence_filter.json`.
 
 ---

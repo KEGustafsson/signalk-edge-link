@@ -66,6 +66,8 @@ Then restart Signal K.
 
 In the Signal K Admin UI, open **Server → Plugin Config → Signal K Edge Link** on each server.
 
+The plugin is disabled after install (`signalk-plugin-enabled-by-default: false`). Enable it on this page on both servers; saving the connection configuration alone does not start it.
+
 A fresh install shows one empty client card. Use it for the connection you need (switch its type on the receiving server), or add your connection first and then delete it, since the last card cannot be removed; left with an empty key, it fails validation when you save.
 
 1. **Receiving server:** click **Add Server**. Set a name, the UDP port, the encryption key and protocol **Advanced**. Save.

@@ -105,7 +105,7 @@ npm run migrate:config -- old-config.json new-config.json
 
 ## Auth Telemetry
 
-`GET /status` and `GET /metrics` include a `managementAuth` block **only when a `managementApiToken` is configured**. Fields, reasons and the Prometheus series: [metrics.md](metrics.md#management-api-auth-telemetry).
+`GET /status` and `GET /metrics` include a `managementAuth` block **only when a management token is configured** (`managementApiToken` or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`). Fields, reasons and the Prometheus series: [metrics.md](metrics.md#management-api-auth-telemetry).
 
 ---
 

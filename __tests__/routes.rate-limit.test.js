@@ -654,15 +654,17 @@ describe("instances management route", () => {
       };
       const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
       handlerFor(path)(req, res);
-      return res.json.mock.calls[0][0];
+      // Round-trip through JSON so the assertions see what res.json sends on
+      // the wire, where a key holding undefined is dropped.
+      return JSON.parse(JSON.stringify(res.json.mock.calls[0][0]));
     };
 
-    expect(call("/instances/:id").network).toEqual(
-      expect.objectContaining({ rtt: undefined, jitter: undefined })
-    );
-    expect(call("/connections/:id/network-metrics")).toEqual(
-      expect.objectContaining({ rtt: undefined, jitter: undefined })
-    );
+    const unmeasuredInstance = call("/instances/:id").network;
+    expect(unmeasuredInstance).not.toHaveProperty("rtt");
+    expect(unmeasuredInstance).not.toHaveProperty("jitter");
+    const unmeasuredConnection = call("/connections/:id/network-metrics");
+    expect(unmeasuredConnection).not.toHaveProperty("rtt");
+    expect(unmeasuredConnection).not.toHaveProperty("jitter");
 
     // After the first timed ACK the measured values are reported.
     Object.assign(bundle.metricsApi.metrics, { rtt: 42, jitter: 3, rttSamples: 1 });

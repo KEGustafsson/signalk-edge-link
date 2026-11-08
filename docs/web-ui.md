@@ -16,7 +16,7 @@ Field meanings, defaults and ranges are in [configuration-reference.md](configur
 ### Layout
 
 1. **Intro line:** one connection per link; Server mode receives, Client mode sends; both ends must use the same key and protocol.
-2. **Plugin Security Settings:** **Management API Token** (password input; the `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` environment variable takes priority) and **Require Management API Token**. Leave the token empty and the box unchecked for open access; with the box checked and no token, every management request gets HTTP 403. See [Top-Level Plugin Fields](configuration-reference.md#top-level-plugin-fields).
+2. **Plugin Security Settings:** **Management API Token** (password input; the `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` environment variable takes priority) and **Require Management API Token**. Open access needs the token empty, the box unchecked, and neither `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` nor `SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN` set in the environment; with the box checked and no token, every management request gets HTTP 403. See [Top-Level Plugin Fields](configuration-reference.md#top-level-plugin-fields).
 3. **Connection cards:** one collapsible card per connection with a **Server** or **Client** badge. Click the header to expand it.
 4. **Toolbar:** **+ Add Server**, **+ Add Client**, **Save Configuration** (**Save Changes** while there are edits), and a connection count.
 

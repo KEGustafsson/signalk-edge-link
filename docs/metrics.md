@@ -65,7 +65,7 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 | `stats.abandonedSequences`       | —                                               | Receive-side gaps given up on after exhausting NAK rounds (unrecoverable)          |
 | `stats.rejectedControlPackets`   | —                                               | ACK/NAK/request packets dropped because the source did not match a configured peer |
 | `stats.replayedPackets`          | —                                               | Datagrams the anti-replay guard refused                                            |
-| `stats.epochAuthMismatches`      | —                                               | Packets refused because the peers disagree about `epochBoundAuth`                  |
+| `stats.epochAuthMismatches`      | —                                               | Packets refused for lacking the epoch flag; usually an `epochBoundAuth` mismatch   |
 | `stats.epochAuthPending`         | —                                               | Packets refused because no HELLO has established the sender's epoch yet            |
 | `stats.fullStatusCascadeFired`   | —                                               | Times a client instance relayed FULL_STATUS_REQUEST to the servers beside it       |
 | `stats.snapshotReplayDeltas`     | —                                               | Deltas emitted while replaying a values snapshot on request                        |
@@ -74,7 +74,7 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 
 - On a client, `retransmissions / bandwidth.packetsOut` is the `retransmitRate` in [Link Quality Metrics](#link-quality-metrics), which lists its healthy and alert ranges. `dataPacketsReceived` is a server-side count, so it is not a denominator for a client's `retransmissions`.
 - `replayedPackets > 0` means the anti-replay guard rejected a datagram the live session has no record of: a replay attempt or a peer bug. This counter is the only external evidence of either. A retransmit that crosses an ACK is rejected by the same window but counts in `duplicatePackets`, because its sequence is still in the session's seen-set.
-- `epochAuthMismatches > 0`: this receiver requires `epochBoundAuth` and the sender does not use it, so every DATA packet is refused. Set the same value on both peers.
+- `epochAuthMismatches > 0`: this receiver requires `epochBoundAuth` and received packets without the epoch flag. The usual cause is a sender that does not use it, so every DATA packet is refused; set the same value on both peers. The flag is checked before the HMAC tag, so forged or wrong-key packets without it count too.
 - `epochAuthPending > 0`: the sender binds, but no HELLO has established its epoch yet. A brief burst at startup clears once the HELLO completes. A climbing count means the HELLO is not arriving; check that the peer's DATA and HELLO leave from the same address and port.
 - `fullStatusCascadeFired` at zero on a proxy's client instance means the node terminates snapshot requests instead of relaying them upstream.
 - Rising `naksSent` with low `acksSent` indicates one-way UDP; check bidirectional reachability.
@@ -211,7 +211,7 @@ FLEET_DATA reaches a vessel only while its NAT mapping is open, and the client's
 
 ## Management API Auth Telemetry
 
-`GET /status` and `GET /metrics` include a `managementAuth` block **only when a `managementApiToken` is configured**; in open-access mode it is omitted, and `/prometheus` likewise omits `signalk_edge_link_management_auth_requests_total`.
+`GET /status` and `GET /metrics` include a `managementAuth` block **only when a management token is configured** (`managementApiToken` or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`); in open-access mode it is omitted, and `/prometheus` likewise omits `signalk_edge_link_management_auth_requests_total`.
 
 | Field      | Description                                                                                                                                                           |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
