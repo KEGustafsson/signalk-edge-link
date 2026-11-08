@@ -1,20 +1,20 @@
 # Parameter & Performance Impact Report
 
-This report captures benchmark runs performed locally to evaluate how key tunable parameters affect throughput, latency, overhead, and reliability behavior.
+Local benchmark runs measuring how tunable parameters affect throughput, latency, overhead and reliability.
 
 ## Commands run
 
 ```bash
-node test/benchmarks/bandwidth-efficiency.js
-node test/benchmarks/latency-percentiles.js
-node test/benchmarks/reliability-overhead.js
+node __tests__/benchmarks/bandwidth-efficiency.js
+node __tests__/benchmarks/latency-percentiles.js
+node __tests__/benchmarks/reliability-overhead.js
 ```
 
 ## Environment
 
 - Repository: `signalk-edge-link`
-- Runtime: Node.js benchmark scripts from `test/benchmarks`
-- Notes: Results are point-in-time measurements on this host and should be used for directional tuning guidance.
+- Runtime: Node.js benchmark scripts in `__tests__/benchmarks/`
+- Notes: point-in-time measurements on one host; use them for directional tuning only.
 
 ## Parameter reference: what each one means and how it impacts performance
 

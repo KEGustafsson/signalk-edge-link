@@ -4,7 +4,7 @@
 
 The Signal K Edge Link Protocol v3.0 is a binary UDP protocol designed for reliable, bandwidth-efficient transmission of Signal K delta data between vessels and shore servers. It operates in challenging maritime network environments including cellular edge areas, satellite links, and multi-path connections.
 
-The v3 protocol adds a comprehensive binary packet header layer to the v1 (Basic) encryption/compression pipeline, enabling:
+The v3 protocol adds a binary packet header layer to the v1 (Basic) encryption/compression pipeline, enabling:
 
 - **Sequence tracking** for packet loss detection
 - **Packet type differentiation** (DATA, ACK, NAK, HEARTBEAT, HELLO)
@@ -82,7 +82,7 @@ Carries Signal K delta data through the processing pipeline:
 1. Delta batch collected (1-50 deltas per batch)
 2. Serialized (JSON or MessagePack)
 3. Optionally path-encoded (path dictionary)
-4. Compressed (Brotli quality 10)
+4. Compressed (Brotli, quality `brotliQuality`, default 6)
 5. Encrypted (AES-256-GCM with unique IV)
 
 The resulting ciphertext is the packet payload. Wire format of the encrypted payload:
@@ -111,7 +111,7 @@ Retransmission limits:
 
 ### HEARTBEAT Packet
 
-Payload: a 16-byte HMAC-SHA256 authentication tag only. Sent periodically to indicate the connection is alive. The default heartbeat interval is 60 seconds, configurable from 10 to 3,600 seconds.
+Payload: a 16-byte HMAC-SHA256 authentication tag only. The client sends HEARTBEAT every `heartbeatInterval` (default 25,000 ms, range 5,000-120,000 ms) to measure RTT and to keep NAT mappings on the path open.
 
 ### HELLO Packet
 
@@ -286,8 +286,8 @@ which uses the METADATA packet type (`0x06`) on the main data port.
 
 > An earlier design proposed a separate metadata UDP port (`udpMetaPort`) with
 > the 4-byte ASCII magic `SKM1` prefixed inside the encrypted plaintext. It was
-> never implemented — no such option exists in the configuration schema or the
-> runtime — and the documentation that described it has been removed.
+> never implemented; no such option exists in the configuration schema or the
+> runtime.
 
 ## 4. Flags
 
@@ -559,8 +559,8 @@ All DATA payloads are encrypted with AES-256-GCM:
 
 ### Key Requirements
 
-- Exactly 32 characters (256 bits)
-- Minimum 8 unique characters (entropy check)
+- 32 ASCII characters, 64 hex characters or 44 base64 characters (256 bits)
+- ASCII keys: at least 8 unique characters (entropy check)
 - Must match on both client and server
 
 ### Security Properties
@@ -622,7 +622,6 @@ v1 (Basic) packets do not start with these magic bytes (they start with the rand
 - The v1 (Basic) pipeline is unchanged and fully functional
 - A pipeline factory selects v1 or v3 based on configuration
 - The server can distinguish packet versions by magic bytes
-- All v1 tests continue to pass
 - v3 is selected via `protocolVersion: 3` (or `"advanced"`); a stored `protocolVersion: 2` is accepted and coerced to `3`
 
 ## 13. Implementation Files
@@ -653,27 +652,13 @@ v1 (Basic) packets do not start with these magic bytes (they start with the rand
 
 ## 14. Signal K Paths Published
 
-The reliable (v3) protocol publishes the following metrics to the Signal K data model:
-
-| Path                                             | Type           | Description                        |
-| ------------------------------------------------ | -------------- | ---------------------------------- |
-| `networking.modem.rtt`                           | number (s)     | Round-trip time to test endpoint   |
-| `networking.edgeLink.rtt`                        | number (ms)    | Pipeline RTT                       |
-| `networking.edgeLink.jitter`                     | number (ms)    | RTT jitter                         |
-| `networking.edgeLink.packetLoss`                 | number (ratio) | Packet loss ratio (0-1)            |
-| `networking.edgeLink.retransmitRate`             | number (ratio) | Retransmission rate                |
-| `networking.edgeLink.linkQuality`                | number (0-100) | Composite link quality score       |
-| `networking.edgeLink.queueDepth`                 | number         | Retransmit queue depth             |
-| `networking.edgeLink.throughput.out`             | number (B/s)   | Outbound throughput                |
-| `networking.edgeLink.throughput.in`              | number (B/s)   | Inbound throughput                 |
-| `networking.edgeLink.bonding.activeLink`         | string         | Active bonding link name           |
-| `networking.edgeLink.bonding.primary.*`          | object         | Primary link health metrics        |
-| `networking.edgeLink.bonding.backup.*`           | object         | Backup link health metrics         |
-| `notifications.signalk-edge-link.<instanceId>.*` | notification   | Alert notifications (per-instance) |
+The plugin publishes link metrics under `networking.edgeLink.*` (namespaced as `networking.edgeLink.<instanceId>.*` when an instance ID is configured), the v1 ping RTT at `networking.modem.rtt`, and alerts under `notifications.signalk-edge-link.*`. The full path list is in [metrics.md — Signal K Paths Published](metrics.md#signal-k-paths-published).
 
 ## 15. Fleet Sharing (capability `fleet-v1`)
 
 Fleet sharing lets every client of one server instance receive the other clients' vessel data over the session the client already opened. The server sends to the `address:port` the client's packets come from, so the client needs no listening socket and no inbound firewall or NAT rule. A client never receives its own vessel.
+
+FLEET_DATA reaches a client behind NAT only while the client's outbound packets keep the NAT mapping open. On an idle uplink those packets are the client's HEARTBEATs, sent every `heartbeatInterval` (default 25,000 ms), which must be shorter than the NAT's UDP mapping timeout. If the mapping moves to a new port, fleet data resumes once the client re-sends HELLO: after 30 s without an ACK, or 60 s without a fleet packet (§15.3).
 
 Fleet sharing is an additive extension of protocol v3: the version byte stays `0x03`, and the uplink (DATA, METADATA, ACK, NAK, HEARTBEAT, HELLO) is byte-for-byte unchanged when the feature is off on either end. It is not available on v1 or on bonded clients.
 

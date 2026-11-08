@@ -1,6 +1,6 @@
 # Release Checklist
 
-Run this sequence before publishing a package or changing release automation.
+Run these in order before publishing a package or changing release automation:
 
 1. `npm run lint`
 2. `npm run format:check`
@@ -11,6 +11,10 @@ Run this sequence before publishing a package or changing release automation.
 7. `npm run check:release-docs`
 8. `npm pack --ignore-scripts`
 
-The release documentation check verifies that public docs use the package
-version declared in `package.json`, that architecture references point at the
-current source modules, and that the publish workflow builds before packing.
+`npm run check:release-docs` (`scripts/check-release-truth.js`) fails when:
+
+- `docs/GUIDE.md`, `docs/README.md` or `docs/api-reference.md` lacks `current: <package.json version>` or carries a different `current:` version;
+- `docs/GUIDE.md` names a retired source file (`bonding-manager.ts`, `congestion-control.ts`, `alert-manager.ts`, `sequence-tracker.ts`) or lacks `bonding.ts`, `congestion.ts`, `monitoring.ts`, `sequence.ts`;
+- `package.json` `files` omits `lib/` or `public/`;
+- `.github/workflows/publish-packages.yml` does not run `npm run build` and `npm run check:release-docs` before `npm pack`;
+- `docs/configuration-reference.md` does not state the fleet `pathFilter` limits from `src/foundation/constants.ts`.
