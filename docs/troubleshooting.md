@@ -84,7 +84,7 @@ If `readyToSend` is `false`, `GET /status` shows the error.
 
 ### Rejected control packets
 
-`stats.rejectedControlPackets` on a client should be `0`. A non-zero value means ACKs and NAKs are discarded before processing: no RTT is timed, the cumulative ACK freezes and the retransmit queue grows. The link sends but delivers nothing reliably.
+`stats.rejectedControlPackets` on a client should be `0`. The counter is cumulative, so a single old rejection leaves it non-zero. If it is still rising, ACKs and NAKs are being discarded before processing: no RTT is timed, the cumulative ACK freezes and the retransmit queue grows, and the link sends but delivers nothing reliably.
 
 ```bash
 curl -s -H "$T" $H/metrics \
@@ -162,7 +162,7 @@ See [bonding.md](bonding.md).
 
 | Symptom                                                             | Check                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `active` but no other vessels appear                                | Server `fleet.members` ≥ 2? A vessel appears only once it is a member and uplinks data. With scope `fleet`, AIS targets are not shared                                                                                                                                                                                                                                                                                                       |
+| `active` but no other vessels appear                                | Server `fleet.members` ≥ 2, or ≥ 1 when `includeServerVessel: true` and you expect only the hub's own vessel? A vessel appears only once it is a member and uplinks data. With scope `fleet`, AIS targets are not shared                                                                                                                                                                                                                     |
 | Some paths missing                                                  | Client and server `fleetSharing.pathFilter` both apply; `networking.edgeLink.*` is never shared                                                                                                                                                                                                                                                                                                                                              |
 | Values update slowly, `fleet.minRateFactor` < 1                     | A member's downlink is losing packets and its rate is cut; it recovers by itself once loss stops                                                                                                                                                                                                                                                                                                                                             |
 | Values update slowly, `fleet.rateLimitedFlushes` rising at factor 1 | Raise `maxBytesPerSec` on the server, and the client's requested value if set. Every FLEET_DATA packet uses the byte budget for its full length, so a packet longer than the 1400-byte target delays the values queued after it by about its length divided by the session rate                                                                                                                                                              |
@@ -191,7 +191,8 @@ A relay is two independent connections in one instance. `vessel → relay → sh
 ```bash
 # Each connection on the relay has its own metrics.
 curl -s -H "$T" http://relay:3000/plugins/signalk-edge-link/connections | jq '.[].id'
-curl -s -H "$T" http://relay:3000/plugins/signalk-edge-link/connections/<id>/metrics \
+id="relay-client"   # one of the IDs listed above
+curl -s -H "$T" "http://relay:3000/plugins/signalk-edge-link/connections/$id/metrics" \
   | jq '{rtt:.networkQuality.rtt, src:.networkQuality.dataSource, rcvd:.stats.deltasReceived, sent:.stats.deltasSent}'
 ```
 

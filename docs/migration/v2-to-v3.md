@@ -104,4 +104,4 @@ One peer runs v3 and the other still runs a pre-3.0.0 build (v2) or has a differ
 
 ### Config rejected after upgrade
 
-The Basic (v1) ping-monitor fields `testAddress`, `testPort` and `pingIntervalTime` are rejected on a v3 client; v3 measures RTT with HEARTBEAT. Remove them.
+The Basic (v1) ping-monitor fields `testAddress`, `testPort` and `pingIntervalTime` are rejected on a v3 client; v3 measures RTT from ACK timing. Remove them.

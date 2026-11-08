@@ -2,7 +2,7 @@
 
 Every setting with its default, valid range and validation rule. Setup steps: [GUIDE.md quick start](GUIDE.md#5-quick-start--minimal-setup). Example files: [`samples/`](../samples/).
 
-All tables use the same columns. "Both ends" means the client and the server of one connection must use the same value; a mismatch drops every packet.
+All tables use the same columns. "Both ends" means the client and the server of one connection must use the same value. For keys, `protocolVersion` and the authentication settings a mismatch drops every packet; the encoding settings below say what the receiver needs.
 
 ---
 
@@ -32,8 +32,8 @@ At the root of the plugin config, outside `connections[]`. Token behavior and th
 | `protocolVersion`      | integer | `1`            | `1` / `3`               | `1` Basic, `3` Advanced. Aliases `"basic"` / `"advanced"` are accepted. Legacy `2` is accepted and converted to `3`. Both ends.                                                                                                                             |
 | `authenticatedHeaders` | boolean | `true`         | —                       | v3. Adds a 16-byte HMAC tag to each DATA/METADATA packet binding the header (type, flags, sequence, length) to the encrypted payload. Both ends; set `false` on both only to talk to a peer that cannot enable it.                                          |
 | `epochBoundAuth`       | boolean | `false`        | —                       | v3, requires `authenticatedHeaders`. Also binds the tag to the connection epoch from the HELLO handshake, so a replayed packet from a source address the receiver has never seen fails authentication. No extra bytes. Both ends, and both must run 4.0.0+. |
-| `useMsgpack`           | boolean | `false`        | —                       | MessagePack instead of JSON, about 15–25% smaller. Both ends.                                                                                                                                                                                               |
-| `usePathDictionary`    | boolean | `false`        | —                       | Sends Signal K paths as 2-byte numeric IDs, about 10–20% smaller. Both ends.                                                                                                                                                                                |
+| `useMsgpack`           | boolean | `false`        | —                       | MessagePack instead of JSON, about 15–25% smaller. Basic (v1): set on both ends. Advanced (v3): the receiver reads the MessagePack flag in each packet header, so only the sender needs it.                                                                 |
+| `usePathDictionary`    | boolean | `false`        | —                       | Sends Signal K paths as 2-byte numeric IDs, about 10–20% smaller. The receiver decodes numeric and plain paths alike, so only the sender needs it.                                                                                                          |
 
 On a server, `useMsgpack` and `usePathDictionary` also set the encoding of outbound fleet data.
 

@@ -64,6 +64,8 @@ npm run build
 
 In the Signal K Admin UI, open **Server → Plugin Config → Signal K Edge Link** on each server.
 
+A fresh install shows one empty client card. Use it for the connection you need (switch its type on the receiving server) or delete it; left with an empty key, it fails validation when you save.
+
 1. **Receiving server:** click **Add Server**. Set a name, the UDP port, the encryption key and protocol **Advanced**. Save.
 2. **Sending server:** click **Add Client**. Set a name, the receiving server's address, the same UDP port, the same key and protocol **Advanced**. Save.
 3. **Check:** open `http://<signalk-host>:3000/plugins/signalk-edge-link/` on both servers. The client's **Deltas Sent** and the server's **Deltas Received** should rise, and the encryption error counts should stay at zero.

@@ -82,7 +82,7 @@ Carries Signal K delta data through the processing pipeline:
 1. Delta batch collected (1-50 deltas per batch)
 2. Serialized (JSON or MessagePack)
 3. Optionally path-encoded (path dictionary)
-4. Compressed (Brotli, quality `brotliQuality`, default 6)
+4. Compressed (Brotli, quality [`brotliQuality`](configuration-reference.md#client-only-sending-options))
 5. Encrypted (AES-256-GCM with unique IV)
 
 The resulting ciphertext is the packet payload. Wire format of the encrypted payload:
@@ -111,7 +111,7 @@ Retransmission limits:
 
 ### HEARTBEAT Packet
 
-Payload: a 16-byte HMAC-SHA256 authentication tag only. The client sends HEARTBEAT every `heartbeatInterval` (default 25,000 ms, range 5,000-120,000 ms) to measure RTT and to keep NAT mappings on the path open.
+Payload: a 16-byte HMAC-SHA256 authentication tag only. The client sends HEARTBEAT every `heartbeatInterval` (default 25,000 ms, range 5,000-120,000 ms) to keep NAT mappings on the path open. The server does not reply to it; RTT is measured from ACKs of DATA packets that were not retransmitted.
 
 ### HELLO Packet
 

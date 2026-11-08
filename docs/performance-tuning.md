@@ -100,7 +100,7 @@ Compression dominates. On constrained hardware with high delta rates, raise `del
 | Satellite      | 2000–5000 ms | yes          | yes                 | 700–1000 ms |
 | Starlink       | 500–1000 ms  | yes          | yes                 | 200–400 ms  |
 
-`useMsgpack` and `usePathDictionary` must match on both ends.
+On Basic (v1), set `useMsgpack` on the server as well; Advanced (v3) detects it per packet. `usePathDictionary` needs no server setting.
 
 ---
 

@@ -14,7 +14,7 @@ Protocol v2 (reliable transport with a CRC-only, unauthenticated control plane) 
 | Payload integrity             | GCM tag                      | GCM tag                                       |
 | Control packet authentication | —                            | HMAC-SHA256                                   |
 | Retransmission on loss        | —                            | ACK/NAK                                       |
-| RTT measurement               | ping monitor (`testAddress`) | HEARTBEAT                                     |
+| RTT measurement               | ping monitor (`testAddress`) | ACK timing                                    |
 | Congestion control, bonding   | —                            | yes                                           |
 | Path metadata transport       | —                            | METADATA packet                               |
 | Fleet sharing                 | —                            | yes (not with bonding)                        |
@@ -66,7 +66,7 @@ Every v3 packet starts with a 15-byte header: magic `SK`, version `0x03`, packet
 | 0x01 | DATA                | Client → Server | Delta batch                                                     |
 | 0x02 | ACK                 | Server → Client | Cumulative acknowledgement                                      |
 | 0x03 | NAK                 | Server → Client | List of missing sequence numbers                                |
-| 0x04 | HEARTBEAT           | Both            | Keep-alive and RTT probe                                        |
+| 0x04 | HEARTBEAT           | Both            | Keep-alive (keeps NAT mappings open; no reply)                  |
 | 0x05 | HELLO               | Client → Server | Session start, client identity, capabilities                    |
 | 0x06 | METADATA            | Client → Server | Path metadata (units, descriptions, zones) and source snapshots |
 | 0x07 | META_REQUEST        | Server → Client | Ask for a fresh metadata snapshot                               |
@@ -76,7 +76,7 @@ Every v3 packet starts with a 15-byte header: magic `SK`, version `0x03`, packet
 | 0x0B | FLEET_ACK           | Client → Server | Acknowledges FLEET_DATA                                         |
 | 0x0C | FLEET_NAK           | Client → Server | Missing FLEET_DATA sequences                                    |
 
-The server sends HELLO_ACK (`0x09`) only in answer to a HELLO that offers fleet sharing, accepted or declined. FLEET_DATA, FLEET_ACK and FLEET_NAK (`0x0A`–`0x0C`) are sent only after the server accepts it. Peers that predate fleet sharing never receive any of them ([spec §15](protocol-v3-spec.md#15-fleet-sharing-capability-fleet-v1)).
+The server sends HELLO_ACK (`0x09`) in reply to a HELLO that offers fleet sharing, accepted or declined, and after acceptance also as a periodic keepalive while the fleet session is idle. FLEET_DATA, FLEET_ACK and FLEET_NAK (`0x0A`–`0x0C`) are sent only after the server accepts it. Peers that predate fleet sharing never receive any of them ([spec §15](protocol-v3-spec.md#15-fleet-sharing-capability-fleet-v1)).
 
 ### Delivery
 
@@ -91,10 +91,10 @@ The server sends a cumulative ACK every `reliability.ackInterval` (default 100 m
     │◄─── NAK [4] ─────────────────────────│
     │──── DATA seq=4 (retransmit) ────────►│
     │◄─── ACK 5 ───────────────────────────│
-    │◄─── HEARTBEAT ──────────────────────►│  keep-alive, RTT
+    │◄─── HEARTBEAT ──────────────────────►│  keep-alive
 ```
 
-The client sends HEARTBEAT every `heartbeatInterval` (default 25000 ms) to measure RTT and keep NAT mappings open. Fleet data reaches a vessel behind NAT only while that mapping is open, so `heartbeatInterval` must be shorter than the NAT's UDP timeout ([spec §15](protocol-v3-spec.md#15-fleet-sharing-capability-fleet-v1)).
+The client sends HEARTBEAT every `heartbeatInterval` (default 25000 ms) to keep NAT mappings open; the server does not answer it. RTT comes from ACKs of DATA packets that were not retransmitted, so an idle link gets no new RTT samples. Fleet data reaches a vessel behind NAT only while that mapping is open, so `heartbeatInterval` must be shorter than the NAT's UDP timeout ([spec §15](protocol-v3-spec.md#15-fleet-sharing-capability-fleet-v1)).
 
 Settings are in [configuration-reference.md](configuration-reference.md); send-rate adaptation is in [congestion-control.md](congestion-control.md) and failover in [bonding.md](bonding.md).
 
@@ -106,4 +106,4 @@ DATA and METADATA are protected by the GCM tag. With `authenticatedHeaders` (def
 
 ### Settings both peers must match
 
-`protocolVersion`, `secretKey`, `stretchAsciiKey`, `useMsgpack`, `usePathDictionary`, `authenticatedHeaders`, `epochBoundAuth`, `useValueDedup` and `useCompactDeltas`. A mismatch shows up as decrypt or authentication failures and `malformedPackets`; see [troubleshooting.md](troubleshooting.md).
+The settings marked "Both ends" in the [configuration reference](configuration-reference.md#common-fields-client-and-server): in Advanced mode these are the key settings, `protocolVersion`, `authenticatedHeaders` and `epochBoundAuth`. Encoding options such as `useMsgpack` and `usePathDictionary` are detected by the receiver. A mismatch shows up as decrypt or authentication failures and `malformedPackets`; see [troubleshooting.md](troubleshooting.md).

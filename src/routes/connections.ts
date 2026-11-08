@@ -17,7 +17,6 @@ import {
 import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
 import type { ConnectionConfig } from "../foundation/types";
 
-/** Parses a query value that must be all digits; "2junk" or "1.5" yield null. */
 function parsePositiveInt(raw: unknown): number | null {
   const text = String(raw);
   if (!/^\d+$/.test(text)) {
