@@ -24,13 +24,13 @@ Typical use: a boat sends its data to a shore server, or several boats report to
 
 ## Topologies
 
-| Setup                 | What happens                                                                                                                                                                 |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Point to point        | One client sends to one server.                                                                                                                                              |
-| Many vessels, one hub | Several clients send to one shore server.                                                                                                                                    |
-| Bonding               | One client sends over two links (for example LTE and Starlink) and fails over between them. See [`docs/bonding.md`](docs/bonding.md).                                        |
-| Relay chain           | One Signal K server runs a server and a client connection, receiving on one hop and forwarding on the next. Each hop has its own key and settings.                           |
-| Fleet sharing         | Vessels reporting to a hub also receive the other vessels' data back over the same link. No inbound port is needed on the vessels, and a vessel never receives its own data. |
+| Setup                 | What happens                                                                                                                                                                                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Point to point        | One client sends to one server.                                                                                                                                                                                                                                                                        |
+| Many vessels, one hub | Several clients send to one shore server.                                                                                                                                                                                                                                                              |
+| Bonding               | One client sends over two links (for example LTE and Starlink) and fails over between them. See [`docs/bonding.md`](docs/bonding.md).                                                                                                                                                                  |
+| Relay chain           | One Signal K server runs a server and a client connection, receiving on one hop and forwarding on the next. Each hop has its own key and settings.                                                                                                                                                     |
+| Fleet sharing         | Vessels reporting to a hub also receive the other vessels' data back over the same link. No inbound port is needed on the vessels, and a vessel never receives its own data. The client's heartbeats keep the vessel's NAT mapping open; if it expires, fleet data resumes when the client next sends. |
 
 ```text
   [Vessel A] ──┐             ┌──► A gets B, C
@@ -112,7 +112,7 @@ Use Advanced for new deployments. Both ends of a connection must use the same mo
 
 ## Security
 
-- Every data packet is encrypted and authenticated with AES-256-GCM. In Advanced mode, control packets and packet headers are also authenticated.
+- Every data packet is encrypted and authenticated with AES-256-GCM. In Advanced mode, control packets are also authenticated, and DATA and METADATA headers are authenticated by default (`authenticatedHeaders`, which both peers can turn off).
 - Allow the UDP port only from addresses you trust where you can.
 - Details, limits and hardening steps: [`docs/security.md`](docs/security.md).
 
