@@ -113,7 +113,7 @@ function benchPacketBuilding() {
   console.log("=== Packet Building CPU Cost ===\n");
   const ITERATIONS = 100000;
 
-  const builder = new PacketBuilder();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
   const payload = Buffer.alloc(500, 0xab);
 
   printResult(
@@ -225,8 +225,8 @@ async function benchFullPipeline() {
   console.log("=== Full Pipeline Under Load ===\n");
   const ITERATIONS = 2000;
 
-  const builder = new PacketBuilder();
-  const parser = new PacketParser();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+  const parser = new PacketParser({ secretKey: SECRET_KEY });
   const tracker = new SequenceTracker();
 
   printResult(
@@ -246,7 +246,7 @@ async function benchFullPipeline() {
   );
 
   // Pre-build packets for RX benchmark
-  const txBuilder = new PacketBuilder();
+  const txBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
   const packets = [];
   for (let i = 0; i < ITERATIONS; i++) {
     const delta = generateDelta(i);

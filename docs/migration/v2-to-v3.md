@@ -45,7 +45,7 @@ npm install
 npm run build
 ```
 
-**Both sides must run the same version.** Upgrading one peer without the other breaks the link: `malformedPackets` increments and no data flows. Plan a simultaneous restart.
+**Both sides must run Advanced (v3) with the same key and authentication settings.** Plugin versions may differ as long as both support the settings you enable (`epochBoundAuth` needs 4.0.0+, fleet sharing 4.4.0+). A peer left on Basic, or with mismatched settings, breaks the link: `malformedPackets` increments and no data flows. Change both ends in the same maintenance window.
 
 ### Step 2: Confirm `protocolVersion: 3`
 

@@ -24,13 +24,13 @@ Typical use: a boat sends its data to a shore server, or several boats report to
 
 ## Topologies
 
-| Setup                 | What happens                                                                                                                                                                                                                                                                                           |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Point to point        | One client sends to one server.                                                                                                                                                                                                                                                                        |
-| Many vessels, one hub | Several clients send to one shore server.                                                                                                                                                                                                                                                              |
-| Bonding               | One client sends over two links (for example LTE and Starlink) and fails over between them. See [`docs/bonding.md`](docs/bonding.md).                                                                                                                                                                  |
-| Relay chain           | One Signal K server runs a server and a client connection, receiving on one hop and forwarding on the next. Each hop has its own key and settings.                                                                                                                                                     |
-| Fleet sharing         | Vessels reporting to a hub also receive the other vessels' data back over the same link. No inbound port is needed on the vessels, and a vessel never receives its own data. The client's heartbeats keep the vessel's NAT mapping open; if it expires, fleet data resumes when the client next sends. |
+| Setup                 | What happens                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Point to point        | One client sends to one server.                                                                                                                                                                                                                                                                                                                                                                  |
+| Many vessels, one hub | Several clients send to one shore server.                                                                                                                                                                                                                                                                                                                                                        |
+| Bonding               | One client sends over two links (for example LTE and Starlink) and fails over between them. See [`docs/bonding.md`](docs/bonding.md).                                                                                                                                                                                                                                                            |
+| Relay chain           | One Signal K server runs a server and a client connection, receiving on one hop and forwarding on the next. Each hop has its own key and settings.                                                                                                                                                                                                                                               |
+| Fleet sharing         | Vessels reporting to a hub also receive the other vessels' data back over the same link. No inbound port is needed on the vessels, and a vessel never receives its own data. The client's heartbeats keep the vessel's NAT mapping open; if it expires, fleet data resumes when the client next sends, or within about a minute, once the client re-sends HELLO, if the NAT assigned a new port. |
 
 ```text
   [Vessel A] ──┐             ┌──► A gets B, C
@@ -60,11 +60,13 @@ npm install
 npm run build
 ```
 
+Then restart Signal K.
+
 ## Quick start
 
 In the Signal K Admin UI, open **Server → Plugin Config → Signal K Edge Link** on each server.
 
-A fresh install shows one empty client card. Use it for the connection you need (switch its type on the receiving server) or delete it; left with an empty key, it fails validation when you save.
+A fresh install shows one empty client card. Use it for the connection you need (switch its type on the receiving server), or add your connection first and then delete it, since the last card cannot be removed; left with an empty key, it fails validation when you save.
 
 1. **Receiving server:** click **Add Server**. Set a name, the UDP port, the encryption key and protocol **Advanced**. Save.
 2. **Sending server:** click **Add Client**. Set a name, the receiving server's address, the same UDP port, the same key and protocol **Advanced**. Save.

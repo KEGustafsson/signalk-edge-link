@@ -4,7 +4,7 @@ Historical report: point-in-time local benchmark runs measuring how tunable para
 
 ## Source of the measurements
 
-The figures came from `bandwidth-efficiency.js`, `latency-percentiles.js` and `reliability-overhead.js` in `__tests__/benchmarks/`. They are not reproducible on the current code: `bandwidth-efficiency.js` and `reliability-overhead.js` build ACK/NAK packets without a `secretKey`, which v3 control-packet authentication rejects with `Control packets require a secretKey`.
+The figures came from `bandwidth-efficiency.js`, `latency-percentiles.js` and `reliability-overhead.js` in `__tests__/benchmarks/`. The scripts run on the current build (`npm run build`, then `node __tests__/benchmarks/<script>.js`), but the figures below were not re-measured and will differ on current code and hardware.
 
 ## Environment
 

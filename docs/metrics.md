@@ -80,7 +80,7 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 - Rising `naksSent` with low `acksSent` indicates one-way UDP; check bidirectional reachability.
 - `duplicatePackets > 0` is normal on unreliable links; duplicates are discarded.
 - `packetsAbandoned` / `abandonedSequences` above zero mean data was permanently lost: the window advanced past a gap the sender could no longer fill.
-- `rejectedControlPackets` rising on a client means ACKs and NAKs are discarded before processing, so no RTT is timed, the cumulative ACK freezes and `queueDepth` climbs. Check that `udpAddress` names the host the server replies from.
+- `rejectedControlPackets` rising on a client means control packets from a source other than `udpAddress` are dropped before parsing. On its own it does not prove ACKs are lost; if `queueDepth` also climbs and RTT stops updating, the server's replies are among them, so check that `udpAddress` names the host the server replies from.
 
 ---
 
@@ -88,14 +88,14 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 
 `GET /network-metrics`, and `GET /metrics` → `networkQuality`. Warning/critical are the default [alert](#alerts) thresholds; `linkQuality` bands are guidance only (it is not an alert metric).
 
-| JSON field       | Prometheus                              | Unit  | Typical range | Warning  | Critical | Description                                      |
-| ---------------- | --------------------------------------- | ----- | ------------- | -------- | -------- | ------------------------------------------------ |
-| `rtt`            | `signalk_edge_link_rtt_milliseconds`    | ms    | 10–200 ms     | > 300 ms | > 800 ms | Round-trip time from heartbeat probes            |
-| `jitter`         | `signalk_edge_link_jitter_milliseconds` | ms    | 0–50 ms       | > 100 ms | > 300 ms | RTT variance (standard deviation)                |
-| `packetLoss`     | `signalk_edge_link_packet_loss_rate`    | ratio | 0–0.02        | > 0.03   | > 0.10   | Fraction of packets lost in recent window        |
-| `retransmitRate` | `signalk_edge_link_retransmit_rate`     | ratio | 0–0.02        | > 0.05   | > 0.15   | Fraction of sent packets that were retransmitted |
-| `queueDepth`     | `signalk_edge_link_queue_depth`         | count | 0–20          | > 100    | > 500    | Pending retransmissions in send queue            |
-| `linkQuality`    | `signalk_edge_link_link_quality_score`  | 0–100 | 85–100        | < 70     | < 50     | Composite score (RTT + loss + jitter + queue)    |
+| JSON field       | Prometheus                              | Unit  | Typical range | Warning  | Critical | Description                                        |
+| ---------------- | --------------------------------------- | ----- | ------------- | -------- | -------- | -------------------------------------------------- |
+| `rtt`            | `signalk_edge_link_rtt_milliseconds`    | ms    | 10–200 ms     | > 300 ms | > 800 ms | RTT from ACKs of DATA that was not retransmitted   |
+| `jitter`         | `signalk_edge_link_jitter_milliseconds` | ms    | 0–50 ms       | > 100 ms | > 300 ms | RTT variance (standard deviation)                  |
+| `packetLoss`     | `signalk_edge_link_packet_loss_rate`    | ratio | 0–0.02        | > 0.03   | > 0.10   | Fraction of packets lost in recent window          |
+| `retransmitRate` | `signalk_edge_link_retransmit_rate`     | ratio | 0–0.02        | > 0.05   | > 0.15   | Fraction of sent packets that were retransmitted   |
+| `queueDepth`     | `signalk_edge_link_queue_depth`         | count | 0–20          | > 100    | > 500    | Pending retransmissions in send queue              |
+| `linkQuality`    | `signalk_edge_link_link_quality_score`  | 0–100 | 85–100        | < 70     | < 50     | Composite of RTT, jitter, loss and retransmit rate |
 
 Other fields: `activeLink`, `dataSource` (`local`, or `remote-client` when a server uses client telemetry received within the last 15 s), and on a server `lastRemoteUpdate`. `/network-metrics` adds `timestamp`.
 
@@ -249,7 +249,7 @@ Alerts run on v2/v3 client instances. A metric alerts when its value is `>=` the
 | Signal K path                                   | Type         | Unit    | Description                      |
 | ----------------------------------------------- | ------------ | ------- | -------------------------------- |
 | `networking.modem.rtt`                          | number       | seconds | v1 external ping RTT             |
-| `networking.edgeLink.rtt`                       | number       | ms      | v3 heartbeat RTT                 |
+| `networking.edgeLink.rtt`                       | number       | ms      | v3 RTT from DATA ACKs            |
 | `networking.edgeLink.jitter`                    | number       | ms      | RTT variance                     |
 | `networking.edgeLink.packetLoss`                | number       | ratio   | Packet loss (0–1)                |
 | `networking.edgeLink.linkQuality`               | number       | 0–100   | Composite link quality           |

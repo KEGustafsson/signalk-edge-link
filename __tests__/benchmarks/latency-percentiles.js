@@ -68,8 +68,8 @@ async function benchPerStageLatency() {
 
   const delta = generateDelta(0, 3);
   const serialized = Buffer.from(JSON.stringify({ 0: delta }), "utf8");
-  const builder = new PacketBuilder();
-  const parser = new PacketParser();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+  const parser = new PacketParser({ secretKey: SECRET_KEY });
   new SequenceTracker();
 
   // Serialization
@@ -164,12 +164,12 @@ async function benchFullPipelineLatency() {
       params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 10 }
     });
     const encrypted = encryptBinary(compressed, SECRET_KEY);
-    const txBuilder = new PacketBuilder();
+    const txBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
     txBuilder.setSequence(i);
     const packet = txBuilder.buildDataPacket(encrypted, { compressed: true, encrypted: true });
 
     // RX: parse → decrypt → decompress → parse JSON
-    const parser = new PacketParser();
+    const parser = new PacketParser({ secretKey: SECRET_KEY });
     const parsed = parser.parseHeader(packet);
     const decrypted = decryptBinary(parsed.payload, SECRET_KEY);
     const decompressed = await brotliDecompressAsync(decrypted);
@@ -247,13 +247,13 @@ async function benchPayloadSizeImpact() {
         params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 10 }
       });
       const encrypted = encryptBinary(compressed, SECRET_KEY);
-      const txBuilder = new PacketBuilder();
+      const txBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
       packet = txBuilder.buildDataPacket(encrypted, { compressed: true, encrypted: true });
       txLatencies.push(Number(process.hrtime.bigint() - txStart) / 1e6);
 
       // RX
       const rxStart = process.hrtime.bigint();
-      const parser = new PacketParser();
+      const parser = new PacketParser({ secretKey: SECRET_KEY });
       const parsed = parser.parseHeader(packet);
       const decrypted = decryptBinary(parsed.payload, SECRET_KEY);
       await brotliDecompressAsync(decrypted);

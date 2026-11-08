@@ -123,7 +123,7 @@ Each connection publishes its Signal K paths under `networking.edgeLink.<instanc
 
 - **Client:** Deltas Sent increases; Encryption Errors stays at 0; on v3, Auth Failures (V3) stays at 0.
 - **Server:** Deltas Received increases; Encryption Errors and, on v3, Auth Failures (V3) stay at 0.
-- **Client, Rejected Control Packets:** should be 0. A non-zero value means ACKs and NAKs are discarded before processing, so no RTT is timed, the cumulative ACK stops advancing and the retransmit queue grows. Check that `udpAddress` resolves to the address the server replies from.
+- **Client, Rejected Control Packets:** should be 0. The count is cumulative; if it keeps rising, control packets from a source other than `udpAddress` are being dropped. When those are the server's ACKs, RTT is not timed and the retransmit queue grows, so check that `udpAddress` resolves to the address the server replies from.
 - On v3, Network Quality and Monitoring & Alerts show loss, RTT and retransmissions.
 
 ---

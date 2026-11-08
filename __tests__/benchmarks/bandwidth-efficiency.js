@@ -88,7 +88,7 @@ async function compressAndEncrypt(payload) {
 async function benchCompressionRatios() {
   console.log("=== Compression Ratios by Payload Type ===\n");
 
-  const builder = new PacketBuilder();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 
   // Single nav delta
   const navDelta = generateNavDelta(0);
@@ -142,7 +142,7 @@ async function benchCompressionRatios() {
       batch[i] = generateNavDelta(i);
     }
     const result = await compressAndEncrypt(batch);
-    const batchBuilder = new PacketBuilder();
+    const batchBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
     const packet = batchBuilder.buildDataPacket(result.encrypted, {
       compressed: true,
       encrypted: true
@@ -163,7 +163,7 @@ async function benchCompressionRatios() {
 function benchProtocolOverhead() {
   console.log("=== Protocol Overhead at Various Send Rates ===\n");
 
-  const builder = new PacketBuilder();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 
   // Simulated sending at different delta timer intervals
   const deltaTimers = [100, 250, 500, 1000, 2000, 5000];
@@ -260,7 +260,7 @@ async function benchMTUUtilization() {
       batch[i] = generateNavDelta(i);
     }
     const result = await compressAndEncrypt(batch);
-    const batchBuilder = new PacketBuilder();
+    const batchBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
     const packet = batchBuilder.buildDataPacket(result.encrypted, {
       compressed: true,
       encrypted: true

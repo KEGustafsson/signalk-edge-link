@@ -91,7 +91,7 @@ The server sends a cumulative ACK every `reliability.ackInterval` (default 100 m
     │◄─── NAK [4] ─────────────────────────│
     │──── DATA seq=4 (retransmit) ────────►│
     │◄─── ACK 5 ───────────────────────────│
-    │◄─── HEARTBEAT ──────────────────────►│  keep-alive
+    │──── HEARTBEAT ──────────────────────►│  keep-alive, no reply
 ```
 
 The client sends HEARTBEAT every `heartbeatInterval` (default 25000 ms) to keep NAT mappings open; the server does not answer it. RTT comes from ACKs of DATA packets that were not retransmitted, so an idle link gets no new RTT samples. Fleet data reaches a vessel behind NAT only while that mapping is open, so `heartbeatInterval` must be shorter than the NAT's UDP timeout ([spec §15](protocol-v3-spec.md#15-fleet-sharing-capability-fleet-v1)).

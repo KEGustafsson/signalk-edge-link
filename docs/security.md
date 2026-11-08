@@ -104,7 +104,7 @@ The METADATA channel has a second per-peer window over the METADATA header seque
 
 ### Epoch-bound packet authentication (`epochBoundAuth`)
 
-Both residuals above exist because the auth tag does not depend on the connection epoch, so a captured packet stays valid. `epochBoundAuth` appends the sender's connection epoch to the HMAC input as a big-endian uint64 ([protocol-v3-spec.md §5.1](protocol-v3-spec.md#51-epoch-bound-authentication-optional)), so a packet authenticates only within the epoch it was sent in:
+Cross-epoch and spoofed-source replay exist because the auth tag does not depend on the connection epoch, so a captured packet stays valid. `epochBoundAuth` appends the sender's connection epoch to the HMAC input as a big-endian uint64 ([protocol-v3-spec.md §5.1](protocol-v3-spec.md#51-epoch-bound-authentication-optional)), so a packet authenticates only within the epoch it was sent in:
 
 - a receiver with no epoch for the source (a fresh guard, as a spoofed source address produces) has no value to verify with;
 - a receiver whose peer has restarted holds a strictly newer epoch, so a pre-restart capture fails.

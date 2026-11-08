@@ -15,7 +15,7 @@ T="X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN"
 
 ## Quick Diagnostic Checklist
 
-1. Same plugin version on both ends: `npm list signalk-edge-link`.
+1. Compatible plugin versions on both ends (`npm list signalk-edge-link`): the same mode, and 4.0.0+ if `epochBoundAuth` is on, 4.4.0+ for fleet sharing.
 2. Same encryption key on both ends: 32 ASCII, 64 hex or 44 base64 characters.
 3. UDP port open in the firewall: `ufw status` or `iptables -L`.
 4. Plugin enabled in the Signal K Admin UI.
@@ -84,7 +84,7 @@ If `readyToSend` is `false`, `GET /status` shows the error.
 
 ### Rejected control packets
 
-`stats.rejectedControlPackets` on a client should be `0`. The counter is cumulative, so a single old rejection leaves it non-zero. If it is still rising, ACKs and NAKs are being discarded before processing: no RTT is timed, the cumulative ACK freezes and the retransmit queue grows, and the link sends but delivers nothing reliably.
+`stats.rejectedControlPackets` on a client should be `0`. The counter is cumulative, so a single old rejection leaves it non-zero. A rising value means control packets from a source other than `udpAddress` are being dropped. Those can be the server's ACKs and NAKs, but need not be; check whether the cumulative ACK still advances and `queueDepth` stays low before treating the link as stalled. If replies are being dropped, make `udpAddress` match the address the server replies from.
 
 ```bash
 curl -s -H "$T" $H/metrics \
