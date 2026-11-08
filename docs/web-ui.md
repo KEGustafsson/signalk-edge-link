@@ -92,7 +92,7 @@ The three Configuration cards write the runtime files described in [Runtime Conf
 
 ### Reading `N/A` on the Network Quality card
 
-`N/A` means not measured. A `0` on this card is a measured zero.
+`N/A` means not measured. A `0` RTT is a measured zero; jitter reads a seeded `0` until the second timed ACK, and packet loss and retransmit rate read `0` before a client has sent anything.
 
 - **Client:** RTT and Jitter read `N/A` until the first ACK has been timed, and the gauge says "No round trip measured yet". `N/A` with a climbing Queue Depth means traffic leaves and nothing comes back; check Rejected Control Packets next.
 - **Server:** a server measures no latency itself; all network-quality figures come from client telemetry. The card reads `N/A` until the first report arrives, and the gauge says "Awaiting client telemetry".

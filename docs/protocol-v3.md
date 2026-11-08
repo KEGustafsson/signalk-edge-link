@@ -23,7 +23,7 @@ Protocol v2 (reliable transport with a CRC-only, unauthenticated control plane) 
 
 v1 has no control packets to forge, but also no recovery. Use it only on stable, trusted links such as a LAN.
 
-**Both ends must use the same `protocolVersion`.** With a mismatch, `malformedPackets` increments and no data flows.
+**Both ends must use the same `protocolVersion`.** With a mismatch no data flows: a v3 receiver counts the packets in `malformedPackets`, a Basic (v1) receiver fails to decrypt them and counts `encryptionErrors`.
 
 ## v1 — Basic encrypted UDP
 
@@ -66,7 +66,7 @@ Every v3 packet starts with a 15-byte header: magic `SK`, version `0x03`, packet
 | 0x01 | DATA                | Client → Server | Delta batch                                                     |
 | 0x02 | ACK                 | Server → Client | Cumulative acknowledgement                                      |
 | 0x03 | NAK                 | Server → Client | List of missing sequence numbers                                |
-| 0x04 | HEARTBEAT           | Both            | Keep-alive (keeps NAT mappings open; no reply)                  |
+| 0x04 | HEARTBEAT           | Client → Server | Keep-alive (keeps NAT mappings open; no reply)                  |
 | 0x05 | HELLO               | Client → Server | Session start, client identity, capabilities                    |
 | 0x06 | METADATA            | Client → Server | Path metadata (units, descriptions, zones) and source snapshots |
 | 0x07 | META_REQUEST        | Server → Client | Ask for a fresh metadata snapshot                               |

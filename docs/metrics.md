@@ -102,7 +102,7 @@ Alerts fire when a value reaches the threshold (`>=`).
 ### Loss and retransmit rate
 
 - `packetLoss` is a loss-event estimate, not a fraction of packets lost. The client keeps a window of the last 50 samples: one per sent packet, and one per NAK or retransmit burst however many packets the burst resends.
-- `retransmitRate` is computed two ways. `GET /metrics`, `/network-metrics` and Prometheus report the lifetime ratio, `retransmissions / packetsOut`. Alerts and the Signal K `networking.edgeLink.retransmitRate` path use the ratio over the latest publishing interval. An alert can fire while the API value is still below the threshold.
+- `retransmitRate` is computed two ways. On a client, `GET /metrics`, `/network-metrics` and Prometheus report the lifetime ratio, `retransmissions / packetsOut`. A server with fresh client telemetry reports the client's latest-interval ratio instead, so the server and client values are not the same quantity. Alerts and the Signal K `networking.edgeLink.retransmitRate` path use the ratio over the latest publishing interval. An alert can fire while the API value is still below the threshold.
 
 Other fields: `activeLink`, `dataSource` (`local`, or `remote-client` when a server uses client telemetry received within the last 15 s), and on a server `lastRemoteUpdate`. `/network-metrics` adds `timestamp`.
 

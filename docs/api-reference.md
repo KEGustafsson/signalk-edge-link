@@ -170,7 +170,7 @@ Body: `{ "connections": [...] }` (at least one entry) or a single legacy connect
 { "success": true, "message": "Configuration saved. Plugin restarting...", "restarting": true }
 ```
 
-Without a restart handler the config is saved and the response is `"Configuration saved. Restart plugin to apply changes."` with `"restarting": false`. With neither handler: `503`. Save failure: `500 Failed to save configuration`.
+Without a restart handler the config is saved and the response is `"Configuration saved. Restart plugin to apply changes."` with `"restarting": false`. With neither handler: `503`. An error the route can see (a save-handler error, or a restart handler that throws or rejects) returns `500 Failed to save configuration`. Signal K's own restart handler reports save errors only to its log, so a `restarting: true` response does not prove the config was written.
 
 ---
 

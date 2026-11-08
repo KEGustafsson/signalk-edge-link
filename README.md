@@ -74,7 +74,9 @@ A fresh install shows one empty client card. Use it for the connection you need 
 2. **Sending server:** click **Add Client**. Set a name, the receiving server's address, the same UDP port, the same key and protocol **Advanced**. Save.
 3. **Check:** open `http://<signalk-host>:3000/plugins/signalk-edge-link/` on both servers. The client's **Deltas Sent** and the server's **Deltas Received** should rise, and the encryption error counts should stay at zero.
 
-Configuration is stored as a list of connections:
+Each Signal K server stores its own list of connections and starts every connection in it. The two lists for the steps above:
+
+Receiving server (shore):
 
 ```json
 {
@@ -85,7 +87,16 @@ Configuration is stored as a list of connections:
       "udpPort": 4446,
       "secretKey": "<key>",
       "protocolVersion": 3
-    },
+    }
+  ]
+}
+```
+
+Sending server (boat):
+
+```json
+{
+  "connections": [
     {
       "name": "boat-client",
       "serverType": "client",
@@ -113,7 +124,7 @@ Use Advanced for new deployments. Both ends of a connection must use the same mo
 
 - **Dashboard:** `/plugins/signalk-edge-link/` shows each connection's traffic, link quality and alerts. See [`docs/web-ui.md`](docs/web-ui.md).
 - **REST API and Prometheus:** under `/plugins/signalk-edge-link`, for example `GET /metrics` and `GET /prometheus`. See [`docs/api-reference.md`](docs/api-reference.md) and [`docs/metrics.md`](docs/metrics.md).
-- **CLI:** `npm run cli -- help` manages instances and bonding. See [`docs/management-tools.md`](docs/management-tools.md).
+- **CLI:** `edge-link-cli help` manages instances and bonding. Run it as `npm run cli -- help` from the plugin directory (`~/.signalk/node_modules/signalk-edge-link`), or as `~/.signalk/node_modules/.bin/edge-link-cli`. See [`docs/management-tools.md`](docs/management-tools.md).
 - **Access control:** set `managementApiToken` (or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) to require a token on every route. Send it as `X-Edge-Link-Token: <token>` or `Authorization: Bearer <token>`.
 
 ## Security

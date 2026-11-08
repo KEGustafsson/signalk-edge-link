@@ -18,11 +18,10 @@ import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } fro
 import type { ConnectionConfig } from "../foundation/types";
 
 function parsePositiveInt(raw: unknown): number | null {
-  const text = String(raw);
-  if (!/^\d+$/.test(text)) {
+  if (typeof raw !== "string" || !/^\d+$/.test(raw)) {
     return null;
   }
-  const value = Number(text);
+  const value = Number(raw);
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 

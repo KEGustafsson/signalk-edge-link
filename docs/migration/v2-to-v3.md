@@ -45,7 +45,7 @@ npm install
 npm run build
 ```
 
-**Both sides must run Advanced (v3) with the same key and authentication settings.** Plugin versions may differ as long as both support the settings you enable (`epochBoundAuth` needs 4.0.0+, fleet sharing 4.4.0+). A peer left on Basic, or with mismatched settings, breaks the link: `malformedPackets` increments and no data flows. Change both ends in the same maintenance window.
+**Both sides must run Advanced (v3) with the same key and authentication settings.** Plugin versions may differ as long as both support the settings you enable (`epochBoundAuth` needs 4.0.0+, fleet sharing 4.4.0+). A peer left on Basic, or with mismatched settings, breaks the link and no data flows. The counter that rises depends on the mismatch: a different `secretKey` or `stretchAsciiKey` shows in the server's `encryptionErrors`; a protocol or `authenticatedHeaders` mismatch shows in `malformedPackets` on the v3 receiver ([troubleshooting.md](../troubleshooting.md)). Change both ends in the same maintenance window.
 
 ### Step 2: Confirm `protocolVersion: 3`
 

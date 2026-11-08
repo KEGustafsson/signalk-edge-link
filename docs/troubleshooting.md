@@ -76,7 +76,7 @@ If `readyToSend` is `false`, `GET /status` shows the error.
 
 ### Network quality shows `N/A`
 
-`N/A` means not measured. It is not shown as `0` because an unmeasured link would score 100 ("Excellent"): zero RTT, jitter and loss look ideal to the scoring function. A `0` on the card is a measured zero.
+`N/A` means not measured. It is not shown as `0` because an unmeasured link would score 100 ("Excellent"): zero RTT, jitter and loss look ideal to the scoring function. A `0` RTT is a measured zero. Some zeros are seeded values, not measurements: jitter reads `0` until the second timed ACK, and on a client that has not sent anything yet packet loss and retransmit rate read `0` ([metrics.md](metrics.md#link-quality-metrics)).
 
 | Symptom                                              | Cause                                                     | Fix                                                                                                            |
 | ---------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |

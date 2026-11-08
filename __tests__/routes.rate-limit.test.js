@@ -547,7 +547,9 @@ describe("instances management route", () => {
     ["limit", "1.5"],
     ["limit", "-1"],
     ["page", "2junk"],
-    ["page", "0"]
+    ["page", "0"],
+    ["limit", ["2"]],
+    ["page", ["2"]]
   ])("rejects /instances %s=%s that is not entirely a positive integer", (param, value) => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();
