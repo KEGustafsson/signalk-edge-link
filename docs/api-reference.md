@@ -12,7 +12,7 @@ Every route goes through the management-auth check. It requires a token once `ma
 
 The top-level JSON endpoints (`/metrics`, `/network-metrics`, `/monitoring/*`, `/capture*`) report the **first instance** only. Client-only singleton routes (`/config/:filename`, `/congestion`, `/delta-timer`, `/bonding/failover`) use the first **client** instance. `/prometheus`, `/status`, `/bonding`, `/connections` and `/instances` cover all instances. For one connection in a multi-instance setup use [`/connections/:id/...`](#per-connection-endpoints).
 
-Errors are JSON `{ "error": "<message>" }`. `/plugin-config` routes also set `"success": false`; `/config/:filename` returns the error object alone.
+Errors are JSON `{ "error": "<message>" }`. `/plugin-config` handler errors also set `"success": false`; auth and rate-limit errors, and `/config/:filename` errors, return the error object alone.
 
 | Code | When                                                                                                                                                                                                       |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -147,24 +147,24 @@ Path dictionary: `{ "total": 172, "categories": { "navigation": { "prefix": "nav
 
 ## Configuration Endpoints
 
-| Endpoint                 | Behavior                                                                                                                                                                                                          |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /config/:filename`  | Read `delta_timer.json`, `subscription.json` or `sentence_filter.json`. Other names → `400 Invalid filename`. `503 Plugin not started` when no client connection is running; a file not written yet returns `{}`. |
-| `POST /config/:filename` | Write one of those files (JSON body, validated per file); hot-reloaded. Returns `{ "success": true }`.                                                                                                            |
-| `GET /plugin-config`     | `{ "success": true, "configuration": {...} }` with every `secretKey` and `managementApiToken` replaced by `[redacted]`.                                                                                           |
-| `POST /plugin-config`    | Replace the whole plugin configuration (see below).                                                                                                                                                               |
-| `GET /plugin-schema`     | `{ "schema": <RJSF schema>, "currentMode": "client" \| "server" \| "unknown" }`.                                                                                                                                  |
+| Endpoint                 | Behavior                                                                                                                                                                                                                                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /config/:filename`  | Read `delta_timer.json`, `subscription.json` or `sentence_filter.json`. Other names → `400 Invalid filename`. `404 Not available in server mode` when there is no client connection; `503 Plugin not fully initialized` while its config files are not set up; a file not written yet returns `{}`. |
+| `POST /config/:filename` | Write one of those files (JSON body, validated per file); hot-reloaded. Returns `{ "success": true }`.                                                                                                                                                                                              |
+| `GET /plugin-config`     | `{ "success": true, "configuration": {...} }` with every `secretKey` and `managementApiToken` replaced by `[redacted]`.                                                                                                                                                                             |
+| `POST /plugin-config`    | Replace the whole plugin configuration (see below).                                                                                                                                                                                                                                                 |
+| `GET /plugin-schema`     | `{ "schema": <RJSF schema>, "currentMode": "client" \| "server" \| "unknown" }`.                                                                                                                                                                                                                    |
 
 ### POST /plugin-config
 
 Body: `{ "connections": [...] }` (at least one entry) or a single legacy connection object with top-level `serverType`. Each connection is validated; rules: [configuration-reference.md](configuration-reference.md#validation-rules). A connection without `connectionId` gets one generated.
 
-| Field                       | Handling                                                                                                                                                                                                                     |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `secretKey: "[redacted]"`   | Keeps the stored key, matched by `connectionId`. Send back the `connectionId` from `GET /plugin-config`: name/serverType/udpPort only matches a stored connection that has no `connectionId`. `400` if no stored key matches |
-| `managementApiToken`        | Omitted or `[redacted]` keeps the stored token; a non-empty string replaces it; `""` clears it                                                                                                                               |
-| `requireManagementApiToken` | Kept from stored config unless a boolean is sent                                                                                                                                                                             |
-| `schemaVersion`             | Integer from 1 to the current version, else `400`; omitted keeps the stored value                                                                                                                                            |
+| Field                       | Handling                                                                                                                                                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `secretKey: "[redacted]"`   | Keeps the stored key, matched by `connectionId`. Send back the `connectionId` from `GET /plugin-config`: name/serverType/udpPort only matches a stored connection that has no `connectionId`. `400` if no stored key matches                |
+| `managementApiToken`        | Omitted or `[redacted]` keeps the stored token; a non-empty string replaces it; `""` clears it. A whitespace-only string is stored but counts as no token, so the API stays open unless the env token or `requireManagementApiToken` is set |
+| `requireManagementApiToken` | Kept from stored config unless a boolean is sent                                                                                                                                                                                            |
+| `schemaVersion`             | Integer from 1 to the current version, else `400`; omitted keeps the stored value                                                                                                                                                           |
 
 ```json
 { "success": true, "message": "Configuration saved. Plugin restarting...", "restarting": true }

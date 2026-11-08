@@ -212,7 +212,7 @@ When `managementApiToken` is set, every management route requires it; with `requ
 | CI `audit` job, every push/PR                                               | `npm audit --omit=dev`, then `npm audit`  | No (`continue-on-error`); reports the dev tree                                                                                                                                                |
 | CI `audit-blocking` job, weekly schedule                                    | `npm audit --omit=dev --audit-level=high` | Yes: high/critical runtime advisories                                                                                                                                                         |
 
-The audit test skips its assertions with a warning when the registry is unreachable, and skips the audit entirely when `SIGNALK_REGISTRY_TEST=1` (the sandboxed Signal K plugin registry harness). Run it locally with `npx jest __tests__/npm-audit.test.js` or `npm audit --omit=dev --audit-level=high`.
+The audit test skips its assertions with a warning when the registry is unreachable, and skips the audit entirely when `SIGNALK_REGISTRY_TEST=1` (the sandboxed Signal K plugin registry harness). Run the same checks locally with `npx jest __tests__/npm-audit.test.js`. `npm audit --omit=dev --audit-level=high` is a narrower runtime-only check, matching the weekly job.
 
 ### Packet capture is sensitive data
 

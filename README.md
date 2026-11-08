@@ -124,7 +124,7 @@ Use Advanced for new deployments. Both ends of a connection must use the same mo
 
 - **Dashboard:** `/plugins/signalk-edge-link/` shows each connection's traffic, link quality and alerts. See [`docs/web-ui.md`](docs/web-ui.md).
 - **REST API and Prometheus:** under `/plugins/signalk-edge-link`, for example `GET /metrics` and `GET /prometheus`. See [`docs/api-reference.md`](docs/api-reference.md) and [`docs/metrics.md`](docs/metrics.md).
-- **CLI:** `edge-link-cli help` manages instances and bonding. Run it as `npm run cli -- help` from the plugin directory (`~/.signalk/node_modules/signalk-edge-link`), or as `~/.signalk/node_modules/.bin/edge-link-cli`. See [`docs/management-tools.md`](docs/management-tools.md).
+- **CLI:** `edge-link-cli help` manages instances and bonding. Run it from the plugin directory (`~/.signalk/node_modules/signalk-edge-link`) as `npm run cli -- help` or `node lib/bin/edge-link-cli.js help`. An App Store install also links `~/.signalk/node_modules/.bin/edge-link-cli`; a source install does not. See [`docs/management-tools.md`](docs/management-tools.md).
 - **Access control:** set `managementApiToken` (or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) to require a token on every route. Send it as `X-Edge-Link-Token: <token>` or `Authorization: Bearer <token>`.
 
 ## Security

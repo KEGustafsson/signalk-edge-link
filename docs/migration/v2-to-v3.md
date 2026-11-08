@@ -2,7 +2,7 @@
 
 ## Overview
 
-Protocol v3 is the default wire format from signalk-edge-link 3.0.0. The encrypted data payload is **identical to v2**. v3 adds two HMAC-SHA256 layers keyed by the shared `secretKey`:
+Protocol v3 replaced v2 in signalk-edge-link 3.0.0. It is not the default: a connection without `protocolVersion` is Basic (v1), so select Advanced (v3) for every new connection. The encrypted data payload is **identical to v2**. v3 adds two HMAC-SHA256 layers keyed by the shared `secretKey`:
 
 1. **Control packets** (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_REQUEST) carry a 16-byte tag. This closes the v2 forgery surface: forged FULL_STATUS_REQUEST replay amplification, forged NAK retransmit storms, forged HELLO sessions.
 2. **DATA/METADATA headers** are authenticated by default (`authenticatedHeaders: true`): a 16-byte HMAC tag binds the header (type, flags, sequence, length) to the encrypted payload, so an on-path attacker cannot alter it. This adds 16 bytes per packet.
