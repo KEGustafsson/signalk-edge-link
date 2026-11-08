@@ -38,13 +38,13 @@ The GCM auth tag detects any bit flip in transit. Packets that fail authenticati
 
 The examples show the format only; generate your own key with the commands below.
 
-| Format         | Length | Example                                        | Notes                                                                               |
-| -------------- | ------ | ---------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 32-char ASCII  | 32 B   | `Xk9mPq2vRt7wLz4nBc8dFg1hJs5aYe3u`             | Easy to type; use `stretchAsciiKey: true`                                           |
-| 64-char hex    | 32 B   | `a3f1e2d4b5c6...`                              | Full 256-bit entropy                                                                |
-| 44-char base64 | 32 B   | `o/HitLXG8AmQEjRWeJCrzvEjRZVwmkrN5TI9Xabc12s=` | Full 256-bit entropy; URL-safe alphabet and 43 characters without `=` also accepted |
+| Format         | Length | Example                                        | Notes                                                                             |
+| -------------- | ------ | ---------------------------------------------- | --------------------------------------------------------------------------------- |
+| 32-char ASCII  | 32 B   | `Xk9mPq2vRt7wLz4nBc8dFg1hJs5aYe3u`             | Easy to type; use `stretchAsciiKey: true`                                         |
+| 64-char hex    | 32 B   | `a3f1e2d4b5c6...`                              | 256 bits if the 32 bytes are random (`openssl rand -hex 32`)                      |
+| 44-char base64 | 32 B   | `o/HitLXG8AmQEjRWeJCrzvEjRZVwmkrN5TI9Xabc12s=` | 256 bits if random; URL-safe alphabet and 43 characters without `=` also accepted |
 
-Weak keys are rejected at validation: an ASCII key needs at least 8 different characters and 3.0 bits/char of entropy, with no short repeating pattern and no sequential run of 20 or more characters; a hex or base64 key's decoded bytes must pass the same 8-unique / 3.0-bit test.
+Validation does not measure randomness; it rejects only obviously weak keys: an ASCII key needs at least 8 different characters and 3.0 bits/char of entropy, with no short repeating pattern and no sequential run of 20 or more characters; a hex or base64 key's decoded bytes must pass the same 8-unique / 3.0-bit test.
 
 ### Generating a secure key
 
@@ -82,7 +82,7 @@ With `authenticatedHeaders: true` (default since 3.0.0), v3 appends a 16-byte tr
 - The DATA sequence number is authenticated, so the server's sequence de-duplication works as anti-replay for DATA.
 - Cost: 16 bytes and one HMAC per DATA/METADATA packet.
 - Both peers must match; a mismatch drops every DATA packet. A receiver with the setting off that receives authenticated packets logs `authenticatedHeaders mismatch` instead of a key-mismatch hint.
-- `authenticatedHeaders: false` on both ends restores the CRC-only header, byte for byte the pre-3.0.0 wire format, for a peer that cannot enable it.
+- `authenticatedHeaders: false` on both ends restores the legacy CRC-only DATA/METADATA header for a v3 peer that cannot enable it. The packets are still v3 (`0x03`); a v2-only peer cannot use them.
 
 Header authentication is integrity protection. Replay is limited by the anti-replay windows below. In a relay chain (boat client → proxy server → proxy client → cloud server), each hop sets `authenticatedHeaders` and `secretKey` independently.
 

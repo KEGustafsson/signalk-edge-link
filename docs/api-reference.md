@@ -12,7 +12,7 @@ Every route goes through the management-auth check. It requires a token once `ma
 
 The top-level JSON endpoints (`/metrics`, `/network-metrics`, `/monitoring/*`, `/capture*`) report the **first instance** only. Client-only singleton routes (`/config/:filename`, `/congestion`, `/delta-timer`, `/bonding/failover`) use the first **client** instance. `/prometheus`, `/status`, `/bonding`, `/connections` and `/instances` cover all instances. For one connection in a multi-instance setup use [`/connections/:id/...`](#per-connection-endpoints).
 
-Errors are JSON `{ "error": "<message>" }` (config routes add `"success": false`).
+Errors are JSON `{ "error": "<message>" }`. `/plugin-config` routes also set `"success": false`; `/config/:filename` returns the error object alone.
 
 | Code | When                                                                                                                                                                                         |
 | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

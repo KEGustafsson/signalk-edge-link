@@ -542,6 +542,41 @@ describe("instances management route", () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(json).toHaveBeenCalledWith({ error: "limit must be a positive integer" });
   });
+  test.each([
+    ["limit", "2junk"],
+    ["limit", "1.5"],
+    ["limit", "-1"],
+    ["page", "2junk"],
+    ["page", "0"]
+  ])("rejects /instances %s=%s that is not entirely a positive integer", (param, value) => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    const json = jest.fn();
+    const req = {
+      query: { limit: "2", [param]: value },
+      headers: {},
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    instancesRoute.handlers[1](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ error: `${param} must be a positive integer` });
+  });
   test("registers /instances/:id and returns detailed instance status", () => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();

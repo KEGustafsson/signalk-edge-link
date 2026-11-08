@@ -17,6 +17,16 @@ import {
 import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
 import type { ConnectionConfig } from "../foundation/types";
 
+/** Parses a query value that must be all digits; "2junk" or "1.5" yield null. */
+function parsePositiveInt(raw: unknown): number | null {
+  const text = String(raw);
+  if (!/^\d+$/.test(text)) {
+    return null;
+  }
+  const value = Number(text);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
 /**
  * Registers multi-instance connection routes:
  *   /connections, /instances, /connections/:id/metrics, /connections/:id/network-metrics,
@@ -150,18 +160,19 @@ function register(router: Router, ctx: RouteContext): void {
 
       let limit: number | null = null;
       if (limitRaw !== undefined) {
-        limit = Number.parseInt(String(limitRaw), 10);
-        if (!Number.isInteger(limit) || limit <= 0) {
+        limit = parsePositiveInt(limitRaw);
+        if (limit === null) {
           return res.status(400).json({ error: "limit must be a positive integer" });
         }
       }
 
       let page = 1;
       if (pageRaw !== undefined) {
-        page = Number.parseInt(String(pageRaw), 10);
-        if (!Number.isInteger(page) || page <= 0) {
+        const parsedPage = parsePositiveInt(pageRaw);
+        if (parsedPage === null) {
           return res.status(400).json({ error: "page must be a positive integer" });
         }
+        page = parsedPage;
       }
 
       const mapped = all.map((b: InstanceBundle) => ({
@@ -436,7 +447,6 @@ function register(router: Router, ctx: RouteContext): void {
       res.json({
         instanceId: req.params.id,
         ...effectiveNetwork,
-        // Same measurement-basis gate as /network-metrics.
         rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
         jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
         timestamp: Date.now()

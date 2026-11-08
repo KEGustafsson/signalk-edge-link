@@ -47,7 +47,7 @@ One Signal K server runs any number of connections. Each connection is either a 
 Stages in order, with the module that implements each. Settings are defined in [configuration-reference.md](configuration-reference.md).
 
 1. Intake: subscribe to the paths in `subscription.json` ([`subscription-manager.ts`](../src/domain/subscription-manager.ts)); sanitize, strip own data with `skipOwnData`, and suppress an identical delta repeated within a short window ([`process-delta.ts`](../src/app/connection/process-delta.ts)).
-2. Batching: flush every `deltaTimer` in packets sized to fit the UDP payload ([`delta-batcher.ts`](../src/domain/delta-batcher.ts)).
+2. Batching: flush every `deltaTimer` in packets sized from a rolling per-delta estimate to target the UDP payload limit (an oversized packet is logged and still sent) ([`delta-batcher.ts`](../src/domain/delta-batcher.ts)).
 3. Shaping and encoding: `pathFilter`, `pathPrecision`, `pathThrottle`, `useValueDedup`, path dictionary, JSON, MessagePack or compact tuples, Brotli, AES-256-GCM ([`delta-sender.ts`](../src/transport/pipeline/reliable-client/delta-sender.ts), [`src/codec/`](../src/codec/)).
 4. Framing and reliability: v3 header with sequence and CRC16 ([`packet-codec.ts`](../src/codec/packet-codec.ts)); a copy is held until ACKed ([`retransmit-queue.ts`](../src/transport/reliability/retransmit-queue.ts)).
 5. Send: UDP to `udpAddress:udpPort`, or to the active link when bonding is enabled ([`udp-socket-manager.ts`](../src/transport/udp-socket-manager.ts), [`bonding.ts`](../src/transport/bonding.ts)).

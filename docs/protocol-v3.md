@@ -18,7 +18,7 @@ Protocol v2 (reliable transport with a CRC-only, unauthenticated control plane) 
 | Congestion control, bonding   | —                            | yes                                           |
 | Path metadata transport       | —                            | METADATA packet                               |
 | Fleet sharing                 | —                            | yes (not with bonding)                        |
-| Per-packet overhead           | 28 bytes                     | 43 bytes, plus 16 with `authenticatedHeaders` |
+| DATA/METADATA overhead        | 28 bytes                     | 43 bytes, plus 16 with `authenticatedHeaders` |
 | Safe on untrusted networks    | partial                      | yes                                           |
 
 v1 has no control packets to forge, but also no recovery. Use it only on stable, trusted links such as a LAN.

@@ -11,6 +11,8 @@ Management endpoints require a token when one is configured. Sources, highest pr
 1. Environment variable `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`
 2. Plugin setting `managementApiToken`
 
+The environment variable must be set for the Signal K server process before it starts; exporting it in your own shell only gives the `curl` examples below the value. Once the server has a token, a request without one returns HTTP 401.
+
 ```bash
 export SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN="your-long-random-token"
 
@@ -73,7 +75,7 @@ The CLI sends the token in both `X-Edge-Link-Token` and `Authorization: Bearer`,
 
 ```bash
 # Instances (GET/POST/PUT/DELETE /instances)
-npm run cli -- instances list --state=running --limit=10 --page=1 --format=table
+npm run cli -- instances list --state=Connected --limit=10 --page=1 --format=table
 npm run cli -- instances show vessel-client --format=table
 npm run cli -- instances create --config ./my-connection.json
 npm run cli -- instances update vessel-client --patch '{"udpAddress":"10.0.0.2"}'
