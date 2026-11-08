@@ -160,13 +160,13 @@ Configuration is a `connections` array; each entry is one independent link. A le
 
 ## 8. Runtime Configuration Files
 
-Each client connection has three JSON files that change behavior without a plugin restart. They live in `<signalk-data-dir>/plugin-config-data/signalk-edge-link/<connectionName>/` and are reloaded 300 ms after a change.
+Each client connection has three JSON files that change behavior without a plugin restart. They live in `<signalk-data-dir>/plugin-config-data/signalk-edge-link/instances/<instanceId>/` and are reloaded 300 ms after a change.
 
-| File                   | Controls                                                                                   |
-| ---------------------- | ------------------------------------------------------------------------------------------ |
-| `delta_timer.json`     | Fixed send interval (`deltaTimer`, 100–10000 ms); when set, congestion control is bypassed |
-| `subscription.json`    | Context and paths to send, and metadata streaming (`meta.enabled`, Advanced only)          |
-| `sentence_filter.json` | NMEA sentence types to drop before sending (`excludedSentences`, for example `GSV`, `GSA`) |
+| File                   | Controls                                                                                                                                                                          |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `delta_timer.json`     | Send interval (`deltaTimer`, 100–10000 ms, default 1000). With congestion control on, it still adjusts the interval; only `POST /delta-timer` switches to a fixed manual interval |
+| `subscription.json`    | Context and paths to send, and metadata streaming (`meta.enabled`, Advanced only)                                                                                                 |
+| `sentence_filter.json` | NMEA sentence types to drop before sending (`excludedSentences`, for example `GSV`, `GSA`)                                                                                        |
 
 Edit them in the dashboard, or with `GET`/`POST /plugins/signalk-edge-link/connections/:id/config/:filename`. Field reference: [configuration-reference.md](configuration-reference.md).
 
