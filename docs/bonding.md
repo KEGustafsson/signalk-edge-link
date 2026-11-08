@@ -1,74 +1,83 @@
 # Signal K Edge Link — Connection Bonding
 
-> Primary/backup dual-link failover for high-availability links. Advanced (v3) only.
+> Primary/backup failover between two UDP links. Client connections in Advanced (v3) mode only. Field defaults and ranges are in [configuration-reference.md](configuration-reference.md#connection-bonding-client-advancedv3-only).
 
 ---
 
 ## Overview
 
-Bonding runs **two simultaneous UDP links** (primary and backup) between the client and a pair of server connections. The BondingManager monitors both links continuously via HEARTBEAT probes and automatically switches traffic to the backup link when the primary degrades beyond configured thresholds.
+A bonded client opens two UDP sockets, primary and backup, each optionally bound to its own local interface (for example LTE and Starlink). Data goes out on the active link only. Every `healthCheckInterval` (default 1000 ms) the client sends a heartbeat probe on both links; the server connection on each port echoes it. The client switches to the backup when the primary degrades, and back when the primary has recovered.
+
+Bonding cannot be combined with fleet sharing on the same client connection: validation rejects it with `fleetSharing is not supported together with bonding`.
 
 ---
 
-## Failover State Machine
+## Link Health
+
+| Measure | How it is computed                                                                         |
+| ------- | ------------------------------------------------------------------------------------------ |
+| RTT     | Probe round trip, smoothed: `0.2 × new + 0.8 × previous` (the first sample is taken as is) |
+| Loss    | Share of the last 10 probes with no response within `heartbeatTimeout` (default 5000 ms)   |
+| Quality | `GET /bonding`: `60 × (1 − loss) + 40 × max(0, 1 − RTT / 1000)`, rounded, 0–100            |
+| Status  | `active`, `standby`, `down`, or `unknown` before startup                                   |
+
+A link is marked `down` when more than 3 probes have been sent and none has been answered for `heartbeatTimeout`. It returns to `active` or `standby` on the next valid response. A socket error also marks the link `down`; the socket is recreated after 5 s.
+
+Probes are `HBPROBE` packets with an 8-byte truncated HMAC-SHA256 tag keyed by `secretKey`. The server drops probes that fail verification (counted in `malformedPackets`) and the client drops unverified responses, so both server connections must use the client's `secretKey`.
+
+---
+
+## Failover and Failback
 
 ```text
-   ┌──────────────┐   RTT > rttThreshold
-   │              │   OR loss > lossThreshold
-   │   ACTIVE     │   OR link DOWN
-   │   PRIMARY    ├─────────────────────────────────────────────►
-   │              │
-   └──────┬───────┘          ┌──────────────┐
-          ▲                  │              │
-          │                  │   ACTIVE     │
-          │◄─────────────────┤   BACKUP     │
-          │   ALL required:  │              │
-          │   RTT < thresh×0.8               │
-          │   loss < thresh×0.5              │
-          │   failbackDelay elapsed          │
-          │                  └──────────────┘
+          primary DOWN (immediately), or
+          RTT > rttThreshold or loss > lossThreshold
+          (after the primary has been active for 5 s);
+          backup not DOWN
+ PRIMARY ─────────────────────────────────────────────► BACKUP
+ ACTIVE  ◄───────────────────────────────────────────── ACTIVE
+          failbackDelay since the failover elapsed, and
+          primary not DOWN, and
+          RTT < rttThreshold × 0.8, and
+          loss < lossThreshold × 0.5
 ```
 
-Health is monitored continuously via HEARTBEAT probes every `healthCheckInterval` (default 1000 ms). A link is marked DOWN after no response for `heartbeatTimeout` (default 5000 ms).
-
-A Signal K notification fires at `notifications.signalk-edge-link.<connectionName>.linkFailover` (state `"alert"`, methods `visual` and `sound`) on every failover event.
+- The client never fails over to a backup that is `down`.
+- The 5 s minimum on the primary (from startup or the last failback) stops a primary near the threshold from flapping on every health check. A `down` primary skips it.
+- `failbackDelay` (default 30000 ms) is counted from the moment of failover.
+- With `enableNotifications: true` on the client connection, each switch in either direction sets `notifications.signalk-edge-link.<instanceId>.linkFailover` (or `notifications.signalk-edge-link.linkFailover` without an instance ID) to state `alert`, methods `visual` and `sound`, message `Link switched: <from> to <to>`. A failover is also logged as an error: `[FAILOVER] Switching from primary to backup link`.
 
 ---
 
 ## Configuration
 
-### Vessel (client with bonding)
+Vessel (client):
 
 ```json
 {
   "name": "vessel-bonded",
   "serverType": "client",
-  "secretKey": "MySecretKey12345678901234567890",
+  "secretKey": "<64-hex-key>",
   "protocolVersion": 3,
   "bonding": {
     "enabled": true,
     "mode": "main-backup",
-    "primary": {
-      "address": "shore.example.com",
-      "port": 4446,
-      "interface": "192.168.1.100"
-    },
-    "backup": {
-      "address": "shore.example.com",
-      "port": 4447,
-      "interface": "10.0.0.100"
-    },
+    "primary": { "address": "shore.example.com", "port": 4446, "interface": "192.168.1.100" },
+    "backup": { "address": "shore.example.com", "port": 4447, "interface": "10.0.0.100" },
     "failover": {
       "rttThreshold": 500,
       "lossThreshold": 0.1,
       "healthCheckInterval": 1000,
-      "failbackDelay": 30000
+      "failbackDelay": 30000,
+      "heartbeatTimeout": 5000
     }
   }
 }
 ```
 
-### Shore (two independent server connections)
+If `primary` is omitted at runtime, the client uses `udpAddress`:`udpPort`; if `backup` is omitted, `udpAddress`:`udpPort + 1`. `main-backup` is the only mode.
+
+Shore: two independent server connections with the same key, one per port:
 
 ```json
 {
@@ -77,111 +86,104 @@ A Signal K notification fires at `notifications.signalk-edge-link.<connectionNam
       "name": "shore-primary",
       "serverType": "server",
       "udpPort": 4446,
-      "secretKey": "MySecretKey12345678901234567890",
+      "secretKey": "<64-hex-key>",
       "protocolVersion": 3
     },
     {
       "name": "shore-backup",
       "serverType": "server",
       "udpPort": 4447,
-      "secretKey": "MySecretKey12345678901234567890",
+      "secretKey": "<64-hex-key>",
       "protocolVersion": 3
     }
   ]
 }
 ```
 
-### Bonding configuration fields
-
-| Field                          | Type    | Default         | Range             | Description                                            |
-| ------------------------------ | ------- | --------------- | ----------------- | ------------------------------------------------------ |
-| `enabled`                      | boolean | `false`         | —                 | Activate dual-link bonding.                            |
-| `mode`                         | string  | `"main-backup"` | `"main-backup"`   | Only main-backup mode is supported.                    |
-| `primary.address`              | string  | `"127.0.0.1"`   | valid IP/hostname | Primary link destination.                              |
-| `primary.port`                 | integer | `4446`          | 1024–65535        | Primary link UDP port.                                 |
-| `primary.interface`            | string  | —               | valid IP          | Bind outbound socket to this local interface IP.       |
-| `backup.address`               | string  | `"127.0.0.1"`   | valid IP/hostname | Backup link destination.                               |
-| `backup.port`                  | integer | `4447`          | 1024–65535        | Backup link UDP port.                                  |
-| `backup.interface`             | string  | —               | valid IP          | Bind outbound socket to this local interface IP.       |
-| `failover.rttThreshold`        | integer | `500`           | 100–5000 ms       | Failover when primary RTT exceeds this.                |
-| `failover.lossThreshold`       | number  | `0.10`          | 0.01–0.5          | Failover when primary loss exceeds this ratio.         |
-| `failover.healthCheckInterval` | integer | `1000`          | 500–10000 ms      | Link health probe frequency.                           |
-| `failover.failbackDelay`       | integer | `30000`         | 5000–300000 ms    | Hold-off after primary recovers before switching back. |
-| `failover.heartbeatTimeout`    | integer | `5000`          | 1000–30000 ms     | Link marked DOWN after no response for this long.      |
-
----
-
-## Threshold Profiles
+### Threshold profiles
 
 | Profile      | `rttThreshold` | `lossThreshold` | `failbackDelay` | When to use                            |
 | ------------ | -------------- | --------------- | --------------- | -------------------------------------- |
-| Aggressive   | 300 ms         | 5% (0.05)       | 15 s            | Stable backup, low-latency requirement |
-| **Moderate** | **500 ms**     | **10% (0.10)**  | **30 s**        | **General offshore use (default)**     |
-| Conservative | 800 ms         | 20% (0.20)      | 60 s            | Avoid flapping on variable links       |
+| Aggressive   | 300 ms         | 0.05            | 15 s            | Stable backup, low-latency requirement |
+| **Moderate** | **500 ms**     | **0.10**        | **30 s**        | **General offshore use (defaults)**    |
+| Conservative | 800 ms         | 0.20            | 60 s            | Avoid flapping on variable links       |
 
 ---
 
 ## Monitoring and Manual Control
 
+All three routes need the management token when one is set ([management-tools.md](management-tools.md)).
+
 ```bash
-# Current bonding state
-curl -H "X-Edge-Link-Token: $TOKEN" \
-  http://localhost:3000/plugins/signalk-edge-link/bonding | jq .
+H=http://localhost:3000/plugins/signalk-edge-link
 
-# Manual failover (toggle primary ↔ backup)
-curl -s -X POST -H "X-Edge-Link-Token: $TOKEN" \
-  http://localhost:3000/plugins/signalk-edge-link/bonding/failover | jq .
+# Current state of every connection
+curl -s -H "X-Edge-Link-Token: $TOKEN" $H/bonding | jq .
 
-# Update thresholds
-curl -s -X POST \
-  -H "Content-Type: application/json" \
-  -H "X-Edge-Link-Token: $TOKEN" \
-  -d '{"rttThreshold": 300, "lossThreshold": 0.05}' \
-  http://localhost:3000/plugins/signalk-edge-link/bonding | jq .
+# Manual switch (primary → backup, or backup → primary)
+curl -s -X POST -H "X-Edge-Link-Token: $TOKEN" $H/bonding/failover | jq .
+
+# Change thresholds on every bonded connection
+curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $TOKEN" \
+  -d '{"rttThreshold": 300, "lossThreshold": 0.05}' $H/bonding | jq .
 ```
+
+- `POST /bonding` accepts only `rttThreshold`, `lossThreshold`, `healthCheckInterval`, `failbackDelay` and `heartbeatTimeout`, each a non-negative number; anything else returns 400, and 503 when no connection has bonding. Changes are in memory and apply at the next health check; a new `healthCheckInterval` takes effect only when the connection restarts. Response: `{ "success": true, "updated": {...}, "instances": [{ "id", "thresholds" }] }`.
+- `POST /bonding/failover` acts on the first client connection. Response: `{ "success": true, "activeLink": "backup", "links": {...} }`; 503 when bonding is not enabled, 404 on a server-only node.
 
 ### GET /bonding response
 
+`GET /bonding` covers every connection and wraps each connection's bonding state in `instances[].state`:
+
 ```json
 {
-  "enabled": true,
-  "mode": "main-backup",
-  "activeLink": "primary",
-  "lastFailoverTime": 0,
-  "failoverThresholds": { "rttThreshold": 500, "lossThreshold": 0.1, "failbackDelay": 30000 },
-  "links": {
-    "primary": {
-      "status": "active",
-      "rtt": 45,
-      "loss": 0.01,
-      "quality": 95,
-      "heartbeatsSent": 120,
-      "heartbeatResponses": 118
-    },
-    "backup": {
-      "status": "standby",
-      "rtt": 120,
-      "loss": 0.02,
-      "quality": 85,
-      "heartbeatsSent": 120,
-      "heartbeatResponses": 116
+  "totalInstances": 1,
+  "bondingEnabledInstances": 1,
+  "instances": [
+    {
+      "id": "vessel-bonded",
+      "name": "vessel-bonded",
+      "enabled": true,
+      "state": {
+        "enabled": true,
+        "mode": "main-backup",
+        "activeLink": "primary",
+        "lastFailoverTime": 0,
+        "failoverThresholds": {
+          "rttThreshold": 500,
+          "lossThreshold": 0.1,
+          "healthCheckInterval": 1000,
+          "failbackDelay": 30000,
+          "heartbeatTimeout": 5000
+        },
+        "links": {
+          "primary": {
+            "address": "shore.example.com",
+            "port": 4446,
+            "status": "active",
+            "rtt": 45,
+            "loss": 0.01,
+            "quality": 95,
+            "heartbeatsSent": 120,
+            "heartbeatResponses": 118
+          }
+        }
+      }
     }
-  }
+  ]
 }
 ```
 
+`links.backup` has the same fields as `links.primary`. In `GET /bonding` a connection without bonding has `"enabled": false` and `"state": null`. `GET /connections/:id/bonding` returns the `state` object of that one connection, or `{ "enabled": false }` without bonding (404 for a server connection). Full route reference: [api-reference.md](api-reference.md#bonding-endpoints), [per-connection endpoints](api-reference.md#per-connection-endpoints). `heartbeatsSent − heartbeatResponses` is the number of missed probes.
+
 ### Signal K paths published
 
-| Path                                        | Description                      |
-| ------------------------------------------- | -------------------------------- |
-| `networking.edgeLink.activeLink`            | Active link name                 |
-| `networking.edgeLink.links.primary.status`  | Primary link status              |
-| `networking.edgeLink.links.primary.rtt`     | Primary link RTT (ms)            |
-| `networking.edgeLink.links.primary.loss`    | Primary link loss ratio          |
-| `networking.edgeLink.links.primary.quality` | Primary link quality score 0–100 |
-| `networking.edgeLink.links.backup.status`   | Backup link status               |
-| `networking.edgeLink.links.backup.rtt`      | Backup link RTT (ms)             |
-| `networking.edgeLink.links.backup.loss`     | Backup link loss ratio           |
-| `networking.edgeLink.links.backup.quality`  | Backup link quality score 0–100  |
+| Path                                       | Description              |
+| ------------------------------------------ | ------------------------ |
+| `networking.edgeLink.activeLink`           | Active link name         |
+| `networking.edgeLink.links.<link>.status`  | Link status              |
+| `networking.edgeLink.links.<link>.rtt`     | Link RTT (ms)            |
+| `networking.edgeLink.links.<link>.loss`    | Link loss ratio          |
+| `networking.edgeLink.links.<link>.quality` | Link quality score 0–100 |
 
-When an instance ID is configured these paths are namespaced as `networking.edgeLink.<instanceId>.*`.
+`<link>` is `primary` or `backup`. With an instance ID the paths are `networking.edgeLink.<instanceId>.*`. The published `quality` uses the general link-quality score with jitter and retransmit rate set to 0, `40 × (1 − loss) + 30 × max(0, 1 − RTT / 1000) + 30`, so it differs from the `quality` in `GET /bonding`.

@@ -205,6 +205,8 @@ Each link also reports `address` and `port`.
 | `acksSent`           | client | `signalk_edge_link_fleet_acks_sent_total`            | FLEET_ACKs sent                                                                                                                                                                                                                                                                                 |
 | `naksSent`           | client | `signalk_edge_link_fleet_naks_sent_total`            | FLEET_NAKs sent                                                                                                                                                                                                                                                                                 |
 
+FLEET_DATA reaches a vessel only while its NAT mapping is open, and the client's outbound packets, including its heartbeats (`heartbeatInterval`), keep it open. A client whose `packetsReceived` stops rising while its uplink still works usually has an expired mapping; see [troubleshooting](troubleshooting.md#fleet-sharing).
+
 ---
 
 ## Management API Auth Telemetry
