@@ -132,7 +132,7 @@ curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $TOKE
   -d '{"rttThreshold": 300, "lossThreshold": 0.05}' $H/bonding | jq .
 ```
 
-- `POST /bonding` changes are in memory on every bonded connection and apply at the next health check; a new `healthCheckInterval` takes effect only when the connection restarts.
+- `POST /bonding` changes are in memory on every bonded connection and apply at the next health check; a new `healthCheckInterval` is stored but the running probe timer keeps its old interval, and a restart reloads the configured value. To change the interval, change the connection config.
 - `POST /bonding/failover` acts on the first client connection; `POST /connections/:id/bonding/failover` acts on one connection.
 
 Accepted keys, status codes and response shapes: [api-reference.md](api-reference.md#bonding-endpoints).

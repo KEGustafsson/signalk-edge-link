@@ -6,17 +6,17 @@
 
 ## Security Properties
 
-| Property                       | Status          | Detail                                                                                                                                      |
-| ------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Data confidentiality           | Strong          | AES-256-GCM                                                                                                                                 |
-| Data integrity                 | Strong          | GCM auth tag (16 bytes)                                                                                                                     |
-| DATA/METADATA header integrity | Default on (v3) | HMAC-SHA256 by default; CRC16 only with `authenticatedHeaders: false`                                                                       |
-| DATA replay protection         | Strong (v3)     | Per-peer sliding window survives idle expiry and eviction; epoch-gated reset; `epochBoundAuth` closes cross-epoch and spoofed-source replay |
-| METADATA replay protection     | Strong (v3)     | Second per-peer window over the METADATA header sequence, same epoch rules; envelope `seq`/`idx` dedup within the live session              |
-| Control packet authentication  | v3 only         | HMAC-SHA256; v1 has no control packets                                                                                                      |
-| Forward secrecy                | None            | The same pre-shared key is used for the life of the connection                                                                              |
-| Client authentication          | None            | Any holder of the key can connect                                                                                                           |
-| Compression side-channel       | Low risk        | Brotli runs before encryption, so packet size is observable                                                                                 |
+| Property                       | Status          | Detail                                                                                                                                                                                                                                                                    |
+| ------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Data confidentiality           | Strong          | AES-256-GCM                                                                                                                                                                                                                                                               |
+| Data integrity                 | Strong          | GCM auth tag (16 bytes)                                                                                                                                                                                                                                                   |
+| DATA/METADATA header integrity | Default on (v3) | HMAC-SHA256 by default; CRC16 only with `authenticatedHeaders: false`                                                                                                                                                                                                     |
+| DATA replay protection         | Strong (v3)     | For peers that advertise an epoch: per-peer sliding window survives idle expiry and eviction; epoch-gated reset; `epochBoundAuth` closes cross-epoch and spoofed-source replay. Peers without an epoch keep session-scoped dedup only ([below](#data-anti-replay-window)) |
+| METADATA replay protection     | Strong (v3)     | For peers that advertise an epoch: second per-peer window over the METADATA header sequence, same epoch rules. All peers: envelope `seq`/`idx` dedup within the live session                                                                                              |
+| Control packet authentication  | v3 only         | HMAC-SHA256; v1 has no control packets                                                                                                                                                                                                                                    |
+| Forward secrecy                | None            | The same pre-shared key is used for the life of the connection                                                                                                                                                                                                            |
+| Client authentication          | None            | Any holder of the key can connect                                                                                                                                                                                                                                         |
+| Compression side-channel       | Low risk        | Brotli runs before encryption, so packet size is observable                                                                                                                                                                                                               |
 
 ---
 
@@ -30,7 +30,7 @@ Data payloads (v1 packets; v3 DATA, METADATA and FLEET_DATA) are encrypted with 
 
 v3 control packets are not encrypted: their payload is plaintext with a 16-byte HMAC-SHA256 tag. HELLO's JSON, including protocol version and client ID, is readable on the path; HEARTBEAT carries only the tag. The HELLO `fleet` field, which holds the vessel identity, is AES-256-GCM encrypted on its own.
 
-The GCM auth tag detects any change to the IV, ciphertext or tag. It does not cover the cleartext v3 packet header; with `authenticatedHeaders` (default `true`) a separate HMAC tag binds the DATA and METADATA header to the ciphertext. Packets that fail authentication are dropped and counted in `encryptionErrors`.
+The GCM auth tag detects any change to the IV, ciphertext or tag. It does not cover the cleartext v3 packet header; with `authenticatedHeaders` (default `true`) a separate HMAC tag binds the DATA and METADATA header to the ciphertext. Packets that fail authentication are dropped. On the server every failure, DATA, METADATA or control, counts in `encryptionErrors`; on the client a control packet (ACK, NAK, HELLO_ACK) that fails its HMAC counts in `malformedPackets`.
 
 ---
 
@@ -63,7 +63,7 @@ openssl rand -base64 32 | tr -d '/+=' | cut -c1-32
 
 A 32-character ASCII key has at most about 210 bits of entropy, and only when each character is drawn at random from the 95 printable ASCII characters; a human-chosen key has far less, even when it passes the checks above. `stretchAsciiKey: true` runs it through PBKDF2-SHA256 (600,000 iterations, salt `signalk-edge-link-v1`) to derive the 256-bit AES key. PBKDF2 makes brute force expensive but does not add entropy to a weak passphrase. Hex and base64 keys are not stretched.
 
-Both peers should have the same `stretchAsciiKey` setting. With an ASCII key, a mismatch fails authentication on every packet: `encryptionErrors` rises and no data flows. Hex and base64 keys are not stretched, so the setting has no effect on them.
+Both peers should have the same `stretchAsciiKey` setting. With an ASCII key, a mismatch fails authentication on every packet: the server's `encryptionErrors` and the client's `malformedPackets` rise, and no data flows. Hex and base64 keys are not stretched, so the setting has no effect on them.
 
 The derived key is cached, so PBKDF2 runs once per key, not per packet:
 
@@ -164,7 +164,7 @@ There is no online key rotation. To rotate:
 
 1. Update `secretKey` on both ends at the same time.
 2. Restart the plugin on both ends.
-3. During the change, packets encrypted with the old key are dropped and counted in `encryptionErrors`.
+3. During the change, packets under the old key are dropped: on the server they count in `encryptionErrors`, on the client (ACKs and other control packets) in `malformedPackets`.
 
 ---
 

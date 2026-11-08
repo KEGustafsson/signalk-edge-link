@@ -39,12 +39,16 @@ T="X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN"
 A failed connection is retried on its own, with backoff from 30 s to 300 s, while the other connections keep running. The usual causes are a `udpPort` already in use or a network interface that is not up yet.
 
 ```bash
-# Client: is it sending?
-curl -s -H "$T" http://vessel:3000/plugins/signalk-edge-link/metrics \
+# Client: is it sending? List the connections, then pick the one to check.
+curl -s -H "$T" http://vessel:3000/plugins/signalk-edge-link/connections | jq '.[].id'
+id="vessel-client"   # one of the IDs listed above
+curl -s -H "$T" "http://vessel:3000/plugins/signalk-edge-link/connections/$id/metrics" \
   | jq '{sent:.stats.deltasSent,err:.stats.encryptionErrors,ready:.status.readyToSend}'
 
 # Server: is it receiving?
-curl -s -H "$T" http://shore:3000/plugins/signalk-edge-link/metrics \
+curl -s -H "$T" http://shore:3000/plugins/signalk-edge-link/connections | jq '.[].id'
+id="shore-server"    # one of the IDs listed above
+curl -s -H "$T" "http://shore:3000/plugins/signalk-edge-link/connections/$id/metrics" \
   | jq '{rcvd:.stats.deltasReceived,err:.stats.encryptionErrors}'
 ```
 
@@ -118,12 +122,12 @@ In a relay chain each hop must agree on its own; the two hops need not match eac
 
 ### Congestion control not adapting
 
-| Symptom                                                  | Cause                                 | Fix                                                                                  |
-| -------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------ |
-| Log `Congestion control requires Protocol v2 – ignoring` | Connection is Basic (v1)              | Set `protocolVersion: 3` on both ends                                                |
-| Timer stays at `maxDeltaTimer`                           | `targetRTT` below the link's real RTT | Raise `targetRTT` to the `avgRTT` shown by `GET /congestion`                         |
-| Timer not moving                                         | Disabled, or in manual mode           | Check `congestionControl.enabled: true` and `manualMode: false` in `GET /congestion` |
-| Timer oscillates                                         | RTT hovers near the threshold         | Raise `targetRTT` 20–30% above typical RTT                                           |
+| Symptom                                                  | Cause                                 | Fix                                                                                                                                                            |
+| -------------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Log `Congestion control requires Protocol v2 – ignoring` | Connection is Basic (v1)              | Set `protocolVersion: 3` on both ends                                                                                                                          |
+| Timer stays at `maxDeltaTimer`                           | `targetRTT` below the link's real RTT | Raise `targetRTT` to the `avgRTT` shown by `GET /congestion`                                                                                                   |
+| Timer not moving                                         | Disabled, or in manual mode           | `GET /congestion` should show `enabled: true` and `manualMode: false`; if `enabled` is `false`, set `congestionControl.enabled: true` in the connection config |
+| Timer oscillates                                         | RTT hovers near the threshold         | Raise `targetRTT` 20–30% above typical RTT                                                                                                                     |
 
 See [congestion-control.md](congestion-control.md#tuning-guide) for the full tuning table.
 

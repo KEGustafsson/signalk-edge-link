@@ -88,14 +88,21 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 
 `GET /network-metrics`, and `GET /metrics` → `networkQuality`. Warning/critical are the default [alert](#alerts) thresholds; `linkQuality` bands are guidance only (it is not an alert metric).
 
-| JSON field       | Prometheus                              | Unit  | Typical range | Warning  | Critical | Description                                        |
-| ---------------- | --------------------------------------- | ----- | ------------- | -------- | -------- | -------------------------------------------------- |
-| `rtt`            | `signalk_edge_link_rtt_milliseconds`    | ms    | 10–200 ms     | > 300 ms | > 800 ms | RTT from ACKs of DATA that was not retransmitted   |
-| `jitter`         | `signalk_edge_link_jitter_milliseconds` | ms    | 0–50 ms       | > 100 ms | > 300 ms | RTT variance (standard deviation)                  |
-| `packetLoss`     | `signalk_edge_link_packet_loss_rate`    | ratio | 0–0.02        | > 0.03   | > 0.10   | Fraction of packets lost in recent window          |
-| `retransmitRate` | `signalk_edge_link_retransmit_rate`     | ratio | 0–0.02        | > 0.05   | > 0.15   | Fraction of sent packets that were retransmitted   |
-| `queueDepth`     | `signalk_edge_link_queue_depth`         | count | 0–20          | > 100    | > 500    | Pending retransmissions in send queue              |
-| `linkQuality`    | `signalk_edge_link_link_quality_score`  | 0–100 | 85–100        | < 70     | < 50     | Composite of RTT, jitter, loss and retransmit rate |
+| JSON field       | Prometheus                              | Unit  | Typical range | Warning  | Critical | Description                                                                   |
+| ---------------- | --------------------------------------- | ----- | ------------- | -------- | -------- | ----------------------------------------------------------------------------- |
+| `rtt`            | `signalk_edge_link_rtt_milliseconds`    | ms    | 10–200 ms     | ≥ 300 ms | ≥ 800 ms | RTT from ACKs of DATA that was not retransmitted                              |
+| `jitter`         | `signalk_edge_link_jitter_milliseconds` | ms    | 0–50 ms       | ≥ 100 ms | ≥ 300 ms | RTT variance (standard deviation)                                             |
+| `packetLoss`     | `signalk_edge_link_packet_loss_rate`    | ratio | 0–0.02        | ≥ 0.03   | ≥ 0.10   | Loss-event estimate over a recent window ([below](#loss-and-retransmit-rate)) |
+| `retransmitRate` | `signalk_edge_link_retransmit_rate`     | ratio | 0–0.02        | ≥ 0.05   | ≥ 0.15   | Retransmissions per sent packet ([below](#loss-and-retransmit-rate))          |
+| `queueDepth`     | `signalk_edge_link_queue_depth`         | count | 0–20          | ≥ 100    | ≥ 500    | Pending retransmissions in send queue                                         |
+| `linkQuality`    | `signalk_edge_link_link_quality_score`  | 0–100 | 85–100        | < 70     | < 50     | Composite of RTT, jitter, loss and retransmit rate                            |
+
+Alerts fire when a value reaches the threshold (`>=`).
+
+### Loss and retransmit rate
+
+- `packetLoss` is a loss-event estimate, not a fraction of packets lost. The client keeps a window of the last 50 samples: one per sent packet, and one per NAK or retransmit burst however many packets the burst resends.
+- `retransmitRate` is computed two ways. `GET /metrics`, `/network-metrics` and Prometheus report the lifetime ratio, `retransmissions / packetsOut`. Alerts and the Signal K `networking.edgeLink.retransmitRate` path use the ratio over the latest publishing interval. An alert can fire while the API value is still below the threshold.
 
 Other fields: `activeLink`, `dataSource` (`local`, or `remote-client` when a server uses client telemetry received within the last 15 s), and on a server `lastRemoteUpdate`. `/network-metrics` adds `timestamp`.
 
@@ -108,9 +115,9 @@ A server with no client telemetry from the last 15 s (`dataSource: local`) omits
 | 50–69       | Degraded  | Congestion control and bonding failover recommended |
 | < 50        | Poor      | High loss or latency; data delivery unreliable      |
 
-**No score without a measurement.** `rtt`, `jitter` and `linkQuality` are **omitted**, not reported as `0`, until the link has been measured: on a client, its first timed ACK; on a server, client telemetry carrying an RTT (a server measures no latency itself). The Prometheus series are omitted the same way.
+**No score without a measurement.** `rtt`, `jitter` and `linkQuality` are **omitted**, not reported as `0`, until the link has been measured: on a client, its first timed ACK; on a server, client telemetry carrying an RTT (a server measures no latency itself). The Prometheus series are omitted the same way. Jitter needs two RTT samples, so after the first timed ACK it reads `0`, its seeded value, not a measurement.
 
-`packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate` and `activeLink` may also be **absent**. On a server they come from client telemetry, and a peer can report some fields and not others (an older build, or a value the ingest validator rejected). An absent field means "not reported"; `0` means "measured as zero". The web UI shows the first as `N/A`.
+`packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate` and `activeLink` may also be **absent**. On a server they come from client telemetry, and a peer can report some fields and not others (an older build, or a value the ingest validator rejected). An absent field means "not reported"; `0` means "measured as zero". The web UI shows the first as `N/A`. One exception: a client that has not sent any packets yet reports `packetLoss` and `retransmitRate` as seeded zeros, which say nothing about the link.
 
 `linkQuality` is withheld unless all four inputs (`rtt`, `jitter`, `packetLoss`, `retransmitRate`) are present, since a substituted zero for any of them can only inflate the score.
 
@@ -263,7 +270,7 @@ Alerts run on v2/v3 client instances. A metric alerts when its value is `>=` the
 | `networking.edgeLink.bandwidth.download`        | number       | B/s     | Inbound throughput               |
 | `networking.edgeLink.packetsPerSecond.sent`     | number       | pkt/s   | Outbound packet rate             |
 | `networking.edgeLink.packetsPerSecond.received` | number       | pkt/s   | Inbound packet rate              |
-| `networking.edgeLink.compressionRatio`          | number       | ratio   | Compression ratio                |
+| `networking.edgeLink.compressionRatio`          | number       | %       | Compression ratio                |
 | `networking.edgeLink.activeLink`                | string       | —       | Active bonded link name          |
 | `networking.edgeLink.links.<link>.status`       | string       | —       | Per-link status                  |
 | `networking.edgeLink.links.<link>.rtt`          | number       | ms      | Per-link RTT                     |
