@@ -15,10 +15,10 @@ Management endpoints require a token when one is configured. Sources, highest pr
 export SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN="your-long-random-token"
 
 # X-Edge-Link-Token header (recommended)
-curl -H "X-Edge-Link-Token: $TOKEN" http://localhost:3000/plugins/signalk-edge-link/status
+curl -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" http://localhost:3000/plugins/signalk-edge-link/status
 
 # Authorization: Bearer header
-curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/plugins/signalk-edge-link/status
+curl -H "Authorization: Bearer $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" http://localhost:3000/plugins/signalk-edge-link/status
 ```
 
 `X-Management-Token` is accepted as a legacy header. Tokens are compared with a timing-safe SHA-256 digest comparison.
@@ -87,7 +87,7 @@ npm run cli -- bonding update --patch '{"rttThreshold":300}'
 npm run cli -- status --format=table
 ```
 
-`instances update` accepts only the fields listed for [`PUT /instances/:id`](api-reference.md#post-instances-put-instancesid-delete-instancesid); `bonding update` accepts `rttThreshold`, `lossThreshold`, `healthCheckInterval`, `failbackDelay` and `heartbeatTimeout`.
+`instances update` accepts only the fields listed for [`PUT /instances/:id`](api-reference.md#post-instances-put-instancesid-delete-instancesid); `bonding update` accepts only the fields listed for [`POST /bonding`](api-reference.md#bonding-endpoints).
 
 ---
 

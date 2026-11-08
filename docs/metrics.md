@@ -72,7 +72,7 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 
 **Interpretation:**
 
-- `retransmissions / dataPacketsReceived` < 1% is healthy. With `dataPacketsReceived` at zero, report the ratio as N/A, not 0%.
+- On a client, `retransmissions / bandwidth.packetsOut` is the `retransmitRate` in [Link Quality Metrics](#link-quality-metrics), which lists its healthy and alert ranges. `dataPacketsReceived` is a server-side count, so it is not a denominator for a client's `retransmissions`.
 - `replayedPackets > 0` means the anti-replay guard rejected a datagram the live session has no record of: a replay attempt or a peer bug. This counter is the only external evidence of either. A retransmit that crosses an ACK is rejected by the same window but counts in `duplicatePackets`, because its sequence is still in the session's seen-set.
 - `epochAuthMismatches > 0`: this receiver requires `epochBoundAuth` and the sender does not use it, so every DATA packet is refused. Set the same value on both peers.
 - `epochAuthPending > 0`: the sender binds, but no HELLO has established its epoch yet. A brief burst at startup clears once the HELLO completes. A climbing count means the HELLO is not arriving; check that the peer's DATA and HELLO leave from the same address and port.
@@ -288,7 +288,7 @@ When an instance ID is configured, the paths are namespaced as `networking.edgeL
 | `alert_<metric>`                                            | [Alerts](#alerts)                                               |
 | Management auth                                             | [Management API Auth Telemetry](#management-api-auth-telemetry) |
 
-Every series except the management-auth one carries a `mode` label (`"client"` or `"server"`), plus an `instance` label when an instance ID is configured. Smart-batching series are client only; RTT, jitter, link-quality, loss and retransmit-rate series are omitted until measured; bonding series appear only with bonding enabled.
+Every series except the management-auth one carries a `mode` label (`"client"` or `"server"`), plus an `instance` label when an instance ID is configured. Smart-batching series are client only; RTT, jitter and link-quality series are omitted until the link has a timed RTT; loss and retransmit-rate series are omitted only while their own value is absent; bonding series appear only with bonding enabled.
 
 ### Prometheus scrape configuration
 

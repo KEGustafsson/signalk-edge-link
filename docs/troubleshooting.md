@@ -4,9 +4,11 @@
 
 The `curl` examples use these variables. The token header is needed only when `managementApiToken` is set, and then every route requires it ([management-tools.md](management-tools.md#authentication)).
 
+Over plain HTTP the token is readable by anyone on the network path. For the remote hosts below (`vessel`, `shore`, `relay`), use HTTPS or an SSH tunnel such as `ssh -L 3000:localhost:3000 vessel` and query `localhost`.
+
 ```bash
 H=http://localhost:3000/plugins/signalk-edge-link
-T="X-Edge-Link-Token: $TOKEN"
+T="X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN"
 ```
 
 ---
@@ -134,7 +136,7 @@ See [congestion-control.md](congestion-control.md#tuning-guide) for the full tun
 | Degraded primary does not fail over at once              | Expected: high RTT or loss fails over only once the primary has been active for 5 s; a down primary fails over at once                                                                                 |
 | Backup shows `"down"`                                    | UDP must pass in both directions. The server connection on that port echoes heartbeat probes only if it has the client's `secretKey` (unverified probes are dropped and counted in `malformedPackets`) |
 | Frequent failover/failback                               | Raise `failbackDelay` (try 60 s) and `rttThreshold`                                                                                                                                                    |
-| `POST /bonding` returns 400                              | Only `rttThreshold`, `lossThreshold`, `healthCheckInterval`, `failbackDelay`, `heartbeatTimeout` are accepted, as non-negative numbers                                                                 |
+| `POST /bonding` returns 400                              | The body is empty or has a key or value outside the [`POST /bonding`](api-reference.md#bonding-endpoints) field list; the response `error` says which                                                  |
 | `fleetSharing is not supported together with bonding`    | Fleet sharing and bonding cannot be enabled on the same client connection                                                                                                                              |
 
 See [bonding.md](bonding.md).
@@ -178,13 +180,13 @@ See [bonding.md](bonding.md).
 
 A relay is two independent connections in one instance. `vessel → relay → shore` is two links that share only the Signal K tree: separate keys, handshakes and epochs, reliability settings and `epochBoundAuth` values. Diagnose one hop at a time.
 
-| Symptom                                                    | Hop                           | Fix                                                                          |
-| ---------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------- |
-| Relay's **server** tab all `N/A`, **client** tab populated | Hop 1 (upstream)              | The vessel is not reporting: check the vessel's client, not the relay        |
-| Relay's **client** tab all `N/A`, **server** tab populated | Hop 2 (downstream)            | The relay's own link to shore has not measured yet: check that hop           |
-| Shore receives nothing, relay's server tab looks healthy   | Hop 2                         | Data arrives at the relay but does not leave it: check the relay client      |
-| Data arrives at the relay but never reaches shore          | Hop 2                         | Check the relay client's key, address and port against the shore server      |
-| Some hops show RTT/jitter, others `N/A`                    | Hops with a peer before 4.0.0 | Both ends of each hop must run 4.0.0+ before that hop reports RTT and jitter |
+| Symptom                                                    | Hop                | Fix                                                                                                                                                                           |
+| ---------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Relay's **server** tab all `N/A`, **client** tab populated | Hop 1 (upstream)   | The vessel is not reporting: check the vessel's client, not the relay                                                                                                         |
+| Relay's **client** tab all `N/A`, **server** tab populated | Hop 2 (downstream) | The relay's own link to shore has not measured yet: check that hop                                                                                                            |
+| Shore receives nothing, relay's server tab looks healthy   | Hop 2              | Data arrives at the relay but does not leave it: check the relay client                                                                                                       |
+| Data arrives at the relay but never reaches shore          | Hop 2              | Check the relay client's key, address and port against the shore server                                                                                                       |
+| A hop's server side `N/A`, its client side populated       | That hop           | The client measures RTT locally from timed ACKs; the server shows only what the client reports. Check that both ends run 4.0.0+ and the client's telemetry reaches the server |
 
 ```bash
 # Each connection on the relay has its own metrics.
