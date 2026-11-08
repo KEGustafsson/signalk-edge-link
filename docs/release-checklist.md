@@ -16,5 +16,5 @@ Run these in order before publishing a package or changing release automation:
 - `docs/GUIDE.md`, `docs/README.md` or `docs/api-reference.md` lacks `current: <package.json version>` or carries a different `current:` version;
 - `docs/GUIDE.md` names a retired source file (`bonding-manager.ts`, `congestion-control.ts`, `alert-manager.ts`, `sequence-tracker.ts`) or lacks `bonding.ts`, `congestion.ts`, `monitoring.ts`, `sequence.ts`;
 - `package.json` `files` omits `lib/` or `public/`;
-- `.github/workflows/publish-packages.yml` does not run `npm run build` and `npm run check:release-docs` before `npm pack`;
+- the text of `.github/workflows/publish-packages.yml` lacks `npm run build`, `npm run check:release-docs` or `npm pack`, or the first occurrence of either of the first two comes after the first `npm pack`. This is a text search; it does not check that the commands run or in which step;
 - `docs/configuration-reference.md` does not state the fleet `pathFilter` limits from `src/foundation/constants.ts`.

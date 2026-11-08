@@ -444,7 +444,7 @@ npm run cli -- help
 | `src/transport/pipeline/reliable-server{.ts,/}`                        | Advanced server: `receivePacket()` in `receive.ts`, `handleDataPacket()` in `data-handler.ts`, sessions, fleet |
 | `src/transport/reliability/sequence.ts`                                | Sequence tracking, gap detection, NAK scheduling                                                               |
 | `src/transport/reliability/retransmit-queue.ts`                        | `RetransmitQueue`: `add()` stores a packet, `acknowledge()` drops entries up to the cumulative ACK             |
-| `src/transport/congestion.ts`                                          | AIMD congestion control of the delta timer                                                                     |
+| `src/transport/congestion.ts`                                          | Congestion control of the delta timer                                                                          |
 | `src/transport/bonding.ts`                                             | Primary/backup health monitoring, failover and failback                                                        |
 | `src/codec/crypto.ts`                                                  | AES-256-GCM, PBKDF2, HMAC; `normalizeKey()` turns any key format into 32 bytes                                 |
 | `src/codec/packet-codec.ts`, `src/codec/packet/`                       | v3 header encode/decode, CRC, authentication                                                                   |

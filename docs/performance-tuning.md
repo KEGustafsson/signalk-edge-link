@@ -85,7 +85,7 @@ Compression dominates. On constrained hardware with high delta rates, raise `del
 
 - `deltaTimer` 2000–5000 ms for the best compression ratio.
 - `targetRTT: 800` keeps a high-RTT link out of the congested band (above 1200 ms).
-- `minDeltaTimer` accepts at most 1000 ms. The controller's timer starts at 1000 ms, not at `deltaTimer`. The `delta_timer.json` interval applies until the first adjustment (5 s after start, once an ACK has arrived); the send interval then drops to 1050 ms on a healthy link (1020 ms in the middle band) and rises 5% (2%) per 5 s step toward `nominalDeltaTimer`, which defaults to the connection's `deltaTimer`. With `deltaTimer` 4000 ms that takes about 29 steps (2.5 min) on a healthy link and about 71 steps (6 min) in the middle band. See [congestion-control.md](congestion-control.md#algorithm).
+- `minDeltaTimer` accepts at most 1000 ms. The controller's timer starts at 1000 ms, not at `deltaTimer`. The `delta_timer.json` interval applies until the first adjustment (5 s after start, once an ACK has arrived); the send interval then drops to 1050 ms on a healthy link (1020 ms in the middle band) and rises 5% (2%) per 5 s step toward `nominalDeltaTimer`, which defaults to the connection's `deltaTimer`. See [congestion-control.md](congestion-control.md#algorithm).
 - Exclude `GSV`, `GSA`, `VTG` and `GLL` in `sentence_filter.json`.
 
 ---

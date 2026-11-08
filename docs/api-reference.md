@@ -157,7 +157,7 @@ Path dictionary: `{ "total": 172, "categories": { "navigation": { "prefix": "nav
 
 ### POST /plugin-config
 
-Body: `{ "connections": [...] }` (at least one entry) or a single legacy connection object with top-level `serverType`. Each connection is validated (`serverType`, `udpPort`, `secretKey`; client also `udpAddress`) and server ports must be unique. A connection without `connectionId` gets one generated.
+Body: `{ "connections": [...] }` (at least one entry) or a single legacy connection object with top-level `serverType`. Each connection is validated (`serverType`, `udpPort`, `secretKey`; client also `udpAddress`, and a v1 client also `testAddress` and `testPort`) and server ports must be unique. A client without `protocolVersion` is v1. Full rules: [configuration-reference.md](configuration-reference.md#validation-rules). A connection without `connectionId` gets one generated.
 
 | Field                       | Handling                                                                                                   |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -242,7 +242,7 @@ Monitoring trackers, alerts and packet capture exist only on v2/v3 client instan
 { "metric": "rtt", "warning": 200, "critical": 600 }
 ```
 
-`metric` must be one of `rtt`, `packetLoss`, `retransmitRate`, `jitter`, `queueDepth`. At least one of `warning`/`critical` (finite numbers) is required, and the effective `warning` must not exceed `critical`. Response: `{ "success": true, "thresholds": {...} }`. The change applies immediately and is persisted to plugin options within 1 second. Default thresholds, cooldown and notification paths: [metrics.md](metrics.md#alerts).
+`metric` must be one of `rtt`, `packetLoss`, `retransmitRate`, `jitter`, `queueDepth`. At least one of `warning`/`critical` (finite numbers) is required, and the effective `warning` must not exceed `critical`. The route does not check the per-metric ranges that connection validation applies (ratio metrics 0–1, others > 0). A value outside them, such as `"warning": 0` for `rtt`, is accepted and saved, and then the saved configuration fails validation at the next plugin start and no connection starts. Keep values within the [alert threshold ranges](configuration-reference.md#alert-thresholds-client-advancedv3-only). Response: `{ "success": true, "thresholds": {...} }`. The change applies immediately. The save to plugin options runs 1 second later and the response does not wait for it: a failed save is only logged (`Failed to persist alert thresholds`), and the change is then lost at restart. Default thresholds, cooldown and notification paths: [metrics.md](metrics.md#alerts).
 
 ---
 
@@ -326,7 +326,7 @@ Each change rewrites `connections[]` and restarts the plugin. Success: `{ "succe
 
 | Endpoint                | Rules                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /instances`       | Full connection object; `name` required, plus `serverType`, `udpPort`, `secretKey` (client: `udpAddress`). Server ports must be unique.                                                                                                                                                                                                                                                       |
+| `POST /instances`       | Full connection object; `name` required, plus `serverType`, `udpPort`, `secretKey` (client: `udpAddress`; v1 client, the default without `protocolVersion`: also `testAddress`, `testPort`). Server ports must be unique. Full rules: [configuration-reference.md](configuration-reference.md#validation-rules).                                                                              |
 | `PUT /instances/:id`    | Patch with at least one of `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`, `udpAddress`, `helloMessageSender`, `reliability`, `congestionControl`, `bonding`, `alertThresholds`. `serverType`, `udpPort`, `secretKey` and any other field (including `testAddress`, `testPort`, `pingIntervalTime`) → `400`; change those through `POST /plugin-config`. |
 | `DELETE /instances/:id` | `400 At least one instance must remain configured` when deleting the last instance.                                                                                                                                                                                                                                                                                                           |
 

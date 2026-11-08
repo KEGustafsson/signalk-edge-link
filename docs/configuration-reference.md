@@ -118,7 +118,7 @@ Under `congestionControl`. Algorithm: [congestion-control.md](congestion-control
 
 | Field               | Type    | Default | Range         | Notes                                                                                    |
 | ------------------- | ------- | ------- | ------------- | ---------------------------------------------------------------------------------------- |
-| `enabled`           | boolean | `false` | —             | Adjusts the send interval (delta timer) automatically (AIMD).                            |
+| `enabled`           | boolean | `false` | —             | Adjusts the send interval (delta timer) automatically.                                   |
 | `targetRTT`         | number  | `200`   | 50–2000 ms    | RTT above which the send rate is reduced. Set to the link's normal RTT.                  |
 | `nominalDeltaTimer` | number  | `1000`  | 100–10000 ms  | Steady-state send interval. When unset at runtime, the `delta_timer.json` value is used. |
 | `minDeltaTimer`     | number  | `100`   | 50–1000 ms    | Shortest allowed send interval.                                                          |
@@ -234,7 +234,7 @@ Client connections keep three JSON files that the dashboard and the API (`GET`/`
 <signalk-data-dir>/plugin-config-data/signalk-edge-link/instances/<instanceId>/
 ```
 
-`<instanceId>` is the slug of the connection `name`. Each file is created with the default shown below if it is missing.
+`<instanceId>` is the slug of the connection `name`. A missing file is created with the default content: `{ "deltaTimer": 1000 }`, `{ "context": "*", "subscribe": [{ "path": "*" }] }` and `{ "excludedSentences": ["GSV"] }`. The JSON blocks below are examples; the tables give the defaults.
 
 ### delta_timer.json
 

@@ -58,12 +58,12 @@ The figures came from `bandwidth-efficiency.js`, `latency-percentiles.js` and `r
 
 ### Congestion control (client, v2)
 
-| Parameter                         | Meaning                            | Performance impact                                                                |
-| --------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------- |
-| `congestionControl.enabled`       | Enables AIMD send-rate adaptation. | Usually improves robustness under variable WAN conditions.                        |
-| `targetRTT`                       | Desired RTT threshold.             | Lower target is conservative (backs off sooner); higher target favors throughput. |
-| `nominalDeltaTimer`               | Preferred steady send interval.    | Baseline latency/bandwidth trade-off.                                             |
-| `minDeltaTimer` / `maxDeltaTimer` | Controller adjustment bounds.      | Wider range allows stronger adaptation; narrower range stabilizes behavior.       |
+| Parameter                         | Meaning                         | Performance impact                                                                |
+| --------------------------------- | ------------------------------- | --------------------------------------------------------------------------------- |
+| `congestionControl.enabled`       | Enables send-rate adaptation.   | Usually improves robustness under variable WAN conditions.                        |
+| `targetRTT`                       | Desired RTT threshold.          | Lower target is conservative (backs off sooner); higher target favors throughput. |
+| `nominalDeltaTimer`               | Preferred steady send interval. | Baseline latency/bandwidth trade-off.                                             |
+| `minDeltaTimer` / `maxDeltaTimer` | Controller adjustment bounds.   | Wider range allows stronger adaptation; narrower range stabilizes behavior.       |
 
 ### Bonding/failover (client, v2)
 
@@ -125,7 +125,7 @@ Source: `bandwidth-efficiency.js`
 
 Source: `bandwidth-efficiency.js`
 
-### Observed delta timer adaptation (AIMD)
+### Observed delta timer adaptation
 
 - **Good → congested:** timer stayed at 1000 ms initially, then rose to 1200 ms under severe congestion sample.
 - **Congested → recovery:** timer increased up to 2489 ms, then gradually stepped down to 2390 ms as network recovered.

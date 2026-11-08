@@ -32,7 +32,7 @@ One Signal K server runs any number of connections. Each connection is either a 
 | `src/transport/pipeline/reliable-client.ts` and `reliable-client/` | v3 client: DATA send, ACK/NAK handling, HELLO, metadata, fleet receive                          |
 | `src/transport/pipeline/reliable-server.ts` and `reliable-server/` | v3 server: sessions, DATA receive, ACK/NAK send, fleet send                                     |
 | `src/transport/reliability/`                                       | `sequence.ts` (gap detection), `retransmit-queue.ts`, `replay-window.ts`, `connection-epoch.ts` |
-| `src/transport/congestion.ts`                                      | AIMD send-rate control                                                                          |
+| `src/transport/congestion.ts`                                      | Send-rate control                                                                               |
 | `src/transport/bonding.ts`, `bonding-health.ts`                    | Dual-link failover and link health                                                              |
 | `src/transport/udp-socket-manager.ts`                              | UDP socket create, bind, send, close                                                            |
 | `src/codec/packet-codec.ts`, `src/codec/packet/`                   | v3 header build and parse, packet type constants                                                |

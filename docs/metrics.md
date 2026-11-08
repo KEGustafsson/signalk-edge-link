@@ -99,6 +99,8 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 
 Other fields: `activeLink`, `dataSource` (`local`, or `remote-client` when a server uses client telemetry received within the last 15 s), and on a server `lastRemoteUpdate`. `/network-metrics` adds `timestamp`.
 
+A server with no client telemetry from the last 15 s (`dataSource: local`) omits `queueDepth` from JSON, but Prometheus still reports `signalk_edge_link_queue_depth 0` (and `signalk_edge_link_retransmissions_total 0`). On a server, 0 in those series does not show that the client's queue is empty; check `dataSource` in `/network-metrics`.
+
 | linkQuality | Status    | Implication                                         |
 | ----------- | --------- | --------------------------------------------------- |
 | 90–100      | Excellent | Low RTT, minimal loss                               |
@@ -156,15 +158,15 @@ Other fields: `activeLink`, `dataSource` (`local`, or `remote-client` when a ser
 
 Per link in the bonding state (`GET /bonding` → `instances[].state.links`, `GET /connections/:id/bonding` → `links`):
 
-| JSON field                     | Prometheus                                              | Description                                             |
-| ------------------------------ | ------------------------------------------------------- | ------------------------------------------------------- |
-| `activeLink`                   | `signalk_edge_link_bonding_active_link`                 | Active link (Prometheus: 1=primary, 2=backup)           |
-| `links.<l>.status`             | `signalk_edge_link_bonding_link_status{link}`           | Link status (Prometheus: 1=active, 0=standby, -1=other) |
-| `links.<l>.rtt`                | `signalk_edge_link_bonding_link_rtt_milliseconds{link}` | Heartbeat-measured RTT                                  |
-| `links.<l>.loss`               | `signalk_edge_link_bonding_link_loss_rate{link}`        | Packet loss rate                                        |
-| `links.<l>.quality`            | `signalk_edge_link_bonding_link_quality{link}`          | Composite quality score (0–100)                         |
-| `links.<l>.heartbeatsSent`     | —                                                       | Probe count since startup                               |
-| `links.<l>.heartbeatResponses` | —                                                       | Responses received (difference = missed probes)         |
+| JSON field                     | Prometheus                                              | Description                                                                           |
+| ------------------------------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `activeLink`                   | `signalk_edge_link_bonding_active_link`                 | Active link (Prometheus: 1=primary, 2=backup)                                         |
+| `links.<l>.status`             | `signalk_edge_link_bonding_link_status{link}`           | Link status (Prometheus: 1=active, 0=standby, -1=other)                               |
+| `links.<l>.rtt`                | `signalk_edge_link_bonding_link_rtt_milliseconds{link}` | Heartbeat-measured RTT                                                                |
+| `links.<l>.loss`               | `signalk_edge_link_bonding_link_loss_rate{link}`        | Packet loss rate                                                                      |
+| `links.<l>.quality`            | `signalk_edge_link_bonding_link_quality{link}`          | Composite quality score (0–100)                                                       |
+| `links.<l>.heartbeatsSent`     | —                                                       | Probe count since startup                                                             |
+| `links.<l>.heartbeatResponses` | —                                                       | Responses received (difference = unanswered probes, including probes still in flight) |
 
 Each link also reports `address` and `port`.
 

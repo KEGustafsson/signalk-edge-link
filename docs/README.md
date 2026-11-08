@@ -17,7 +17,7 @@ Start with [GUIDE.md](GUIDE.md), the setup and operations guide. It links to the
 | [metrics.md](metrics.md)                                 | JSON metrics, Signal K paths, Prometheus output, alerts                            |
 | [protocol-v3.md](protocol-v3.md)                         | How Basic (v1) and Advanced (v3) modes work                                        |
 | [bonding.md](bonding.md)                                 | Dual-link failover                                                                 |
-| [congestion-control.md](congestion-control.md)           | AIMD send-rate control and tuning                                                  |
+| [congestion-control.md](congestion-control.md)           | Send-rate control and tuning                                                       |
 | [performance-tuning.md](performance-tuning.md)           | Settings profiles by hardware and link type                                        |
 | [security.md](security.md)                               | Encryption, keys, deployment hardening                                             |
 | [troubleshooting.md](troubleshooting.md)                 | Symptoms and fixes, including relay chains                                         |

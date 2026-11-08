@@ -79,7 +79,7 @@ Cards marked _(v3)_ appear only for Advanced connections.
 | Operations & Monitoring | Network Quality _(v3)_     | ✓      | ✓      | Link Quality gauge, RTT, jitter, packet loss, retransmit rate, queue depth.                          |
 | Operations & Monitoring | Bandwidth Monitor _(v3)_   | ✓      | ✓      | Compression ratio, average packet size, throughput sparklines.                                       |
 | Operations & Monitoring | Path Analytics _(v3)_      | ✓      | ✓      | Active path count, categories, per-path table.                                                       |
-| Operations & Monitoring | Congestion Control _(v3)_  | ✓      | —      | AIMD state and current delta timer.                                                                  |
+| Operations & Monitoring | Congestion Control _(v3)_  | ✓      | —      | Controller state and current delta timer.                                                            |
 | Operations & Monitoring | Connection Bonding _(v3)_  | ✓      | —      | Shown when bonding is enabled: per-link status and a manual failover button.                         |
 | Operations & Monitoring | Fleet Sharing _(v3)_       | ✓      | ✓      | Shown once fleet sharing has started on the connection. See below.                                   |
 | Operations & Monitoring | Monitoring & Alerts _(v3)_ | ✓      | ✓      | Packet loss, retransmissions, alert thresholds. On a server, only when monitoring data is available. |
@@ -117,7 +117,7 @@ A relay runs two connections in one Signal K instance: a server that receives ho
 
 A healthy relay shows figures on both tabs. Figures on the client tab and `N/A` on the server tab mean hop 2 works and hop 1 has not reported yet; check the vessel upstream.
 
-Each connection publishes its Signal K paths under `networking.edgeLink.<instanceId>.*`, where the instance ID is the slug of the connection name; this keeps the relay's two connections apart. Path list: [metrics.md — Signal K Paths Published](metrics.md#signal-k-paths-published).
+Each connection publishes its Signal K paths under `networking.edgeLink.<instanceId>.*`, where the instance ID is the slug of the connection name (when two names give the same slug, later connections get `-1`, `-2`, … in configuration order); this keeps the relay's two connections apart. Path list: [metrics.md — Signal K Paths Published](metrics.md#signal-k-paths-published).
 
 ### Verifying a healthy link
 

@@ -12,7 +12,7 @@ The v3 protocol adds a binary packet header layer to the v1 (Basic) encryption/c
 - **CRC16 integrity checking** at the header level
 - **HMAC-SHA256 authentication** on all control packets
 - **ACK/NAK retransmission** for reliable delivery (target >99.9% at 5% loss; measured >99% in the Phase 7 tests)
-- **Dynamic congestion control** using AIMD algorithm
+- **Dynamic congestion control** of the send interval from RTT and packet loss
 - **Connection bonding** with automatic failover between primary/backup links
 - **Backward compatibility** with the v1 (Basic) protocol (auto-detection via magic bytes)
 
@@ -449,33 +449,9 @@ Client                          Server
 
 ## 8. Congestion Control
 
-The protocol implements an AIMD (Additive Increase, Multiplicative Decrease) algorithm to dynamically adjust the delta timer (send interval) based on network conditions.
+The client adjusts the delta timer (send interval) from measured RTT and packet loss. Every adjustment is a multiplication; there is no additive step. The current algorithm and its bands are described in [congestion-control.md](congestion-control.md#algorithm).
 
-### Algorithm
-
-The congestion controller evaluates network conditions every 5 seconds (configurable):
-
-1. **Additive increase**: When packet loss < 1% AND RTT < target RTT, decrease the timer by 5% (increase send rate)
-2. **Multiplicative decrease**: When packet loss > 5% OR RTT > 1.5× target RTT, increase the timer by 50% (decrease send rate)
-3. **Neutral**: No change when conditions are moderate
-
-### Smoothing
-
-Network metrics (RTT and packet loss) are smoothed using an Exponential Moving Average (EMA) with alpha = 0.2:
-
-```
-avgRTT = 0.2 × currentRTT + 0.8 × previousAvgRTT
-```
-
-### Bounds
-
-| Parameter               | Default  | Range             |
-| ----------------------- | -------- | ----------------- |
-| Minimum delta timer     | 100 ms   | 50 - 1,000 ms     |
-| Maximum delta timer     | 5,000 ms | 1,000 - 30,000 ms |
-| Target RTT              | 200 ms   | 50 - 2,000 ms     |
-| Adjustment interval     | 5,000 ms | -                 |
-| Max adjustment per step | 20%      | -                 |
+The adjustment interval, RTT and loss bands, smoothing and timer bounds are not part of the wire format. They are specified in [congestion-control.md](congestion-control.md#algorithm) and the defaults in [configuration-reference.md](configuration-reference.md#congestion-control-client-advancedv3-only).
 
 ### Manual Override
 
@@ -635,7 +611,7 @@ v1 (Basic) packets do not start with these magic bytes (they start with the rand
 | `src/transport/pipeline/factory.ts`                        | Pipeline selector (v1 or v3)                           |
 | `src/transport/pipeline/reliable-client.ts`                | Reliable client pipeline (send side)                   |
 | `src/transport/pipeline/reliable-server.ts`                | Reliable server pipeline (receive side)                |
-| `src/transport/congestion.ts`                              | CongestionControl with AIMD algorithm                  |
+| `src/transport/congestion.ts`                              | CongestionControl (delta timer adjustment)             |
 | `src/transport/bonding.ts`                                 | BondingManager with failover/failback                  |
 | `src/domain/monitoring/`                                   | PacketLossTracker, PathLatencyTracker, AlertManager    |
 | `src/domain/metrics/prometheus.ts`                         | Prometheus metrics exporter                            |

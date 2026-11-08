@@ -126,11 +126,13 @@ export class CongestionControl {
   }
 
   /**
-   * Perform AIMD adjustment of the delta timer.
+   * Adjust the delta timer multiplicatively, by band:
    *
-   * - Additive increase: when loss < 1% AND RTT < target, decrease timer by 5%
-   * - Multiplicative decrease: when loss > 5% OR RTT > 1.5x target, increase timer by 50%
-   * - Neutral: no change when conditions are moderate
+   * - Severe congestion (loss > high threshold OR RTT > 1.5x target): grow the timer
+   * - Healthy (loss < low threshold AND 0 < RTT < 0.8x target): move toward nominal
+   * - Otherwise: a weak ±2% pull toward nominal
+   *
+   * The result is clamped to maxAdjustment per step and to [min, max]DeltaTimer.
    *
    * @returns {number} The (potentially adjusted) delta timer value
    */

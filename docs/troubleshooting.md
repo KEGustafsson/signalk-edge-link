@@ -105,12 +105,14 @@ Control packets are accepted only from the configured peer address. The usual ca
 
 Enforcement is in the receiver:
 
-| Sender | Receiver | Result                                                               |
-| ------ | -------- | -------------------------------------------------------------------- |
-| off    | off      | Works, no epoch binding                                              |
-| on     | on       | Works, protected                                                     |
-| on     | off      | Works, but unprotected: enabling it on the sender alone does nothing |
-| off    | on       | Link carries nothing                                                 |
+| Sender | Receiver | Result                            |
+| ------ | -------- | --------------------------------- |
+| off    | off      | Works, no epoch binding           |
+| on     | on       | Works, protected                  |
+| on     | off      | This direction works, unprotected |
+| off    | on       | This direction carries nothing    |
+
+The server receives DATA; the client receives the server's ACK, NAK and other control packets. So client off, server on: the server refuses DATA. Client on, server off: DATA arrives, but the client refuses the server's unbound control packets (`stats.malformedPackets` rises, debug log `Failed to parse control packet`), so nothing is ACKed and RTT is not measured.
 
 In a relay chain each hop must agree on its own; the two hops need not match each other.
 
@@ -222,6 +224,7 @@ curl -s -H "$T" $H/bonding | jq .
 curl -s -H "$T" $H/monitoring/alerts | jq .
 curl -s -H "$T" $H/prometheus
 curl -s -X POST -H "$T" $H/capture/start
+# wait until the traffic you are diagnosing has passed, then export
 curl -s -H "$T" -o capture.pcap $H/capture/export
 ```
 

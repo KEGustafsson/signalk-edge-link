@@ -115,14 +115,16 @@ Requirements: off by default. Enable it on both ends, both running 4.0.0 or late
 
 Enforcement is in the receiver:
 
-| Sender | Receiver | Result                                                                                                                        |
-| ------ | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| off    | off      | Works. No epoch binding.                                                                                                      |
-| on     | on       | Works. Protected.                                                                                                             |
-| on     | off      | Works, but unprotected: the receiver still accepts unbound packets from anyone. Enabling it on the sender alone does nothing. |
-| off    | on       | Link carries nothing. The receiver refuses every DATA and METADATA packet.                                                    |
+| Sender | Receiver | Result                                                                                         |
+| ------ | -------- | ---------------------------------------------------------------------------------------------- |
+| off    | off      | Works. No epoch binding.                                                                       |
+| on     | on       | Works. Protected.                                                                              |
+| on     | off      | This direction works, but unprotected: the receiver still accepts unbound packets from anyone. |
+| off    | on       | This direction carries nothing. The receiver refuses every DATA and METADATA packet.           |
 
-The last row is counted in `stats.epochAuthMismatches` and logged as a configuration mismatch naming `epochBoundAuth`, not as an authentication failure. The receiver checks for the epoch flag before it verifies the HMAC tag, so a tampered or wrong-key packet without the flag is counted the same way; a rising count points to a configuration mismatch but does not prove one. See [troubleshooting.md](troubleshooting.md#epoch-bound-authentication-epochboundauth).
+Each end is a receiver: the server receives the client's DATA and METADATA, the client receives the server's ACK, NAK and other control packets. A mismatch therefore fails in both configurations. With the client off and the server on, the server refuses DATA. With the client on and the server off, the server accepts DATA, but the client refuses the server's unbound control packets (counted in `stats.malformedPackets` and logged at debug level as `Failed to parse control packet`), so nothing is ACKed and RTT is not measured.
+
+On the server, the last row is counted in `stats.epochAuthMismatches` and logged as a configuration mismatch naming `epochBoundAuth`, not as an authentication failure. The receiver checks for the epoch flag before it verifies the HMAC tag, so a tampered or wrong-key packet without the flag is counted the same way; a rising count points to a configuration mismatch but does not prove one. See [troubleshooting.md](troubleshooting.md#epoch-bound-authentication-epochboundauth).
 
 ### Fleet sharing (`fleetSharing`)
 
