@@ -6,25 +6,26 @@
 
 ## Authentication
 
-Management endpoints require a token when `managementApiToken` is configured in plugin settings:
+Management endpoints require a token when one is configured. Sources, highest precedence first:
 
-```bash
-# Via X-Edge-Link-Token header (recommended)
-curl -H "X-Edge-Link-Token: $TOKEN" http://localhost:3000/plugins/signalk-edge-link/status
-
-# Via Authorization Bearer header
-curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/plugins/signalk-edge-link/status
-```
-
-Set the token in plugin configuration or via environment variable:
+1. Environment variable `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`
+2. Plugin setting `managementApiToken`
 
 ```bash
 export SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN="your-long-random-token"
+
+# X-Edge-Link-Token header (recommended)
+curl -H "X-Edge-Link-Token: $TOKEN" http://localhost:3000/plugins/signalk-edge-link/status
+
+# Authorization: Bearer header
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/plugins/signalk-edge-link/status
 ```
 
-When `requireManagementApiToken: true` is set, management endpoints fail closed (HTTP 403) if no token is configured.
+`X-Management-Token` is accepted as a legacy header. Tokens are compared with a timing-safe SHA-256 digest comparison.
 
-Once a token is configured, every route requires it, including the read-only ones that dashboards and scrapers poll (`/metrics`, `/network-metrics`, `/prometheus`, `/status`, `/monitoring/*`). Update anything that polls the plugin, Prometheus scrape configs included; see [metrics.md](metrics.md).
+With no token configured, requests are allowed as open access. Setting `requireManagementApiToken: true` (or `SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN=true`) makes endpoints fail closed with HTTP 403 until a token is configured; an unrecognised value for either is treated as `true`. If the auth configuration cannot be read, requests are denied.
+
+Once a token is configured, every route requires it, including the read-only ones that dashboards and scrapers poll (`/metrics`, `/network-metrics`, `/prometheus`, `/status`, `/monitoring/*`). Update anything that polls the plugin, Prometheus scrape configs included; see [metrics.md](metrics.md#prometheus-scrape-configuration).
 
 ### HTTP error codes
 
@@ -35,17 +36,17 @@ Once a token is configured, every route requires it, including the read-only one
 | 429  | Rate limit exceeded (120 req/min/IP)                                  |
 | 503  | Plugin not started                                                    |
 
+Full list: [api-reference.md](api-reference.md#conventions).
+
 ---
 
 ## Web UI Token Injection
 
-Token sources checked in priority order:
+The web UI's `apiFetch` checks token sources in this order:
 
 1. `window.__EDGE_LINK_AUTH__.token` — server-side injection (preferred)
-2. URL query parameter `?edgeLinkToken=<token>` — **disabled by default.** Tokens in URLs leak via browser history, proxy logs and `Referer` headers, so `apiFetch` ignores this source unless `includeTokenInQuery` is explicitly turned on. Dev/debug only.
+2. URL query parameter `?edgeLinkToken=<token>` — **disabled by default.** Tokens in URLs leak via browser history, proxy logs and `Referer` headers, so this source is ignored unless `includeTokenInQuery: true` is set. Dev/debug only.
 3. `localStorage.getItem("signalkEdgeLinkManagementToken")`
-
-Override the injection object:
 
 ```javascript
 window.__EDGE_LINK_AUTH__ = {
@@ -54,54 +55,45 @@ window.__EDGE_LINK_AUTH__ = {
 };
 ```
 
+`headerMode` picks the headers sent: `both` (default), `authorization` (Bearer only) or `x-edge-link-token`. `queryParam` and `localStorageKey` override the query parameter and storage key names.
+
 ---
 
 ## CLI Tool
 
-The `edge-link-cli` tool (available as `npm run cli --`) provides command-line access to instance and bonding management.
+`edge-link-cli` (run as `npm run cli --`) wraps the instance, bonding and status endpoints. Common options:
 
-### Instance operations
+| Option                 | Default                                           |
+| ---------------------- | ------------------------------------------------- |
+| `--baseUrl=<url>`      | `http://localhost:3000/plugins/signalk-edge-link` |
+| `--token=<token>`      | `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`              |
+| `--format=json\|table` | `json` (list/show/status commands)                |
 
-```bash
-# List running instances
-npm run cli -- instances list --token=$TOKEN --state=running --format=table
-
-# Show one instance
-npm run cli -- instances show vessel-client --token=$TOKEN --format=table
-
-# Create from JSON file
-npm run cli -- instances create --config ./my-connection.json --token=$TOKEN
-
-# Update a field
-npm run cli -- instances update vessel-client \
-  --patch '{"udpAddress":"10.0.0.2"}' --token=$TOKEN
-
-# Delete
-npm run cli -- instances delete vessel-client --token=$TOKEN
-```
-
-### Bonding operations
+The CLI sends the token in both `X-Edge-Link-Token` and `Authorization: Bearer`, and warns on stderr when sending it over `http://` to a non-local host.
 
 ```bash
-# Bonding status
-npm run cli -- bonding status --token=$TOKEN --format=table
+# Instances (GET/POST/PUT/DELETE /instances)
+npm run cli -- instances list --state=running --limit=10 --page=1 --format=table
+npm run cli -- instances show vessel-client --format=table
+npm run cli -- instances create --config ./my-connection.json
+npm run cli -- instances update vessel-client --patch '{"udpAddress":"10.0.0.2"}'
+npm run cli -- instances delete vessel-client
 
-# Update bonding thresholds
-npm run cli -- bonding update --patch '{"failoverThreshold":300}' --token=$TOKEN
+# Bonding (GET/POST /bonding)
+npm run cli -- bonding status --format=table
+npm run cli -- bonding update --patch '{"rttThreshold":300}'
+
+# Aggregated status (GET /status)
+npm run cli -- status --format=table
 ```
 
-### Plugin status
-
-```bash
-# Overall plugin status
-npm run cli -- status --token=$TOKEN --format=table
-```
+`instances update` accepts only the fields listed for [`PUT /instances/:id`](api-reference.md#post-instances-put-instancesid-delete-instancesid); `bonding update` accepts `rttThreshold`, `lossThreshold`, `healthCheckInterval`, `failbackDelay` and `heartbeatTimeout`.
 
 ---
 
 ## Config Migration
 
-Convert a legacy flat-object config to the `connections[]` array format:
+Convert a legacy flat-object config to the `connections[]` array format. Without an output path the input file is overwritten.
 
 ```bash
 npm run migrate:config -- old-config.json new-config.json
@@ -111,17 +103,7 @@ npm run migrate:config -- old-config.json new-config.json
 
 ## Auth Telemetry
 
-`GET /status` and `GET /metrics` include a `managementAuth` block for auditing **only when a `managementApiToken` is configured** (omitted in open-access mode):
-
-| Field      | Description                                                     |
-| ---------- | --------------------------------------------------------------- |
-| `total`    | Total management auth decisions since route registration        |
-| `allowed`  | Decisions that allowed the request                              |
-| `denied`   | Decisions that rejected the request                             |
-| `byReason` | Counts by reason: `open_access`, `valid_token`, `invalid_token` |
-| `byAction` | Counts by route action: `status.read`, `metrics.read`, etc.     |
-
-Intentionally excluded: token values, transport secrets, client addresses, user agents, raw request paths.
+`GET /status` and `GET /metrics` include a `managementAuth` block **only when a `managementApiToken` is configured**. Fields, reasons and the Prometheus series: [metrics.md](metrics.md#management-api-auth-telemetry).
 
 ---
 

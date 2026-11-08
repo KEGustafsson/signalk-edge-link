@@ -6,121 +6,127 @@
 
 ---
 
-## Core Data Endpoints
+## Conventions
 
-> **Multi-instance note:** the top-level JSON endpoints below (`/metrics`,
-> `/network-metrics`, the `/monitoring/*` and `/capture` routes, etc.) report the
-> **first instance** only — they are legacy/single-instance views. `/prometheus`
-> aggregates across all instances. For multi-instance deployments use the
-> per-connection endpoints under [`/connections/:id/...`](#per-connection-endpoints).
+Every route goes through the management-auth check. It requires a token once `managementApiToken` (or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) is set, or when `requireManagementApiToken` is on; otherwise requests pass as open access. Token headers and setup: [management-tools.md](management-tools.md#authentication).
+
+The top-level JSON endpoints (`/metrics`, `/network-metrics`, `/monitoring/*`, `/capture*`) report the **first instance** only. Client-only singleton routes (`/config/:filename`, `/congestion`, `/delta-timer`, `/bonding/failover`) use the first **client** instance. `/prometheus`, `/status`, `/bonding`, `/connections` and `/instances` cover all instances. For one connection in a multi-instance setup use [`/connections/:id/...`](#per-connection-endpoints).
+
+Errors are JSON `{ "error": "<message>" }` (config routes add `"success": false`).
+
+| Code | When                                                                                                                                                                                         |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | Validation failure                                                                                                                                                                           |
+| 401  | Missing or invalid token: `Unauthorized management API request`                                                                                                                              |
+| 403  | Token required but none configured (`requireManagementApiToken: true`); or a bodyless POST with `Sec-Fetch-Site` other than `same-origin`/`same-site`/`none`                                 |
+| 404  | Instance/connection not found; `Not available in server mode` on client-only routes when no client instance exists                                                                           |
+| 415  | JSON POST/PUT without `Content-Type: application/json`; bodyless POST (`/capture/start`, `/capture/stop`, `/bonding/failover`, `/connections/:id/bonding/failover`) with a form content type |
+| 429  | Rate limit exceeded: `Too many requests, please try again later`                                                                                                                             |
+| 500  | Handler error                                                                                                                                                                                |
+| 503  | `Plugin not started`, or the subsystem the route needs is not initialized                                                                                                                    |
+
+### Endpoint index
+
+The auth action is the `action` label in `managementAuth.byAction` and `signalk_edge_link_management_auth_requests_total`.
+
+| Method | Path                          | Auth action                            | Mode   |
+| ------ | ----------------------------- | -------------------------------------- | ------ |
+| GET    | `/metrics`                    | `metrics.read`                         | Both   |
+| GET    | `/network-metrics`            | `network-metrics.read`                 | Both   |
+| GET    | `/prometheus`                 | `prometheus.read`                      | Both   |
+| GET    | `/sources`                    | `sources.read`                         | Both   |
+| GET    | `/paths`                      | `paths.read`                           | Both   |
+| GET    | `/config/:filename`           | `config-file.read`                     | Client |
+| POST   | `/config/:filename`           | `config-file.update`                   | Client |
+| GET    | `/plugin-config`              | `config.read`                          | Both   |
+| POST   | `/plugin-config`              | `config.update`                        | Both   |
+| GET    | `/plugin-schema`              | `plugin-schema.read`                   | Both   |
+| GET    | `/congestion`                 | `congestion.read`                      | Client |
+| POST   | `/delta-timer`                | `delta-timer.update`                   | Client |
+| GET    | `/bonding`                    | `bonding.read`                         | Both   |
+| POST   | `/bonding`                    | `bonding.update`                       | Both   |
+| POST   | `/bonding/failover`           | `bonding.failover`                     | Client |
+| GET    | `/monitoring/packet-loss`     | `monitoring.read`                      | Both   |
+| GET    | `/monitoring/path-latency`    | `monitoring.read`                      | Both   |
+| GET    | `/monitoring/retransmissions` | `monitoring.read`                      | Both   |
+| GET    | `/monitoring/alerts`          | `monitoring.alerts.read`               | Both   |
+| POST   | `/monitoring/alerts`          | `monitoring.alerts.update`             | Both   |
+| GET    | `/monitoring/inspector`       | `monitoring.inspector.read`            | Both   |
+| GET    | `/monitoring/simulation`      | `monitoring.simulation.read`           | Both   |
+| GET    | `/capture`                    | `capture.read`                         | Both   |
+| POST   | `/capture/start`              | `capture.update`                       | Both   |
+| POST   | `/capture/stop`               | `capture.update`                       | Both   |
+| GET    | `/capture/export`             | `capture.export`                       | Both   |
+| GET    | `/status`                     | `status.read`                          | Both   |
+| GET    | `/connections`                | `connections.list`                     | Both   |
+| GET    | `/instances`                  | `instances.list`                       | Both   |
+| GET    | `/instances/:id`              | `instances.show`                       | Both   |
+| POST   | `/instances`                  | `instances.create`                     | Both   |
+| PUT    | `/instances/:id`              | `instances.update`                     | Both   |
+| DELETE | `/instances/:id`              | `instances.delete`                     | Both   |
+| \*     | `/connections/:id/...`        | see [below](#per-connection-endpoints) |        |
+
+---
+
+## Core Data Endpoints
 
 ### GET /metrics
 
-Returns comprehensive real-time statistics. Available in client and server mode.
+Full statistics for the first instance. Top-level keys:
+
+| Key                 | Content                                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `uptime`            | `milliseconds`, `seconds`, `formatted` (`"1h 0m 0s"`)                                                       |
+| `mode`              | `"client"` or `"server"`                                                                                    |
+| `protocolVersion`   | Configured protocol version (default 1)                                                                     |
+| `stats`             | Counters and `errorCounts` — [metrics.md](metrics.md#core-transport-metrics)                                |
+| `status`            | `readyToSend`, `deltasBuffered`                                                                             |
+| `bandwidth`         | Byte/packet counters, rates, `*Formatted` strings, metadata counters, `history` (last 30 samples)           |
+| `pathStats`         | Top 50 paths by bytes, each with `percentage`                                                               |
+| `pathCategories`    | Path category definitions                                                                                   |
+| `smartBatching`     | Batching counters; `null` in server mode — [metrics.md](metrics.md#smart-batching-metrics)                  |
+| `networkQuality`    | Link quality — [metrics.md](metrics.md#link-quality-metrics); server adds `lastRemoteUpdate`                |
+| `recentErrors`      | Last 10 `{ category, message, timestamp }`                                                                  |
+| `lastError`         | `{ message, timestamp, timeAgo }` or `null`                                                                 |
+| `sourceReplication` | `{ metrics: { upserts, noops, missingIdentity, conflicts }, registry: null }`, or `null` without a registry |
+| `fleet`             | Fleet counters once fleet sharing has started, else `null` — [metrics.md](metrics.md#fleet-sharing-metrics) |
+| `managementAuth`    | Only when a management token is configured — [metrics.md](metrics.md#management-api-auth-telemetry)         |
 
 ```json
 {
-  "uptime": { "milliseconds": 3600000, "formatted": "1h 0m 0s" },
+  "uptime": { "milliseconds": 3600000, "seconds": 3600, "formatted": "1h 0m 0s" },
   "mode": "client",
-  "stats": {
-    "deltasSent": 12345,
-    "deltasReceived": 0,
-    "udpSendErrors": 0,
-    "udpRetries": 0,
-    "compressionErrors": 0,
-    "encryptionErrors": 0,
-    "subscriptionErrors": 0,
-    "duplicatePackets": 0,
-    "malformedPackets": 0,
-    "dataPacketsReceived": 0,
-    "rateLimitedPackets": 0,
-    "droppedDeltaBatches": 0,
-    "droppedDeltaCount": 0,
-    "abandonedSequences": 0,
-    "packetsAbandoned": 0,
-    "rejectedControlPackets": 0,
-    "replayedPackets": 0,
-    "epochAuthMismatches": 0,
-    "epochAuthPending": 0,
-    "fullStatusCascadeFired": 0,
-    "snapshotReplayDeltas": 0,
-    "processDeltaCalls": 0,
-    "deltasBufferHighWaterMark": 0,
-    "suppressedOutboundDuplicates": 0,
-    "errorCounts": {}
-  },
+  "protocolVersion": 3,
+  "stats": { "deltasSent": 12345, "encryptionErrors": 0, "errorCounts": { "udpSend": 0 } },
   "status": { "readyToSend": true, "deltasBuffered": 5 },
   "bandwidth": {
     "bytesOut": 524288,
     "bytesOutRaw": 10485760,
-    "packetsOut": 1234,
-    "rateOut": 145.6,
-    "compressionRatio": 95.0,
-    "avgPacketSize": 425,
-    "history": []
+    "rateOut": 145,
+    "compressionRatio": 95
   },
-  "smartBatching": {
-    "earlySends": 50,
-    "timerSends": 1184,
-    "oversizedPackets": 0,
-    "avgBytesPerDelta": 180,
-    "maxDeltasPerBatch": 6
-  },
-  "networkQuality": {
-    "rtt": 45,
-    "jitter": 12,
-    "retransmissions": 3,
-    "queueDepth": 0,
-    "acksSent": 0,
-    "naksSent": 0,
-    "linkQuality": 92
-  },
-  "sourceReplication": {
-    "metrics": { "upserts": 42, "noops": 101, "missingIdentity": 2, "conflicts": 7 }
-  },
-  "managementAuth": {
-    "total": 42,
-    "allowed": 40,
-    "denied": 2,
-    "byReason": { "open_access": 10, "valid_token": 30, "invalid_token": 2 }
-  }
+  "smartBatching": { "earlySends": 50, "timerSends": 1184, "maxDeltasPerBatch": 6 },
+  "networkQuality": { "rtt": 45, "jitter": 12, "linkQuality": 92, "dataSource": "local" },
+  "fleet": null
 }
 ```
 
-> The `managementAuth` block is present **only when a `managementApiToken` is
-> configured**. In open-access mode it is omitted from `/status` and `/metrics`,
-> and the equivalent management-auth metrics are omitted from `/prometheus`.
-
-> A `fleet` object is present once fleet sharing has started on the connection
-> (v3, `fleetSharing.enabled`), and `null` otherwise. Its fields are listed in
-> [metrics.md — Fleet Sharing Metrics](metrics.md#fleet-sharing-metrics).
-> `GET /connections/:id/metrics` returns the same shape for one connection.
+`GET /connections/:id/metrics` returns the same shape for one connection.
 
 ### GET /network-metrics
 
-Current network quality. Available in client and server mode.
+`networkQuality` for the first instance plus `timestamp`: `rtt`, `jitter`, `packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate`, `acksSent`, `naksSent`, `activeLink`, `dataSource` (`"local"` or `"remote-client"`), `linkQuality`, and on a server `lastRemoteUpdate`.
 
-```json
-{
-  "rtt": 45,
-  "jitter": 12,
-  "retransmissions": 3,
-  "queueDepth": 0,
-  "acksSent": 0,
-  "naksSent": 0,
-  "linkQuality": 92,
-  "timestamp": 1707321234567
-}
-```
+`rtt`, `jitter` and `linkQuality` are **absent**, not zero, until the link has been measured (a client's first timed ACK; on a server, client telemetry carrying an RTT). The same gate applies to `networkQuality` in `/metrics` and to the `signalk_edge_link_rtt_milliseconds`, `signalk_edge_link_jitter_milliseconds` and `signalk_edge_link_link_quality_score` series in `/prometheus`. Other fields may also be absent; see [metrics.md](metrics.md#link-quality-metrics).
 
 ### GET /sources
 
-Server source-replication entries. Auth required (`sources.read`).
+Server source-replication registry. Uses the first server instance with a registry, else the first instance; without a registry it returns `{ "schemaVersion": 1, "size": 0, "sources": [], "legacy": { "byLabel": {}, "bySourceRef": {} } }`. Field definitions: [metrics.md](metrics.md#source-replication-metrics).
 
 ```json
 {
   "schemaVersion": 1,
-  "size": 2,
+  "size": 1,
   "sources": [
     {
       "identity": { "label": "N2K depth", "type": "NMEA2000" },
@@ -135,62 +141,36 @@ Server source-replication entries. Auth required (`sources.read`).
 
 ### GET /paths
 
-Signal K path dictionary with categorized paths.
-
-```json
-{
-  "total": 172,
-  "categories": {
-    "navigation": { "paths": ["navigation.position", "..."] },
-    "environment": { "paths": ["environment.wind.speedApparent", "..."] }
-  }
-}
-```
+Path dictionary: `{ "total": 172, "categories": { "navigation": { "prefix": "navigation", "paths": ["navigation.position", "..."] } } }`.
 
 ---
 
 ## Configuration Endpoints
 
-### GET /config/:filename
-
-Read a runtime config file. Valid filenames: `delta_timer.json`, `subscription.json`, `sentence_filter.json`. Client mode only.
-
-### POST /config/:filename
-
-Update a runtime config file. Changes take effect immediately via hot-reload. Client mode only. Body: JSON. Returns `200` on success.
-
-### GET /plugin-config
-
-Read current plugin configuration. `secretKey` values are redacted as `[redacted]`.
-
-```json
-{
-  "success": true,
-  "configuration": {
-    "connections": [
-      { "name": "shore-server", "serverType": "server", "udpPort": 4446, "secretKey": "[redacted]" }
-    ]
-  }
-}
-```
+| Endpoint                 | Behavior                                                                                                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /config/:filename`  | Read `delta_timer.json`, `subscription.json` or `sentence_filter.json`. Other names → `400 Invalid filename`. `503 Plugin not fully initialized` before the files exist. |
+| `POST /config/:filename` | Write one of those files (JSON body, validated per file); hot-reloaded. Returns `{ "success": true }`.                                                                   |
+| `GET /plugin-config`     | `{ "success": true, "configuration": {...} }` with every `secretKey` and `managementApiToken` replaced by `[redacted]`.                                                  |
+| `POST /plugin-config`    | Replace the whole plugin configuration (see below).                                                                                                                      |
+| `GET /plugin-schema`     | `{ "schema": <RJSF schema>, "currentMode": "client" \| "server" \| "unknown" }`.                                                                                         |
 
 ### POST /plugin-config
 
-Update plugin configuration. Triggers a plugin restart to apply changes.
+Body: `{ "connections": [...] }` (at least one entry) or a single legacy connection object with top-level `serverType`. Each connection is validated (`serverType`, `udpPort`, `secretKey`; client also `udpAddress`) and server ports must be unique. A connection without `connectionId` gets one generated.
 
-Required per connection: `serverType`, `udpPort`, `secretKey`.  
-Additional required for client mode: `udpAddress`.  
-Submitting `[redacted]` for `secretKey` keeps the stored secret unchanged.
+| Field                       | Handling                                                                                                   |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `secretKey: "[redacted]"`   | Keeps the stored key, matched by `connectionId` or name/serverType/udpPort; `400` if no stored key matches |
+| `managementApiToken`        | Omitted or `[redacted]` keeps the stored token; a non-empty string replaces it; `""` clears it             |
+| `requireManagementApiToken` | Kept from stored config unless a boolean is sent                                                           |
+| `schemaVersion`             | Integer from 1 to the current version, else `400`; omitted keeps the stored value                          |
 
 ```json
 { "success": true, "message": "Configuration saved. Plugin restarting...", "restarting": true }
 ```
 
-**Errors:** `400` validation failure, `503` restart handler unavailable.
-
-### GET /plugin-schema
-
-Returns the RJSF-compatible JSON schema for the plugin configuration UI.
+Without a restart handler the config is saved and the response is `"Configuration saved. Restart plugin to apply changes."` with `"restarting": false`. With neither handler: `503`. Save failure: `500 Failed to save configuration`.
 
 ---
 
@@ -198,99 +178,51 @@ Returns the RJSF-compatible JSON schema for the plugin configuration UI.
 
 ### GET /congestion
 
-Current congestion control state. Client mode only. See [congestion-control.md](congestion-control.md) for field descriptions.
+Congestion-control state of the first client instance. Fields: [congestion-control.md](congestion-control.md).
 
 ### POST /delta-timer
 
-Manually set or clear the delta timer. Client mode only.
+Set the delta timer manually (`value`, 100–10000 ms) or return to automatic control.
 
 ```json
 { "value": 500 }
 ```
 
-Value: 100–10000 ms. Re-enable auto mode: `{ "mode": "auto" }`.
-
-Response: `{ "deltaTimer": 500, "mode": "manual" }`
+Response: `{ "deltaTimer": 500, "mode": "manual" }`. `{ "mode": "auto" }` returns `{ "deltaTimer": <current>, "mode": "auto" }`. A non-number `value` or one outside the range returns `400`.
 
 ---
 
 ## Bonding Endpoints
 
-### GET /bonding
+| Endpoint                 | Behavior                                                                                                                                                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /bonding`           | `{ totalInstances, bondingEnabledInstances, instances: [{ id, name, enabled, state }] }`; `state` is the bonding state ([bonding.md](bonding.md#monitoring-and-manual-control)) or `null`.                                                         |
+| `POST /bonding`          | Update failover thresholds on every bonding-enabled instance. Keys: `rttThreshold`, `lossThreshold`, `healthCheckInterval`, `failbackDelay`, `heartbeatTimeout` (non-negative numbers). Other keys or values → `400`; no bonding instance → `503`. |
+| `POST /bonding/failover` | Toggle primary ↔ backup on the first client instance. No body. `503` when bonding is not enabled.                                                                                                                                                  |
 
-Current bonding state including per-link health. Client mode only (when bonding enabled). See [bonding.md](bonding.md#monitoring-and-manual-control) for full response shape.
+`POST /bonding` response: `{ "success": true, "updated": { "rttThreshold": 300 }, "instances": [{ "id": "...", "thresholds": {...} }] }`.
 
-### POST /bonding/failover
-
-Manually trigger failover (toggle primary ↔ backup). Client mode only.
+`POST /bonding/failover` response:
 
 ```json
-{ "success": true, "activeLink": "backup" }
+{ "success": true, "activeLink": "backup", "links": { "primary": {}, "backup": {} } }
 ```
-
-### POST /bonding
-
-Update failover threshold settings across all bonding-enabled instances. Unsupported keys or out-of-range values return `400`.
 
 ---
 
 ## Monitoring Endpoints
 
-### GET /monitoring/packet-loss
+| Endpoint                          | Query                                 | Response                                                                                                                                                                               |
+| --------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /monitoring/packet-loss`     | —                                     | `heatmap[]` of `{ timestamp, total, lost, lossRate }` (5 s buckets, 60 buckets = 5 min); `summary` with `overallLossRate`, `maxLossRate`, `trend` (`stable`, `improving`, `worsening`) |
+| `GET /monitoring/path-latency`    | `limit` (default 20, 1–1000)          | `paths[]` of `{ path, sampleCount, avg, p50, p95, p99, lastUpdate }`                                                                                                                   |
+| `GET /monitoring/retransmissions` | `limit` (1–1000; default all history) | `chartData[]` of `{ timestamp, rate, retransmitsPerSec, periodPackets, periodRetransmissions }`; `summary` with `avgRate`, `maxRate`, `currentRate`                                    |
+| `GET /monitoring/alerts`          | —                                     | `thresholds` and `activeAlerts` (example below)                                                                                                                                        |
+| `POST /monitoring/alerts`         | —                                     | Update one threshold (below)                                                                                                                                                           |
+| `GET /monitoring/inspector`       | —                                     | `{ enabled, packetsInspected, clientsConnected }`. A JSON snapshot; there is no WebSocket/live-stream endpoint.                                                                        |
+| `GET /monitoring/simulation`      | —                                     | Always `{ "enabled": false }`; network simulation is a test-harness facility with no runtime toggle.                                                                                   |
 
-Packet loss heatmap (5-second buckets, 60 buckets = 5 minutes).
-
-```json
-{
-  "heatmap": [{ "timestamp": 1707321230000, "total": 100, "lost": 2, "lossRate": 0.02 }],
-  "summary": { "overallLossRate": 0.01, "maxLossRate": 0.05, "trend": "stable" }
-}
-```
-
-Trend values: `"stable"`, `"improving"`, `"worsening"`.
-
-### GET /monitoring/path-latency
-
-Per-path latency with percentile statistics. Query param: `limit` (default 20).
-
-```json
-{
-  "paths": [
-    {
-      "path": "navigation.position",
-      "sampleCount": 50,
-      "avg": 1.23,
-      "p50": 1.1,
-      "p95": 3.2,
-      "p99": 4.8,
-      "lastUpdate": 1707321234567
-    }
-  ]
-}
-```
-
-### GET /monitoring/retransmissions
-
-Retransmission rate time series. Query param: `limit`.
-
-```json
-{
-  "chartData": [
-    {
-      "timestamp": 1707321230000,
-      "rate": 0.02,
-      "retransmitsPerSec": 1.5,
-      "periodPackets": 100,
-      "periodRetransmissions": 2
-    }
-  ],
-  "summary": { "avgRate": 0.015, "maxRate": 0.05, "currentRate": 0.02 }
-}
-```
-
-### GET /monitoring/alerts
-
-Current alert thresholds and any active alerts.
+Monitoring trackers, alerts and packet capture exist only on v2/v3 client instances. Elsewhere the read routes return empty data (`heatmap: []`, `paths: []`, `chartData: []`, `thresholds: {}`) rather than an error.
 
 ```json
 {
@@ -306,70 +238,38 @@ Current alert thresholds and any active alerts.
 
 ### POST /monitoring/alerts
 
-Update alert thresholds. Changes take effect immediately; persisted to plugin options within 1 second.
-
 ```json
 { "metric": "rtt", "warning": 200, "critical": 600 }
 ```
 
-Alert cooldown is 60 seconds. Notifications fire at `notifications.signalk-edge-link.<instanceId>.<metric>`.
-
-### GET /monitoring/inspector
-
-Returns packet-inspector statistics (a plain JSON snapshot from a `GET`; there is no WebSocket/live-stream endpoint).
-
-```json
-{ "enabled": true, "packetsInspected": 5000, "clientsConnected": 1 }
-```
-
-### GET /monitoring/simulation
-
-Reports whether network simulation (artificial loss/latency injection) is
-active. Simulation is a test-harness facility with no runtime toggle, so on a
-normal deployment this always returns `{ "enabled": false }`.
-
-```json
-{ "enabled": false }
-```
-
-### GET /prometheus
-
-Prometheus text format. Behind the same management-auth check as every other
-route, which requires a bearer token whenever one is configured (or
-`requireManagementApiToken` is enabled) and otherwise allows the scrape through.
-See [metrics.md](metrics.md#prometheus-scrape-configuration) for the scrape
-config and the full metric list.
+`metric` must be one of `rtt`, `packetLoss`, `retransmitRate`, `jitter`, `queueDepth`. At least one of `warning`/`critical` (finite numbers) is required, and the effective `warning` must not exceed `critical`. Response: `{ "success": true, "thresholds": {...} }`. The change applies immediately and is persisted to plugin options within 1 second. Default thresholds, cooldown and notification paths: [metrics.md](metrics.md#alerts).
 
 ---
 
 ## Packet Capture Endpoints
 
-### POST /capture/start / POST /capture/stop
+| Endpoint                                     | Behavior                                                                                                                                          |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /capture/start` / `POST /capture/stop` | No body. Returns `{ "success": true, "enabled": true \| false }`. Circular buffer of at most 1000 packets.                                        |
+| `GET /capture`                               | `{ "enabled": true, "captured": 500, "dropped": 0, "buffered": 500, "maxPackets": 1000 }`                                                         |
+| `GET /capture/export`                        | `.pcap` download (`application/vnd.tcpdump.pcap`, libpcap, link type DLT_USER0 = 147), filename `edge-link-capture-<ms>.pcap`. Open in Wireshark. |
 
-Start or stop packet capture. Packets stored in circular buffer (max 1000 packets).
-
-### GET /capture
-
-Capture statistics: `{ "enabled": true, "captured": 500, "dropped": 0, "buffered": 500 }`
-
-### GET /capture/export
-
-Export as `.pcap` file (libpcap format, DLT_USER0 link type). Open in Wireshark.
+Start, stop and export return `503 Packet capture not initialized` when capture is unavailable.
 
 ---
 
 ## Status and Instance Management Endpoints
 
-Auth behavior: if `managementApiToken` is configured, a valid token must be provided. Headers accepted: `X-Edge-Link-Token`, `Authorization: Bearer`, `X-Management-Token` (legacy). Returns `401` on invalid token, `403` when token is required but not configured.
+Token headers accepted: `X-Edge-Link-Token`, `Authorization: Bearer`, `X-Management-Token` (legacy).
 
 ### GET /status
 
-Aggregated health summary across all running instances.
+Health summary across all instances. `healthy` is false when `status` matches `error`, `fail` or `stopped`. `recentErrors` holds the last 5 entries.
 
 ```json
 {
   "healthyInstances": 1,
-  "totalInstances": 2,
+  "totalInstances": 1,
   "instances": [
     {
       "id": "shore-server",
@@ -377,7 +277,8 @@ Aggregated health summary across all running instances.
       "healthy": true,
       "status": "Server listening on port 4446",
       "lastError": null,
-      "errorCounts": { "udpSendErrors": 0 },
+      "lastErrorTime": null,
+      "errorCounts": { "udpSend": 0, "encryption": 0 },
       "recentErrors": []
     }
   ],
@@ -385,135 +286,69 @@ Aggregated health summary across all running instances.
 }
 ```
 
-**Errors:** `401` unauthorized, `403` token required but not configured (`requireManagementApiToken: true`), `503` when plugin not started.
-
-### GET /instances
-
-Lists instance records with optional state filtering and pagination.
-
-Query params: `state` (e.g., `running`), `limit`, `page`.
-
-Without `limit`: returns a plain array. With `limit`: returns `{ items, pagination }`.
-
-```json
-[
-  {
-    "id": "shore-server",
-    "name": "Shore Server",
-    "protocolVersion": 3,
-    "state": "Ready",
-    "currentLink": "primary",
-    "metrics": { "deltasSent": 1234, "deltasReceived": 0, "udpSendErrors": 0 }
-  }
-]
-```
-
-**Errors:** `400` invalid pagination values, `401` unauthorized.
-
-### GET /instances/:id
-
-Detailed runtime, network, bonding, metrics, and config view for one instance.
-
-```json
-{
-  "id": "shore-server",
-  "name": "Shore Server",
-  "mode": "server",
-  "protocolVersion": 3,
-  "state": "Server listening on port 4446",
-  "readyToSend": true,
-  "currentLink": "primary",
-  "network": { "rtt": 42, "jitter": 6, "packetLoss": 0 },
-  "metrics": { "deltasSent": 1234, "deltasReceived": 0 },
-  "bonding": { "enabled": false },
-  "config": {
-    "name": "Shore Server",
-    "serverType": "server",
-    "udpPort": 4446,
-    "secretKey": "[redacted]"
-  }
-}
-```
-
-`network.rtt`, `network.jitter` and `linkQuality` appear only once the link has
-actually been measured — a client's first timed ACK, or a server's first client
-telemetry. Before that they are **absent**, not zero. Treat a missing field as
-"no data" rather than a 0 ms round trip or a perfect link.
-
-The same gate applies everywhere these values are exposed: `networkQuality` in
-`GET /metrics`, `GET /network-metrics`, and the
-`signalk_edge_link_rtt_milliseconds`, `signalk_edge_link_jitter_milliseconds`
-and `signalk_edge_link_link_quality_score` series in `GET /prometheus` — all of
-which omit the field or the whole time-series until there is a measurement
-behind it.
-
-**Errors:** `401` unauthorized, `404` instance not found.
-
-### POST /instances
-
-Create a new instance. Triggers a plugin restart. Returns `201` on success.
-
-Required fields: `name`, `serverType`, `udpPort`, `secretKey`.  
-Additional required for client: `udpAddress`.
-
-**Errors:** `400` validation failure, `401` unauthorized, `503` restart handler unavailable.
-
-### PUT /instances/:id
-
-Patch one instance configuration. Triggers a plugin restart. Returns `200` on success.
-
-Updatable: `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`, `udpAddress`, `helloMessageSender`, `reliability`, `congestionControl`, `bonding`, `alertThresholds`.
-
-**Not updatable via this endpoint:** `serverType`, `udpPort`, `secretKey`. Any other field (including `testAddress`, `testPort`, and `pingIntervalTime`) is rejected with `400`; change those by replacing the full configuration via `POST /plugin-config`.
-
-**Errors:** `400` (unsupported field, validation), `401`, `404`, `503`.
-
-### DELETE /instances/:id
-
-Delete an instance. Triggers a plugin restart.
-
-**Errors:** `400` if this would leave zero configured instances, `401`, `404`, `503`.
+`managementAuth` is present only when a token is configured. `errorCounts` keys: [metrics.md](metrics.md#error-categories).
 
 ### GET /connections
 
-List all active connections with status.
+All instances: `[{ id, name, type, port, protocolVersion, status, healthy, readyToSend }]`, `type` being `"client"` or `"server"`.
+
+### GET /instances
+
+Query: `state` (case-insensitive match on the status string), `limit`, `page` (positive integers, else `400`). Without `limit` the response is a plain array; with `limit` it is `{ items, pagination: { page, limit, total, totalPages } }`.
 
 ```json
 [
   {
     "id": "shore-server",
     "name": "Shore Server",
-    "type": "server",
-    "port": 4446,
     "protocolVersion": 3,
-    "status": "Server listening on port 4446",
-    "healthy": true
+    "state": "Server listening on port 4446",
+    "currentLink": "primary",
+    "metrics": {
+      "deltasSent": 0,
+      "deltasReceived": 1234,
+      "udpSendErrors": 0,
+      "duplicatePackets": 0
+    }
   }
 ]
 ```
+
+### GET /instances/:id
+
+One instance: `id`, `name`, `mode`, `protocolVersion`, `state`, `readyToSend`, `currentLink`, `network` (`rtt`, `jitter`, `packetLoss`, `retransmissions`, `queueDepth`, `dataSource`), `metrics` (as in `/instances`), `bonding` (bonding state, or `{ "enabled": false }`), and `config` with `secretKey` and `managementApiToken` shown as `[redacted]`. `404` if the id is unknown.
+
+`network` here is not gated on a measurement: a client reports `rtt: 0` and `jitter: 0` until its first timed ACK, and a server omits them without fresh client telemetry. Use `/network-metrics` for the gated values.
+
+### POST /instances, PUT /instances/:id, DELETE /instances/:id
+
+Each change rewrites `connections[]` and restarts the plugin. Success: `{ "success": true }` (`201` for POST, `200` otherwise).
+
+| Endpoint                | Rules                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /instances`       | Full connection object; `name` required, plus `serverType`, `udpPort`, `secretKey` (client: `udpAddress`). Server ports must be unique.                                                                                                                                                                                                                                                       |
+| `PUT /instances/:id`    | Patch with at least one of `name`, `protocolVersion`, `useMsgpack`, `usePathDictionary`, `enableNotifications`, `udpAddress`, `helloMessageSender`, `reliability`, `congestionControl`, `bonding`, `alertThresholds`. `serverType`, `udpPort`, `secretKey` and any other field (including `testAddress`, `testPort`, `pingIntervalTime`) → `400`; change those through `POST /plugin-config`. |
+| `DELETE /instances/:id` | `400 At least one instance must remain configured` when deleting the last instance.                                                                                                                                                                                                                                                                                                           |
+
+Errors: `400` validation, `404` unknown id, `503 Runtime restart handler unavailable`, `500 Internal server error` (detail is logged, not returned).
 
 ---
 
 ## Per-Connection Endpoints
 
-These mirror the global endpoints but are scoped to a specific connection. `:id` is the slugified connection name (e.g., `shore-server`).
+Scoped to one connection. `:id` is the slugified connection name (e.g. `shore-server`); an unknown id returns `404 Connection '<id>' not found`, and client-only routes return `404 Not available in server mode` for a server connection.
 
-| Endpoint                                          | Auth                          | Available in |
-| ------------------------------------------------- | ----------------------------- | ------------ |
-| `GET /connections/:id/metrics`                    | `connection-monitoring.read`  | Both         |
-| `GET /connections/:id/network-metrics`            | `connection-monitoring.read`  | Both         |
-| `GET /connections/:id/bonding`                    | `connection-bonding.read`     | Client only  |
-| `GET /connections/:id/congestion`                 | `connection-monitoring.read`  | Client only  |
-| `GET /connections/:id/monitoring/alerts`          | `connection-monitoring.read`  | Both         |
-| `GET /connections/:id/monitoring/packet-loss`     | `connection-monitoring.read`  | Both         |
-| `GET /connections/:id/monitoring/retransmissions` | `connection-monitoring.read`  | Both         |
-| `GET /connections/:id/config/:filename`           | `connection-config.read`      | Client only  |
-| `POST /connections/:id/config/:filename`          | `connection-config.update`    | Client only  |
-| `POST /connections/:id/bonding/failover`          | `connection-bonding.failover` | Client only  |
+| Endpoint                                          | Auth action                   | Mode   | Response                                                                                               |
+| ------------------------------------------------- | ----------------------------- | ------ | ------------------------------------------------------------------------------------------------------ |
+| `GET /connections/:id/metrics`                    | `connection-monitoring.read`  | Both   | Same as `GET /metrics` (without `managementAuth`)                                                      |
+| `GET /connections/:id/network-metrics`            | `connection-monitoring.read`  | Both   | Differs from `/network-metrics`, see below                                                             |
+| `GET /connections/:id/bonding`                    | `connection-bonding.read`     | Client | Bonding state, or `{ "enabled": false }`                                                               |
+| `GET /connections/:id/congestion`                 | `connection-monitoring.read`  | Client | Same as `GET /congestion`                                                                              |
+| `GET /connections/:id/monitoring/alerts`          | `connection-monitoring.read`  | Both   | Same as `GET /monitoring/alerts`                                                                       |
+| `GET /connections/:id/monitoring/packet-loss`     | `connection-monitoring.read`  | Both   | Same as `GET /monitoring/packet-loss`                                                                  |
+| `GET /connections/:id/monitoring/retransmissions` | `connection-monitoring.read`  | Both   | Same as `GET /monitoring/retransmissions` (same `limit`)                                               |
+| `GET /connections/:id/config/:filename`           | `connection-config.read`      | Client | Same as `GET /config/:filename`                                                                        |
+| `POST /connections/:id/config/:filename`          | `connection-config.update`    | Client | Same as `POST /config/:filename`                                                                       |
+| `POST /connections/:id/bonding/failover`          | `connection-bonding.failover` | Client | Same as `POST /bonding/failover`; the only way to fail over one connection in a multi-connection setup |
 
-`POST /connections/:id/bonding/failover` forces the named connection onto its
-other bonding link — the per-connection form of the global
-`POST /bonding/failover`, and the only way to fail over one connection in a
-multi-connection deployment. It takes no body.
-
-Response shapes are otherwise identical to the corresponding global endpoint.
+`GET /connections/:id/network-metrics` returns `instanceId`, `rtt`, `jitter`, `packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate`, `activeLink`, `dataSource`, `lastUpdate`, `hasQualityBasis` and `timestamp`. It has no `linkQuality`, `acksSent` or `naksSent`, and `rtt`/`jitter` are not gated: check `hasQualityBasis` before trusting them.
