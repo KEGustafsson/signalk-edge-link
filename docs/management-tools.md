@@ -24,6 +24,8 @@ export SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN="your-long-random-token"
 
 When `requireManagementApiToken: true` is set, management endpoints fail closed (HTTP 403) if no token is configured.
 
+Once a token is configured, every route requires it, including the read-only ones that dashboards and scrapers poll (`/metrics`, `/network-metrics`, `/prometheus`, `/status`, `/monitoring/*`). Update anything that polls the plugin, Prometheus scrape configs included; see [metrics.md](metrics.md).
+
 ### HTTP error codes
 
 | Code | Meaning                                                               |

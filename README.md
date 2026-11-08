@@ -4,79 +4,33 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D24-brightgreen)](https://nodejs.org)
 
-Signal K Edge Link is a Signal K plugin that transfers vessel deltas between Signal K servers over encrypted UDP.
+A Signal K plugin that copies live vessel data from one Signal K server to another over encrypted UDP. It is built for links that drop packets, add latency or charge by the byte, such as cellular and satellite.
 
-It is designed for links where latency, packet loss, and bandwidth usage matter (cellular, satellite, and other unstable WAN paths).
+Typical use: a boat sends its data to a shore server, or several boats report to one hub and see each other.
 
 ![Data Connector Concept](docs/assets/dataconnectorconcept.jpg)
 
-## Why use it?
+## What it does
 
-- **Secure transport** using AES-256-GCM
-- **Bandwidth optimization** with Brotli compression (plus optional MessagePack and path dictionary)
-- **Two operating modes**:
-  - **Client**: subscribes to local deltas and sends packets
-  - **Server**: receives packets, decrypts, and forwards to local Signal K
-- **Advanced mode** features for difficult links:
-  - ACK/NAK-based reliability
+- **Client connection:** subscribes to local Signal K data, batches it, compresses it (Brotli, optionally MessagePack and a path dictionary), encrypts it (AES-256-GCM) and sends it over UDP.
+- **Server connection:** receives, decrypts and decompresses the packets and writes the data into its local Signal K server, keeping each value's source.
+- **Advanced mode** (protocol v3) adds, for unreliable links:
+  - delivery checks with retransmission (ACK/NAK)
+  - path metadata (units, descriptions, zones)
   - congestion control
-  - optional primary/backup bonding
-  - monitoring and alerting endpoints
-  - values snapshot replay on subscribe, retry, and socket recovery
-  - optional server-triggered full-state request on restart (`requestFullStatusOnRestart`)
-  - Signal K path metadata transport (units, descriptions, zones)
-- **Multi-connection support** on one Signal K instance
-
-## How data flows
-
-```text
-Client Signal K
-  -> subscribe + batch deltas
-  -> optional path dictionary + MessagePack
-  -> Brotli compress
-  -> AES-256-GCM encrypt
-  -> UDP send
-
-Server Signal K
-  <- UDP receive
-  <- AES-256-GCM decrypt
-  <- Brotli decompress
-  <- optional MessagePack + path decode
-  <- inject into local Signal K
-```
+  - optional failover between two links (bonding)
+  - monitoring and alerts
+- One Signal K server can run any number of client and server connections, each with its own key and port.
 
 ## Topologies
 
-**Point to point** — one client sends to one server.
-
-**Multiple clients to one server** — several vessels report to a single shore
-instance; each client is an independent connection with its own key.
-
-**Bonding** — one client sends over two links (for example LTE and Starlink)
-with automatic failover. See [`docs/bonding.md`](docs/bonding.md).
-
-**Relay (proxy) chain** — one Signal K instance runs **both** a server and a
-client, receiving on one hop and forwarding on the next:
-
-```text
-  [Vessel]  ──UDP v3──►  [ Relay ]  ──UDP v3──►  [Shore]
-                       server + client
-```
-
-Each hop is an independent link: its own secret key, handshake, reliability
-settings and security options. A relay therefore shows **two connections** in
-the UI, one per hop, and each dashboard reports only its own link — see
-[Reading a relay (proxy) node](docs/web-ui.md) for how to interpret them, and
-[Relay / Proxy Chains](docs/troubleshooting.md) for hop-by-hop diagnosis.
-
-**Fleet sharing** — several vessels report to one hub, and each vessel also
-receives the other vessels' data back over the link it already opened. No
-inbound port is needed on the vessels, and a vessel never receives its own
-data. Enable `fleetSharing` on the hub's server connection and on each
-vessel's client connection; every node, relays included, must run 4.4.0 or
-later. See
-[Fleet Sharing](docs/configuration-reference.md#fleet-sharing-advancedv3-only),
-including how fleet sharing behaves on a relay.
+| Setup                 | What happens                                                                                                                                                                 |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Point to point        | One client sends to one server.                                                                                                                                              |
+| Many vessels, one hub | Several clients send to one shore server.                                                                                                                                    |
+| Bonding               | One client sends over two links (for example LTE and Starlink) and fails over between them. See [`docs/bonding.md`](docs/bonding.md).                                        |
+| Relay chain           | One Signal K server runs a server and a client connection, receiving on one hop and forwarding on the next. Each hop has its own key and settings.                           |
+| Fleet sharing         | Vessels reporting to a hub also receive the other vessels' data back over the same link. No inbound port is needed on the vessels, and a vessel never receives its own data. |
 
 ```text
   [Vessel A] ──┐             ┌──► A gets B, C
@@ -84,20 +38,19 @@ including how fleet sharing behaves on a relay.
   [Vessel C] ──┘             └──► C gets A, B
 ```
 
+Fleet sharing needs Advanced mode and version 4.4.0 or later on every node, relays included. See [Fleet Sharing](docs/configuration-reference.md#fleet-sharing-advancedv3-only).
+
 ## Requirements
 
-- Two Signal K instances (source and destination)
-- UDP reachability from client to server on your chosen port
-- Shared encryption key on both ends (32-character ASCII, 64-character hex, or 44-character base64)
-- Node.js 24+ (if installing from source: dev dependencies including TypeScript are installed automatically via `npm install`)
+- Two Signal K servers, with Node.js 24 or later.
+- The client can reach the server's UDP port (default `4446`).
+- The same encryption key on both ends: 32 ASCII characters, 64 hex characters or 44 base64 characters. Generate one with `openssl rand -hex 32`.
 
-## Installation
+## Install
 
-### Option A: Signal K Plugin Manager
+Install **Signal K Edge Link** from the Signal K App Store (plugin manager), then restart Signal K.
 
-Install **Signal K Edge Link** from your Signal K plugin catalog.
-
-### Option B: Manual install from source
+From source:
 
 ```bash
 cd ~/.signalk/node_modules
@@ -107,86 +60,15 @@ npm install
 npm run build
 ```
 
-Restart Signal K after installation.
-
 ## Quick start
 
-### 1) Configure the destination (Server mode)
+In the Signal K Admin UI, open **Server → Plugin Config → Signal K Edge Link** on each server.
 
-In Signal K Admin UI:
+1. **Receiving server:** click **Add Server**. Set a name, the UDP port, the encryption key and protocol **Advanced**. Save.
+2. **Sending server:** click **Add Client**. Set a name, the receiving server's address, the same UDP port, the same key and protocol **Advanced**. Save.
+3. **Check:** open `http://<signalk-host>:3000/plugins/signalk-edge-link/` on both servers. The client's **Deltas Sent** and the server's **Deltas Received** should rise, and the encryption error counts should stay at zero.
 
-1. Open `Server -> Plugin Config -> Signal K Edge Link`
-2. Click **Add Server**
-3. Set:
-   - `Connection Name` (for example `shore-server`)
-   - `UDP Port` (default `4446`)
-   - `Encryption Key` (same shared secret used by client)
-   - `Protocol` — select **Advanced** (v3, recommended) for new deployments; select **Basic** (v1) only for stable local links
-4. Save
-
-### 2) Configure the source (Client mode)
-
-On the sending Signal K instance:
-
-1. Open `Server -> Plugin Config -> Signal K Edge Link`
-2. Click **Add Client**
-3. Set:
-   - `Connection Name` (for example `vessel-client`)
-   - `Server Address` (destination host/IP)
-   - `UDP Port` (must match server)
-   - `Encryption Key` (must match server)
-   - `Protocol` — select **Advanced** (v3, recommended) for new deployments; select **Basic** (v1) only for stable local links
-4. Save
-
-### 3) Verify traffic
-
-Open the runtime UI:
-
-`http://<signalk-host>:3000/plugins/signalk-edge-link/`
-
-Check that:
-
-- client `Deltas Sent` increases
-- server `Deltas Received` increases
-- encryption/decryption errors remain stable at zero
-
-## Protocol guidance
-
-| Mode         | Numeric | Use when                                 | Notes                                                                    |
-| ------------ | ------- | ---------------------------------------- | ------------------------------------------------------------------------ |
-| **Basic**    | v1      | stable local links, simplest setup       | lower overhead, no ACK/NAK reliability, no metadata transport            |
-| **Advanced** | v3      | packet loss, variable latency, WAN links | retransmission, congestion control, bonding, metadata, HMAC control auth |
-
-Use **Advanced** for any new deployment on a WAN or unreliable link. Use **Basic** only for stable local links where simplicity and minimum overhead matter.
-
-## Runtime UI and API
-
-- Runtime UI: `/plugins/signalk-edge-link/`
-- API base path: `/plugins/signalk-edge-link`
-- Default API rate limit: **120 requests/minute/IP**
-
-For a walkthrough of the configuration panel (progressive-disclosure connection
-cards) and the runtime dashboard panels for server and client, see
-[`docs/web-ui.md`](docs/web-ui.md).
-
-Most used endpoints:
-
-- `GET /metrics`
-- `GET /network-metrics`
-- `GET /monitoring/alerts`
-- `GET /connections`
-- `GET /instances`
-- `GET /instances/:id`
-- `GET /connections/:id/metrics`
-- `GET /connections/:id/network-metrics`
-- `GET /bonding`
-- `POST /bonding`
-
-For full endpoint details, use `docs/api-reference.md`
-
-## Configuration model (summary)
-
-Configuration is an array of independent connections:
+Configuration is stored as a list of connections:
 
 ```json
 {
@@ -195,173 +77,79 @@ Configuration is an array of independent connections:
       "name": "shore-server",
       "serverType": "server",
       "udpPort": 4446,
-      "secretKey": "<32-byte key>",
-      "protocolVersion": 3,
-      "requestFullStatusOnRestart": false
+      "secretKey": "<key>",
+      "protocolVersion": 3
     },
     {
-      "name": "sat-client",
+      "name": "boat-client",
       "serverType": "client",
-      "udpPort": 4447,
-      "udpAddress": "10.0.0.1",
-      "secretKey": "<32-byte key>",
+      "udpAddress": "shore.example.com",
+      "udpPort": 4446,
+      "secretKey": "<key>",
       "protocolVersion": 3
     }
   ]
 }
 ```
 
-- Each connection runs independently.
-- Legacy single-object config is auto-normalized to one connection.
-- Client runtime JSON files (`delta_timer.json`, `subscription.json`, `sentence_filter.json`) are stored per connection and can be edited via API.
-- `requestFullStatusOnRestart` (server mode, v3, default `false`): when enabled, the server sends a `FULL_STATUS_REQUEST` to each client on first contact after a (re)start; the client immediately replays its complete values snapshot so the server rebuilds state without waiting for incremental deltas. Client-side rate-limited to 10 s to prevent replay floods across rapid restarts.
+Every setting, default and range is in [`docs/configuration-reference.md`](docs/configuration-reference.md). Example files are in [`samples/`](samples/).
 
-For complete setting definitions and ranges, use `docs/configuration-reference.md`.
+## Basic or Advanced?
 
-Schema and migration helpers:
+| Mode         | Protocol | Use for                                  | Adds                                                                                 |
+| ------------ | -------- | ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| **Advanced** | v3       | Any WAN link: cellular, satellite, Wi-Fi | Retransmission, congestion control, bonding, metadata, authenticated control packets |
+| **Basic**    | v1       | Stable local links only                  | Lowest overhead; no delivery checks, no metadata                                     |
 
-- The runtime schema is assembled by `buildPluginSchema()` in
-  `src/app/config/schema.ts` from the property definitions in
-  `src/shared/connection-schema.ts`, exposed as `plugin.schema` from
-  `src/index.ts`, and served to the Signal K admin UI.
-  `docs/configuration-reference.md` is the authoritative human-readable
-  reference.
-- `src/scripts/migrate-config.ts` (convert legacy flat config to `connections[]`)
-- `npm run migrate:config -- <input.json> [output.json]`
+Use Advanced for new deployments. Both ends of a connection must use the same mode.
 
-## Security notes
+## Monitoring and management
 
-- Uses AES-256-GCM authenticated encryption.
-- Keys must match exactly and can be entered as 32-character ASCII, 64-character hex, or 44-character base64 (standard or URL-safe).
-- Restrict UDP ingress to trusted source addresses whenever possible.
-- `authenticatedHeaders` (v3, **default on**, both ends must match) adds an HMAC tag binding each DATA/METADATA packet header to its encrypted payload, preventing on-path header tampering. Set to `false` on both peers only to interoperate with a peer that cannot enable it. See `docs/security.md`.
+- **Dashboard:** `/plugins/signalk-edge-link/` shows each connection's traffic, link quality and alerts. See [`docs/web-ui.md`](docs/web-ui.md).
+- **REST API and Prometheus:** under `/plugins/signalk-edge-link`, for example `GET /metrics` and `GET /prometheus`. See [`docs/api-reference.md`](docs/api-reference.md) and [`docs/metrics.md`](docs/metrics.md).
+- **CLI:** `npm run cli -- help` manages instances and bonding. See [`docs/management-tools.md`](docs/management-tools.md).
+- **Access control:** set `managementApiToken` (or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) to require a token on every route. Send it as `X-Edge-Link-Token: <token>` or `Authorization: Bearer <token>`.
 
-Example key generation:
+## Security
 
-```bash
-openssl rand -hex 32
-```
-
-## Troubleshooting
-
-Common checks:
-
-- Verify `udpAddress`, `udpPort`, and `secretKey` match both ends.
-- Confirm server UDP port is reachable and not already in use.
-- If link quality is poor, switch to **Advanced** (`protocolVersion: 3`) when both peers can upgrade together.
-
-**`testAddress is only supported on v1 clients` after upgrading to Advanced mode**
-
-The fields `testAddress`, `testPort`, and `pingIntervalTime` belong to the Basic (v1) ping monitor and are not used by Advanced (v3) clients (which derive RTT from HEARTBEAT exchanges instead). If these fields are present in a connection with `protocolVersion: 3` the validator will reject the config.
-
-Remove them from the affected connection:
-
-```json
-{
-  "name": "my-client",
-  "serverType": "client",
-  "protocolVersion": 3,
-  "udpAddress": "...",
-  "heartbeatInterval": 25000
-}
-```
-
-The plugin strips these fields automatically on startup, but if you see the error when saving via the SignalK admin UI you need to remove them from the stored config JSON manually once.
-
-For issue-oriented diagnostics, use `docs/troubleshooting.md`.
-
-## Developer commands
-
-```bash
-npm run build
-npm run dev
-npm test
-npm run test:v2
-npm run test:integration
-npm run lint
-npm run lint:fix
-npm run format
-npm run format:check
-npm run cli -- help
-npm run cli -- instances list --token=$EDGE_LINK_TOKEN --state=running --limit=10 --page=1 --format=table
-npm run cli -- instances show alpha --token=$EDGE_LINK_TOKEN --format=table
-npm run cli -- instances create --config ./new-instance.json --token=$EDGE_LINK_TOKEN
-npm run cli -- instances update alpha --patch '{"udpAddress":"10.0.0.2"}' --token=$EDGE_LINK_TOKEN
-npm run cli -- instances delete alpha --token=$EDGE_LINK_TOKEN
-npm run cli -- bonding status --token=$EDGE_LINK_TOKEN --format=table
-npm run cli -- bonding update --patch '{"failoverThreshold":300}' --token=$EDGE_LINK_TOKEN
-npm run cli -- status --token=$EDGE_LINK_TOKEN --format=table
-```
-
-## Management API security
-
-Set `managementApiToken` in plugin options, or the environment variable
-`SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` (the environment variable takes
-precedence).
-
-**Every route is protected.** There is no read-only subset that stays open once
-a token is configured — including the ones dashboards and scrapers use:
-
-- `/instances`, `/bonding`, `/status`, `/plugin-config`, `/plugin-schema`
-- `/metrics`, `/network-metrics`, `/prometheus`, `/sources`, `/paths`, `/congestion`
-- `/config/*`, `/connections/:id/config/*`, `/delta-timer`
-- `/connections/:id/metrics`, `/connections/:id/network-metrics`
-- `/connections/:id/bonding`, `/connections/:id/congestion`
-- `/connections/:id/bonding/failover`
-- `/monitoring/*` (alerts, packet-loss, path-latency, retransmissions, inspector, simulation)
-- `/capture/*`
-
-So configuring a token means updating anything that polls the plugin —
-Prometheus scrape configs included. See [docs/metrics.md](docs/metrics.md).
-
-Send the token as either:
-
-- `X-Edge-Link-Token: <token>`
-- `Authorization: Bearer <token>`
-
-CLI commands support `--token=<token>` or the `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` environment variable.
-
-## Web UI token injection
-
-Management pages automatically attach auth headers when a token is available. Token sources are checked in this order:
-
-1. `window.__EDGE_LINK_AUTH__.token` — injected global (preferred for server-side injection)
-2. URL query parameter `?edgeLinkToken=<token>` — **disabled by default**; opt in with `includeTokenInQuery: true`. Avoid it: tokens in URLs leak via browser history, server access logs, and `Referer` headers.
-3. `localStorage.setItem("signalkEdgeLinkManagementToken", "<token>")`
-
-The UI sends both `X-Edge-Link-Token` and `Authorization: Bearer <token>` by default. Override with:
-
-```javascript
-window.__EDGE_LINK_AUTH__ = {
-  token: "<token>",
-  queryParam: "edgeLinkToken",
-  localStorageKey: "signalkEdgeLinkManagementToken",
-  headerMode: "both" // "both" | "authorization" | "x-edge-link-token"
-};
-```
+- Every data packet is encrypted and authenticated with AES-256-GCM. In Advanced mode, control packets and packet headers are also authenticated.
+- Allow the UDP port only from addresses you trust where you can.
+- Details, limits and hardening steps: [`docs/security.md`](docs/security.md).
 
 ## Documentation map
 
-- `docs/README.md` (documentation index)
-- `docs/GUIDE.md` (full setup and operations guide, including topologies)
-- `docs/architecture-overview.md` (system architecture and lifecycle)
-- `docs/web-ui.md` (configuration panel and runtime dashboard, including relay nodes)
-- `docs/configuration-reference.md` (settings and defaults)
-- `docs/api-reference.md`
-- `docs/protocol-v3.md` (Basic/Advanced protocol operational overview)
-- `docs/protocol-v3-spec.md` (RFC-style wire specification with authenticated control plane)
-- `docs/bonding.md` (bonding concepts and API usage)
-- `docs/congestion-control.md` (congestion-control behavior and tuning)
-- `docs/metrics.md` (metrics and monitoring reference)
-- `docs/management-tools.md` (instance/bonding API + CLI operations)
-- `docs/security.md` (security guidance and deployment hardening)
-- `docs/performance-tuning.md` (deployment tuning recommendations by hardware profile)
-- `docs/troubleshooting.md` (issue-oriented diagnostics)
-- `docs/release-checklist.md` (pre-publish verification sequence)
-- `samples/` (example JSON configurations for minimal/dev/bonding setups)
-- `src/scripts/migrate-config.ts` (legacy config migration utility)
-- `src/bin/edge-link-cli.ts` (CLI wrapper for migration and instance/bonding management)
+| Document                                                             | Covers                                              |
+| -------------------------------------------------------------------- | --------------------------------------------------- |
+| [`docs/GUIDE.md`](docs/GUIDE.md)                                     | Full setup and operations guide                     |
+| [`docs/configuration-reference.md`](docs/configuration-reference.md) | Every setting, default and range                    |
+| [`docs/web-ui.md`](docs/web-ui.md)                                   | Configuration panel and dashboard, including relays |
+| [`docs/troubleshooting.md`](docs/troubleshooting.md)                 | Symptoms, causes and fixes                          |
+| [`docs/security.md`](docs/security.md)                               | Encryption, keys and hardening                      |
+| [`docs/bonding.md`](docs/bonding.md)                                 | Dual-link failover                                  |
+| [`docs/congestion-control.md`](docs/congestion-control.md)           | Rate control and tuning                             |
+| [`docs/performance-tuning.md`](docs/performance-tuning.md)           | Tuning by hardware profile                          |
+| [`docs/metrics.md`](docs/metrics.md)                                 | JSON and Prometheus metrics, alerts                 |
+| [`docs/api-reference.md`](docs/api-reference.md)                     | REST endpoints                                      |
+| [`docs/management-tools.md`](docs/management-tools.md)               | Management token, web UI token, CLI                 |
+| [`docs/protocol-v3.md`](docs/protocol-v3.md)                         | How Basic and Advanced modes work                   |
+| [`docs/protocol-v3-spec.md`](docs/protocol-v3-spec.md)               | Wire format specification                           |
+| [`docs/architecture-overview.md`](docs/architecture-overview.md)     | Code architecture and lifecycle                     |
+| [`docs/release-checklist.md`](docs/release-checklist.md)             | Steps before publishing a release                   |
+| [`docs/README.md`](docs/README.md)                                   | Index of all documentation                          |
+
+## Development
+
+```bash
+npm install
+npm run build        # compile TypeScript and bundle the web UI
+npm run dev          # rebuild the web UI on change
+npm test             # all tests
+npm run lint
+npm run format:check
+```
+
+Legacy single-object configs are converted to `connections[]` automatically, or by hand with `npm run migrate:config -- <input.json> [output.json]`.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See [LICENSE](LICENSE).
