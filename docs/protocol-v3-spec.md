@@ -11,7 +11,7 @@ The v3 protocol adds a binary packet header layer to the v1 (Basic) encryption/c
 - **Flag-based feature negotiation** (compression, encryption, msgpack, path dictionary)
 - **CRC16 integrity checking** at the header level
 - **HMAC-SHA256 authentication** on all control packets
-- **ACK/NAK retransmission** for reliable delivery (>99.9% at 5% loss)
+- **ACK/NAK retransmission** for reliable delivery (target >99.9% at 5% loss; measured >99% in the Phase 7 tests)
 - **Dynamic congestion control** using AIMD algorithm
 - **Connection bonding** with automatic failover between primary/backup links
 - **Backward compatibility** with the v1 (Basic) protocol (auto-detection via magic bytes)
@@ -442,7 +442,7 @@ Client                          Server
 
 **Delivery guarantees:**
 
-- > 99.9% delivery rate under 5% packet loss conditions
+- Designed for >99.9% delivery at 5% packet loss; the Phase 7 tests measured >99% with retransmission ([results](performance/phase-7-results.md))
 - Automatic retransmission of lost packets
 - Duplicate detection and suppression
 - Cumulative acknowledgement reduces ACK traffic
@@ -541,7 +541,7 @@ Failback from backup to primary requires ALL conditions:
 
 ### Signal K Notifications
 
-Failover events emit Signal K notifications at `notifications.signalk-edge-link.<instanceId>.linkFailover` with state `alert` and both visual and sound methods. The source label is `signalk-edge-link:<instanceId>`.
+Failover events emit Signal K notifications at `notifications.signalk-edge-link.<instanceId>.linkFailover` with state `alert` and both visual and sound methods. The update's `$source` is `signalk-edge-link`; the provider ID passed to `handleMessage` is `signalk-edge-link:<instanceId>`. Notifications are emitted only with `enableNotifications: true`.
 
 ## 10. Security
 

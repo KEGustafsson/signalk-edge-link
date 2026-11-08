@@ -322,7 +322,7 @@ describe("edge-link-cli", () => {
   test("bonding update sends POST with JSON patch", async () => {
     const requestJson = jest.fn(() => ({ updated: true }));
     await expect(
-      main(["bonding", "update", "--patch", '{"failoverThreshold":300}'], { requestJson })
+      main(["bonding", "update", "--patch", '{"rttThreshold":300}'], { requestJson })
     ).resolves.toBe(0);
 
     expect(requestJson).toHaveBeenCalledWith(
@@ -331,7 +331,7 @@ describe("edge-link-cli", () => {
       {
         method: "POST",
         token: null,
-        body: { failoverThreshold: 300 }
+        body: { rttThreshold: 300 }
       }
     );
   });

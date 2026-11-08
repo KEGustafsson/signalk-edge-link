@@ -234,8 +234,10 @@ function register(router: Router, ctx: RouteContext): void {
         readyToSend: state.readyToSend,
         currentLink: bondingManager ? bondingManager.getActiveLinkName() : "primary",
         network: {
-          rtt: effectiveNetwork.rtt,
-          jitter: effectiveNetwork.jitter,
+          // Omitted until measured, as on /network-metrics: a client's rtt
+          // and jitter are seed zeros before its first timed ACK.
+          rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
+          jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
           packetLoss: effectiveNetwork.packetLoss,
           retransmissions: effectiveNetwork.retransmissions,
           queueDepth: effectiveNetwork.queueDepth,
@@ -431,7 +433,14 @@ function register(router: Router, ctx: RouteContext): void {
       const { state } = bundle;
       const { metrics } = bundle.metricsApi;
       const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
-      res.json({ instanceId: req.params.id, ...effectiveNetwork, timestamp: Date.now() });
+      res.json({
+        instanceId: req.params.id,
+        ...effectiveNetwork,
+        // Same measurement-basis gate as /network-metrics.
+        rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
+        jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
+        timestamp: Date.now()
+      });
     }
   );
 

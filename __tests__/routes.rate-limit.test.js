@@ -593,6 +593,50 @@ describe("instances management route", () => {
     );
   });
 
+  test("instance and per-connection network routes omit rtt and jitter until measured", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    // The registry seeds rtt and jitter with 0 before the first timed ACK.
+    Object.assign(bundle.metricsApi.metrics, { rtt: 0, jitter: 0, rttSamples: 0 });
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "test" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+    const router = makeRouterCollector();
+    createRoutes(app, instanceRegistry, {}).registerWithRouter(router);
+    const handlerFor = (path) => {
+      const route = router.routes.find((r) => r.method === "get" && r.path === path);
+      return route.handlers[route.handlers.length - 1];
+    };
+    const call = (path) => {
+      const req = {
+        params: { id: "test" },
+        headers: {},
+        ip: "127.0.0.1",
+        socket: {},
+        app: { get: () => false }
+      };
+      const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+      handlerFor(path)(req, res);
+      return res.json.mock.calls[0][0];
+    };
+
+    expect(call("/instances/:id").network).toEqual(
+      expect.objectContaining({ rtt: undefined, jitter: undefined })
+    );
+    expect(call("/connections/:id/network-metrics")).toEqual(
+      expect.objectContaining({ rtt: undefined, jitter: undefined })
+    );
+
+    // After the first timed ACK the measured values are reported.
+    Object.assign(bundle.metricsApi.metrics, { rtt: 42, jitter: 3, rttSamples: 1 });
+    expect(call("/instances/:id").network).toEqual(expect.objectContaining({ rtt: 42, jitter: 3 }));
+    expect(call("/connections/:id/network-metrics")).toEqual(
+      expect.objectContaining({ rtt: 42, jitter: 3 })
+    );
+  });
+
   test("registers /bonding and reports per-instance bonding state", () => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();

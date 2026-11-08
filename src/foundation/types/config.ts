@@ -231,11 +231,8 @@ export interface ConnectionConfig {
    * receiver maintains the same per-(context, path) cache and restores
    * the value before injecting into Signal K.
    *
-   * **Peer-matching setting** — both ends must enable this. If only the
-   * client enables it, the receiver sees the sentinel as the value and
-   * downstream Signal K consumers will see broken data. The receiver
-   * applies expansion transparently when sentinels are seen in the
-   * incoming stream, so it is safe to enable on the receiver first.
+   * Client-only: the v3 server expands sentinels for every session without
+   * a setting (reliable-server/data-handler.ts), so only the sender sets it.
    *
    * Effective only on reliable protocolVersion 3.
    */
@@ -243,25 +240,27 @@ export interface ConnectionConfig {
   /**
    * Encode outbound delta arrays as positional msgpack arrays instead of
    * field-name JSON objects. Drops ~70-100 bytes per delta in repeated field
-   * names. Requires `useMsgpack: true`. MUST MATCH on both ends.
+   * names. Requires `useMsgpack: true`. Client-only: the v3 server decodes
+   * compact arrays without a setting.
    *
    * Effective only on reliable protocolVersion 3.
    */
   useCompactDeltas?: boolean;
   /** Compress Signal K path strings with a shared dictionary to reduce packet size. Default false. */
   usePathDictionary?: boolean;
-  /** Forward Signal K notification deltas over the link. Default false. */
+  /**
+   * Emit Signal K notifications for monitoring alerts and bonding failover
+   * (`notifications.signalk-edge-link.<instanceId>.*`). Default false.
+   */
   enableNotifications?: boolean;
   /**
    * When true, drop value entries this plugin publishes locally before they
-   * are forwarded over the link. Targets paths under `networking.edgeLink.*`
-   * and the v1 RTT publisher's `networking.modem.rtt` /
-   * `networking.modem.<instanceId>.rtt` paths. Other paths under
-   * `networking.modem.*` (signalStrength, txBytes, ...) come from external
-   * providers and are left intact. Also suppresses the reliable v3 client-side
-   * telemetry packet that mirrors the client's own link metrics to the
-   * receiver. Default false (current behaviour: own data is forwarded along
-   * with all other subscribed deltas).
+   * are forwarded over the link: paths under `networking.edgeLink.*`. RTT
+   * paths (`networking.modem[.<id>].rtt`, `networking.edgeLink[.<id>].rtt`)
+   * are always forwarded, and other `networking.modem.*` paths come from
+   * external providers and are left intact. The v3 telemetry packet is sent
+   * either way. Default false (own data is forwarded along with all other
+   * subscribed deltas).
    *
    * Client mode only. Ignored on server-mode connections.
    */

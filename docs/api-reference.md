@@ -318,7 +318,7 @@ Query: `state` (case-insensitive match on the status string), `limit`, `page` (p
 
 One instance: `id`, `name`, `mode`, `protocolVersion`, `state`, `readyToSend`, `currentLink`, `network` (`rtt`, `jitter`, `packetLoss`, `retransmissions`, `queueDepth`, `dataSource`), `metrics` (as in `/instances`), `bonding` (bonding state, or `{ "enabled": false }`), and `config` with `secretKey` and `managementApiToken` shown as `[redacted]`. `404` if the id is unknown.
 
-`network` here is not gated on a measurement: a client reports `rtt: 0` and `jitter: 0` until its first timed ACK, and a server omits them without fresh client telemetry. Use `/network-metrics` for the gated values.
+`network.rtt` and `network.jitter` are absent until the link has been measured, as on `/network-metrics`.
 
 ### POST /instances, PUT /instances/:id, DELETE /instances/:id
 
@@ -351,4 +351,4 @@ Scoped to one connection. `:id` is the slugified connection name (e.g. `shore-se
 | `POST /connections/:id/config/:filename`          | `connection-config.update`    | Client | Same as `POST /config/:filename`                                                                       |
 | `POST /connections/:id/bonding/failover`          | `connection-bonding.failover` | Client | Same as `POST /bonding/failover`; the only way to fail over one connection in a multi-connection setup |
 
-`GET /connections/:id/network-metrics` returns `instanceId`, `rtt`, `jitter`, `packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate`, `activeLink`, `dataSource`, `lastUpdate`, `hasQualityBasis` and `timestamp`. It has no `linkQuality`, `acksSent` or `naksSent`, and `rtt`/`jitter` are not gated: check `hasQualityBasis` before trusting them.
+`GET /connections/:id/network-metrics` returns `instanceId`, `rtt`, `jitter`, `packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate`, `activeLink`, `dataSource`, `lastUpdate`, `hasQualityBasis` and `timestamp`. It has no `linkQuality`, `acksSent` or `naksSent`. `rtt` and `jitter` are absent until the link has been measured, as on `/network-metrics`.
