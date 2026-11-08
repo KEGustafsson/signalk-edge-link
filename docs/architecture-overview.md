@@ -44,33 +44,24 @@ One Signal K server runs any number of connections. Each connection is either a 
 
 ## Client outbound (v3)
 
-| Step | Stage              | Detail                                                                                    |
-| ---- | ------------------ | ----------------------------------------------------------------------------------------- |
-| 1    | Subscribe          | Paths from `subscription.json`                                                            |
-| 2    | Sanitize, strip    | Drop invalid values; with `skipOwnData`, drop `networking.edgeLink.*` paths except RTT    |
-| 3    | Duplicate suppress | Drop an identical delta repeated within 1500 ms                                           |
-| 4    | Buffer             | Flush every `deltaTimer` (default 1000 ms); smart batching keeps packets under the MTU    |
-| 5    | Filter and shape   | `pathFilter`, `pathPrecision`, `pathThrottle`, then `useValueDedup`                       |
-| 6    | Path dictionary    | With `usePathDictionary`, replace known paths with numeric IDs                            |
-| 7    | Serialize          | JSON, MessagePack (`useMsgpack`), or compact tuples (`useCompactDeltas` with MessagePack) |
-| 8    | Compress           | Brotli, quality `brotliQuality` (default 6)                                               |
-| 9    | Encrypt            | AES-256-GCM: `[12B IV][ciphertext][16B tag]`                                              |
-| 10   | Packet header      | 15-byte v3 header with sequence and CRC16                                                 |
-| 11   | Retransmit queue   | Copy kept until ACKed (default 5000 packets, 3 retransmits)                               |
-| 12   | UDP send           | To `udpAddress:udpPort`                                                                   |
+Stages in order, with the module that implements each. Settings are defined in [configuration-reference.md](configuration-reference.md).
 
-A v1 client skips `useValueDedup`, compact tuples and steps 10–11, and sends the encrypted payload as the whole datagram.
+1. Intake: subscribe to the paths in `subscription.json` ([`subscription-manager.ts`](../src/domain/subscription-manager.ts)); sanitize, strip own data with `skipOwnData`, and suppress an identical delta repeated within a short window ([`process-delta.ts`](../src/app/connection/process-delta.ts)).
+2. Batching: flush every `deltaTimer` in packets sized to fit the UDP payload ([`delta-batcher.ts`](../src/domain/delta-batcher.ts)).
+3. Shaping and encoding: `pathFilter`, `pathPrecision`, `pathThrottle`, `useValueDedup`, path dictionary, JSON, MessagePack or compact tuples, Brotli, AES-256-GCM ([`delta-sender.ts`](../src/transport/pipeline/reliable-client/delta-sender.ts), [`src/codec/`](../src/codec/)).
+4. Framing and reliability: v3 header with sequence and CRC16 ([`packet-codec.ts`](../src/codec/packet-codec.ts)); a copy is held until ACKed ([`retransmit-queue.ts`](../src/transport/reliability/retransmit-queue.ts)).
+5. Send: UDP to `udpAddress:udpPort`, or to the active link when bonding is enabled ([`udp-socket-manager.ts`](../src/transport/udp-socket-manager.ts), [`bonding.ts`](../src/transport/bonding.ts)).
+
+A v1 client skips `useValueDedup`, compact tuples, the v3 header and the retransmit queue, and sends the encrypted payload as the whole datagram ([`v1.ts`](../src/transport/pipeline/v1.ts)).
 
 ## Server inbound (v3)
 
-| Step | Stage            | Detail                                                                                                                         |
-| ---- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| 1    | Rate limit       | At most 200 packets/s per source IP before authentication and per session                                                      |
-| 2    | Parse header     | Check magic `SK`, version and CRC16; verify the HMAC tag on control packets and, with `authenticatedHeaders`, on DATA/METADATA |
-| 3    | Decrypt          | AES-GCM tag failure rejects the packet                                                                                         |
-| 4    | Decompress       | Brotli, output capped at 10 MB                                                                                                 |
-| 5    | Session          | Created only after decryption; at most 5 per IP and 100 per server connection                                                  |
-| 6    | Sequence         | Replay window, gap detection, NAK for missing sequences, cumulative ACK every `ackInterval` (default 100 ms)                   |
-| 7    | Decode           | MessagePack or JSON, compact tuples, path dictionary, value-dedup expansion                                                    |
-| 8    | Sanitize, source | Drop invalid values; resolve `$source` per delta                                                                               |
-| 9    | Dispatch         | `app.handleMessage` into the local Signal K tree                                                                               |
+Entry point: [`receive.ts`](../src/transport/pipeline/reliable-server/receive.ts).
+
+1. Bonding probes: an `HBPROBE` is rate limited per source IP and HMAC-verified before it is echoed; it never reaches the header parser.
+2. Parse header: check magic `SK`, version and CRC16; verify the HMAC tag on control packets and, with `authenticatedHeaders`, on DATA/METADATA.
+3. Rate limit DATA and METADATA: 200 packets/s per session when the sender has a session, otherwise 200 packets/s per source IP ([`sessions.ts`](../src/transport/pipeline/reliable-server/sessions.ts)).
+4. Decrypt and decompress DATA: an AES-GCM tag failure rejects the packet; Brotli output is capped at 10 MB ([`data-handler.ts`](../src/transport/pipeline/reliable-server/data-handler.ts)).
+5. Session: created by an authenticated HELLO or by a DATA packet that decrypted; at most 5 per IP and 100 per server connection.
+6. Sequence: replay window, gap detection, NAK for missing sequences, cumulative ACK every `ackInterval`.
+7. Decode, sanitize and dispatch: MessagePack or JSON, path dictionary, value-dedup expansion, `$source` resolution, then `app.handleMessage` into the local Signal K tree.

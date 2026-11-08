@@ -9,8 +9,8 @@
  * Run: node __tests__/benchmarks/phase-1-baseline.js
  */
 
-const { PacketBuilder, PacketParser } = require("../../lib/packet");
-const { SequenceTracker } = require("../../lib/sequence");
+const { PacketBuilder, PacketParser } = require("../../lib/codec/packet-codec");
+const { SequenceTracker } = require("../../lib/transport/reliability/sequence");
 
 const ITERATIONS = 100000;
 const PAYLOAD_SIZES = [100, 500, 1000, 1400];

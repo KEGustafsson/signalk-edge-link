@@ -14,9 +14,9 @@
 
 const zlib = require("zlib");
 const { promisify } = require("util");
-const { PacketBuilder, HEADER_SIZE } = require("../../lib/packet");
-const { encryptBinary } = require("../../lib/crypto");
-const { CongestionControl } = require("../../lib/congestion");
+const { PacketBuilder, HEADER_SIZE } = require("../../lib/codec/packet-codec");
+const { encryptBinary } = require("../../lib/codec/crypto");
+const { CongestionControl } = require("../../lib/transport/congestion");
 
 const brotliCompressAsync = promisify(zlib.brotliCompress);
 

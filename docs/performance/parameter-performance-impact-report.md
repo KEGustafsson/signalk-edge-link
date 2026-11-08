@@ -1,14 +1,10 @@
 # Parameter & Performance Impact Report
 
-Local benchmark runs measuring how tunable parameters affect throughput, latency, overhead and reliability.
+Historical report: point-in-time local benchmark runs measuring how tunable parameters affected throughput, latency, overhead and reliability. It says v2 where current releases say v3 (`protocolVersion: 2` is accepted and converted to `3`). Current settings and defaults are in [configuration-reference.md](../configuration-reference.md).
 
-## Commands run
+## Source of the measurements
 
-```bash
-node __tests__/benchmarks/bandwidth-efficiency.js
-node __tests__/benchmarks/latency-percentiles.js
-node __tests__/benchmarks/reliability-overhead.js
-```
+The figures came from `bandwidth-efficiency.js`, `latency-percentiles.js` and `reliability-overhead.js` in `__tests__/benchmarks/`. They are not reproducible on the current code: `bandwidth-efficiency.js` and `reliability-overhead.js` build ACK/NAK packets without a `secretKey`, which v3 control-packet authentication rejects with `Control packets require a secretKey`.
 
 ## Environment
 

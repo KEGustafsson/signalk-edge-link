@@ -53,7 +53,7 @@ Compression dominates. On constrained hardware with high delta rates, raise `del
 - `deltaTimer` 250 ms or more, to limit Brotli frequency.
 - Normal RSS is 30–80 MB; investigate above 150 MB.
 
-### x86 / ARM64 shore server
+### x86 / ARM64 client on a LAN-speed link
 
 ```json
 {
@@ -116,14 +116,14 @@ Compression dominates. On constrained hardware with high delta rates, raise `del
 
 ## Memory Bounds Reference
 
-| Buffer               | Maximum                                                     |
-| -------------------- | ----------------------------------------------------------- |
-| Retransmit queue     | 5000 packets (`reliability.retransmitQueueSize`, 100–50000) |
-| Monitoring heatmap   | 60 buckets                                                  |
-| Path latency tracker | 200 paths × 50 samples                                      |
-| Retransmit history   | 120 entries                                                 |
-| Bandwidth history    | 60 entries                                                  |
-| Delta buffer         | 1000 deltas                                                 |
+| Buffer               | Maximum                                                                      |
+| -------------------- | ---------------------------------------------------------------------------- |
+| Retransmit queue     | 5000 packets by default; `reliability.retransmitQueueSize` accepts 100–50000 |
+| Monitoring heatmap   | 60 buckets                                                                   |
+| Path latency tracker | 200 paths × 50 samples                                                       |
+| Retransmit history   | 120 entries                                                                  |
+| Bandwidth history    | 60 entries                                                                   |
+| Delta buffer         | 1000 deltas                                                                  |
 
 ---
 

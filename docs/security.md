@@ -22,13 +22,15 @@
 
 ## Encryption
 
-Every packet is encrypted with AES-256-GCM, in every protocol version:
+Data payloads (v1 packets; v3 DATA, METADATA and FLEET_DATA) are encrypted with AES-256-GCM:
 
 ```text
 [12-byte random IV] [AES-256-GCM ciphertext] [16-byte auth tag]
 ```
 
-The auth tag detects any bit flip in transit. Packets that fail authentication are dropped and counted in `encryptionErrors`.
+v3 control packets are not encrypted: their payload is plaintext with a 16-byte HMAC-SHA256 tag. HELLO's JSON, including protocol version and client ID, is readable on the path; HEARTBEAT carries only the tag. The HELLO `fleet` field, which holds the vessel identity, is AES-256-GCM encrypted on its own.
+
+The GCM auth tag detects any bit flip in transit. Packets that fail authentication are dropped and counted in `encryptionErrors`.
 
 ---
 
@@ -59,7 +61,7 @@ openssl rand -base64 32 | tr -d '/+=' | cut -c1-32
 
 ### Key stretching (`stretchAsciiKey`)
 
-A 32-character ASCII key has about 208 bits of raw entropy. `stretchAsciiKey: true` runs it through PBKDF2-SHA256 (600,000 iterations, salt `signalk-edge-link-v1`) to derive the 256-bit AES key. PBKDF2 makes brute force expensive but does not add entropy to a weak passphrase. Hex and base64 keys are not stretched.
+A 32-character ASCII key has at most about 210 bits of entropy, and only when each character is drawn at random from the 95 printable ASCII characters; a human-chosen key has far less, even when it passes the checks above. `stretchAsciiKey: true` runs it through PBKDF2-SHA256 (600,000 iterations, salt `signalk-edge-link-v1`) to derive the 256-bit AES key. PBKDF2 makes brute force expensive but does not add entropy to a weak passphrase. Hex and base64 keys are not stretched.
 
 Both peers must have the same `stretchAsciiKey` setting. A mismatch fails authentication on every packet: `encryptionErrors` rises and no data flows.
 
@@ -109,7 +111,7 @@ Both residuals above exist because the auth tag does not depend on the connectio
 
 The `EPOCH_BOUND_AUTH` flag is inside the HMAC-covered header, so clearing it to force a downgrade changes the authenticated bytes. HELLO is always exempt: it establishes the epoch. Wire cost: zero, the tag length is unchanged.
 
-Requirements: off by default. Both ends must set `epochBoundAuth: true` and run 4.0.0 or later, otherwise every DATA and METADATA packet fails authentication. It also requires `authenticatedHeaders` and `protocolVersion: 3`. Upgrade one end, then the other, then enable the flag on both.
+Requirements: off by default. Enable it on both ends, both running 4.0.0 or later. A receiver with it on refuses every DATA and METADATA packet from a sender with it off; a receiver older than 4.0.0 computes the tag without the epoch, so every DATA and METADATA packet from a sender with it on fails authentication. It also requires `authenticatedHeaders` and `protocolVersion: 3`. Upgrade one end, then the other, then enable the flag on both.
 
 Enforcement is in the receiver:
 

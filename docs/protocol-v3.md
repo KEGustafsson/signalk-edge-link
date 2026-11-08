@@ -57,7 +57,7 @@ RTT comes from an external ping monitor. v1 clients require `testAddress` and `t
 
 ## v3 — Reliable, authenticated transport
 
-Every v3 packet starts with a 15-byte header: magic `SK`, version `0x03`, packet type, flags, uint32 sequence, uint32 payload length and a CRC16 of the first 13 bytes ([spec §2](protocol-v3-spec.md#2-packet-format)). The encrypted payload follows: `[12B IV][ciphertext][16B GCM tag]`.
+Every v3 packet starts with a 15-byte header: magic `SK`, version `0x03`, packet type, flags, uint32 sequence, uint32 payload length and a CRC16 of the first 13 bytes ([spec §2](protocol-v3-spec.md#2-packet-format)). DATA and METADATA carry an encrypted payload after the header: `[12B IV][ciphertext][16B GCM tag]`. Control packets carry a plaintext payload and a 16-byte HMAC tag; FLEET_DATA puts a stream ID before its encrypted data. Per-type layouts are in [spec §3](protocol-v3-spec.md#3-packet-types).
 
 ### Packet types
 
@@ -76,7 +76,7 @@ Every v3 packet starts with a 15-byte header: magic `SK`, version `0x03`, packet
 | 0x0B | FLEET_ACK           | Client → Server | Acknowledges FLEET_DATA                                         |
 | 0x0C | FLEET_NAK           | Client → Server | Missing FLEET_DATA sequences                                    |
 
-Types `0x09`–`0x0C` are sent only after both ends negotiate fleet sharing in HELLO, so peers that predate fleet sharing never receive them ([spec §15](protocol-v3-spec.md#15-fleet-sharing-capability-fleet-v1)).
+The server sends HELLO_ACK (`0x09`) only in answer to a HELLO that offers fleet sharing, accepted or declined. FLEET_DATA, FLEET_ACK and FLEET_NAK (`0x0A`–`0x0C`) are sent only after the server accepts it. Peers that predate fleet sharing never receive any of them ([spec §15](protocol-v3-spec.md#15-fleet-sharing-capability-fleet-v1)).
 
 ### Delivery
 

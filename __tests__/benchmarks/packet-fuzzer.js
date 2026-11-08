@@ -13,7 +13,7 @@
  */
 
 const crypto = require("crypto");
-const { PacketParser } = require("../../lib/packet");
+const { PacketParser } = require("../../lib/codec/packet-codec");
 
 const ITERATIONS = parseInt(process.argv[2], 10) || 100000;
 const SECRET_KEY = "a]Wm9xF!jT3kQ#7vL2bR8dN5pY0hU6sZ"; // 32-char test key

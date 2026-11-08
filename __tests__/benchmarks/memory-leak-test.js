@@ -14,15 +14,15 @@
  * Run: node __tests__/benchmarks/memory-leak-test.js
  */
 
-const { PacketBuilder, PacketParser } = require("../../lib/packet");
-const { SequenceTracker } = require("../../lib/sequence");
-const { RetransmitQueue } = require("../../lib/retransmit-queue");
-const { CongestionControl } = require("../../lib/congestion");
+const { PacketBuilder, PacketParser } = require("../../lib/codec/packet-codec");
+const { SequenceTracker } = require("../../lib/transport/reliability/sequence");
+const { RetransmitQueue } = require("../../lib/transport/reliability/retransmit-queue");
+const { CongestionControl } = require("../../lib/transport/congestion");
 const {
   PacketLossTracker,
   PathLatencyTracker,
   RetransmissionTracker
-} = require("../../lib/monitoring");
+} = require("../../lib/domain/monitoring");
 
 function formatMB(bytes) {
   return (bytes / 1048576).toFixed(2) + " MB";

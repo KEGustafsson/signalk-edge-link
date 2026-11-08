@@ -1,6 +1,6 @@
 # Future Security and Protocol Roadmap
 
-Future security, protocol and scaling design options, with their tradeoffs and promotion criteria. Nothing in this document is implemented in the current release line.
+Future security, protocol and scaling design options, with their tradeoffs and promotion criteria. None of the future options in this document are implemented in the current release line; the Current Baseline section describes released behavior.
 
 ## Current Baseline
 
@@ -38,7 +38,7 @@ Before implementation, a design must specify replay protection, peer authenticat
 
 Migration docs must list the peer-matching settings that can break a link: `protocolVersion`, `secretKey`, `stretchAsciiKey`, `useMsgpack`, `usePathDictionary`, UDP address and UDP port.
 
-The v3 DATA packet format is the former v2 format; v3 added authenticated control packets. A protocol-v4 handshake must keep a clear boundary between existing v1/v3 behavior and new opt-in behavior.
+v3 DATA carries the same encrypted payload as v2 DATA. The v3 header has version byte `0x03`, `authenticatedHeaders` (default on) appends a 16-byte HMAC tag to DATA, and v3 added authenticated control packets. A protocol-v4 handshake must keep a clear boundary between existing v1/v3 behavior and new opt-in behavior.
 
 ## Scaling Limits and External Controls
 

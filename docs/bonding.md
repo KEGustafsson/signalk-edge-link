@@ -17,11 +17,13 @@ Bonding cannot be combined with fleet sharing on the same client connection: val
 | Measure | How it is computed                                                                         |
 | ------- | ------------------------------------------------------------------------------------------ |
 | RTT     | Probe round trip, smoothed: `0.2 × new + 0.8 × previous` (the first sample is taken as is) |
-| Loss    | Share of the last 10 probes with no response within `heartbeatTimeout` (default 5000 ms)   |
+| Loss    | Share of failures among the last 10 completed probes; see below                            |
 | Quality | `GET /bonding`: `60 × (1 − loss) + 40 × max(0, 1 − RTT / 1000)`, rounded, 0–100            |
 | Status  | `active`, `standby`, `down`, or `unknown` before startup                                   |
 
-A link is marked `down` when more than 3 probes have been sent and none has been answered for `heartbeatTimeout`. It returns to `active` or `standby` on the next valid response. A socket error also marks the link `down`; the socket is recreated after 5 s.
+A probe completes when its response arrives or when `heartbeatTimeout` (default 5000 ms) passes without one; probes still in flight are not counted. Until the first probe completes, loss is `1 − responses / sent`, so a link reports 100% loss after its first unanswered probe.
+
+A link is marked `down` when more than 3 probes have been sent and none has been answered for `heartbeatTimeout`. A link that has never answered is marked `down` on the fourth probe, about 4 s after start with the default `healthCheckInterval`. It returns to `active` or `standby` on the next valid response. A socket error also marks the link `down`; the socket is recreated after 5 s.
 
 Probes are `HBPROBE` packets with an 8-byte truncated HMAC-SHA256 tag keyed by `secretKey`. The server drops probes that fail verification (counted in `malformedPackets`) and the client drops unverified responses, so both server connections must use the client's `secretKey`.
 
@@ -42,7 +44,7 @@ Probes are `HBPROBE` packets with an 8-byte truncated HMAC-SHA256 tag keyed by `
           loss < lossThreshold × 0.5
 ```
 
-- The client never fails over to a backup that is `down`.
+- Automatic failover never switches to a backup that is `down`. A manual switch with `POST /bonding/failover` does not check link status; check `GET /bonding` first.
 - The 5 s minimum on the primary (from startup or the last failback) stops a primary near the threshold from flapping on every health check. A `down` primary skips it.
 - `failbackDelay` (default 30000 ms) is counted from the moment of failover.
 - With `enableNotifications: true` on the client connection, each switch in either direction sets `notifications.signalk-edge-link.<instanceId>.linkFailover` (or `notifications.signalk-edge-link.linkFailover` without an instance ID) to state `alert`, methods `visual` and `sound`, message `Link switched: <from> to <to>`. A failover is also logged as an error: `[FAILOVER] Switching from primary to backup link`.
@@ -57,6 +59,8 @@ Vessel (client):
 {
   "name": "vessel-bonded",
   "serverType": "client",
+  "udpAddress": "shore.example.com",
+  "udpPort": 4446,
   "secretKey": "<64-hex-key>",
   "protocolVersion": 3,
   "bonding": {
@@ -75,7 +79,7 @@ Vessel (client):
 }
 ```
 
-If `primary` is omitted at runtime, the client uses `udpAddress`:`udpPort`; if `backup` is omitted, `udpAddress`:`udpPort + 1`. `main-backup` is the only mode.
+`udpAddress` and `udpPort` are required even with bonding. If `primary` is omitted at runtime, the client uses `udpAddress`:`udpPort`; if `backup` is omitted, `udpAddress`:`udpPort + 1`. `main-backup` is the only mode.
 
 Shore: two independent server connections with the same key, one per port:
 
@@ -128,8 +132,10 @@ curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $TOKE
   -d '{"rttThreshold": 300, "lossThreshold": 0.05}' $H/bonding | jq .
 ```
 
-- `POST /bonding` accepts only `rttThreshold`, `lossThreshold`, `healthCheckInterval`, `failbackDelay` and `heartbeatTimeout`, each a non-negative number; anything else returns 400, and 503 when no connection has bonding. Changes are in memory and apply at the next health check; a new `healthCheckInterval` takes effect only when the connection restarts. Response: `{ "success": true, "updated": {...}, "instances": [{ "id", "thresholds" }] }`.
-- `POST /bonding/failover` acts on the first client connection. Response: `{ "success": true, "activeLink": "backup", "links": {...} }`; 503 when bonding is not enabled, 404 on a server-only node.
+- `POST /bonding` changes are in memory on every bonded connection and apply at the next health check; a new `healthCheckInterval` takes effect only when the connection restarts.
+- `POST /bonding/failover` acts on the first client connection; `POST /connections/:id/bonding/failover` acts on one connection.
+
+Accepted keys, status codes and response shapes: [api-reference.md](api-reference.md#bonding-endpoints).
 
 ### GET /bonding response
 
@@ -174,7 +180,7 @@ curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $TOKE
 }
 ```
 
-`links.backup` has the same fields as `links.primary`. In `GET /bonding` a connection without bonding has `"enabled": false` and `"state": null`. `GET /connections/:id/bonding` returns the `state` object of that one connection, or `{ "enabled": false }` without bonding (404 for a server connection). Full route reference: [api-reference.md](api-reference.md#bonding-endpoints), [per-connection endpoints](api-reference.md#per-connection-endpoints). `heartbeatsSent − heartbeatResponses` is the number of missed probes.
+`links.backup` has the same fields as `links.primary`. In `GET /bonding` a connection without bonding has `"enabled": false` and `"state": null`. `GET /connections/:id/bonding` returns the `state` object of that one connection, or `{ "enabled": false }` without bonding (404 for a server connection). Full route reference: [api-reference.md](api-reference.md#bonding-endpoints), [per-connection endpoints](api-reference.md#per-connection-endpoints). `heartbeatsSent − heartbeatResponses` counts unanswered probes, including those still in flight, so it can be nonzero on a healthy link.
 
 ### Signal K paths published
 

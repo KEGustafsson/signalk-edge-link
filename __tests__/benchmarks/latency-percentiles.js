@@ -14,9 +14,9 @@
 
 const zlib = require("zlib");
 const { promisify } = require("util");
-const { PacketBuilder, PacketParser } = require("../../lib/packet");
-const { SequenceTracker } = require("../../lib/sequence");
-const { encryptBinary, decryptBinary } = require("../../lib/crypto");
+const { PacketBuilder, PacketParser } = require("../../lib/codec/packet-codec");
+const { SequenceTracker } = require("../../lib/transport/reliability/sequence");
+const { encryptBinary, decryptBinary } = require("../../lib/codec/crypto");
 const { NetworkSimulator } = require("../network-simulator");
 
 const brotliCompressAsync = promisify(zlib.brotliCompress);

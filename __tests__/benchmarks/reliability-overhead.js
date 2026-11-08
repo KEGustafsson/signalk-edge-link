@@ -10,8 +10,8 @@
  * - Memory usage of retransmit queue
  */
 
-const { PacketBuilder, PacketParser, HEADER_SIZE } = require("../../lib/packet");
-const { RetransmitQueue } = require("../../lib/retransmit-queue");
+const { PacketBuilder, PacketParser, HEADER_SIZE } = require("../../lib/codec/packet-codec");
+const { RetransmitQueue } = require("../../lib/transport/reliability/retransmit-queue");
 const { NetworkSimulator } = require("../network-simulator");
 
 function formatBytes(bytes) {

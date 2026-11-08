@@ -16,16 +16,16 @@
 
 const zlib = require("zlib");
 const { promisify } = require("util");
-const { PacketBuilder, PacketParser } = require("../../lib/packet");
-const { SequenceTracker } = require("../../lib/sequence");
-const { RetransmitQueue } = require("../../lib/retransmit-queue");
-const { CongestionControl } = require("../../lib/congestion");
-const { encryptBinary, decryptBinary } = require("../../lib/crypto");
+const { PacketBuilder, PacketParser } = require("../../lib/codec/packet-codec");
+const { SequenceTracker } = require("../../lib/transport/reliability/sequence");
+const { RetransmitQueue } = require("../../lib/transport/reliability/retransmit-queue");
+const { CongestionControl } = require("../../lib/transport/congestion");
+const { encryptBinary, decryptBinary } = require("../../lib/codec/crypto");
 const {
   PacketLossTracker,
   PathLatencyTracker,
   RetransmissionTracker
-} = require("../../lib/monitoring");
+} = require("../../lib/domain/monitoring");
 
 const brotliCompressAsync = promisify(zlib.brotliCompress);
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);

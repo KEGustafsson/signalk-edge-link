@@ -94,7 +94,7 @@ A 3.0.0+ build cannot run v2: `protocolVersion: 2` is coerced to `3`. The option
 - **Interoperate with a peer that cannot be upgraded:** keep both peers on a pre-3.0.0 build, which speaks v2. v3 and v2 peers cannot exchange data.
 - **Downgrade to Basic (v1):** set `protocolVersion: 1` on **both** peers. This removes the reliability and authentication layer (no ACK/NAK, congestion control or bonding); use it only on trusted, private links.
 
-Neither change loses data on the data path.
+Neither change discards stored data. v1 has no retransmission, so datagrams lost in transit on a v1 link are not recovered.
 
 ## Troubleshooting
 
