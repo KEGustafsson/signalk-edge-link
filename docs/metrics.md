@@ -25,7 +25,7 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 | `stats.rateLimitedPackets`                   | `signalk_edge_link_rate_limited_packets_total`                                                 | Packets dropped by rate limiting                                                                   |
 | `stats.malformedPackets`                     | `signalk_edge_link_malformed_packets_total`                                                    | Packets dropped due to invalid format or CRC mismatch                                              |
 | `stats.udpSendErrors`                        | `signalk_edge_link_udp_send_errors_total`                                                      | UDP socket send failures                                                                           |
-| `stats.udpRetries`                           | `signalk_edge_link_udp_retries_total`                                                          | Packets that required at least one UDP retry                                                       |
+| `stats.udpRetries`                           | `signalk_edge_link_udp_retries_total`                                                          | UDP send retry attempts; a packet retried twice counts twice                                       |
 | `stats.compressionErrors`                    | `signalk_edge_link_compression_errors_total`                                                   | Brotli compress/decompress failures                                                                |
 | `stats.encryptionErrors`                     | `signalk_edge_link_encryption_errors_total`                                                    | AES-GCM encrypt/decrypt failures (key mismatch shows up here)                                      |
 | `stats.subscriptionErrors`                   | `signalk_edge_link_subscription_errors_total`                                                  | Signal K subscription setup failures                                                               |
@@ -214,7 +214,7 @@ Each link also reports `address` and `port`.
 | `acksSent`           | client | `signalk_edge_link_fleet_acks_sent_total`            | FLEET_ACKs sent                                                                                                                                                                                                                                                                                 |
 | `naksSent`           | client | `signalk_edge_link_fleet_naks_sent_total`            | FLEET_NAKs sent                                                                                                                                                                                                                                                                                 |
 
-FLEET_DATA reaches a vessel only while its NAT mapping is open, and the client's outbound packets, including its heartbeats (`heartbeatInterval`), keep it open. `packetsReceived` counts FLEET_DATA only, so it also stays flat when no member has in-scope values to send. If the server's `packetsSent` is rising and the client's `packetsReceived` is not while its uplink works, suspect an expired mapping; see [troubleshooting](troubleshooting.md#fleet-sharing).
+FLEET_DATA reaches a vessel only while its NAT mapping is open, and the client's outbound packets, including its heartbeats (`heartbeatInterval`), keep it open. `packetsReceived` counts FLEET_DATA only, so it also stays flat when no member has in-scope values to send. The server's `packetsSent` is a total over all members, so it does not show that this client was sent anything. If other members are uplinking in-scope data and this client's `packetsReceived` stays flat while its own uplink works, suspect an expired mapping; see [troubleshooting](troubleshooting.md#fleet-sharing).
 
 ---
 
@@ -247,7 +247,7 @@ Alerts run on v2/v3 client instances. A metric alerts when its value is `>=` the
 | `queueDepth`     | 100             | 500              |
 
 - Notifications (only with `enableNotifications: true`) go to `notifications.signalk-edge-link.<instanceId>.<metric>` (`notifications.signalk-edge-link.<metric>` without an instance ID), with state `warn` for warning and `alert` for critical, and `normal` when the condition clears.
-- Notifications per metric are limited to one per 60 s cooldown; an escalation to a new level is sent immediately. A clear is sent only for a metric that was notified.
+- Notifications per metric are limited to one per 60 s cooldown; a change to a different level, up or down, is sent immediately. A clear is sent only for a metric that was notified.
 - `activeAlerts` in `GET /monitoring/alerts` and the gauge follow the live condition regardless of cooldown.
 - Prometheus: `signalk_edge_link_alert_<metric>` gauge, 0=ok, 1=warning, 2=critical. One series per metric in `alertThresholds` (plus any active alert), published even when not alerting, so `== 0` rules work. `<metric>` has characters outside `[a-zA-Z0-9_]` replaced by `_`.
 

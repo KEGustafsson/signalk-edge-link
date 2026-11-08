@@ -182,7 +182,7 @@ Congestion-control state of the first client instance. Fields: [congestion-contr
 
 ### POST /delta-timer
 
-Set the delta timer manually (`value`, 100–10000 ms) or return to automatic control.
+Set the delta timer manually (`value`, range as for `delta_timer.json` in [runtime files](configuration-reference.md#runtime-configuration-files-hot-reload)) or return to automatic control.
 
 ```json
 { "value": 500 }

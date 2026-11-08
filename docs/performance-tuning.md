@@ -16,7 +16,7 @@ Brotli compresses a batch better the more deltas it holds:
 | 20 deltas  | 4.5 KB   | 341 B        | 13.6× | 17 B        |
 | 50 deltas  | 11.3 KB  | 537 B        | 21.6× | 11 B        |
 
-Raise `deltaTimer` (`delta_timer.json`, 100–10000 ms) on bandwidth-constrained links to collect more deltas per batch. The batch size is a target, not a hard limit: the client divides 85% of the 1400 B payload limit by the average bytes per delta of previous packets, capped at 50 deltas (see [internal constants](configuration-reference.md#internal-constants)). A buffer that reaches that count is sent before the timer fires (counted in `earlySends`). A packet that still exceeds 1400 B is sent whole, not split, and counted in `oversizedPackets`.
+Raise `deltaTimer` (`delta_timer.json`, 100–10000 ms) on bandwidth-constrained links to collect more deltas per batch. The batch size is a target derived from the average delta size, not a hard limit (limits: [internal constants](configuration-reference.md#internal-constants)). A buffer that reaches that count is sent before the timer fires (counted in `earlySends`). A packet that still exceeds the payload limit is sent whole, not split, and counted in `oversizedPackets`.
 
 ---
 

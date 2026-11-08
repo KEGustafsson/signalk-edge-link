@@ -156,14 +156,7 @@ Use Advanced for new deployments. Both ends of a connection must use the same mo
 
 ## Development
 
-```bash
-npm install
-npm run build        # compile TypeScript and bundle the web UI
-npm run dev          # rebuild the web UI on change
-npm test             # all tests
-npm run lint
-npm run format:check
-```
+Build, test and lint commands: [`docs/GUIDE.md`](docs/GUIDE.md#20-developer-reference).
 
 Legacy single-object configs are converted to `connections[]` automatically, or by hand with `npm run migrate:config -- <input.json> [output.json]`.
 

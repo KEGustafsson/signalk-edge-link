@@ -63,7 +63,7 @@ openssl rand -base64 32 | tr -d '/+=' | cut -c1-32
 
 A 32-character ASCII key has at most about 210 bits of entropy, and only when each character is drawn at random from the 95 printable ASCII characters; a human-chosen key has far less, even when it passes the checks above. `stretchAsciiKey: true` runs it through PBKDF2-SHA256 (600,000 iterations, salt `signalk-edge-link-v1`) to derive the 256-bit AES key. PBKDF2 makes brute force expensive but does not add entropy to a weak passphrase. Hex and base64 keys are not stretched.
 
-Both peers should have the same `stretchAsciiKey` setting. With an ASCII key, a mismatch fails authentication on every packet: the server's `encryptionErrors` and the client's `malformedPackets` rise, and no data flows. Hex and base64 keys are not stretched, so the setting has no effect on them.
+Both peers should have the same `stretchAsciiKey` setting. With an ASCII key, a mismatch fails authentication on every packet: the server's `encryptionErrors` rises and no data flows. The client's `malformedPackets` rises only if it receives control packets under the other key; a server that rejects the HELLO may send none. Hex and base64 keys are not stretched, so the setting has no effect on them.
 
 The derived key is cached, so PBKDF2 runs once per key, not per packet:
 

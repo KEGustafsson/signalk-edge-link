@@ -49,14 +49,13 @@ npm run build
 
 ### Step 2: Confirm `protocolVersion: 3`
 
-In the Admin UI select **Advanced (v3)**, or in JSON:
+In the Admin UI select **Advanced (v3)**, or set the field in each existing connection (fragment, other fields unchanged):
 
 ```json
 {
   "connections": [
     {
-      "protocolVersion": 3,
-      "secretKey": "your-shared-secret-here"
+      "protocolVersion": 3
     }
   ]
 }
