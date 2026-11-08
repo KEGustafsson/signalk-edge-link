@@ -739,7 +739,7 @@ export const skipOwnDataProperty: SchemaFragment = {
   type: "boolean",
   title: "Skip Plugin's Own Data",
   description:
-    "Do not forward data this plugin publishes locally over the link: strips entries under 'networking.edgeLink.*'. RTT paths ('networking.modem.rtt', 'networking.edgeLink.rtt' and their per-instance forms) are always forwarded so both ends keep link-health visibility, and other 'networking.modem.*' paths are left intact. The Advanced (v3) telemetry packet is sent either way.",
+    "Do not forward data this plugin publishes locally over the link: strips entries under 'networking.edgeLink.*'. This setting keeps RTT paths ('networking.modem.rtt', 'networking.edgeLink.rtt' and their per-instance forms) so both ends keep link-health visibility, leaves other 'networking.modem.*' paths intact, and does not stop the Advanced (v3) telemetry packet. A pathFilter can still remove any of them.",
   default: false
 };
 

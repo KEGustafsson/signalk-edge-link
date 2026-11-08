@@ -30,7 +30,7 @@ Data payloads (v1 packets; v3 DATA, METADATA and FLEET_DATA) are encrypted with 
 
 v3 control packets are not encrypted: their payload is plaintext with a 16-byte HMAC-SHA256 tag. HELLO's JSON, including protocol version and client ID, is readable on the path; HEARTBEAT carries only the tag. The HELLO `fleet` field, which holds the vessel identity, is AES-256-GCM encrypted on its own.
 
-The GCM auth tag detects any change to the IV, ciphertext or tag. It does not cover the cleartext v3 packet header; with `authenticatedHeaders` (default `true`) a separate HMAC tag binds the DATA and METADATA header to the ciphertext. Packets that fail authentication are dropped. On the server every failure, DATA, METADATA or control, counts in `encryptionErrors`; on the client a control packet (ACK, NAK, HELLO_ACK) that fails its HMAC counts in `malformedPackets`.
+The GCM auth tag detects any change to the IV, ciphertext or tag. It does not cover the cleartext v3 packet header; with `authenticatedHeaders` (default `true`) a separate HMAC tag binds the DATA and METADATA header to the ciphertext. Packets that fail authentication are dropped. On the server a failed tag or decryption counts in `encryptionErrors` (an untagged packet where `authenticatedHeaders` is required counts as a general error); on the client a control packet (ACK, NAK, HELLO_ACK) that fails its HMAC counts in `malformedPackets`.
 
 ---
 
@@ -147,7 +147,7 @@ Fleet sharing ([protocol-v3-spec.md §15](protocol-v3-spec.md)) sends each clien
 
 ## Advanced (v3) control-plane authentication
 
-Every v3 control packet (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_REQUEST) carries a 16-byte truncated HMAC-SHA256 tag (the first 16 bytes of the 32-byte output). Without it, any host that can reach the UDP port could forge:
+Every v3 control packet (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_REQUEST, and the fleet packets HELLO_ACK, FLEET_ACK and FLEET_NAK) carries a 16-byte truncated HMAC-SHA256 tag (the first 16 bytes of the 32-byte output). Without it, any host that can reach the UDP port could forge:
 
 - `FULL_STATUS_REQUEST`, triggering a full snapshot replay toward a spoofed address (a reflection amplifier);
 - `META_REQUEST`, triggering a metadata snapshot replay;

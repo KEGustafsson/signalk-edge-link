@@ -117,7 +117,7 @@ Full statistics for the first instance. Top-level keys:
 
 `networkQuality` for the first instance plus `timestamp`: `rtt`, `jitter`, `packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate`, `acksSent`, `naksSent`, `activeLink`, `dataSource` (`"local"` or `"remote-client"`), `linkQuality`, and on a server `lastRemoteUpdate`.
 
-`rtt`, `jitter` and `linkQuality` are **absent**, not zero, until the link has been measured (a client's first timed ACK; on a server, client telemetry carrying an RTT). The same gate applies to `networkQuality` in `/metrics` and to the `signalk_edge_link_rtt_milliseconds`, `signalk_edge_link_jitter_milliseconds` and `signalk_edge_link_link_quality_score` series in `/prometheus`. Other fields may also be absent; see [metrics.md](metrics.md#link-quality-metrics).
+`rtt`, `jitter` and `linkQuality` are **absent**, not zero, until the link has been measured (a client's first timed ACK; on a server, client telemetry carrying an RTT). A Basic (v1) client gets no ACKs, so they stay absent; its RTT is the ping result in `networking.modem.rtt` ([metrics.md](metrics.md#signal-k-paths-published)). The same gate applies to `networkQuality` in `/metrics` and to the `signalk_edge_link_rtt_milliseconds`, `signalk_edge_link_jitter_milliseconds` and `signalk_edge_link_link_quality_score` series in `/prometheus`. Other fields may also be absent; see [metrics.md](metrics.md#link-quality-metrics).
 
 ### GET /sources
 

@@ -129,10 +129,10 @@ On Basic (v1), set `useMsgpack` on the server as well; Advanced (v3) detects it 
 
 ## Runtime Monitoring
 
-| Metric                                             | Action                                                               |
-| -------------------------------------------------- | -------------------------------------------------------------------- |
-| `compressionRatio` below 70%                       | Raise `deltaTimer`                                                   |
-| `earlySends / (earlySends + timerSends)` above 20% | Data rate exceeds the timer: raise `deltaTimer` or filter more paths |
-| `rtt` consistently above `targetRTT`               | Raise `targetRTT` to the link's real RTT                             |
+| Metric                                             | Action                                                                                                                                 |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `compressionRatio` below 70%                       | Raise `deltaTimer`                                                                                                                     |
+| `earlySends / (earlySends + timerSends)` above 20% | The batch fills before the timer fires: filter more paths. A longer `deltaTimer` does not help; it only trades latency for compression |
+| `rtt` consistently above `targetRTT`               | Raise `targetRTT` to the link's real RTT                                                                                               |
 
 See [metrics.md](metrics.md) for the full metrics reference.

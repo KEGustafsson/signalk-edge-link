@@ -52,7 +52,7 @@ curl -s -H "$T" "http://shore:3000/plugins/signalk-edge-link/connections/$id/met
   | jq '{rcvd:.stats.deltasReceived,err:.stats.encryptionErrors}'
 ```
 
-If `readyToSend` is `false`, `GET /status` shows the error.
+If `readyToSend` is `false`, check that instance's `status` and `lastError` in `GET /status`. `lastError` can be `null` while a connection is still starting.
 
 ---
 

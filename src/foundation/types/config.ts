@@ -257,9 +257,9 @@ export interface ConnectionConfig {
    * When true, drop value entries this plugin publishes locally before they
    * are forwarded over the link: paths under `networking.edgeLink.*`. RTT
    * paths (`networking.modem[.<id>].rtt`, `networking.edgeLink[.<id>].rtt`)
-   * are always forwarded, and other `networking.modem.*` paths come from
-   * external providers and are left intact. The v3 telemetry packet is sent
-   * either way. Default false (own data is forwarded along with all other
+   * are kept, and other `networking.modem.*` paths come from external
+   * providers and are left intact. This setting does not stop the v3
+   * telemetry packet; `pathFilter` can still remove any of these paths. Default false (own data is forwarded along with all other
    * subscribed deltas).
    *
    * Client mode only. Ignored on server-mode connections.

@@ -106,4 +106,4 @@ DATA and METADATA are protected by the GCM tag. With `authenticatedHeaders` (def
 
 ### Settings both peers must match
 
-The settings marked "Both ends" in the [configuration reference](configuration-reference.md#common-fields-client-and-server): in Advanced mode these are the key settings, `protocolVersion`, `authenticatedHeaders` and `epochBoundAuth`. Encoding options such as `useMsgpack` and `usePathDictionary` are detected by the receiver. A mismatch shows up as decrypt or authentication failures and `malformedPackets`; see [troubleshooting.md](troubleshooting.md).
+The settings marked "Both ends" in the [configuration reference](configuration-reference.md#common-fields-client-and-server): in Advanced mode these are the key settings, `protocolVersion`, `authenticatedHeaders` and `epochBoundAuth`. Encoding options such as `useMsgpack` and `usePathDictionary` are detected by the receiver. A mismatch shows up as decrypt or authentication failures, `malformedPackets` or general errors, depending on the setting and the direction; see [troubleshooting.md](troubleshooting.md).

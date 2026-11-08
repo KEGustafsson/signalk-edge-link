@@ -45,7 +45,7 @@ npm install
 npm run build
 ```
 
-**Both sides must run Advanced (v3) with the same key and authentication settings.** Plugin versions may differ as long as both support the settings you enable (`epochBoundAuth` needs 4.0.0+, fleet sharing 4.4.0+). A peer left on Basic, or with mismatched settings, breaks the link and no data flows. The counter that rises depends on the mismatch: a different `secretKey` or `stretchAsciiKey` shows in the server's `encryptionErrors`; a protocol or `authenticatedHeaders` mismatch shows in `malformedPackets` on the v3 receiver ([troubleshooting.md](../troubleshooting.md)). Change both ends in the same maintenance window.
+**Both sides must run Advanced (v3) with the same key and authentication settings.** Plugin versions may differ as long as both support the settings you enable (`epochBoundAuth` needs 4.0.0+, fleet sharing 4.4.0+). A peer left on Basic, or with mismatched settings, breaks the link and no data flows. The counter that rises depends on the mismatch: a different `secretKey` or `stretchAsciiKey` shows in the server's `encryptionErrors`; a protocol mismatch, or a v3 server with `authenticatedHeaders` off receiving tagged packets, shows in `malformedPackets`; a server that requires `authenticatedHeaders` receiving untagged packets logs `Authenticated header required` and counts a general error ([troubleshooting.md](../troubleshooting.md)). Change both ends in the same maintenance window.
 
 ### Step 2: Confirm `protocolVersion: 3`
 
@@ -69,7 +69,7 @@ In the Admin UI select **Advanced (v3)**, or in JSON:
 ### Step 4: Verify
 
 1. Data flows again: check `deltasSent` / `deltasReceived`.
-2. ACK/NAK traffic appears in `GET /metrics`.
+2. `networkQuality.acksSent` rises in `GET /metrics`. `naksSent` rises only when packets are lost, so 0 is normal.
 3. If the link does not recover, check that both sides use the same `protocolVersion` **and** `secretKey`.
 
 ### Step 5: Authenticated DATA/METADATA headers (on by default)

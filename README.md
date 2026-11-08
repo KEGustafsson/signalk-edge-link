@@ -38,7 +38,7 @@ Typical use: a boat sends its data to a shore server, or several boats report to
   [Vessel C] ──┘             └──► C gets A, B
 ```
 
-Fleet sharing needs Advanced mode and version 4.4.0 or later on every node, relays included. See [Fleet Sharing](docs/configuration-reference.md#fleet-sharing-advancedv3-only).
+Fleet sharing is off by default: set `fleetSharing.enabled` on the server and on each client. It needs Advanced mode and version 4.4.0 or later on every node, relays included. See [Fleet Sharing](docs/configuration-reference.md#fleet-sharing-advancedv3-only).
 
 ## Requirements
 
