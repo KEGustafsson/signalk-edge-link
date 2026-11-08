@@ -21,7 +21,7 @@ Every 5000 ms (`adjustInterval`) it compares smoothed RTT and loss with `targetR
 Then:
 
 1. One step changes the timer by at most 20% (`maxAdjustment`), so × 1.5 becomes × 1.2.
-2. The result is clamped to `minDeltaTimer`–`maxDeltaTimer` and rounded to whole milliseconds.
+2. The result is clamped to `minDeltaTimer`–`maxDeltaTimer` and rounded to whole milliseconds. The clamp comes after the 20% cap, so a timer outside the bounds (for example a manual value below `minDeltaTimer`) jumps to the bound in one step.
 
 Nominal is `nominalDeltaTimer`, clamped to `minDeltaTimer`–`maxDeltaTimer`. If it is not set, nominal is the `deltaTimer` the connection started with (from `delta_timer.json`, default 1000 ms). When nominal equals `minDeltaTimer`, a healthy link always steps × 0.95, driving the timer down to the minimum.
 

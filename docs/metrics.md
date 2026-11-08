@@ -137,7 +137,7 @@ A server with no client telemetry from the last 15 s (`dataSource: local`) omits
 
 **Interpretation:**
 
-- `earlySends / (earlySends + timerSends)` > 20% means data arrives faster than the current `deltaTimer` drains it — increase `deltaTimer` or filter more paths
+- `earlySends / (earlySends + timerSends)` > 20% means the batch fills before the timer fires: data arrives faster than one batch per `deltaTimer` holds. Reduce the incoming rate (filter or throttle paths); a longer `deltaTimer` makes it worse
 - `oversizedPackets > 0` is a bug unless you have modified `MAX_SAFE_UDP_PAYLOAD`
 
 ---
@@ -189,7 +189,7 @@ Each link also reports `address` and `port`.
 | `packetsSent`        | server | `signalk_edge_link_fleet_packets_sent_total`         | FLEET_DATA packets sent                                                                                                                                                                                                                                                                         |
 | `bytesSent`          | server | `signalk_edge_link_fleet_bytes_sent_total`           | FLEET_DATA bytes sent                                                                                                                                                                                                                                                                           |
 | `valuesSent`         | server | `signalk_edge_link_fleet_values_sent_total`          | Values sent                                                                                                                                                                                                                                                                                     |
-| `retransmits`        | server | `signalk_edge_link_fleet_retransmits_total`          | FLEET_DATA retransmitted on NAK (at most once per second per packet) or on timeout ([§15.5](protocol-v3-spec.md))                                                                                                                                                                               |
+| `retransmits`        | server | `signalk_edge_link_fleet_retransmits_total`          | FLEET_DATA retransmitted on NAK or on timeout; limits in [protocol-v3-spec.md §15.5](protocol-v3-spec.md#15-fleet-sharing-capability-fleet-v1)                                                                                                                                                  |
 | `rateLimitedFlushes` | server | `signalk_edge_link_fleet_rate_limited_flushes_total` | Flushes that left values queued because a client's byte budget was spent                                                                                                                                                                                                                        |
 | `originDrops`        | server | `signalk_edge_link_fleet_origin_drops_total`         | Uplink deltas and METADATA entries dropped because their vessel belongs to another member (e.g. relayed AIS copies)                                                                                                                                                                             |
 | `identityConflicts`  | server | `signalk_edge_link_fleet_identity_conflicts_total`   | Vessel claims moved to a newer session (same vessel reconnected from a new port, or a duplicate)                                                                                                                                                                                                |
@@ -214,7 +214,7 @@ Each link also reports `address` and `port`.
 | `acksSent`           | client | `signalk_edge_link_fleet_acks_sent_total`            | FLEET_ACKs sent                                                                                                                                                                                                                                                                                 |
 | `naksSent`           | client | `signalk_edge_link_fleet_naks_sent_total`            | FLEET_NAKs sent                                                                                                                                                                                                                                                                                 |
 
-FLEET_DATA reaches a vessel only while its NAT mapping is open, and the client's outbound packets, including its heartbeats (`heartbeatInterval`), keep it open. A client whose `packetsReceived` stops rising while its uplink still works usually has an expired mapping; see [troubleshooting](troubleshooting.md#fleet-sharing).
+FLEET_DATA reaches a vessel only while its NAT mapping is open, and the client's outbound packets, including its heartbeats (`heartbeatInterval`), keep it open. `packetsReceived` counts FLEET_DATA only, so it also stays flat when no member has in-scope values to send. If the server's `packetsSent` is rising and the client's `packetsReceived` is not while its uplink works, suspect an expired mapping; see [troubleshooting](troubleshooting.md#fleet-sharing).
 
 ---
 

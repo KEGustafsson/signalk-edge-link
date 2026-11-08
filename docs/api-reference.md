@@ -147,24 +147,24 @@ Path dictionary: `{ "total": 172, "categories": { "navigation": { "prefix": "nav
 
 ## Configuration Endpoints
 
-| Endpoint                 | Behavior                                                                                                                                                                 |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /config/:filename`  | Read `delta_timer.json`, `subscription.json` or `sentence_filter.json`. Other names → `400 Invalid filename`. `503 Plugin not fully initialized` before the files exist. |
-| `POST /config/:filename` | Write one of those files (JSON body, validated per file); hot-reloaded. Returns `{ "success": true }`.                                                                   |
-| `GET /plugin-config`     | `{ "success": true, "configuration": {...} }` with every `secretKey` and `managementApiToken` replaced by `[redacted]`.                                                  |
-| `POST /plugin-config`    | Replace the whole plugin configuration (see below).                                                                                                                      |
-| `GET /plugin-schema`     | `{ "schema": <RJSF schema>, "currentMode": "client" \| "server" \| "unknown" }`.                                                                                         |
+| Endpoint                 | Behavior                                                                                                                                                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /config/:filename`  | Read `delta_timer.json`, `subscription.json` or `sentence_filter.json`. Other names → `400 Invalid filename`. `503 Plugin not started` when no client connection is running; a file not written yet returns `{}`. |
+| `POST /config/:filename` | Write one of those files (JSON body, validated per file); hot-reloaded. Returns `{ "success": true }`.                                                                                                            |
+| `GET /plugin-config`     | `{ "success": true, "configuration": {...} }` with every `secretKey` and `managementApiToken` replaced by `[redacted]`.                                                                                           |
+| `POST /plugin-config`    | Replace the whole plugin configuration (see below).                                                                                                                                                               |
+| `GET /plugin-schema`     | `{ "schema": <RJSF schema>, "currentMode": "client" \| "server" \| "unknown" }`.                                                                                                                                  |
 
 ### POST /plugin-config
 
-Body: `{ "connections": [...] }` (at least one entry) or a single legacy connection object with top-level `serverType`. Each connection is validated (`serverType`, `udpPort`, `secretKey`; client also `udpAddress`, and a v1 client also `testAddress` and `testPort`) and server ports must be unique. A client without `protocolVersion` is v1. Full rules: [configuration-reference.md](configuration-reference.md#validation-rules). A connection without `connectionId` gets one generated.
+Body: `{ "connections": [...] }` (at least one entry) or a single legacy connection object with top-level `serverType`. Each connection is validated; rules: [configuration-reference.md](configuration-reference.md#validation-rules). A connection without `connectionId` gets one generated.
 
-| Field                       | Handling                                                                                                   |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `secretKey: "[redacted]"`   | Keeps the stored key, matched by `connectionId` or name/serverType/udpPort; `400` if no stored key matches |
-| `managementApiToken`        | Omitted or `[redacted]` keeps the stored token; a non-empty string replaces it; `""` clears it             |
-| `requireManagementApiToken` | Kept from stored config unless a boolean is sent                                                           |
-| `schemaVersion`             | Integer from 1 to the current version, else `400`; omitted keeps the stored value                          |
+| Field                       | Handling                                                                                                                                                                                                                     |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `secretKey: "[redacted]"`   | Keeps the stored key, matched by `connectionId`. Send back the `connectionId` from `GET /plugin-config`: name/serverType/udpPort only matches a stored connection that has no `connectionId`. `400` if no stored key matches |
+| `managementApiToken`        | Omitted or `[redacted]` keeps the stored token; a non-empty string replaces it; `""` clears it                                                                                                                               |
+| `requireManagementApiToken` | Kept from stored config unless a boolean is sent                                                                                                                                                                             |
+| `schemaVersion`             | Integer from 1 to the current version, else `400`; omitted keeps the stored value                                                                                                                                            |
 
 ```json
 { "success": true, "message": "Configuration saved. Plugin restarting...", "restarting": true }
@@ -336,7 +336,7 @@ Errors: `400` validation, `404` unknown id, `503 Runtime restart handler unavail
 
 ## Per-Connection Endpoints
 
-Scoped to one connection. `:id` is the slugified connection name (e.g. `shore-server`); an unknown id returns `404 Connection '<id>' not found`, and client-only routes return `404 Not available in server mode` for a server connection.
+Scoped to one connection. `:id` is the connection ID returned by `GET /instances` or `GET /connections`. It is derived from the name (e.g. `shore-server`), but names with the same slug get a suffix (`-1`, `-2`), so do not build it from the name; an unknown id returns `404 Connection '<id>' not found`, and client-only routes return `404 Not available in server mode` for a server connection.
 
 | Endpoint                                          | Auth action                   | Mode   | Response                                                                                               |
 | ------------------------------------------------- | ----------------------------- | ------ | ------------------------------------------------------------------------------------------------------ |

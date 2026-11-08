@@ -126,13 +126,9 @@ export class CongestionControl {
   }
 
   /**
-   * Adjust the delta timer multiplicatively, by band:
-   *
-   * - Severe congestion (loss > high threshold OR RTT > 1.5x target): grow the timer
-   * - Healthy (loss < low threshold AND 0 < RTT < 0.8x target): move toward nominal
-   * - Otherwise: a weak ±2% pull toward nominal
-   *
-   * The result is clamped to maxAdjustment per step and to [min, max]DeltaTimer.
+   * Adjust the delta timer once per interval. React fast to congestion, and
+   * otherwise converge on the nominal timer rather than the minimum, so a
+   * healthy link settles instead of oscillating (bands: docs/congestion-control.md).
    *
    * @returns {number} The (potentially adjusted) delta timer value
    */

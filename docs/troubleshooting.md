@@ -229,10 +229,10 @@ curl -s -H "$T" $H/monitoring/alerts | jq .
 curl -s -H "$T" $H/prometheus
 curl -s -X POST -H "$T" $H/capture/start
 # wait until the traffic you are diagnosing has passed, then export
-curl -s -H "$T" -o capture.pcap $H/capture/export
+curl -sf -H "$T" -o capture.pcap $H/capture/export || echo 'export failed'
 ```
 
-Captures contain sensitive data; see [security.md](security.md#packet-capture-is-sensitive-data).
+Capture works on the first connection only, and only when it is an Advanced (v3) client; otherwise `/capture/start` returns `503 Packet capture not initialized`. Captures contain sensitive data; see [security.md](security.md#packet-capture-is-sensitive-data).
 
 ---
 
