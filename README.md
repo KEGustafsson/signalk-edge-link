@@ -38,7 +38,7 @@ Typical use: a boat sends its data to a shore server, or several boats report to
   [Vessel C] ──┘             └──► C gets A, B
 ```
 
-Fleet sharing is off by default: set `fleetSharing.enabled` on the server and on each client. It needs Advanced mode and version 4.4.0 or later on every node, relays included. See [Fleet Sharing](docs/configuration-reference.md#fleet-sharing-advancedv3-only).
+Fleet sharing is off by default: set `fleetSharing.enabled` on the server and on each client. It needs Advanced mode and version 4.4.0 or later on every node, relays included, and a client cannot use it together with bonding. See [Fleet Sharing](docs/configuration-reference.md#fleet-sharing-advancedv3-only).
 
 ## Requirements
 
@@ -158,7 +158,7 @@ Use Advanced for new deployments. Both ends of a connection must use the same mo
 
 Build, test and lint commands: [`docs/GUIDE.md`](docs/GUIDE.md#20-developer-reference).
 
-Legacy single-object configs are converted to `connections[]` automatically, or by hand with `npm run migrate:config -- <input.json> [output.json]`.
+Legacy single-object configs still run: startup wraps them in a one-entry `connections[]` without rewriting the file. To convert the file, run `npm run migrate:config -- <input.json> [output.json]`; without `output.json` it overwrites `input.json`, so give a separate output path to keep the original.
 
 ## License
 

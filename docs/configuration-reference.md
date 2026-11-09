@@ -146,7 +146,7 @@ Under `bonding`. Behavior: [bonding.md](bonding.md). Primary and backup must dif
 | `failover.failbackDelay`       | number  | `30000`         | 5000–300000 ms  | Wait after the primary recovers before switching back. |
 | `failover.heartbeatTimeout`    | number  | `5000`          | 1000–30000 ms   | A link with no response for this long is marked DOWN.  |
 
-If `primary` or `backup` is missing at runtime, the client uses `udpAddress:udpPort` for the primary and `udpAddress:udpPort+1` for the backup.
+If `primary` or `backup` is missing at runtime, the client uses `udpAddress:udpPort` for the primary and `udpAddress:udpPort+1` for the backup. With `udpPort` 65535 that backup port does not exist, so validation then requires an explicit `backup`.
 
 ---
 

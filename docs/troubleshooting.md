@@ -239,7 +239,7 @@ Capture works on the first connection only, and only when it is an Advanced (v3)
 ## Poor Compression Ratio
 
 - Raise `deltaTimer` so each packet carries more deltas: 50 deltas compress about 21×, a single delta about 1× ([performance-tuning.md](performance-tuning.md#compression-and-batching)).
-- Enable `useMsgpack: true` and `usePathDictionary: true` on both ends.
+- Enable `useMsgpack: true` and `usePathDictionary: true` on the sending client. An Advanced (v3) receiver detects both per packet; only Basic (v1) needs `useMsgpack` on the server too.
 - Exclude high-rate NMEA sentences (`GSV`, `GSA`, `VTG`) in `sentence_filter.json`.
 - Check that `oversizedPackets` stays 0.
 

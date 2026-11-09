@@ -19,7 +19,6 @@ export SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN="your-long-random-token"
 # X-Edge-Link-Token header (recommended)
 curl -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" http://localhost:3000/plugins/signalk-edge-link/status
 
-# Authorization: Bearer header
 curl -H "Authorization: Bearer $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" http://localhost:3000/plugins/signalk-edge-link/status
 ```
 
