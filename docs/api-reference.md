@@ -248,11 +248,11 @@ Monitoring trackers, alerts and packet capture exist only on v2/v3 client instan
 
 ## Packet Capture Endpoints
 
-| Endpoint                                     | Behavior                                                                                                                                          |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /capture/start` / `POST /capture/stop` | No body. Returns `{ "success": true, "enabled": true \| false }`. Circular buffer of at most 1000 packets.                                        |
-| `GET /capture`                               | `{ "enabled": true, "captured": 500, "dropped": 0, "buffered": 500, "maxPackets": 1000 }`                                                         |
-| `GET /capture/export`                        | `.pcap` download (`application/vnd.tcpdump.pcap`, libpcap, link type DLT_USER0 = 147), filename `edge-link-capture-<ms>.pcap`. Open in Wireshark. |
+| Endpoint                                     | Behavior                                                                                                                                                                                                              |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /capture/start` / `POST /capture/stop` | No body. Returns `{ "success": true, "enabled": true \| false }`. Circular buffer of at most 1000 packets.                                                                                                            |
+| `GET /capture`                               | `{ "enabled": true, "captured": 500, "dropped": 0, "buffered": 500, "maxPackets": 1000 }`. While capture is not initialized: `{ "enabled": false, "captured": 0, "dropped": 0, "buffered": 0 }`, without `maxPackets` |
+| `GET /capture/export`                        | `.pcap` download (`application/vnd.tcpdump.pcap`, libpcap, link type DLT_USER0 = 147), filename `edge-link-capture-<ms>.pcap`. Open in Wireshark.                                                                     |
 
 Start, stop and export return `503 Packet capture not initialized` when capture is unavailable.
 

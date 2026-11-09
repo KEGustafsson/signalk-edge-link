@@ -36,14 +36,7 @@ The v2 wire protocol was removed in 3.0.0; a 3.0.0+ build cannot select it. See 
 
 ### Step 1: Upgrade the plugin on both peers
 
-Update from the Signal K App Store, or from source:
-
-```bash
-cd ~/.signalk/node_modules/signalk-edge-link
-git pull origin main
-npm install
-npm run build
-```
+Update from the Signal K App Store, or for a source install pull and rebuild as in [GUIDE.md](../GUIDE.md#4-installation).
 
 **Both sides must run Advanced (v3) with the same key and authentication settings.** Plugin versions may differ as long as both support the settings you enable (`epochBoundAuth` needs 4.0.0+, fleet sharing 4.4.0+). A peer left on Basic, or with mismatched settings, breaks the link and no data flows. The counter that rises depends on the mismatch: a different `secretKey` or `stretchAsciiKey` shows in the server's `encryptionErrors`; a protocol mismatch, or a v3 server with `authenticatedHeaders` off receiving tagged packets, shows in `malformedPackets`; a server that requires `authenticatedHeaders` receiving untagged packets logs `Authenticated header required` and counts a general error ([troubleshooting.md](../troubleshooting.md)). Change both ends in the same maintenance window.
 

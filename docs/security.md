@@ -44,7 +44,7 @@ The examples show the format only; generate your own key with the commands below
 | 64-char hex    | 32 B   | `a3f1e2d4b5c6...`                              | 256 bits if the 32 bytes are random (`openssl rand -hex 32`)                      |
 | 44-char base64 | 32 B   | `o/HitLXG8AmQEjRWeJCrzvEjRZVwmkrN5TI9Xabc12s=` | 256 bits if random; URL-safe alphabet and 43 characters without `=` also accepted |
 
-Validation does not measure randomness; it rejects only obviously weak keys: an ASCII key needs at least 8 different characters and 3.0 bits/char of entropy, with no short repeating pattern and no sequential run of 20 or more characters; a hex or base64 key's decoded bytes must pass the same 8-unique / 3.0-bit test.
+Validation does not measure randomness; it rejects only obviously weak keys: an ASCII key needs at least 8 different characters and 3.0 bits/char of entropy, with no short repeating pattern and no ascending run of 20 or more consecutive characters (descending runs are not detected); a hex or base64 key's decoded bytes must pass the same 8-unique / 3.0-bit test.
 
 ### Generating a secure key
 
@@ -154,7 +154,7 @@ Every v3 control packet (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_R
 - `NAK`, causing spurious retransmissions;
 - `HELLO`, creating a spurious server session.
 
-The tag proves origin, not freshness: a captured control packet stays valid and can be replayed, and `epochBoundAuth` does not stop a replay within the same epoch. The client accepts control packets only from its configured peer addresses, so a replayed NAK cannot redirect retransmissions to another host, but one replayed from an accepted source still triggers retransmissions and uses up retransmit attempts.
+The tag proves origin, not freshness: a captured control packet stays valid and can be replayed, and `epochBoundAuth` does not stop a replay within the same epoch. The client accepts control packets only from its configured peer addresses, except that while a configured hostname awaits its first DNS resolution it accepts HMAC-valid packets from any source for up to 30 s. A replayed NAK cannot redirect retransmissions, which always go to the configured peer, but one replayed from an accepted source, or from anywhere during that grace period, still triggers retransmissions and uses up retransmit attempts.
 
 Bonding heartbeat probes carry an 8-byte truncated HMAC-SHA256 tag; the server drops unverified probes and the client drops unverified responses. Basic (v1) has no control packets and no reliability layer; use it only on trusted or private links.
 

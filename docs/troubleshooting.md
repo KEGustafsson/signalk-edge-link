@@ -247,10 +247,10 @@ Capture works on the first connection only, and only when it is an Advanced (v3)
 
 ## Installation Issues
 
-| Symptom            | Fix                                                                                   |
-| ------------------ | ------------------------------------------------------------------------------------- |
-| Plugin not loading | Run `npm install && npm run build` in the plugin directory; check the Node.js version |
-| Web UI blank       | Run `npm run build`; check that `public/` exists; clear the browser cache             |
+| Symptom            | Fix                                                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Plugin not loading | Packaged install: reinstall the plugin from the App Store or npm. Source checkout: run `npm install && npm run build`. Check the Node.js version |
+| Web UI blank       | Check that `public/` exists (packaged install: reinstall; source checkout: `npm run build`); clear the browser cache                             |
 
 ---
 

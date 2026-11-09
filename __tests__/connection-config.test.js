@@ -61,7 +61,19 @@ describe("validateConnectionConfig", () => {
       const error = validateConnectionConfig(
         makeValidClient({ udpPort: 65535, bonding: { enabled: true, mode: "main-backup" } })
       );
-      expect(error).toMatch(/bonding\.backup is required when udpPort is 65535/);
+      expect(error).toMatch(/bonding\.backup\.address and bonding\.backup\.port are required/);
+    });
+
+    test("rejects an incomplete backup when udpPort is 65535", () => {
+      for (const backup of [{}, { address: "10.0.0.2" }, { port: 5000 }]) {
+        const error = validateConnectionConfig(
+          makeValidClient({
+            udpPort: 65535,
+            bonding: { enabled: true, mode: "main-backup", backup }
+          })
+        );
+        expect(error).toMatch(/bonding\.backup\.address and bonding\.backup\.port are required/);
+      }
     });
 
     test("accepts bonding with an explicit backup when udpPort is 65535", () => {
