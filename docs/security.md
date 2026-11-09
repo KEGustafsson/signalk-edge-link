@@ -97,7 +97,7 @@ A peer restart picks a fresh random sequence baseline. The window is re-baseline
 Three residuals remain:
 
 - **Cross-epoch replay:** a packet captured before a restart whose random sequence baseline falls inside the post-restart window. Very unlikely, and only briefly after a restart. Closed by `epochBoundAuth`.
-- **Spoofed-source replay:** a guard is created per `address:port` on first sight, so a replay from a source the receiver has never seen lands on a fresh guard with epoch 0 and nothing to enforce. Source-port rotation is closed: packets from an unhandshaked port of an already handshaked address fail closed. `epochBoundAuth` closes a DATA-only replay from a spoofed source IP. It does not close a replay of a captured HELLO followed by DATA from the same capture: HELLO is exempt from epoch binding, so it creates a guard for the new address with the captured epoch, and that capture's DATA then passes the fresh window once. Replay guards are kept in memory only, so after a server restart the same replay also works from the original address.
+- **Spoofed-source replay:** a guard is created per `address:port` on first sight, so a replay from a source the receiver has never seen lands on a fresh guard with epoch 0 and nothing to enforce. Source-port rotation is closed: packets from an unhandshaked port of an already handshaked address fail closed. `epochBoundAuth` closes a DATA-only replay from a spoofed source IP. It does not close a replay of a captured HELLO followed by DATA from the same capture: HELLO is exempt from epoch binding, so it creates a guard for the new address with the captured epoch, and that capture's DATA then passes the fresh window once. Replay guards are kept in memory only and capped at 256 peers, least recently used first out, so after a server restart, or once a peer's guard has been evicted, the same replay also works from the original address.
 - **Post-server-restart race:** the window is in memory and does not survive a server restart. An attacker who beats the client's reconnect in that window could replay once. The client re-establishes a higher epoch on reconnect.
 
 The METADATA channel has a second per-peer window over the METADATA header sequence (its own sequence space), under the same rules: epoch-armed peers only, re-baselined only on a strictly higher epoch, fail-closed for unhandshaked ports of handshaked addresses. Without it, the envelope `seq`/`idx` dedup lives in the evictable session, and a METADATA packet replayed after session expiry would re-inject stale meta entries or a stale source snapshot.
@@ -153,6 +153,8 @@ Every v3 control packet (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_R
 - `META_REQUEST`, triggering a metadata snapshot replay;
 - `NAK`, causing spurious retransmissions;
 - `HELLO`, creating a spurious server session.
+
+The tag proves origin, not freshness: a captured control packet stays valid and can be replayed, and `epochBoundAuth` does not stop a replay within the same epoch. The client accepts control packets only from its configured peer addresses, so a replayed NAK cannot redirect retransmissions to another host, but one replayed from an accepted source still triggers retransmissions and uses up retransmit attempts.
 
 Bonding heartbeat probes carry an 8-byte truncated HMAC-SHA256 tag; the server drops unverified probes and the client drops unverified responses. Basic (v1) has no control packets and no reliability layer; use it only on trusted or private links.
 

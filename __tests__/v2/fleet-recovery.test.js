@@ -477,5 +477,5 @@ describe("fleet lifecycle", () => {
         c.client.stop();
       }
     }
-  });
+  }, 15000); // headroom for setup plus the 5 s file poll
 });

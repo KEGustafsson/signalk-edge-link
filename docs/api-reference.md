@@ -74,23 +74,23 @@ The auth action is the `action` label in `managementAuth.byAction` and `signalk_
 
 Full statistics for the first instance. Top-level keys:
 
-| Key                 | Content                                                                                                     |
-| ------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `uptime`            | `milliseconds`, `seconds`, `formatted` (`"1h 0m 0s"`)                                                       |
-| `mode`              | `"client"` or `"server"`                                                                                    |
-| `protocolVersion`   | Configured protocol version (default 1)                                                                     |
-| `stats`             | Counters and `errorCounts` — [metrics.md](metrics.md#core-transport-metrics)                                |
-| `status`            | `readyToSend`, `deltasBuffered`                                                                             |
-| `bandwidth`         | Byte/packet counters, rates, `*Formatted` strings, metadata counters, `history` (last 30 samples)           |
-| `pathStats`         | Top 50 paths by bytes, each with `percentage`                                                               |
-| `pathCategories`    | Path category definitions                                                                                   |
-| `smartBatching`     | Batching counters; `null` in server mode — [metrics.md](metrics.md#smart-batching-metrics)                  |
-| `networkQuality`    | Link quality — [metrics.md](metrics.md#link-quality-metrics); server adds `lastRemoteUpdate`                |
-| `recentErrors`      | Last 10 `{ category, message, timestamp }`                                                                  |
-| `lastError`         | `{ message, timestamp, timeAgo }` or `null`                                                                 |
-| `sourceReplication` | `{ metrics: { upserts, noops, missingIdentity, conflicts }, registry: null }`, or `null` without a registry |
-| `fleet`             | Fleet counters once fleet sharing has started, else `null` — [metrics.md](metrics.md#fleet-sharing-metrics) |
-| `managementAuth`    | Only when a management token is configured — [metrics.md](metrics.md#management-api-auth-telemetry)         |
+| Key                 | Content                                                                                                                |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `uptime`            | `milliseconds`, `seconds`, `formatted` (`"1h 0m 0s"`)                                                                  |
+| `mode`              | `"client"` or `"server"`                                                                                               |
+| `protocolVersion`   | Configured protocol version (default 1)                                                                                |
+| `stats`             | Counters and `errorCounts` — [metrics.md](metrics.md#core-transport-metrics)                                           |
+| `status`            | `readyToSend`, `deltasBuffered`                                                                                        |
+| `bandwidth`         | Byte/packet counters, rates, `*Formatted` strings, metadata counters, `history` (last 30 samples)                      |
+| `pathStats`         | Top 50 paths by bytes, each with `percentage`                                                                          |
+| `pathCategories`    | Path category definitions                                                                                              |
+| `smartBatching`     | Batching counters; `null` in server mode — [metrics.md](metrics.md#smart-batching-metrics)                             |
+| `networkQuality`    | Link quality — [metrics.md](metrics.md#link-quality-metrics); server adds `lastRemoteUpdate`                           |
+| `recentErrors`      | Last 10 `{ category, message, timestamp }`                                                                             |
+| `lastError`         | `{ message, timestamp, timeAgo }` or `null`                                                                            |
+| `sourceReplication` | `{ metrics: { upserts, noops, missingIdentity, conflicts, evictions }, registry: null }`, or `null` without a registry |
+| `fleet`             | Fleet counters once fleet sharing has started, else `null` — [metrics.md](metrics.md#fleet-sharing-metrics)            |
+| `managementAuth`    | Only when a management token is configured — [metrics.md](metrics.md#management-api-auth-telemetry)                    |
 
 ```json
 {

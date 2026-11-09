@@ -2,10 +2,10 @@
 
 Signal K Edge Link has two browser pages:
 
-| Page                    | Where                                                            | Purpose                                                      |
-| ----------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------ |
-| **Configuration panel** | Signal K Admin → **Server → Plugin Config → Signal K Edge Link** | Create and edit connections. Saving restarts the plugin.     |
-| **Runtime dashboard**   | `http://<signalk-host>:3000/plugins/signalk-edge-link/`          | Live metrics, runtime file editors, manual bonding failover. |
+| Page                    | Where                                                            | Purpose                                                                              |
+| ----------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **Configuration panel** | Signal K Admin → **Server → Plugin Config → Signal K Edge Link** | Create and edit connections. Saving restarts the plugin when the server supports it. |
+| **Runtime dashboard**   | `http://<signalk-host>:3000/plugins/signalk-edge-link/`          | Live metrics, runtime file editors, manual bonding failover.                         |
 
 Field meanings, defaults and ranges are in [configuration-reference.md](configuration-reference.md); metric definitions are in [metrics.md](metrics.md). The dashboard calls the management API and needs the management token when one is set: see [management-tools.md](management-tools.md).
 
@@ -48,7 +48,7 @@ A card first shows only the essentials: name, mode, UDP port, key, protocol and,
 
 - **You have unsaved changes.** shows while the form has edits.
 - Two server connections on the same UDP port are flagged under the card and block the save.
-- A successful save restarts the plugin with the new configuration.
+- A successful save restarts the plugin with the new configuration. If the server cannot restart it, the configuration is saved but not active, and the panel shows "Restart plugin to apply changes".
 
 ---
 

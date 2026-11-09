@@ -255,28 +255,28 @@ Alerts run on v2/v3 client instances. A metric alerts when its value is `>=` the
 
 ## Signal K Paths Published
 
-| Signal K path                                   | Type         | Unit    | Description                                                                |
-| ----------------------------------------------- | ------------ | ------- | -------------------------------------------------------------------------- |
-| `networking.modem.rtt`                          | number       | seconds | v1 external ping RTT; published only with an explicit `protocolVersion: 1` |
-| `networking.edgeLink.rtt`                       | number       | ms      | v3 RTT from DATA ACKs                                                      |
-| `networking.edgeLink.jitter`                    | number       | ms      | RTT variance                                                               |
-| `networking.edgeLink.packetLoss`                | number       | ratio   | Packet loss (0–1)                                                          |
-| `networking.edgeLink.linkQuality`               | number       | 0–100   | Composite link quality                                                     |
-| `networking.edgeLink.queueDepth`                | number       | packets | Retransmit queue depth                                                     |
-| `networking.edgeLink.retransmissions`           | number       | count   | Retransmitted packets                                                      |
-| `networking.edgeLink.retransmitRate`            | number       | ratio   | Retransmissions / packets sent                                             |
-| `networking.edgeLink.sequenceNumber`            | number       | —       | Last published sequence number                                             |
-| `networking.edgeLink.bandwidth.upload`          | number       | B/s     | Outbound throughput                                                        |
-| `networking.edgeLink.bandwidth.download`        | number       | B/s     | Inbound throughput                                                         |
-| `networking.edgeLink.packetsPerSecond.sent`     | number       | pkt/s   | Outbound packet rate                                                       |
-| `networking.edgeLink.packetsPerSecond.received` | number       | pkt/s   | Inbound packet rate                                                        |
-| `networking.edgeLink.compressionRatio`          | number       | %       | Compression ratio                                                          |
-| `networking.edgeLink.activeLink`                | string       | —       | Active bonded link name                                                    |
-| `networking.edgeLink.links.<link>.status`       | string       | —       | Per-link status                                                            |
-| `networking.edgeLink.links.<link>.rtt`          | number       | ms      | Per-link RTT                                                               |
-| `networking.edgeLink.links.<link>.loss`         | number       | ratio   | Per-link loss ratio                                                        |
-| `networking.edgeLink.links.<link>.quality`      | number       | 0–100   | Per-link quality score                                                     |
-| `notifications.signalk-edge-link.<name>.*`      | notification | —       | Alert events ([Alerts](#alerts))                                           |
+| Signal K path                                   | Type           | Unit    | Description                                                                                                             |
+| ----------------------------------------------- | -------------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `networking.modem.rtt`                          | number         | seconds | v1 external ping RTT; published only with an explicit `protocolVersion: 1`                                              |
+| `networking.edgeLink.rtt`                       | number or null | ms      | v3 RTT from DATA ACKs, averaged over the last 10 published samples; `null` clears it when the measurement goes away     |
+| `networking.edgeLink.jitter`                    | number or null | ms      | RTT variance, averaged over the last 10 published samples; `null` as for `rtt`                                          |
+| `networking.edgeLink.packetLoss`                | number         | ratio   | Packet loss (0–1), averaged over the last 10 published samples, so it can differ from the API value and the alert input |
+| `networking.edgeLink.linkQuality`               | number or null | 0–100   | Composite link quality; `null` as for `rtt`                                                                             |
+| `networking.edgeLink.queueDepth`                | number         | packets | Retransmit queue depth                                                                                                  |
+| `networking.edgeLink.retransmissions`           | number         | count   | Retransmitted packets                                                                                                   |
+| `networking.edgeLink.retransmitRate`            | number         | ratio   | Retransmissions / packets sent                                                                                          |
+| `networking.edgeLink.sequenceNumber`            | number         | —       | Last published sequence number                                                                                          |
+| `networking.edgeLink.bandwidth.upload`          | number         | B/s     | Outbound throughput                                                                                                     |
+| `networking.edgeLink.bandwidth.download`        | number         | B/s     | Inbound throughput                                                                                                      |
+| `networking.edgeLink.packetsPerSecond.sent`     | number         | pkt/s   | Outbound packet rate                                                                                                    |
+| `networking.edgeLink.packetsPerSecond.received` | number         | pkt/s   | Inbound packet rate                                                                                                     |
+| `networking.edgeLink.compressionRatio`          | number         | %       | Compression ratio                                                                                                       |
+| `networking.edgeLink.activeLink`                | string         | —       | Active bonded link name                                                                                                 |
+| `networking.edgeLink.links.<link>.status`       | string         | —       | Per-link status                                                                                                         |
+| `networking.edgeLink.links.<link>.rtt`          | number         | ms      | Per-link RTT                                                                                                            |
+| `networking.edgeLink.links.<link>.loss`         | number         | ratio   | Per-link loss ratio                                                                                                     |
+| `networking.edgeLink.links.<link>.quality`      | number         | 0–100   | Per-link quality score                                                                                                  |
+| `notifications.signalk-edge-link.<name>.*`      | notification   | —       | Alert events ([Alerts](#alerts))                                                                                        |
 
 When an instance ID is configured, the paths are namespaced as `networking.edgeLink.<instanceId>.*` and `networking.modem.<instanceId>.rtt`.
 
@@ -339,6 +339,7 @@ Merge counters, `GET /metrics` → `sourceReplication.metrics`:
 | `noops`           | Incoming data identical to stored state (deduplicated via mergeHash) |
 | `missingIdentity` | Records dropped due to missing required identity fields              |
 | `conflicts`       | Conflicting field values resolved by latest timestamp                |
+| `evictions`       | Sources dropped from the registry, by age or at capacity             |
 
 ```bash
 curl -H "X-Edge-Link-Token: $TOKEN" \
