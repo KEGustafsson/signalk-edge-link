@@ -28,13 +28,13 @@ No Grafana dashboard ships with the plugin; build one from the `/prometheus` met
 
 ## Contributor docs
 
-| Doc                                                                                | Covers                                                                            |
-| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| [protocol-v3-spec.md](protocol-v3-spec.md)                                         | Normative wire format: header, packet types, flags, CRC16, HMAC, fleet sharing    |
-| [architecture-overview.md](architecture-overview.md)                               | Source modules and client/server data flow                                        |
-| [release-checklist.md](release-checklist.md)                                       | Commands to run before publishing                                                 |
-| [future-security-and-protocol-roadmap.md](future-security-and-protocol-roadmap.md) | Unimplemented online key rotation, key agreement, protocol-v4 and scaling options |
-| [`planning/`](planning/)                                                           | Historical v2 design notes: pipeline, ACK/NAK, sequence tracker, metrics          |
-| [`performance/`](performance/)                                                     | Historical benchmark results (phases 1, 2, 7) and a parameter-impact report       |
+| Doc                                                                                | Covers                                                                                                |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| [protocol-v3-spec.md](protocol-v3-spec.md)                                         | Normative wire format: header, packet types, flags, CRC16, HMAC, fleet sharing                        |
+| [architecture-overview.md](architecture-overview.md)                               | Source modules and client/server data flow                                                            |
+| [release-checklist.md](release-checklist.md)                                       | Commands to run before publishing                                                                     |
+| [future-security-and-protocol-roadmap.md](future-security-and-protocol-roadmap.md) | Future security and protocol design options: online key rotation, key agreement, protocol v4, scaling |
+| [`planning/`](planning/)                                                           | Historical v2 design notes: pipeline, ACK/NAK, sequence tracker, metrics                              |
+| [`performance/`](performance/)                                                     | Historical benchmark results (phases 1, 2, 7) and a parameter-impact report                           |
 
 The `planning/` and `performance/` records describe the code at the time they were written; file names and protocol versions in them may no longer exist.
