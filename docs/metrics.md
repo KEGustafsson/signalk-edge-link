@@ -163,7 +163,7 @@ A server with no client telemetry from the last 15 s (`dataSource: local`) omits
 
 ## Bonding Metrics
 
-Per link in the bonding state (`GET /bonding` → `instances[].state.links`, `GET /connections/:id/bonding` → `links`):
+Fields of the bonding state, relative to `instances[].state` in `GET /bonding` and to the response root of `GET /connections/:id/bonding`:
 
 | JSON field                     | Prometheus                                              | Description                                                                           |
 | ------------------------------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
