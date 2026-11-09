@@ -4,7 +4,7 @@ Future security, protocol and scaling design options, with their tradeoffs and p
 
 ## Current Baseline
 
-Payloads use AES-256-GCM with a random per-packet IV. Protocol v3 authenticates every control packet (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_REQUEST and the fleet control packets) with an HMAC-SHA256 tag. v1 has no control packets. v2 was removed in 3.0.0.
+DATA, METADATA and FLEET_DATA payloads use AES-256-GCM with a random per-packet IV; control-packet payloads, including HELLO's JSON apart from its encrypted fleet identity, are plaintext and authenticated, not encrypted. Protocol v3 authenticates every control packet (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_REQUEST and the fleet control packets) with an HMAC-SHA256 tag. v1 has no control packets. v2 was removed in 3.0.0.
 
 `secretKey` must normalize to the same AES key on both peers. A 32-character ASCII key with `stretchAsciiKey` derives a different key than without it, so both peers must set `stretchAsciiKey` the same way.
 

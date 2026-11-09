@@ -153,7 +153,8 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
       "Replace outbound values that are identical to the previously sent value with a small " +
       "sentinel. The receiving server restores the value from its cache before injecting into Signal K. " +
       "Big win on rarely-changing status paths (modes, states, enums). " +
-      "Client only, Advanced (v3) only: the server decodes it automatically and needs no setting.",
+      "Client only, Advanced (v3) only: the server decodes it automatically and needs no setting, " +
+      "but a server build without value dedup support injects the sentinel as the value.",
     default: false
   },
   useCompactDeltas: {

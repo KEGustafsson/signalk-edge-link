@@ -102,7 +102,7 @@ Alerts fire when a value reaches the threshold (`>=`).
 ### Loss and retransmit rate
 
 - `packetLoss` is a loss-event estimate, not a fraction of packets lost. The client keeps a window of the last 50 samples: one per sent packet, and one per NAK or retransmit burst however many packets the burst resends.
-- `retransmitRate` is computed two ways. On a client, `GET /metrics`, `/network-metrics` and Prometheus report the lifetime ratio, `retransmissions / packetsOut`. A server with fresh client telemetry reports the client's latest-interval ratio instead, so the server and client values are not the same quantity. Alerts and the Signal K `networking.edgeLink.retransmitRate` path use the ratio over the latest publishing interval. An alert can fire while the API value is still below the threshold.
+- `retransmitRate` is computed two ways. On a client, `GET /metrics`, `/network-metrics` and Prometheus report the lifetime ratio, `retransmissions / packetsOut`. A server with fresh client telemetry reports the client's latest-interval ratio instead, so the server and client values are not the same quantity. Alerts and the Signal K `networking.edgeLink.retransmitRate` path use the ratio over the latest publishing interval; an interval with retransmissions but no new packets reports `0`. An alert can fire while the API value is still below the threshold.
 
 Other fields: `activeLink`, `dataSource` (`local`, or `remote-client` when a server uses client telemetry received within the last 15 s), and on a server `lastRemoteUpdate`. `/network-metrics` adds `timestamp`.
 
@@ -262,9 +262,9 @@ Alerts run on v2/v3 client instances. A metric alerts when its value is `>=` the
 | `networking.edgeLink.jitter`                    | number or null | ms      | RTT variance, averaged over the last 10 published samples; `null` as for `rtt`                                          |
 | `networking.edgeLink.packetLoss`                | number         | ratio   | Packet loss (0–1), averaged over the last 10 published samples, so it can differ from the API value and the alert input |
 | `networking.edgeLink.linkQuality`               | number or null | 0–100   | Composite link quality; `null` as for `rtt`                                                                             |
-| `networking.edgeLink.queueDepth`                | number         | packets | Retransmit queue depth                                                                                                  |
-| `networking.edgeLink.retransmissions`           | number         | count   | Retransmitted packets                                                                                                   |
-| `networking.edgeLink.retransmitRate`            | number         | ratio   | Retransmissions / packets sent                                                                                          |
+| `networking.edgeLink.queueDepth`                | number         | packets | Retransmit queue depth. A server publishes `0` once client telemetry expires, which does not mean the queue is empty    |
+| `networking.edgeLink.retransmissions`           | number         | count   | Retransmitted packets; `0` on a server without fresh client telemetry, as for `queueDepth`                              |
+| `networking.edgeLink.retransmitRate`            | number         | ratio   | Retransmissions / packets sent; `0` on a server without fresh client telemetry, as for `queueDepth`                     |
 | `networking.edgeLink.sequenceNumber`            | number         | —       | Last published sequence number                                                                                          |
 | `networking.edgeLink.bandwidth.upload`          | number         | B/s     | Outbound throughput                                                                                                     |
 | `networking.edgeLink.bandwidth.download`        | number         | B/s     | Inbound throughput                                                                                                      |

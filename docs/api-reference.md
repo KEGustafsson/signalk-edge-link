@@ -8,7 +8,7 @@
 
 ## Conventions
 
-Every route goes through the management-auth check. It requires a token once `managementApiToken` (or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) is set, or when `requireManagementApiToken` is on; otherwise requests pass as open access. Token headers and setup: [management-tools.md](management-tools.md#authentication).
+Every route goes through the management-auth check. It requires a token once `managementApiToken` (or `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`) is set, or when `requireManagementApiToken` or `SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN=true` is on (an unreadable value counts as on); enforcement without a configured token answers `403`. Otherwise requests pass as open access. Token headers and setup: [management-tools.md](management-tools.md#authentication).
 
 The top-level JSON endpoints (`/metrics`, `/network-metrics`, `/monitoring/*`, `/capture*`) report the **first instance** only. Client-only singleton routes (`/config/:filename`, `/congestion`, `/delta-timer`, `/bonding/failover`) use the first **client** instance. `/prometheus`, `/status`, `/bonding`, `/connections` and `/instances` cover all instances. For one connection in a multi-instance setup use [`/connections/:id/...`](#per-connection-endpoints).
 
@@ -141,7 +141,7 @@ Server source-replication registry. Uses the first server instance with a regist
 
 ### GET /paths
 
-Path dictionary: `{ "total": 172, "categories": { "navigation": { "prefix": "navigation.", "paths": ["navigation.position", "..."] } } }`.
+Path dictionary: `total` is the number of dictionary entries, e.g. `{ "total": <n>, "categories": { "navigation": { "prefix": "navigation.", "paths": ["navigation.position", "..."] } } }`.
 
 ---
 
