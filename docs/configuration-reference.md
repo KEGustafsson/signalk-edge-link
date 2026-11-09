@@ -394,7 +394,7 @@ The validator runs on save and before a connection starts; the first violation i
 - `epochBoundAuth: true` requires `protocolVersion: 3` and `authenticatedHeaders` not `false`.
 - `useValueDedup: true` and `useCompactDeltas: true` require `protocolVersion: 3`; `useCompactDeltas` also requires `useMsgpack: true`.
 - `pathFilter` accepts only `allow` and `deny`; `pathThrottle` rules accept only `minIntervalMs` and `deadband`.
-- Bonding: primary and backup must use different address:port pairs; `mode` must be `"main-backup"`.
+- Bonding: when `primary` and `backup` are both set, they must use different address:port pairs (a link left to the `udpAddress` fallback is not compared); `mode` must be `"main-backup"`.
 - Reliability: `retransmitMinAge` ≤ `retransmitMaxAge`. Congestion control: `minDeltaTimer` ≤ `maxDeltaTimer`.
 - Alert thresholds: only the five metrics listed; `warning` ≤ `critical`; ratio metrics 0–1, others > 0.
 - Fleet sharing: see [Fleet Sharing](#fleet-sharing-advancedv3-only).

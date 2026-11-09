@@ -1231,7 +1231,6 @@ describe("SignalK Data Connector Plugin", () => {
           response = data;
         })
       };
-      // Clear the token and omit the flag: the stored string must survive.
       await runWithMiddlewares(
         pluginConfigPostMiddlewares,
         pluginConfigPostHandler,

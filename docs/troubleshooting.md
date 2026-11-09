@@ -228,7 +228,8 @@ curl -s -H "$T" $H/bonding | jq .
 curl -s -H "$T" $H/monitoring/alerts | jq .
 curl -s -H "$T" $H/prometheus
 curl -s -X POST -H "$T" $H/capture/start
-# wait until the traffic you are diagnosing has passed, then export
+# wait until the traffic you are diagnosing has passed, then stop and export
+curl -s -X POST -H "$T" $H/capture/stop
 curl -sf -H "$T" -o capture.pcap $H/capture/export || echo 'export failed'
 ```
 

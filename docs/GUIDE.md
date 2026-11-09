@@ -138,9 +138,9 @@ The default `protocolVersion` is `1` (Basic). Set `3` (Advanced) explicitly.
 3. **Check:** open `http://<signalk-host>:3000/plugins/signalk-edge-link/` on both servers. The client's **Deltas Sent** and the server's **Deltas Received** should rise, and encryption errors should stay at `0`. From the command line:
 
 ```bash
-curl -s -H "X-Edge-Link-Token: $TOKEN" http://vessel:3000/plugins/signalk-edge-link/metrics \
+curl -s -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" http://vessel:3000/plugins/signalk-edge-link/metrics \
   | jq '{sent:.stats.deltasSent, encErr:.stats.encryptionErrors, ready:.status.readyToSend}'
-curl -s -H "X-Edge-Link-Token: $TOKEN" http://shore:3000/plugins/signalk-edge-link/metrics \
+curl -s -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" http://shore:3000/plugins/signalk-edge-link/metrics \
   | jq '{rcvd:.stats.deltasReceived, encErr:.stats.encryptionErrors}'
 ```
 

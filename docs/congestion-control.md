@@ -64,7 +64,7 @@ Set `targetRTT` to the link's normal RTT. `minDeltaTimer` must not exceed `maxDe
 `GET /congestion` returns the state of the first client connection (404 on a server-only node; token required when one is set):
 
 ```bash
-curl -s -H "X-Edge-Link-Token: $TOKEN" http://localhost:3000/plugins/signalk-edge-link/congestion | jq .
+curl -s -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" http://localhost:3000/plugins/signalk-edge-link/congestion | jq .
 ```
 
 ```json
@@ -93,11 +93,11 @@ curl -s -H "X-Edge-Link-Token: $TOKEN" http://localhost:3000/plugins/signalk-edg
 
 ```bash
 # Lock the timer to 500 ms → {"deltaTimer": 500, "mode": "manual"}
-curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $TOKEN" \
+curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" \
   -d '{"value": 500}' http://localhost:3000/plugins/signalk-edge-link/delta-timer
 
 # Back to automatic → {"deltaTimer": <current>, "mode": "auto"}
-curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $TOKEN" \
+curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" \
   -d '{"mode": "auto"}' http://localhost:3000/plugins/signalk-edge-link/delta-timer
 ```
 

@@ -122,13 +122,13 @@ All three routes need the management token when one is set ([management-tools.md
 H=http://localhost:3000/plugins/signalk-edge-link
 
 # Current state of every connection
-curl -s -H "X-Edge-Link-Token: $TOKEN" $H/bonding | jq .
+curl -s -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" $H/bonding | jq .
 
 # Manual switch (primary → backup, or backup → primary)
-curl -s -X POST -H "X-Edge-Link-Token: $TOKEN" $H/bonding/failover | jq .
+curl -s -X POST -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" $H/bonding/failover | jq .
 
 # Change thresholds on every bonded connection
-curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $TOKEN" \
+curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" \
   -d '{"rttThreshold": 300, "lossThreshold": 0.05}' $H/bonding | jq .
 ```
 

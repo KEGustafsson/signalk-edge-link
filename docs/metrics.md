@@ -77,7 +77,7 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 - `epochAuthMismatches > 0`: this receiver requires `epochBoundAuth` and received packets without the epoch flag. The usual cause is a sender that does not use it, so every DATA packet is refused; set the same value on both peers. The flag is checked before the HMAC tag, so forged or wrong-key packets without it count too.
 - `epochAuthPending > 0`: the sender binds, but no HELLO has established its epoch yet. A brief burst at startup clears once the HELLO completes. A climbing count means the HELLO is not arriving; check that the peer's DATA and HELLO leave from the same address and port.
 - `fullStatusCascadeFired` counts snapshot requests a proxy's client instance passed on to the clients behind it. It starts at zero, so check it after a known snapshot request: if it stays at zero then, the node terminates snapshot requests instead of passing them on.
-- Rising `naksSent` with low `acksSent` indicates one-way UDP; check bidirectional reachability.
+- Rising `naksSent` means the server sees sequence gaps in received DATA: a loss signal, which also occurs when both directions work. It does not by itself show one-way UDP.
 - `duplicatePackets > 0` is normal on unreliable links; duplicates are discarded.
 - `packetsAbandoned` / `abandonedSequences` above zero mean data was permanently lost: the window advanced past a gap the sender could no longer fill.
 - `rejectedControlPackets` rising on a client means control packets from a source other than `udpAddress` (or, with bonding, the primary and backup addresses) are dropped before parsing. On its own it does not prove ACKs are lost; if `queueDepth` also climbs and RTT stops updating, the server's replies are among them, so check `udpAddress` and the bonding addresses against the host the server replies from.
@@ -106,7 +106,7 @@ Alerts fire when a value reaches the threshold (`>=`).
 
 Other fields: `activeLink`, `dataSource` (`local`, or `remote-client` when a server uses client telemetry received within the last 15 s), and on a server `lastRemoteUpdate`. `/network-metrics` adds `timestamp`.
 
-A server with no client telemetry from the last 15 s (`dataSource: local`) omits `queueDepth` from JSON, but Prometheus still reports `signalk_edge_link_queue_depth 0` (and `signalk_edge_link_retransmissions_total 0`). On a server, 0 in those series does not show that the client's queue is empty; check `dataSource` in `/network-metrics`.
+A server with no client telemetry from the last 15 s (`dataSource: local`) omits `queueDepth` from JSON, but Prometheus still reports `signalk_edge_link_queue_depth 0` (and `signalk_edge_link_retransmissions_total 0`). On a server, 0 in those series does not show that the client's queue is empty; check `dataSource` in `/network-metrics`. When telemetry returns, the retransmissions series jumps back to the client's cumulative count, which `rate()` and `increase()` read as new retransmissions; compute rates from the client's own series.
 
 | linkQuality | Status    | Implication                                         |
 | ----------- | --------- | --------------------------------------------------- |
@@ -236,7 +236,7 @@ Prometheus: `signalk_edge_link_management_auth_requests_total{decision, reason, 
 
 ## Alerts
 
-Alerts run on v2/v3 client instances. A metric alerts when its value is `>=` the `warning` or `critical` threshold. Thresholds are set in `alertThresholds` ([configuration-reference.md](configuration-reference.md#alert-thresholds-client-advancedv3-only)) or with `POST /monitoring/alerts`.
+Alerts run on Advanced (v3) client instances. A metric alerts when its value is `>=` the `warning` or `critical` threshold. Thresholds are set in `alertThresholds` ([configuration-reference.md](configuration-reference.md#alert-thresholds-client-advancedv3-only)) or with `POST /monitoring/alerts`.
 
 | Metric           | Default warning | Default critical |
 | ---------------- | --------------- | ---------------- |
@@ -342,6 +342,6 @@ Merge counters, `GET /metrics` → `sourceReplication.metrics`:
 | `evictions`       | Sources dropped from the registry, by age or at capacity             |
 
 ```bash
-curl -H "X-Edge-Link-Token: $TOKEN" \
+curl -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" \
   http://localhost:3000/plugins/signalk-edge-link/sources | jq .
 ```
