@@ -162,8 +162,8 @@ Bonding heartbeat probes carry an 8-byte truncated HMAC-SHA256 tag; the server d
 
 There is no online key rotation. To rotate:
 
-1. Update `secretKey` on both ends at the same time.
-2. Restart the plugin on both ends.
+1. Update `secretKey` at the same time on the server and on every client that uses it. A fleet server shares one key with all its clients; a client left on the old key disconnects.
+2. Restart the plugin on each of them.
 3. During the change, packets under the old key are dropped: on the server they count in `encryptionErrors`, on the client (ACKs and other control packets) in `malformedPackets`.
 
 ---

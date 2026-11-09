@@ -29,7 +29,7 @@ Raise `deltaTimer` (`delta_timer.json`, 100–10000 ms) on bandwidth-constrained
 | Encrypt         | 0.013 ms | 0.027 ms | 0.102 ms |
 | Packet build    | 0.001 ms | 0.002 ms | 0.009 ms |
 
-Compression dominates. On constrained hardware with high delta rates, raise `deltaTimer` to run Brotli less often.
+Compression dominates. On constrained hardware, raising `deltaTimer` runs Brotli less often only while sends are timer-triggered; if batches fill before the timer fires, reduce the incoming delta rate instead (narrower `subscription.json` paths or `pathFilter`).
 
 ---
 

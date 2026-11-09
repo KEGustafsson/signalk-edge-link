@@ -127,8 +127,9 @@ export class CongestionControl {
 
   /**
    * Adjust the delta timer once per interval. React fast to congestion, and
-   * otherwise converge on the nominal timer rather than the minimum, so a
-   * healthy link settles instead of oscillating (bands: docs/congestion-control.md).
+   * otherwise move toward the nominal timer rather than the minimum. The steps
+   * are multiplicative and can overshoot, so the timer may cycle within a few
+   * percent of nominal (bands: docs/congestion-control.md).
    *
    * @returns {number} The (potentially adjusted) delta timer value
    */

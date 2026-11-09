@@ -23,7 +23,7 @@ Then:
 1. One step changes the timer by at most 20% (`maxAdjustment`), so × 1.5 becomes × 1.2.
 2. The result is clamped to `minDeltaTimer`–`maxDeltaTimer` and rounded to whole milliseconds. The clamp comes after the 20% cap, so a timer outside the bounds (for example a manual value below `minDeltaTimer`) jumps to the bound in one step.
 
-Nominal is `nominalDeltaTimer`, clamped to `minDeltaTimer`–`maxDeltaTimer`. If it is not set, nominal is the `deltaTimer` the connection started with (from `delta_timer.json`, default 1000 ms). When nominal equals `minDeltaTimer`, a healthy link always steps × 0.95, driving the timer down to the minimum.
+Nominal is `nominalDeltaTimer`, clamped to `minDeltaTimer`–`maxDeltaTimer`. If it is not set, nominal is the `deltaTimer` the connection started with (from `delta_timer.json`, default 1000 ms). When nominal equals `minDeltaTimer`, a healthy link always steps × 0.95, driving the timer down to the minimum. The steps are multiplicative and rounded, so the timer can alternate within a few percent of nominal instead of landing on it.
 
 The controller's timer starts at 1000 ms. When it changes, it becomes the connection's send interval. Editing `delta_timer.json` while the controller runs changes the send interval until the controller next changes its timer.
 
