@@ -91,7 +91,7 @@ Threat model: [security.md](../security.md).
 A 3.0.0+ build cannot run v2: `protocolVersion: 2` is coerced to `3`. The options are:
 
 - **Interoperate with a peer that cannot be upgraded:** keep both peers on a pre-3.0.0 build, which speaks v2. v3 and v2 peers cannot exchange data.
-- **Downgrade to Basic (v1):** set `protocolVersion: 1` on **both** peers. This removes the reliability and authentication layer (no ACK/NAK, congestion control or bonding); use it only on trusted, private links.
+- **Downgrade to Basic (v1):** set `protocolVersion: 1` on **both** peers. A v1 client also needs `testAddress` and `testPort`, and validation rejects the v3-only options, so turn off `epochBoundAuth`, `useValueDedup`, `useCompactDeltas` and `fleetSharing` first ([configuration-reference.md](../configuration-reference.md)). This removes the reliability and authentication layer (no ACK/NAK, congestion control or bonding); use it only on trusted, private links.
 
 Neither change discards stored data. v1 has no retransmission, so datagrams lost in transit on a v1 link are not recovered.
 

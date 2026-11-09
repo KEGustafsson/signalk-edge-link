@@ -33,7 +33,7 @@ Each batch of deltas is serialized (JSON or MessagePack), Brotli-compressed, enc
 [12-byte random IV][AES-256-GCM ciphertext][16-byte GCM auth tag]
 ```
 
-A lost packet is not recovered. The receiver recognizes v1 because the packet does not start with the v3 magic bytes `SK`. v1 has no packet-type byte, so it carries no metadata.
+A lost packet is not recovered. The receiver picks its pipeline from its configured `protocolVersion`, not from the packet: a v1 packet has no magic bytes, and its random IV can even begin with `SK`. v1 has no packet-type byte, so it carries no metadata.
 
 RTT comes from an external ping monitor. v1 clients require `testAddress` and `testPort`; `pingIntervalTime` is optional. All three are rejected on v3 clients:
 

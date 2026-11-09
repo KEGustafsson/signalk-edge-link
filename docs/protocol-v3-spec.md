@@ -536,8 +536,7 @@ All DATA payloads are encrypted with AES-256-GCM:
 ### Key Requirements
 
 - 32 ASCII characters, 64 hex characters, or base64 of 32 bytes: 44 characters with `=` padding or 43 without, standard or URL-safe alphabet (256 bits)
-- ASCII keys: at least 8 unique characters and 3.0 bits/char Shannon entropy, no repeating pattern of 8 characters or fewer, and no sequential run of 20 or more characters
-- Hex and base64 keys: the decoded 32 bytes need at least 8 distinct byte values and 3.0 bits/byte of entropy
+- Weak keys are rejected; the rules are in [security.md — Key Formats](security.md#key-formats)
 - Must match on both client and server
 
 ### Security Properties
@@ -629,7 +628,7 @@ v1 (Basic) packets do not start with these magic bytes (they start with the rand
 
 ## 14. Signal K Paths Published
 
-The plugin publishes link metrics under `networking.edgeLink.*` (namespaced as `networking.edgeLink.<instanceId>.*` when an instance ID is configured), the v1 ping RTT at `networking.modem.rtt`, and alerts under `notifications.signalk-edge-link.*`. The full path list is in [metrics.md — Signal K Paths Published](metrics.md#signal-k-paths-published).
+The plugin publishes link metrics under `networking.edgeLink.*` (namespaced as `networking.edgeLink.<instanceId>.*` when an instance ID is configured), the v1 ping RTT at `networking.modem.rtt` (`networking.modem.<instanceId>.rtt` with an instance ID), and alerts under `notifications.signalk-edge-link.*`. The full path list is in [metrics.md — Signal K Paths Published](metrics.md#signal-k-paths-published).
 
 ## 15. Fleet Sharing (capability `fleet-v1`)
 
