@@ -142,7 +142,8 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
   useMsgpack: {
     type: "boolean",
     title: "Use MessagePack",
-    description: "Binary serialization for smaller payloads (must match on both ends).",
+    description:
+      "Binary serialization for smaller payloads. v3 receivers detect it per packet; v1 needs the same setting on both ends.",
     default: false
   },
   useValueDedup: {
@@ -236,7 +237,8 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
   usePathDictionary: {
     type: "boolean",
     title: "Use Path Dictionary",
-    description: "Encode paths as numeric IDs for bandwidth savings (must match on both ends).",
+    description:
+      "Encode paths as numeric IDs for bandwidth savings. Sender-side; the receiver needs no matching setting.",
     default: false
   },
   protocolVersion: {

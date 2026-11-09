@@ -94,7 +94,7 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 | `jitter`         | `signalk_edge_link_jitter_milliseconds` | ms    | 0–50 ms       | ≥ 100 ms | ≥ 300 ms | RTT variance (standard deviation)                                             |
 | `packetLoss`     | `signalk_edge_link_packet_loss_rate`    | ratio | 0–0.02        | ≥ 0.03   | ≥ 0.10   | Loss-event estimate over a recent window ([below](#loss-and-retransmit-rate)) |
 | `retransmitRate` | `signalk_edge_link_retransmit_rate`     | ratio | 0–0.02        | ≥ 0.05   | ≥ 0.15   | Retransmissions per sent packet ([below](#loss-and-retransmit-rate))          |
-| `queueDepth`     | `signalk_edge_link_queue_depth`         | count | 0–20          | ≥ 100    | ≥ 500    | Pending retransmissions in send queue                                         |
+| `queueDepth`     | `signalk_edge_link_queue_depth`         | count | 0–20          | ≥ 100    | ≥ 500    | Sent packets not yet acknowledged, kept for possible retransmission           |
 | `linkQuality`    | `signalk_edge_link_link_quality_score`  | 0–100 | 85–100        | < 70     | < 50     | Composite of RTT, jitter, loss and retransmit rate                            |
 
 Alerts fire when a value reaches the threshold (`>=`).

@@ -16,7 +16,7 @@ T="X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN"
 ## Quick Diagnostic Checklist
 
 1. Compatible plugin versions on both ends (`npm list signalk-edge-link`): the same protocol version (Basic v1 or Advanced v3) on both ends, one end a client and the other a server, and 4.0.0+ if `epochBoundAuth` is on, 4.4.0+ for fleet sharing.
-2. Same encryption key on both ends: 32 ASCII, 64 hex or 44 base64 characters.
+2. Same encryption key on both ends: 32 ASCII, 64 hex, or 43 or 44 base64 characters.
 3. UDP port open in the firewall: `ufw status` or `iptables -L`.
 4. Plugin enabled in the Signal K Admin UI.
 5. Node.js 24 or later: `node --version`.
@@ -62,7 +62,7 @@ If `readyToSend` is `false`, check that instance's `status` and `lastError` in `
 | ----------------------------------------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `Unsupported state or unable to authenticate data`; `encryptionErrors` rising | Key mismatch                                              | Use the identical key, in the same format, with the same `stretchAsciiKey` setting |
 | `possible stretchAsciiKey or key-format mismatch between peers`               | Packet failed authentication                              | Same as above                                                                      |
-| `Secret key must be exactly 32 bytes`                                         | Wrong key length                                          | Use 32 ASCII, 64 hex or 44 base64 characters                                       |
+| `Secret key must be exactly 32 bytes`                                         | Wrong key length                                          | Use 32 ASCII, 64 hex, or 43/44 base64 characters                                   |
 | `Base64 key decoded to N bytes; expected 32`                                  | Malformed base64 key                                      | Generate a new one with `openssl rand -base64 32`                                  |
 | `Secret key has insufficient diversity` or `insufficient entropy`             | Key too simple (repeats, long runs, under 8 unique chars) | Generate one with `openssl rand -hex 32`                                           |
 | Errors persist after a key change                                             | One end not restarted                                     | Restart the plugin on both ends                                                    |

@@ -25,7 +25,7 @@ A probe completes when its response arrives or when `heartbeatTimeout` (default 
 
 A link is marked `down` when more than 3 probes have been sent and none has been answered for `heartbeatTimeout`. A link that has never answered is marked `down` on the fourth probe, about 4 s after start with the default `healthCheckInterval`. It returns to `active` or `standby` on the next valid response. A socket error also marks the link `down`; the socket is recreated after 5 s and the link set to `standby` before any probe has been answered, so `standby` right after a recovery does not mean the link has replied.
 
-Probes are `HBPROBE` packets with an 8-byte truncated HMAC-SHA256 tag keyed by `secretKey`. The server drops probes that fail verification (counted in `malformedPackets`) and the client drops unverified responses, so both server connections must use the client's `secretKey`.
+Probes are `HBPROBE` packets with an 8-byte truncated HMAC-SHA256 tag keyed by `secretKey`. The server drops probes that fail verification (counted in `malformedPackets`) and the client drops unverified responses, so both server connections must use the client's `secretKey` and `stretchAsciiKey` setting.
 
 ---
 

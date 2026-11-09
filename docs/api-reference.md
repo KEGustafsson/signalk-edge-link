@@ -141,7 +141,7 @@ Server source-replication registry. Uses the first server instance with a regist
 
 ### GET /paths
 
-Path dictionary: `{ "total": 172, "categories": { "navigation": { "prefix": "navigation", "paths": ["navigation.position", "..."] } } }`.
+Path dictionary: `{ "total": 172, "categories": { "navigation": { "prefix": "navigation.", "paths": ["navigation.position", "..."] } } }`.
 
 ---
 
@@ -212,15 +212,15 @@ Response: `{ "deltaTimer": 500, "mode": "manual" }`. `{ "mode": "auto" }` return
 
 ## Monitoring Endpoints
 
-| Endpoint                          | Query                                 | Response                                                                                                                                                                               |
-| --------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /monitoring/packet-loss`     | —                                     | `heatmap[]` of `{ timestamp, total, lost, lossRate }` (5 s buckets, 60 buckets = 5 min); `summary` with `overallLossRate`, `maxLossRate`, `trend` (`stable`, `improving`, `worsening`) |
-| `GET /monitoring/path-latency`    | `limit` (default 20, 1–1000)          | `paths[]` of `{ path, sampleCount, avg, p50, p95, p99, lastUpdate }`                                                                                                                   |
-| `GET /monitoring/retransmissions` | `limit` (1–1000; default all history) | `chartData[]` of `{ timestamp, rate, retransmitsPerSec, periodPackets, periodRetransmissions }`; `summary` with `avgRate`, `maxRate`, `currentRate`                                    |
-| `GET /monitoring/alerts`          | —                                     | `thresholds` and `activeAlerts` (example below)                                                                                                                                        |
-| `POST /monitoring/alerts`         | —                                     | Update one threshold (below)                                                                                                                                                           |
-| `GET /monitoring/inspector`       | —                                     | `{ enabled, packetsInspected, clientsConnected }`. A JSON snapshot; there is no WebSocket/live-stream endpoint.                                                                        |
-| `GET /monitoring/simulation`      | —                                     | Always `{ "enabled": false }`; network simulation is a test-harness facility with no runtime toggle.                                                                                   |
+| Endpoint                          | Query                                 | Response                                                                                                                                                                                                                                                                                                     |
+| --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /monitoring/packet-loss`     | —                                     | `heatmap[]` of `{ timestamp, total, lost, lossRate }` (up to 60 buckets of 5 s; a bucket is created only when packets are recorded and is not expired by age, so after an idle period it can hold older data); `summary` with `overallLossRate`, `maxLossRate`, `trend` (`stable`, `improving`, `worsening`) |
+| `GET /monitoring/path-latency`    | `limit` (default 20, 1–1000)          | `paths[]` of `{ path, sampleCount, avg, p50, p95, p99, lastUpdate }`                                                                                                                                                                                                                                         |
+| `GET /monitoring/retransmissions` | `limit` (1–1000; default all history) | `chartData[]` of `{ timestamp, rate, retransmitsPerSec, periodPackets, periodRetransmissions }`; `summary` with `avgRate`, `maxRate`, `currentRate`                                                                                                                                                          |
+| `GET /monitoring/alerts`          | —                                     | `thresholds` and `activeAlerts` (example below)                                                                                                                                                                                                                                                              |
+| `POST /monitoring/alerts`         | —                                     | Update one threshold (below)                                                                                                                                                                                                                                                                                 |
+| `GET /monitoring/inspector`       | —                                     | `{ enabled, packetsInspected, clientsConnected }`. A JSON snapshot; there is no WebSocket/live-stream endpoint.                                                                                                                                                                                              |
+| `GET /monitoring/simulation`      | —                                     | Always `{ "enabled": false }`; network simulation is a test-harness facility with no runtime toggle.                                                                                                                                                                                                         |
 
 Monitoring trackers, alerts and packet capture exist only on v2/v3 client instances. Elsewhere the read routes return empty data (`heatmap: []`, `paths: []`, `chartData: []`, `thresholds: {}`) rather than an error.
 
@@ -338,17 +338,17 @@ Errors: `400` validation, `404` unknown id, `503 Runtime restart handler unavail
 
 Scoped to one connection. `:id` is the connection ID returned by `GET /instances` or `GET /connections`. It is derived from the name (e.g. `shore-server`), but names with the same slug get a suffix (`-1`, `-2`), so do not build it from the name; an unknown id returns `404 Connection '<id>' not found`, and client-only routes return `404 Not available in server mode` for a server connection.
 
-| Endpoint                                          | Auth action                   | Mode   | Response                                                                                               |
-| ------------------------------------------------- | ----------------------------- | ------ | ------------------------------------------------------------------------------------------------------ |
-| `GET /connections/:id/metrics`                    | `connection-monitoring.read`  | Both   | Same as `GET /metrics` (without `managementAuth`)                                                      |
-| `GET /connections/:id/network-metrics`            | `connection-monitoring.read`  | Both   | Differs from `/network-metrics`, see below                                                             |
-| `GET /connections/:id/bonding`                    | `connection-bonding.read`     | Client | Bonding state, or `{ "enabled": false }`                                                               |
-| `GET /connections/:id/congestion`                 | `connection-monitoring.read`  | Client | Same as `GET /congestion`                                                                              |
-| `GET /connections/:id/monitoring/alerts`          | `connection-monitoring.read`  | Both   | Same as `GET /monitoring/alerts`                                                                       |
-| `GET /connections/:id/monitoring/packet-loss`     | `connection-monitoring.read`  | Both   | Same as `GET /monitoring/packet-loss`                                                                  |
-| `GET /connections/:id/monitoring/retransmissions` | `connection-monitoring.read`  | Both   | Same as `GET /monitoring/retransmissions` (same `limit`)                                               |
-| `GET /connections/:id/config/:filename`           | `connection-config.read`      | Client | Same as `GET /config/:filename`                                                                        |
-| `POST /connections/:id/config/:filename`          | `connection-config.update`    | Client | Same as `POST /config/:filename`                                                                       |
-| `POST /connections/:id/bonding/failover`          | `connection-bonding.failover` | Client | Same as `POST /bonding/failover`; the only way to fail over one connection in a multi-connection setup |
+| Endpoint                                          | Auth action                   | Mode   | Response                                                                                                     |
+| ------------------------------------------------- | ----------------------------- | ------ | ------------------------------------------------------------------------------------------------------------ |
+| `GET /connections/:id/metrics`                    | `connection-monitoring.read`  | Both   | Same as `GET /metrics` (without `managementAuth`)                                                            |
+| `GET /connections/:id/network-metrics`            | `connection-monitoring.read`  | Both   | Differs from `/network-metrics`, see below                                                                   |
+| `GET /connections/:id/bonding`                    | `connection-bonding.read`     | Client | Bonding state, or `{ "enabled": false }`                                                                     |
+| `GET /connections/:id/congestion`                 | `connection-monitoring.read`  | Client | Same as `GET /congestion`                                                                                    |
+| `GET /connections/:id/monitoring/alerts`          | `connection-monitoring.read`  | Both   | Same as `GET /monitoring/alerts`                                                                             |
+| `GET /connections/:id/monitoring/packet-loss`     | `connection-monitoring.read`  | Both   | Same as `GET /monitoring/packet-loss`                                                                        |
+| `GET /connections/:id/monitoring/retransmissions` | `connection-monitoring.read`  | Both   | Same as `GET /monitoring/retransmissions` (same `limit`)                                                     |
+| `GET /connections/:id/config/:filename`           | `connection-config.read`      | Client | Same as `GET /config/:filename`, except uninitialized config paths return `400 Invalid filename`, not `503`  |
+| `POST /connections/:id/config/:filename`          | `connection-config.update`    | Client | Same as `POST /config/:filename`, except uninitialized config paths return `400 Invalid filename`, not `503` |
+| `POST /connections/:id/bonding/failover`          | `connection-bonding.failover` | Client | Same as `POST /bonding/failover`; the only way to fail over one connection in a multi-connection setup       |
 
 `GET /connections/:id/network-metrics` returns `instanceId`, `rtt`, `jitter`, `packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate`, `activeLink`, `dataSource`, `lastUpdate`, `hasQualityBasis` and `timestamp`. It has no `linkQuality`, `acksSent` or `naksSent`. `rtt` and `jitter` are absent until the link has been measured, as on `/network-metrics`.

@@ -243,8 +243,7 @@ function register(router: Router, ctx: RouteContext): void {
         readyToSend: state.readyToSend,
         currentLink: bondingManager ? bondingManager.getActiveLinkName() : "primary",
         network: {
-          // Omitted until measured, as on /network-metrics: a client's rtt
-          // and jitter are seed zeros before its first timed ACK.
+          // A client's rtt and jitter are seed zeros before its first timed ACK.
           rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
           jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
           packetLoss: effectiveNetwork.packetLoss,
