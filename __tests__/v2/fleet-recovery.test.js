@@ -463,9 +463,13 @@ describe("fleet lifecycle", () => {
       a.client.stop();
       await wait(300);
       expect(a.toHub).toHaveLength(0);
-      const saved = JSON.parse(
-        fs.readFileSync(path.join(instanceDir, "fleet-learned.json"), "utf-8")
-      );
+      // The stop-time save fsyncs and renames, which can outlast 300 ms on a
+      // slow runner (seen on Windows CI). Wait for the file, not a fixed delay.
+      const learnedFile = path.join(instanceDir, "fleet-learned.json");
+      for (let i = 0; i < 50 && !fs.existsSync(learnedFile); i++) {
+        await wait(100);
+      }
+      const saved = JSON.parse(fs.readFileSync(learnedFile, "utf-8"));
       expect(Object.keys(saved.contexts)).toEqual([b.self]);
     } finally {
       hub.server.stop();
