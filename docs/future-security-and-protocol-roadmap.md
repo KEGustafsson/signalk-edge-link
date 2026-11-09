@@ -36,7 +36,7 @@ Any protocol migration must be version-gated, opt-in, disabled by default until 
 
 Before implementation, a design must specify replay protection, peer authentication, mixed-version behavior, failure behavior, operator rollout steps, rollback and observability.
 
-Migration docs must list the peer-matching settings that can break a link: `protocolVersion`, `secretKey`, `stretchAsciiKey`, `useMsgpack` (v1 only; a v3 receiver reads the MessagePack flag in each packet), UDP address and UDP port, plus in v3 `authenticatedHeaders` and `epochBoundAuth` (a mismatch drops DATA and METADATA; see [configuration-reference.md](configuration-reference.md)). `usePathDictionary` is not one: the receiver decodes numeric and plain paths alike.
+Migration docs must list the peer-matching settings that can break a link: `protocolVersion`, `secretKey`, `stretchAsciiKey`, `useMsgpack` (v1 only; a v3 receiver reads the MessagePack flag in each packet), UDP address and UDP port, plus in v3 `authenticatedHeaders` (a mismatch drops DATA and METADATA) and `epochBoundAuth` (the side that requires it drops the other side's unbound packets, including control packets); see [configuration-reference.md](configuration-reference.md). `usePathDictionary` is not one: the receiver decodes numeric and plain paths alike.
 
 v3 DATA carries the same encrypted payload as v2 DATA. The v3 header has version byte `0x03`, `authenticatedHeaders` (default on) appends a 16-byte HMAC tag to DATA, and v3 added authenticated control packets. A protocol-v4 handshake must keep a clear boundary between existing v1/v3 behavior and new opt-in behavior.
 

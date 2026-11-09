@@ -95,7 +95,7 @@ curl -s -H "$T" $H/metrics \
   | jq '{rejected:.stats.rejectedControlPackets, rtt:.networkQuality.rtt, queue:.networkQuality.queueDepth}'
 ```
 
-Control packets are accepted only from the configured peer address. The usual cause is a `udpAddress` that does not name the host the server replies from: a hostname that resolves to a different address, or a NAT that rewrites it.
+Control packets are accepted only from the configured peer address (with bonding, also the primary and backup addresses). While a hostname has not resolved yet, packets from any source are accepted for up to 30 s; they must still pass authentication. The usual cause is a `udpAddress` that does not name the host the server replies from: a hostname that resolves to a different address, or a NAT that rewrites it.
 
 ### Epoch-bound authentication (`epochBoundAuth`)
 

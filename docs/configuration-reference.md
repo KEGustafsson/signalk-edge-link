@@ -2,7 +2,7 @@
 
 Every setting with its default, valid range and validation rule. Setup steps: [GUIDE.md quick start](GUIDE.md#5-quick-start--minimal-setup). Example files: [`samples/`](../samples/).
 
-All tables use the same columns. "Both ends" means the client and the server of one connection must use the same value. A key or `protocolVersion` mismatch drops every packet; an `authenticatedHeaders` or `epochBoundAuth` mismatch drops DATA and METADATA; the encoding settings below say what the receiver needs.
+All tables use the same columns. "Both ends" means the client and the server of one connection must use the same value. A key or `protocolVersion` mismatch drops every packet. An `authenticatedHeaders` mismatch drops DATA and METADATA. An `epochBoundAuth` mismatch also breaks the link: the side that requires it drops the other side's unbound packets, which at a client means the server's ACKs, NAKs and heartbeats; the encoding settings below say what the receiver needs.
 
 ---
 

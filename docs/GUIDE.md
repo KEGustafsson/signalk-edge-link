@@ -98,7 +98,9 @@ In the Signal K Admin UI, open **Server → Plugin Config → Signal K Edge Link
 1. **Receiving server (shore):** switch the initial card's type to server. Set **Connection Name** (for example `shore-server`), **UDP Port** `4446`, **Encryption Key**, and **Protocol Version** Advanced. Click **Save**.
 2. **Sending server (vessel):** use the initial client card. Set **Connection Name** (for example `vessel-client`), **Server Address** (hostname or IP of the shore server), the same **UDP Port**, the same key and Advanced. Click **Save**.
 
-Saving restarts an enabled plugin; no separate restart is needed. The resulting configuration:
+Saving restarts an enabled plugin; no separate restart is needed. Each server stores its own connection list, and starts every connection in it.
+
+Receiving server (shore):
 
 ```json
 {
@@ -109,7 +111,16 @@ Saving restarts an enabled plugin; no separate restart is needed. The resulting 
       "udpPort": 4446,
       "secretKey": "<64-hex-key>",
       "protocolVersion": 3
-    },
+    }
+  ]
+}
+```
+
+Sending server (vessel):
+
+```json
+{
+  "connections": [
     {
       "name": "vessel-client",
       "serverType": "client",
