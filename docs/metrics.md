@@ -13,7 +13,7 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 | JSON field                                   | Prometheus                                                                                     | Description                                                                                        |
 | -------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `stats.deltasSent`                           | `signalk_edge_link_deltas_sent_total`                                                          | Signal K delta batches sent (client)                                                               |
-| `stats.deltasReceived`                       | `signalk_edge_link_deltas_received_total`                                                      | Delta batches received and injected into Signal K (server)                                         |
+| `stats.deltasReceived`                       | `signalk_edge_link_deltas_received_total`                                                      | Deltas received and injected into Signal K (server); one batch can add several                     |
 | `status.deltasBuffered`                      | `signalk_edge_link_deltas_buffered`                                                            | Deltas currently buffered for send                                                                 |
 | `status.readyToSend`                         | `signalk_edge_link_ready_to_send`                                                              | Client ready-to-send flag (1/0)                                                                    |
 | `uptime.seconds`                             | `signalk_edge_link_uptime_seconds`                                                             | Plugin uptime                                                                                      |
@@ -127,13 +127,13 @@ A server with no client telemetry from the last 15 s (`dataSource: local`) omits
 
 `GET /metrics` → `smartBatching` (client only; `null` and no Prometheus series in server mode):
 
-| JSON field          | Prometheus                                          | Description                                                                |
-| ------------------- | --------------------------------------------------- | -------------------------------------------------------------------------- |
-| `earlySends`        | `signalk_edge_link_smart_batch_early_sends_total`   | Batches sent before `deltaTimer` because the packet reached the size limit |
-| `timerSends`        | `signalk_edge_link_smart_batch_timer_sends_total`   | Batches sent on the normal timer cadence                                   |
-| `oversizedPackets`  | `signalk_edge_link_smart_batch_oversized_total`     | Packets that exceeded `MAX_SAFE_UDP_PAYLOAD` (should always be 0)          |
-| `avgBytesPerDelta`  | `signalk_edge_link_smart_batch_avg_bytes_per_delta` | Average compressed size per delta object                                   |
-| `maxDeltasPerBatch` | —                                                   | Largest batch seen in the current session                                  |
+| JSON field          | Prometheus                                          | Description                                                                   |
+| ------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `earlySends`        | `signalk_edge_link_smart_batch_early_sends_total`   | Batches sent before `deltaTimer` because the packet reached the size limit    |
+| `timerSends`        | `signalk_edge_link_smart_batch_timer_sends_total`   | Batches sent on the normal timer cadence                                      |
+| `oversizedPackets`  | `signalk_edge_link_smart_batch_oversized_total`     | Packets that exceeded `MAX_SAFE_UDP_PAYLOAD` (should always be 0)             |
+| `avgBytesPerDelta`  | `signalk_edge_link_smart_batch_avg_bytes_per_delta` | Average compressed size per delta object                                      |
+| `maxDeltasPerBatch` | —                                                   | Current batch limit, recalculated from the average delta size after each send |
 
 **Interpretation:**
 

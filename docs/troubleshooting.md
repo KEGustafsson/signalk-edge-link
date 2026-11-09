@@ -122,12 +122,12 @@ In a relay chain each hop must agree on its own; the two hops need not match eac
 
 ### Congestion control not adapting
 
-| Symptom                                                  | Cause                                 | Fix                                                                                                                                                            |
-| -------------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Log `Congestion control requires Protocol v2 – ignoring` | Connection is Basic (v1)              | Set `protocolVersion: 3` on both ends                                                                                                                          |
-| Timer stays at `maxDeltaTimer`                           | `targetRTT` below the link's real RTT | Raise `targetRTT` to the `avgRTT` shown by `GET /congestion`                                                                                                   |
-| Timer not moving                                         | Disabled, or in manual mode           | `GET /congestion` should show `enabled: true` and `manualMode: false`; if `enabled` is `false`, set `congestionControl.enabled: true` in the connection config |
-| Timer oscillates                                         | RTT hovers near the threshold         | Raise `targetRTT` 20–30% above typical RTT                                                                                                                     |
+| Symptom                                                  | Cause                                                   | Fix                                                                                                                                                                                                          |
+| -------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Log `Congestion control requires Protocol v2 – ignoring` | Connection is Basic (v1)                                | Set `protocolVersion: 3` on both ends                                                                                                                                                                        |
+| Timer stays at `maxDeltaTimer`                           | `targetRTT` below the link's real RTT, or loss above 5% | Check `avgRTT` and `avgLoss` in `GET /congestion`. If `avgRTT` is above `targetRTT` on a healthy link, raise `targetRTT`; if `avgLoss` is above 0.05, fix the loss, since a higher `targetRTT` will not help |
+| Timer not moving                                         | Disabled, or in manual mode                             | `GET /congestion` should show `enabled: true` and `manualMode: false`; if `enabled` is `false`, set `congestionControl.enabled: true` in the connection config                                               |
+| Timer oscillates                                         | RTT hovers near the threshold                           | Raise `targetRTT` 20–30% above typical RTT                                                                                                                                                                   |
 
 See [congestion-control.md](congestion-control.md#tuning-guide) for the full tuning table.
 
