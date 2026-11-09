@@ -1529,7 +1529,9 @@ describe("E2E Pipeline Tests", () => {
 
     test("scenario: high-frequency updates under packet loss with retransmission", async () => {
       const client = createV2ClientPipeline({ maxRetransmits: 5 });
-      const sim = new NetworkSimulator({ packetLoss: 0.1 });
+      // Seeded: with an unseeded RNG about 3 runs in 10,000 drop one packet on
+      // all 5 attempts (10% loss, 4 retransmit rounds) and miss the threshold.
+      const sim = new NetworkSimulator({ packetLoss: 0.1, seed: 1 });
       const parser = new PacketParser({ secretKey: SECRET_KEY });
       const receivedSet = new Set();
 
