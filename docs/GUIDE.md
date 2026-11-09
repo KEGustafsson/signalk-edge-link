@@ -93,12 +93,12 @@ Generate one key and use it on both servers:
 openssl rand -hex 32
 ```
 
-In the Signal K Admin UI, open **Server → Plugin Config → Signal K Edge Link** on each server.
+In the Signal K Admin UI, open **Server → Plugin Config → Signal K Edge Link** on each server and enable the plugin; it is disabled after install. A fresh install shows one empty client card: configure that card rather than adding a second one (the last card cannot be removed, and an empty card fails validation).
 
-1. **Receiving server (shore):** click **+ Add Server**. Set **Connection Name** (for example `shore-server`), **UDP Port** `4446`, **Encryption Key**, and **Protocol Version** Advanced. Click **Save**.
-2. **Sending server (vessel):** click **+ Add Client**. Set **Connection Name** (for example `vessel-client`), **Server Address** (hostname or IP of the shore server), the same **UDP Port**, the same key and Advanced. Click **Save**.
+1. **Receiving server (shore):** switch the initial card's type to server. Set **Connection Name** (for example `shore-server`), **UDP Port** `4446`, **Encryption Key**, and **Protocol Version** Advanced. Click **Save**.
+2. **Sending server (vessel):** use the initial client card. Set **Connection Name** (for example `vessel-client`), **Server Address** (hostname or IP of the shore server), the same **UDP Port**, the same key and Advanced. Click **Save**.
 
-Saving restarts the plugin; no separate restart is needed. The resulting configuration:
+Saving restarts an enabled plugin; no separate restart is needed. The resulting configuration:
 
 ```json
 {

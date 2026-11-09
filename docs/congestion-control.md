@@ -105,9 +105,9 @@ curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $TOKE
 
 ## Tuning Guide
 
-| Symptom                         | Cause                                  | Fix                                                      |
-| ------------------------------- | -------------------------------------- | -------------------------------------------------------- |
-| Timer always at `maxDeltaTimer` | `targetRTT` below the link's real RTT  | Raise `targetRTT` to match `avgRTT`                      |
-| Timer oscillates                | RTT hovering near the threshold        | Raise `targetRTT` 20–30% above typical RTT               |
-| Timer will not go below a value | `minDeltaTimer` or nominal too high    | Lower `minDeltaTimer` or `nominalDeltaTimer` (watch CPU) |
-| Controller not adapting         | `enabled: false` or `manualMode: true` | Check `GET /congestion`; send `{"mode": "auto"}`         |
+| Symptom                         | Cause                                  | Fix                                                                                                                                                        |
+| ------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Timer always at `maxDeltaTimer` | `targetRTT` below the link's real RTT  | Raise `targetRTT` to match `avgRTT`                                                                                                                        |
+| Timer oscillates                | RTT hovering near the threshold        | Raise `targetRTT` 20–30% above typical RTT                                                                                                                 |
+| Timer will not go below a value | `minDeltaTimer` or nominal too high    | Lower `minDeltaTimer` or `nominalDeltaTimer` (watch CPU)                                                                                                   |
+| Controller not adapting         | `enabled: false` or `manualMode: true` | Check `GET /congestion`. If `enabled` is `false`, set `congestionControl.enabled` in the client config; if `manualMode` is `true`, send `{"mode": "auto"}` |

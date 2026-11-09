@@ -294,7 +294,7 @@ All instances: `[{ id, name, type, port, protocolVersion, status, healthy, ready
 
 ### GET /instances
 
-Query: `state` (case-insensitive match on the status string), `limit`, `page` (decimal digits only, a positive safe integer; `0`, `1.0`, `1e2` and `-1` return `400`). Without `limit` the response is a plain array; with `limit` it is `{ items, pagination: { page, limit, total, totalPages } }`.
+Query: `state` (case-insensitive exact match on the whole status string, so `Server` does not match `Server listening on port 4446`), `limit`, `page` (decimal digits only, a positive safe integer; `0`, `1.0`, `1e2` and `-1` return `400`). Without `limit` the response is a plain array; with `limit` it is `{ items, pagination: { page, limit, total, totalPages } }`.
 
 ```json
 [
