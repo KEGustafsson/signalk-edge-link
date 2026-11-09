@@ -68,7 +68,7 @@ In the Admin UI select **Advanced (v3)**, or set the field in each existing conn
 ### Step 4: Verify
 
 1. Data flows again: check `deltasSent` / `deltasReceived`.
-2. `networkQuality.acksSent` rises in `GET /metrics`. `naksSent` rises only when packets are lost, so 0 is normal.
+2. On the receiving server, `acksSent` rises in `GET /connections/:id/metrics` for the server connection (one count across all its clients; `GET /metrics` shows only the first connection, which may be a client). `naksSent` rises only when packets are lost, so 0 is normal.
 3. If the link does not recover, check that both sides use the same `protocolVersion` **and** `secretKey`.
 
 ### Step 5: Authenticated DATA/METADATA headers (on by default)

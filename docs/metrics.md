@@ -80,7 +80,7 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 - Rising `naksSent` with low `acksSent` indicates one-way UDP; check bidirectional reachability.
 - `duplicatePackets > 0` is normal on unreliable links; duplicates are discarded.
 - `packetsAbandoned` / `abandonedSequences` above zero mean data was permanently lost: the window advanced past a gap the sender could no longer fill.
-- `rejectedControlPackets` rising on a client means control packets from a source other than `udpAddress` are dropped before parsing. On its own it does not prove ACKs are lost; if `queueDepth` also climbs and RTT stops updating, the server's replies are among them, so check that `udpAddress` names the host the server replies from.
+- `rejectedControlPackets` rising on a client means control packets from a source other than `udpAddress` (or, with bonding, the primary and backup addresses) are dropped before parsing. On its own it does not prove ACKs are lost; if `queueDepth` also climbs and RTT stops updating, the server's replies are among them, so check `udpAddress` and the bonding addresses against the host the server replies from.
 
 ---
 

@@ -48,7 +48,7 @@ These controls are process-local:
 - management auth telemetry
 - in-memory metrics history
 - per-server `MAX_CLIENT_SESSIONS`
-- per-session and per-source-IP `UDP_RATE_LIMIT_MAX_PACKETS`
+- per-session `UDP_RATE_LIMIT_MAX_PACKETS`, applied per source IP only to DATA and METADATA from a source with no session yet and to bonding probes (not an aggregate per-IP limit on all UDP traffic)
 
 For global controls or longer retention, use external systems: reverse proxy or API gateway rate limits, Signal K auth/TLS, firewall/VPN allowlists, Prometheus/Grafana and external log aggregation.
 

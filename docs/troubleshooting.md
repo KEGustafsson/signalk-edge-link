@@ -88,7 +88,7 @@ If `readyToSend` is `false`, check that instance's `status` and `lastError` in `
 
 ### Rejected control packets
 
-`stats.rejectedControlPackets` on a client should be `0`. The counter is cumulative, so a single old rejection leaves it non-zero. A rising value means control packets from a source other than `udpAddress` are being dropped. Those can be the server's ACKs and NAKs, but need not be; check whether the cumulative ACK still advances and `queueDepth` stays low before treating the link as stalled. If replies are being dropped, make `udpAddress` match the address the server replies from.
+`stats.rejectedControlPackets` on a client should be `0`. The counter is cumulative, so a single old rejection leaves it non-zero. A rising value means control packets from a source other than `udpAddress` (or, with bonding, the primary and backup addresses) are being dropped. Those can be the server's ACKs and NAKs, but need not be; check whether the cumulative ACK still advances and `queueDepth` stays low before treating the link as stalled. If replies are being dropped, compare `udpAddress` and the bonding addresses with the address the server replies from before changing a destination.
 
 ```bash
 curl -s -H "$T" $H/metrics \
