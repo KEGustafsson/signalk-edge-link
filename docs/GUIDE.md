@@ -144,7 +144,8 @@ The token header is needed only when a management token is configured ([section 
 
 - Use Advanced for new deployments. Both ends must use the same mode; a mismatch drops every packet and raises `malformedPackets`.
 - Basic clients may set `testAddress`, `testPort` and `pingIntervalTime` for the ping monitor (published as `networking.modem.rtt`). Advanced configs must not contain these fields.
-- These must also match on both ends: `secretKey`, `stretchAsciiKey`, `useMsgpack`, `usePathDictionary`, `useValueDedup`, `useCompactDeltas`, `authenticatedHeaders`, `epochBoundAuth`.
+- These must also match on both ends: `secretKey`, `stretchAsciiKey`, `useValueDedup`, `useCompactDeltas`, `authenticatedHeaders`, `epochBoundAuth`.
+- In Basic mode set `useMsgpack` on both ends; in Advanced mode only the sender needs it. `usePathDictionary` is a sender setting in both modes.
 
 How the two modes work: [protocol-v3.md](protocol-v3.md). Settings and defaults: [configuration-reference.md](configuration-reference.md).
 
@@ -182,7 +183,7 @@ One client sends to one server. The [Quick Start](#5-quick-start--minimal-setup)
 }
 ```
 
-and set `useMsgpack` and `usePathDictionary` on the server too, since both must match. On the server, `"requestFullStatusOnRestart": true` makes the client replay its full current state after a server restart (at most once per 10 s per client).
+The server decodes the client's encoding without matching settings; on a server, `useMsgpack` and `usePathDictionary` set the encoding of outbound fleet data. On the server, `"requestFullStatusOnRestart": true` makes the client replay its full current state after a server restart (at most once per 10 s per client).
 
 Set `targetRTT` near the link's normal RTT. Values by link type, and profiles for Raspberry Pi and satellite: [performance-tuning.md](performance-tuning.md). Algorithm and tuning: [congestion-control.md](congestion-control.md).
 

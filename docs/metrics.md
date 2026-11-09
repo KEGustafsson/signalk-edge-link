@@ -32,7 +32,7 @@ Each table gives the JSON field (from `GET /metrics` unless stated) and the matc
 | `stats.errorCounts.<category>`               | `signalk_edge_link_errors_by_category_total{category}`                                         | Errors by category, see [Error Categories](#error-categories)                                      |
 | `bandwidth.bytesOut` / `bytesIn`             | `signalk_edge_link_bytes_out_total` / `signalk_edge_link_bytes_in_total`                       | Compressed + encrypted bytes sent / received                                                       |
 | `bandwidth.bytesOutRaw` / `bytesInRaw`       | `signalk_edge_link_bytes_out_raw_total` / `signalk_edge_link_bytes_in_raw_total`               | Payload bytes before compression / after decompression                                             |
-| `bandwidth.packetsOut` / `packetsIn`         | `signalk_edge_link_packets_out_total` / `signalk_edge_link_packets_in_total`                   | UDP packets sent / received                                                                        |
+| `bandwidth.packetsOut` / `packetsIn`         | `signalk_edge_link_packets_out_total` / `signalk_edge_link_packets_in_total`                   | UDP packets sent / received; on a v3 client, retransmissions and control packets are not counted   |
 | `bandwidth.rateOut` / `rateIn`               | `signalk_edge_link_bandwidth_rate_out_bytes` / `signalk_edge_link_bandwidth_rate_in_bytes`     | Bytes/s over the interval since the previous rate update                                           |
 | `bandwidth.compressionRatio`                 | `signalk_edge_link_compression_ratio_percent`                                                  | `(1 − compressed / raw) × 100` using out-bytes on a client, in-bytes on a server; higher is better |
 | `bandwidth.avgPacketSize`                    | —                                                                                              | Mean UDP payload size after compression (in-direction on a server)                                 |
@@ -117,7 +117,7 @@ A server with no client telemetry from the last 15 s (`dataSource: local`) omits
 
 **No score without a measurement.** `rtt`, `jitter` and `linkQuality` are **omitted**, not reported as `0`, until the link has been measured: on a client, its first timed ACK; on a server, client telemetry carrying an RTT (a server measures no latency itself). The Prometheus series are omitted the same way. Jitter needs two RTT samples, so after the first timed ACK it reads `0`, its seeded value, not a measurement.
 
-`packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate` and `activeLink` may also be **absent**. On a server they come from client telemetry, and a peer can report some fields and not others (an older build, or a value the ingest validator rejected). An absent field means "not reported"; `0` means "measured as zero". The web UI shows the first as `N/A`. One exception: a client that has not sent any packets yet reports `packetLoss` and `retransmitRate` as seeded zeros, which say nothing about the link.
+`packetLoss`, `retransmissions`, `queueDepth`, `retransmitRate` and `activeLink` may also be **absent**: on a server with no client telemetry from the last 15 s. An absent field means "not reported"; the web UI shows it as `N/A`. A `0` is not always a measurement: a server's record starts at `0` and keeps that seed for any field its peer has not reported (an older build, or a value the ingest validator rejected), and a client that has not sent any packets yet reports `packetLoss` and `retransmitRate` as seeded zeros.
 
 `linkQuality` is withheld unless all four inputs (`rtt`, `jitter`, `packetLoss`, `retransmitRate`) are present, since a substituted zero for any of them can only inflate the score.
 
@@ -132,7 +132,7 @@ A server with no client telemetry from the last 15 s (`dataSource: local`) omits
 | `earlySends`        | `signalk_edge_link_smart_batch_early_sends_total`   | Batches sent before `deltaTimer` because the packet reached the size limit    |
 | `timerSends`        | `signalk_edge_link_smart_batch_timer_sends_total`   | Batches sent on the normal timer cadence                                      |
 | `oversizedPackets`  | `signalk_edge_link_smart_batch_oversized_total`     | Packets that exceeded `MAX_SAFE_UDP_PAYLOAD` (should always be 0)             |
-| `avgBytesPerDelta`  | `signalk_edge_link_smart_batch_avg_bytes_per_delta` | Average compressed size per delta object                                      |
+| `avgBytesPerDelta`  | `signalk_edge_link_smart_batch_avg_bytes_per_delta` | Smoothed packet bytes per delta, packet overhead included                     |
 | `maxDeltasPerBatch` | —                                                   | Current batch limit, recalculated from the average delta size after each send |
 
 **Interpretation:**

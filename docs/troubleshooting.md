@@ -2,7 +2,7 @@
 
 > Symptoms, causes and fixes, grouped by area. Settings are defined in [configuration-reference.md](configuration-reference.md); metrics in [metrics.md](metrics.md).
 
-The `curl` examples use these variables. The token header is needed only when `managementApiToken` is set, and then every route requires it ([management-tools.md](management-tools.md#authentication)).
+The `curl` examples use these variables. The token header is needed when a token is configured, by `managementApiToken` or by `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` in the server's environment, and then every route requires it. Set `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` in your shell to the same value ([management-tools.md](management-tools.md#authentication)).
 
 Over plain HTTP the token is readable by anyone on the network path. For the remote hosts below (`vessel`, `shore`, `relay`), use HTTPS or an SSH tunnel such as `ssh -L 3000:localhost:3000 vessel` and query `localhost`.
 

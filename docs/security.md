@@ -115,12 +115,12 @@ Requirements: off by default. Enable it on both ends, both running 4.0.0 or late
 
 Enforcement is in the receiver:
 
-| Sender | Receiver | Result                                                                                         |
-| ------ | -------- | ---------------------------------------------------------------------------------------------- |
-| off    | off      | Works. No epoch binding.                                                                       |
-| on     | on       | Works. Protected.                                                                              |
-| on     | off      | This direction works, but unprotected: the receiver still accepts unbound packets from anyone. |
-| off    | on       | This direction carries nothing. The receiver refuses every DATA and METADATA packet.           |
+| Sender | Receiver | Result                                                                                                                                                 |
+| ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| off    | off      | Works. No epoch binding.                                                                                                                               |
+| on     | on       | Works. Protected.                                                                                                                                      |
+| on     | off      | This direction works, but unprotected: the receiver accepts unbound packets from any key holder, and captured ones stay replayable as described above. |
+| off    | on       | This direction carries nothing. The receiver refuses every DATA and METADATA packet.                                                                   |
 
 Each end is a receiver: the server receives the client's DATA and METADATA, the client receives the server's ACK, NAK and other control packets. A mismatch therefore fails in both configurations. With the client off and the server on, the server refuses DATA. With the client on and the server off, the server accepts DATA, but the client refuses the server's unbound control packets (counted in `stats.malformedPackets` and logged at debug level as `Failed to parse control packet`), so nothing is ACKed and RTT is not measured.
 
