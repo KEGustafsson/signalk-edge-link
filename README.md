@@ -158,7 +158,7 @@ Use Advanced for new deployments. Both ends of a connection must use the same mo
 
 Build, test and lint commands: [`docs/GUIDE.md`](docs/GUIDE.md#20-developer-reference).
 
-Legacy single-object configs still run: startup wraps them in a one-entry `connections[]` without rewriting the file. To convert the file, run `npm run migrate:config -- <input.json> [output.json]`; without `output.json` it overwrites `input.json`, so give a separate output path to keep the original.
+Legacy single-object configs still run: startup wraps them in a one-entry `connections[]` without rewriting the file. To convert the file, run `npm run migrate:config -- <input.json> [output.json]` from the plugin's directory (for example `~/.signalk/node_modules/signalk-edge-link`), with paths relative to it or absolute; without `output.json` it overwrites `input.json`, so give a separate output path to keep the original.
 
 ## License
 

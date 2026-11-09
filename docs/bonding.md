@@ -79,7 +79,7 @@ Vessel (client):
 }
 ```
 
-`udpAddress` and `udpPort` are required even with bonding. If `primary` is omitted at runtime, the client uses `udpAddress`:`udpPort`; if `backup` is omitted, `udpAddress`:`udpPort + 1`. `main-backup` is the only mode.
+`udpAddress` and `udpPort` are required even with bonding. If `primary` is omitted at runtime, the client uses `udpAddress`:`udpPort`; if `backup` is omitted, `udpAddress`:`udpPort + 1`. With `udpPort` 65535 there is no `udpPort + 1`, so validation then requires `backup.address` and `backup.port`. `main-backup` is the only mode.
 
 Shore: two independent server connections with the same key, one per port:
 

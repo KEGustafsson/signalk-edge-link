@@ -8,18 +8,18 @@ Protocol v2 (reliable transport with a CRC-only, unauthenticated control plane) 
 
 `protocolVersion` takes `1` (Basic) or `3` (Advanced). Config files also accept the aliases `"basic"` and `"advanced"`, which are normalized to `1` and `3`.
 
-| Property                      | v1 (Basic)                   | v3 (Advanced)                                 |
-| ----------------------------- | ---------------------------- | --------------------------------------------- |
-| Payload confidentiality       | AES-GCM                      | AES-GCM                                       |
-| Payload integrity             | GCM tag                      | GCM tag                                       |
-| Control packet authentication | —                            | HMAC-SHA256                                   |
-| Retransmission on loss        | —                            | ACK/NAK                                       |
-| RTT measurement               | ping monitor (`testAddress`) | ACK timing                                    |
-| Congestion control, bonding   | —                            | yes                                           |
-| Path metadata transport       | —                            | METADATA packet                               |
-| Fleet sharing                 | —                            | yes (not with bonding)                        |
-| DATA/METADATA overhead        | 28 bytes                     | 43 bytes, plus 16 with `authenticatedHeaders` |
-| Safe on untrusted networks    | partial                      | yes                                           |
+| Property                      | v1 (Basic)                   | v3 (Advanced)                                                                          |
+| ----------------------------- | ---------------------------- | -------------------------------------------------------------------------------------- |
+| Payload confidentiality       | AES-GCM                      | AES-GCM                                                                                |
+| Payload integrity             | GCM tag                      | GCM tag                                                                                |
+| Control packet authentication | —                            | HMAC-SHA256                                                                            |
+| Retransmission on loss        | —                            | ACK/NAK                                                                                |
+| RTT measurement               | ping monitor (`testAddress`) | ACK timing                                                                             |
+| Congestion control, bonding   | —                            | yes                                                                                    |
+| Path metadata transport       | —                            | METADATA packet                                                                        |
+| Fleet sharing                 | —                            | yes (not with bonding)                                                                 |
+| DATA/METADATA overhead        | 28 bytes                     | 43 bytes, plus 16 with `authenticatedHeaders`                                          |
+| Safe on untrusted networks    | partial                      | authenticated, with replay limits ([security.md](security.md#data-anti-replay-window)) |
 
 v1 has no control packets to forge, but also no recovery. Use it only on stable, trusted links such as a LAN.
 

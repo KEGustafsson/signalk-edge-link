@@ -631,7 +631,9 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
     // Without an explicit backup the client falls back to udpPort + 1, which
     // does not exist when udpPort is already the highest port. A backup object
     // replaces the fallback whole, so it must name both address and port.
+    // Basic (v1) never starts bonding, so the check does not apply there.
     if (
+      _pv >= 2 &&
       bonding.enabled === true &&
       conn.udpPort === 65535 &&
       (!backupLink ||

@@ -76,6 +76,17 @@ describe("validateConnectionConfig", () => {
       }
     });
 
+    test("ignores the udpPort 65535 backup rule on a Basic (v1) client", () => {
+      const error = validateConnectionConfig(
+        makeValidClient({
+          protocolVersion: 1,
+          udpPort: 65535,
+          bonding: { enabled: true, mode: "main-backup", backup: {} }
+        })
+      );
+      expect(error).toBeNull();
+    });
+
     test("accepts bonding with an explicit backup when udpPort is 65535", () => {
       const error = validateConnectionConfig(
         makeValidClient({

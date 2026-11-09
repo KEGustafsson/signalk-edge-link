@@ -9,6 +9,7 @@ import {
   buildWebappConnectionSchema,
   commonConnectionProperties
 } from "../../shared/connection-schema";
+import { parseFlag } from "../../shared/flag";
 import { ErrorBoundary } from "./ErrorBoundary";
 // API_BASE is a plain string constant bundled into the federated remote (it is
 // not a shared singleton), so importing it from utils is safe.
@@ -810,7 +811,11 @@ function PluginConfigurationPanelInner(_props: Record<string, unknown>) {
         setManagementApiToken(
           typeof cfg.managementApiToken === "string" ? cfg.managementApiToken : ""
         );
-        setRequireManagementApiToken(cfg.requireManagementApiToken === true);
+        // Read the flag the way the auth guard does: a hand-written "true" or an
+        // unrecognised value is enforced, so the checkbox must show it as on or
+        // the next save would post false and lift the requirement.
+        const requireFlag = parseFlag(cfg.requireManagementApiToken);
+        setRequireManagementApiToken(requireFlag === "true" || requireFlag === "invalid");
         setExpandedIndex(0);
         setIsDirty(false);
       } catch (err: unknown) {

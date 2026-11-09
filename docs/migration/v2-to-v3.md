@@ -13,14 +13,14 @@ Field names and the `"basic"`/`"advanced"` aliases are defined in [configuration
 
 ## What changes between v2 and v3
 
-| Aspect                                | v2                    | v3                                  |
-| ------------------------------------- | --------------------- | ----------------------------------- |
-| Data payload (GCM)                    | encrypted + integrity | unchanged                           |
-| Wire format / header                  | 15-byte binary header | 15-byte header + 16-byte HMAC tag\* |
-| DATA/METADATA header authentication   | CRC16 only            | HMAC-SHA256 (default on)            |
-| Control packet authentication         | CRC only (forgeable)  | HMAC-SHA256                         |
-| Retransmission / congestion / bonding | ✓                     | ✓ (unchanged)                       |
-| Safe on untrusted networks            | **No**                | **Yes**                             |
+| Aspect                                | v2                    | v3                                                                                            |
+| ------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------- |
+| Data payload (GCM)                    | encrypted + integrity | unchanged                                                                                     |
+| Wire format / header                  | 15-byte binary header | 15-byte header + 16-byte HMAC tag\*                                                           |
+| DATA/METADATA header authentication   | CRC16 only            | HMAC-SHA256 (default on)                                                                      |
+| Control packet authentication         | CRC only (forgeable)  | HMAC-SHA256                                                                                   |
+| Retransmission / congestion / bonding | ✓                     | ✓ (unchanged)                                                                                 |
+| Safe on untrusted networks            | **No**                | **Authenticated, with replay limits** ([security.md](../security.md#data-anti-replay-window)) |
 
 \* With `authenticatedHeaders` enabled (the default), DATA/METADATA packets carry a trailing 16-byte HMAC tag; both peers must use the same setting. `false` on both ends restores the CRC-only header.
 
