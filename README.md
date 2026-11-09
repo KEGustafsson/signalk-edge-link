@@ -68,10 +68,10 @@ In the Signal K Admin UI, open **Server → Plugin Config → Signal K Edge Link
 
 The plugin is disabled after install (`signalk-plugin-enabled-by-default: false`). Enable it on this page on both servers; saving the connection configuration alone does not start it.
 
-A fresh install shows one empty client card. Use it for the connection you need (switch its type on the receiving server), or add your connection first and then delete it, since the last card cannot be removed; left with an empty key, it fails validation when you save.
+A fresh install shows one empty client card. Configure that card in the steps below rather than adding a second one. The last card cannot be removed, and an empty card fails validation when you save.
 
-1. **Receiving server:** click **Add Server**. Set a name, the UDP port, the encryption key and protocol **Advanced**. Save.
-2. **Sending server:** click **Add Client**. Set a name, the receiving server's address, the same UDP port, the same key and protocol **Advanced**. Save.
+1. **Receiving server:** switch the initial card's type to server (or click **Add Server**, then remove the initial card). Set a name, the UDP port, the encryption key and protocol **Advanced**. Save.
+2. **Sending server:** use the initial client card. Set a name, the receiving server's address, the same UDP port, the same key and protocol **Advanced**. Save.
 3. **Check:** open `http://<signalk-host>:3000/plugins/signalk-edge-link/` on both servers. The client's **Deltas Sent** and the server's **Deltas Received** should rise, and the encryption error counts should stay at zero.
 
 Each Signal K server stores its own list of connections and starts every connection in it. The two lists for the steps above:
