@@ -376,10 +376,16 @@ function register(router: Router, ctx: RouteContext): void {
         }
 
         // Preserve the persisted fail-closed flag unless the caller explicitly
-        // sets it, so an incomplete write cannot relax the auth posture.
+        // sets it, so an incomplete write cannot relax the auth posture. Any
+        // stored value is kept, not just booleans: the auth guard also honours
+        // hand-written strings such as "true" (and fails closed on unknown
+        // ones), so dropping them here would silently open the API.
         if (typeof req.body.requireManagementApiToken === "boolean") {
           finalConfig.requireManagementApiToken = req.body.requireManagementApiToken;
-        } else if (typeof persistedConfig.requireManagementApiToken === "boolean") {
+        } else if (
+          persistedConfig.requireManagementApiToken !== undefined &&
+          persistedConfig.requireManagementApiToken !== null
+        ) {
           finalConfig.requireManagementApiToken = persistedConfig.requireManagementApiToken;
         }
 

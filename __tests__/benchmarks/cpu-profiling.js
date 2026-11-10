@@ -16,16 +16,16 @@
 
 const zlib = require("zlib");
 const { promisify } = require("util");
-const { PacketBuilder, PacketParser } = require("../../lib/packet");
-const { SequenceTracker } = require("../../lib/sequence");
-const { RetransmitQueue } = require("../../lib/retransmit-queue");
-const { CongestionControl } = require("../../lib/congestion");
-const { encryptBinary, decryptBinary } = require("../../lib/crypto");
+const { PacketBuilder, PacketParser } = require("../../lib/codec/packet-codec");
+const { SequenceTracker } = require("../../lib/transport/reliability/sequence");
+const { RetransmitQueue } = require("../../lib/transport/reliability/retransmit-queue");
+const { CongestionControl } = require("../../lib/transport/congestion");
+const { encryptBinary, decryptBinary } = require("../../lib/codec/crypto");
 const {
   PacketLossTracker,
   PathLatencyTracker,
   RetransmissionTracker
-} = require("../../lib/monitoring");
+} = require("../../lib/domain/monitoring");
 
 const brotliCompressAsync = promisify(zlib.brotliCompress);
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
@@ -113,7 +113,7 @@ function benchPacketBuilding() {
   console.log("=== Packet Building CPU Cost ===\n");
   const ITERATIONS = 100000;
 
-  const builder = new PacketBuilder();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
   const payload = Buffer.alloc(500, 0xab);
 
   printResult(
@@ -225,8 +225,8 @@ async function benchFullPipeline() {
   console.log("=== Full Pipeline Under Load ===\n");
   const ITERATIONS = 2000;
 
-  const builder = new PacketBuilder();
-  const parser = new PacketParser();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+  const parser = new PacketParser({ secretKey: SECRET_KEY });
   const tracker = new SequenceTracker();
 
   printResult(
@@ -246,7 +246,7 @@ async function benchFullPipeline() {
   );
 
   // Pre-build packets for RX benchmark
-  const txBuilder = new PacketBuilder();
+  const txBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
   const packets = [];
   for (let i = 0; i < ITERATIONS; i++) {
     const delta = generateDelta(i);

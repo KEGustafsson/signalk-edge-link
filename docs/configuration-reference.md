@@ -1,174 +1,195 @@
 # Signal K Edge Link — Configuration Reference
 
-> Complete settings reference with defaults and valid ranges.
-> For quick-start examples, see the [GUIDE.md quick start](GUIDE.md#5-quick-start--minimal-setup).
+Every setting with its default, valid range and validation rule. Setup steps: [GUIDE.md quick start](GUIDE.md#5-quick-start--minimal-setup). Example files: [`samples/`](../samples/).
+
+All tables use the same columns. "Both ends" means the client and the server of one connection must use the same value. A key or `protocolVersion` mismatch drops every packet. An `authenticatedHeaders` mismatch drops DATA and METADATA. An `epochBoundAuth` mismatch also breaks the link: the side that requires it drops the other side's unbound packets, which at a client means the server's ACKs, NAKs and heartbeats; the encoding settings below say what the receiver needs.
 
 ---
 
 ## Top-Level Plugin Fields
 
-These sit outside `connections[]`, at the root of the plugin config:
+At the root of the plugin config, outside `connections[]`. Token behavior and the CLI are described in [management-tools.md](management-tools.md).
 
-| Field                       | Type    | Default | Description                                                                                                                                         |
-| --------------------------- | ------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `managementApiToken`        | string  | `null`  | Shared secret protecting management API endpoints. Also set via env `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN`.                                           |
-| `requireManagementApiToken` | boolean | `false` | When `true`, management endpoints fail closed (HTTP 403) if no token is configured. Also via env `SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN=true`. |
+| Field                       | Type    | Default | Range           | Notes                                                                                                                                                                                                                                               |
+| --------------------------- | ------- | ------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `connections`               | array   | —       | at least 1 item | One entry per server or client connection. A legacy flat config (connection fields at the root, with `serverType`) is accepted as a single connection named `default`.                                                                              |
+| `managementApiToken`        | string  | unset   | —               | Shared secret for the management API. The env var `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` takes precedence when both are set.                                                                                                                          |
+| `requireManagementApiToken` | boolean | `false` | —               | `true`: management endpoints fail closed (HTTP 403) when no token is configured. Also set by env `SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN=true`. An unrecognised value in either place is treated as `true`. `false` with no token: open access. |
+| `schemaVersion`             | number  | `1`     | read-only       | Config schema version for migrations. Do not edit.                                                                                                                                                                                                  |
 
 ---
 
 ## Common Fields (Client and Server)
 
-| Field                  | Type    | Default        | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ---------------------- | ------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`                 | string  | `"connection"` | Label shown in UI and logs. Used as directory name for runtime config files. Max 40 characters.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `serverType`           | string  | `"client"`     | `"client"` sends data; `"server"` receives data.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `udpPort`              | integer | `4446`         | UDP port. Range 1024–65535. Must match on both ends.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `secretKey`            | string  | — (required)   | AES-256 encryption key. Accepts 32-char ASCII, 64-char hex, or base64 (standard or URL-safe). Must match exactly on both ends.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `stretchAsciiKey`      | boolean | `false`        | When `true`, runs a 32-char ASCII key through PBKDF2-SHA256 (600,000 iterations) before use. **Both ends must match.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `authenticatedHeaders` | boolean | `true`         | v3 only. When enabled (the default), each DATA/METADATA packet carries a 16-byte HMAC tag binding the header (type/flags/sequence/length) to the encrypted payload, so an on-path attacker cannot tamper with header fields. Adds 16 bytes/packet. **Both ends must match** — set to `false` on both peers only to interoperate with a peer that cannot enable it.                                                                                                                                                                                                                                    |
-| `protocolVersion`      | integer | `1`            | `1` (Basic) or `3` (Advanced). Must match on both ends. Accepts `"basic"`/`"advanced"` string aliases.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `epochBoundAuth`       | boolean | `false`        | v3 only, requires `authenticatedHeaders`. Additionally binds each packet's authentication tag to the connection epoch from the HELLO handshake, so a captured packet only authenticates inside the epoch it was sent in. Closes the residual replay path where a packet replayed from a source address the receiver has never seen lands on a fresh anti-replay guard with no epoch to enforce. Adds no bytes on the wire. **BOTH ENDS MUST MATCH AND BOTH MUST RUN 4.0.0+** — an older peer computes the tag without the epoch, so every packet is dropped. Enable once the whole fleet is upgraded. |
-| `useMsgpack`           | boolean | `false`        | Serialize deltas as MessagePack instead of JSON. Saves ~15–25%. **Both ends must match.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `usePathDictionary`    | boolean | `false`        | Replace Signal K path strings with 2-byte numeric IDs. Saves ~10–20%. **Both ends must match.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `useValueDedup`        | boolean | `false`        | Replace a value identical to the last one sent for that path with a small sentinel, which the receiver expands from its own cache. Large saving on stable paths (modes, status strings). **Both ends must match** — a receiver that does not understand the sentinel would inject it as the value. The sentinel object `{"$$": "dup"}` is reserved by the encoding: a genuine value of exactly that shape is sent verbatim but a dedup-enabled receiver interprets it as the marker.                                                                                                                  |
-| `useCompactDeltas`     | boolean | `false`        | Encode each delta as a fixed 5-slot tuple instead of an object, dropping repeated key names. Requires `useMsgpack` (there is no gain in JSON). **Both ends must match.**                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `brotliQuality`        | integer | `6`            | Client-only. Brotli compression level for outbound packets, 0–11. Higher is smaller but costs more CPU (11 is roughly 3–5x the CPU of the default). Local-only — peers do not need to match.                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `pathFilter`           | object  | —              | Client-only. `{ allow: string[], deny: string[] }` of Signal K path globs deciding what is forwarded. Filtered paths are dropped before any other processing, so they cost nothing per packet. `allow` (when non-empty) forwards only matching paths; `deny` is applied after. Local-only — the receiver is unaffected.                                                                                                                                                                                                                                                                               |
-| `pathPrecision`        | object  | —              | Client-only. Map of **exact** Signal K path to decimal places, e.g. `{ "navigation.speedOverGround": 2 }`. Keys are matched literally, not as globs — `"navigation.*"` matches nothing. **Lossy:** values are rounded before transmission and the original precision cannot be recovered by the receiver. Use it to cut bandwidth on high-rate numeric paths.                                                                                                                                                                                                                                         |
-| `pathThrottle`         | object  | —              | Client-only. Map of **exact** Signal K path to a rule object, e.g. `{ "navigation.position": { "minIntervalMs": 1000 } }`. A rule takes `minIntervalMs` (drop values sent again within this many ms) and/or `deadband` (drop numeric values that changed by less than this); both apply independently. Keys are matched literally, not as globs. The highest-leverage bandwidth control for chatty instruments.                                                                                                                                                                                       |
-| `enableNotifications`  | boolean | `false`        | Forward Signal K notification deltas over the link.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `skipOwnData`          | boolean | `false`        | (Client only) Drop `networking.edgeLink.*` metrics from forwarded **data** — prevents feedback loops in a chain. Does **not** affect the dedicated link telemetry (RTT, jitter, loss, retransmissions, queue depth, retransmit rate, active link) the peer needs to report the link; the receiver consumes that rather than adding it to its own tree.                                                                                                                                                                                                                                                |
+| Field                  | Type    | Default        | Range                   | Notes                                                                                                                                                                                                                                                       |
+| ---------------------- | ------- | -------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                 | string  | `"connection"` | max 40 chars            | Label in the UI and logs. Its slug (lowercase, non-alphanumerics to `-`) is the instance ID used for runtime files, metric paths and notification paths; duplicates get `-1`, `-2`.                                                                         |
+| `connectionId`         | string  | assigned       | max 80 chars            | Internal ID that matches a connection across saves. Assigned automatically and hidden in the form. Omit it in a hand-written config; an empty string fails validation.                                                                                      |
+| `serverType`           | string  | required       | `"client"` / `"server"` | `"client"` sends, `"server"` receives. The form starts at `"client"`; a hand-written connection without it fails validation. Legacy booleans are accepted: `true` = server, `false` = client.                                                               |
+| `udpPort`              | integer | required       | 1024–65535              | Both ends. Each server connection needs its own port. The form starts at `4446`; a hand-written connection without it fails validation.                                                                                                                     |
+| `secretKey`            | string  | required       | see notes               | AES-256 key: 32 printable ASCII characters, 64 hex characters, or base64 (standard or URL-safe) of 32 bytes. Low-diversity keys are rejected even in a valid format ([rules](security.md#key-formats)); generate a random key. Both ends.                   |
+| `stretchAsciiKey`      | boolean | `false`        | —                       | Runs a 32-character ASCII key through PBKDF2-SHA256 (600,000 iterations). Hex and base64 keys are unaffected. Both ends.                                                                                                                                    |
+| `protocolVersion`      | integer | `1`            | `1` / `3`               | `1` Basic, `3` Advanced. Aliases `"basic"` / `"advanced"` are accepted. Legacy `2` is accepted and converted to `3`. Both ends.                                                                                                                             |
+| `authenticatedHeaders` | boolean | `true`         | —                       | v3. Adds a 16-byte HMAC tag to each DATA/METADATA packet binding the header (type, flags, sequence, length) to the encrypted payload. Both ends; set `false` on both only to talk to a peer that cannot enable it.                                          |
+| `epochBoundAuth`       | boolean | `false`        | —                       | v3, requires `authenticatedHeaders`. Also binds the tag to the connection epoch from the HELLO handshake, so a replayed packet from a source address the receiver has never seen fails authentication. No extra bytes. Both ends, and both must run 4.0.0+. |
+| `useMsgpack`           | boolean | `false`        | —                       | MessagePack instead of JSON, about 15–25% smaller. Basic (v1): set on both ends. Advanced (v3): the receiver reads the MessagePack flag in each packet header, so only the sender needs it.                                                                 |
+| `usePathDictionary`    | boolean | `false`        | —                       | Sends Signal K paths as 2-byte numeric IDs, about 10–20% smaller. The receiver decodes numeric and plain paths alike, so only the sender needs it.                                                                                                          |
+
+On a server, `useMsgpack` and `usePathDictionary` also set the encoding of outbound fleet data.
+
+### Client-only sending options
+
+Removed from server connections when the config is loaded. The server detects these encodings in each packet and has no matching setting.
+
+| Field              | Type    | Default | Range                                 | Notes                                                                                                                                                                                                                                                                                                       |
+| ------------------ | ------- | ------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useValueDedup`    | boolean | `false` | —                                     | v3 only. Replaces a value identical to the last one sent for that path with the sentinel `{"$$": "dup"}`; the receiver restores it from its cache. A receiver that does not understand the sentinel injects it as the value. A genuine value of exactly that shape is sent verbatim but read as the marker. |
+| `useCompactDeltas` | boolean | `false` | —                                     | v3 only, requires `useMsgpack`. Encodes each delta as a fixed 5-slot tuple, dropping repeated key names.                                                                                                                                                                                                    |
+| `brotliQuality`    | integer | `6`     | 0–11                                  | Brotli level. 11 costs roughly 3–5× the CPU of 6. Peers need not match.                                                                                                                                                                                                                                     |
+| `pathFilter`       | object  | —       | `{ allow: string[], deny: string[] }` | Paths to forward. Non-empty `allow` forwards only matching paths; `deny` is applied after `allow`. Filtered paths are dropped before any other processing. Applies to DATA only; metadata uses `meta.includePathsMatching`. Empty strings are rejected.                                                     |
+| `pathPrecision`    | object  | —       | path → integer 0–15                   | Decimal places per exact path, e.g. `{ "navigation.speedOverGround": 2 }`. Lossy: the receiver gets the rounded value. Unlisted paths keep full precision.                                                                                                                                                  |
+| `pathThrottle`     | object  | —       | path → `{ minIntervalMs, deadband }`  | Per exact path. `minIntervalMs` (integer 0–3600000) drops values sent again within that time; `deadband` (number ≥ 0) drops numeric changes smaller than it. A value is sent only if both rules allow it. Unlisted paths are not throttled.                                                                 |
+
+`pathFilter` patterns: `*` matches every path, `navigation.*` matches every path under `navigation.` (not `navigation` itself), anything else matches exactly. Mid-string wildcards such as `navigation.speed*` are not supported. `pathPrecision` and `pathThrottle` keys are exact paths, not globs. Use dotted paths for nested values, e.g. `navigation.position.latitude`.
 
 ---
 
 ## Client Transport Fields
 
-| Field                | Type    | Default       | Description                                                                                                                        |
-| -------------------- | ------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `udpAddress`         | string  | `"127.0.0.1"` | Hostname or IP address of the remote server. Required for client connections.                                                      |
-| `helloMessageSender` | integer | `60`          | Interval in **seconds** between HELLO keepalive messages. Keeps NAT/firewall mappings alive. Range 10–3600.                        |
-| `heartbeatInterval`  | integer | `25000`       | Interval in **ms** between HEARTBEAT probes (Advanced/v3 only). Used for RTT measurement and NAT hole-punching. Range 5000–120000. |
+| Field                 | Type    | Default       | Range          | Notes                                                                                                                                                                                                                                                            |
+| --------------------- | ------- | ------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `udpAddress`          | string  | `"127.0.0.1"` | —              | Server hostname or IP. Required on clients.                                                                                                                                                                                                                      |
+| `helloMessageSender`  | integer | `60`          | 10–3600 s      | Idle keepalive: when the client has sent nothing for this long it sends a HELLO (v3) or an empty delta (v1). On v3 heartbeats count as traffic, so `heartbeatInterval` sets the NAT keepalive rate, and HELLO is also refreshed on its own timer.                |
+| `heartbeatInterval`   | number  | `25000`       | 5000–120000 ms | v3. Milliseconds between HEARTBEAT packets for NAT keepalive and RTT. Keep it below the NAT's UDP mapping timeout (typically 30–120 s); fleet sharing depends on it. Client-only (removed from server connections).                                              |
+| `enableNotifications` | boolean | `false`       | —              | Emits Signal K notifications for monitoring alerts (`notifications.signalk-edge-link.<instanceId>.<metric>`) and bonding failover (`notifications.signalk-edge-link.<instanceId>.linkFailover`).                                                                 |
+| `skipOwnData`         | boolean | `false`       | —              | Strips `networking.edgeLink.*` paths from forwarded data, to prevent loops in a chain. RTT paths (`networking.edgeLink[.<id>].rtt`, `networking.modem[.<id>].rtt`) and the v3 link telemetry are not stripped by this setting, but `pathFilter` can remove them. |
 
 ---
 
 ## v1 Ping Monitor Fields (Client, Basic/v1 Only)
 
-These fields **must not** appear in Advanced/v3 configurations.
+Required on v1 clients (`testAddress`, `testPort`). Rejected on v3 clients, and removed from a client when it is switched to v3.
 
-| Field              | Type    | Default       | Description                                       |
-| ------------------ | ------- | ------------- | ------------------------------------------------- |
-| `testAddress`      | string  | `"127.0.0.1"` | Host to probe for reachability (e.g., `8.8.8.8`). |
-| `testPort`         | integer | `80`          | Port to probe (e.g., 53, 80, 443).                |
-| `pingIntervalTime` | number  | `1`           | Probe frequency in **minutes**. Range 0.1–60.     |
+| Field              | Type    | Default       | Range      | Notes                            |
+| ------------------ | ------- | ------------- | ---------- | -------------------------------- |
+| `testAddress`      | string  | `"127.0.0.1"` | —          | Host to probe, e.g. `8.8.8.8`.   |
+| `testPort`         | integer | `80`          | 1–65535    | Port to probe, e.g. 53, 80, 443. |
+| `pingIntervalTime` | number  | `1`           | 0.1–60 min | Minutes between probes.          |
 
 ---
 
 ## Reliability — Server Mode (Advanced/v3 Only)
 
-Nested under `reliability`:
+Under `reliability` on a server connection.
 
-| Field               | Type    | Default | Range        | Description                                                                                                                                           |
-| ------------------- | ------- | ------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ackInterval`       | integer | `100`   | 20–5000 ms   | How often the server emits a cumulative ACK.                                                                                                          |
-| `ackResendInterval` | integer | `1000`  | 100–10000 ms | Re-send the last ACK after this interval of silence.                                                                                                  |
-| `nakTimeout`        | integer | `100`   | 20–5000 ms   | Idle delay before sending NAK for a detected gap.                                                                                                     |
-| `maxNakRounds`      | integer | `5`     | 1–25 rounds  | Times a missing packet is re-requested before the window advances past it. Keep above the sender's `maxRetransmits` — a lost NAK still costs a round. |
+| Field               | Type   | Default | Range        | Notes                                                                                                                             |
+| ------------------- | ------ | ------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `ackInterval`       | number | `100`   | 20–5000 ms   | How often the server sends a cumulative ACK.                                                                                      |
+| `ackResendInterval` | number | `1000`  | 100–10000 ms | Resends the last ACK after this much silence, to recover from a lost ACK.                                                         |
+| `nakTimeout`        | number | `100`   | 20–5000 ms   | Delay before sending a NAK for a detected gap.                                                                                    |
+| `maxNakRounds`      | number | `5`     | 1–25         | NAKs per missing packet before the window moves past it. Keep above the client's `maxRetransmits`; a lost NAK still uses a round. |
 
 ---
 
 ## Reliability — Client Mode (Advanced/v3 Only)
 
-Nested under `reliability`:
+Under `reliability` on a client connection. `retransmitMinAge` must be ≤ `retransmitMaxAge`.
 
-| Field                     | Type    | Default  | Range       | Description                                                        |
-| ------------------------- | ------- | -------- | ----------- | ------------------------------------------------------------------ |
-| `retransmitQueueSize`     | integer | `5000`   | 100–50000   | Maximum packets held in the retransmit queue.                      |
-| `maxRetransmits`          | integer | `3`      | 1–20        | Give up retransmitting after this many attempts.                   |
-| `retransmitMaxAge`        | integer | `120000` | 1000–300000 | Hard upper bound in ms on retransmit queue entries.                |
-| `retransmitMinAge`        | integer | `10000`  | 200–30000   | Never evict entries newer than this.                               |
-| `retransmitRttMultiplier` | number  | `12`     | 2–20        | Scale factor applied to current RTT to compute per-entry timeout.  |
-| `ackIdleDrainAge`         | integer | `20000`  | 500–30000   | If no ACK for this long, start expiring entries more aggressively. |
-| `forceDrainAfterAckIdle`  | boolean | `false`  | —           | Force-clear queue after `forceDrainAfterMs` of ACK silence.        |
-| `forceDrainAfterMs`       | integer | `45000`  | 2000–120000 | Duration of ACK silence that triggers a force drain.               |
-| `recoveryBurstEnabled`    | boolean | `true`   | —           | When ACKs resume after a gap, rapidly retransmit queued packets.   |
-| `recoveryBurstSize`       | integer | `100`    | 10–1000     | Maximum packets to retransmit per recovery burst cycle.            |
-| `recoveryBurstIntervalMs` | integer | `200`    | 50–5000     | Interval between recovery burst cycles in ms.                      |
-| `recoveryAckGapMs`        | integer | `4000`   | 500–120000  | Minimum ACK silence before triggering fast recovery bursts.        |
+| Field                     | Type    | Default  | Range          | Notes                                                                 |
+| ------------------------- | ------- | -------- | -------------- | --------------------------------------------------------------------- |
+| `retransmitQueueSize`     | number  | `5000`   | 100–50000      | Packets held for retransmission.                                      |
+| `maxRetransmits`          | number  | `3`      | 1–20           | Attempts before a packet is dropped from the queue.                   |
+| `retransmitMaxAge`        | number  | `120000` | 1000–300000 ms | Hard upper age limit for queue entries.                               |
+| `retransmitMinAge`        | number  | `10000`  | 200–30000 ms   | Entries younger than this are never expired.                          |
+| `retransmitRttMultiplier` | number  | `12`     | 2–20           | Per-entry expiry = current RTT × this.                                |
+| `ackIdleDrainAge`         | number  | `20000`  | 500–30000 ms   | After this long without an ACK, entries expire more aggressively.     |
+| `forceDrainAfterAckIdle`  | boolean | `false`  | —              | Clears the queue after `forceDrainAfterMs` without an ACK.            |
+| `forceDrainAfterMs`       | number  | `45000`  | 2000–120000 ms | ACK silence that triggers the force drain.                            |
+| `recoveryBurstEnabled`    | boolean | `true`   | —              | When ACKs resume after an outage, retransmits queued packets quickly. |
+| `recoveryBurstSize`       | number  | `100`    | 10–1000        | Packets per recovery burst.                                           |
+| `recoveryBurstIntervalMs` | number  | `200`    | 50–5000 ms     | Time between recovery bursts.                                         |
+| `recoveryAckGapMs`        | number  | `4000`   | 500–120000 ms  | ACK silence needed before recovery bursts start.                      |
 
 ---
 
 ## Congestion Control (Client, Advanced/v3 Only)
 
-Nested under `congestionControl`. See [congestion-control.md](congestion-control.md) for the full algorithm.
+Under `congestionControl`. Algorithm: [congestion-control.md](congestion-control.md). `minDeltaTimer` must be ≤ `maxDeltaTimer`.
 
-| Field               | Type    | Default | Range         | Description                                                                  |
-| ------------------- | ------- | ------- | ------------- | ---------------------------------------------------------------------------- |
-| `enabled`           | boolean | `false` | —             | Enable AIMD automatic delta timer adjustment.                                |
-| `targetRTT`         | integer | `200`   | 50–2000 ms    | RTT above this level triggers rate reduction. Set to your link's normal RTT. |
-| `nominalDeltaTimer` | integer | `1000`  | 100–10000 ms  | Starting send interval when congestion control is first enabled.             |
-| `minDeltaTimer`     | integer | `100`   | 50–1000 ms    | Fastest allowed send rate.                                                   |
-| `maxDeltaTimer`     | integer | `5000`  | 1000–30000 ms | Slowest allowed send rate under congestion.                                  |
+| Field               | Type    | Default | Range         | Notes                                                                                    |
+| ------------------- | ------- | ------- | ------------- | ---------------------------------------------------------------------------------------- |
+| `enabled`           | boolean | `false` | —             | Adjusts the send interval (delta timer) automatically.                                   |
+| `targetRTT`         | number  | `200`   | 50–2000 ms    | RTT above which the send rate is reduced. Set to the link's normal RTT.                  |
+| `nominalDeltaTimer` | number  | `1000`  | 100–10000 ms  | Steady-state send interval. When unset at runtime, the `delta_timer.json` value is used. |
+| `minDeltaTimer`     | number  | `100`   | 50–1000 ms    | Shortest allowed send interval.                                                          |
+| `maxDeltaTimer`     | number  | `5000`  | 1000–30000 ms | Longest allowed send interval.                                                           |
 
 ---
 
 ## Connection Bonding (Client, Advanced/v3 Only)
 
-Nested under `bonding`. See [bonding.md](bonding.md) for the full explanation.
+Under `bonding`. Behavior: [bonding.md](bonding.md). Primary and backup must differ in address:port. Not allowed together with fleet sharing.
 
-| Field                          | Type    | Default         | Range             | Description                                            |
-| ------------------------------ | ------- | --------------- | ----------------- | ------------------------------------------------------ |
-| `enabled`                      | boolean | `false`         | —                 | Activate dual-link bonding.                            |
-| `mode`                         | string  | `"main-backup"` | `"main-backup"`   | Only main-backup mode is supported.                    |
-| `primary.address`              | string  | `"127.0.0.1"`   | valid IP/hostname | Primary link destination.                              |
-| `primary.port`                 | integer | `4446`          | 1024–65535        | Primary link UDP port.                                 |
-| `primary.interface`            | string  | —               | valid IP          | Bind outbound socket to this local interface IP.       |
-| `backup.address`               | string  | `"127.0.0.1"`   | valid IP/hostname | Backup link destination.                               |
-| `backup.port`                  | integer | `4447`          | 1024–65535        | Backup link UDP port.                                  |
-| `backup.interface`             | string  | —               | valid IP          | Bind outbound socket to this local interface IP.       |
-| `failover.rttThreshold`        | integer | `500`           | 100–5000 ms       | Failover when primary RTT exceeds this.                |
-| `failover.lossThreshold`       | number  | `0.10`          | 0.01–0.5          | Failover when primary loss exceeds this ratio.         |
-| `failover.healthCheckInterval` | integer | `1000`          | 500–10000 ms      | Link health probe frequency.                           |
-| `failover.failbackDelay`       | integer | `30000`         | 5000–300000 ms    | Hold-off after primary recovers before switching back. |
-| `failover.heartbeatTimeout`    | integer | `5000`          | 1000–30000 ms     | Link marked DOWN after no response for this long.      |
+| Field                          | Type    | Default         | Range           | Notes                                                  |
+| ------------------------------ | ------- | --------------- | --------------- | ------------------------------------------------------ |
+| `enabled`                      | boolean | `false`         | —               | Turns on two-link bonding.                             |
+| `mode`                         | string  | `"main-backup"` | `"main-backup"` | The only supported mode.                               |
+| `primary.address`              | string  | `"127.0.0.1"`   | IP or hostname  | Primary link destination.                              |
+| `primary.port`                 | integer | `4446`          | 1024–65535      | Primary link UDP port.                                 |
+| `primary.interface`            | string  | —               | local IP        | Binds the outbound socket to this local interface.     |
+| `backup.address`               | string  | `"127.0.0.1"`   | IP or hostname  | Backup link destination.                               |
+| `backup.port`                  | integer | `4447`          | 1024–65535      | Backup link UDP port.                                  |
+| `backup.interface`             | string  | —               | local IP        | Binds the outbound socket to this local interface.     |
+| `failover.rttThreshold`        | number  | `500`           | 100–5000 ms     | Fails over when primary RTT exceeds this.              |
+| `failover.lossThreshold`       | number  | `0.1`           | 0.01–0.5        | Fails over when primary loss ratio exceeds this.       |
+| `failover.healthCheckInterval` | number  | `1000`          | 500–10000 ms    | Link health probe interval.                            |
+| `failover.failbackDelay`       | number  | `30000`         | 5000–300000 ms  | Wait after the primary recovers before switching back. |
+| `failover.heartbeatTimeout`    | number  | `5000`          | 1000–30000 ms   | A link with no response for this long is marked DOWN.  |
+
+If `primary` or `backup` is missing at runtime, the client uses `udpAddress:udpPort` for the primary and `udpAddress:udpPort+1` for the backup. With `udpPort` 65535 that backup port does not exist, so validation then requires `backup.address` and `backup.port`.
 
 ---
 
 ## Alert Thresholds (Client, Advanced/v3 Only)
 
-Nested under `alertThresholds`. Each metric has `warning` and `critical` levels. When exceeded, a Signal K notification fires at `notifications.signalk-edge-link.<connectionName>.*`.
+Under `alertThresholds`, one object per metric with `warning` and `critical`. `warning` must be ≤ `critical`. Ratio metrics take 0–1; the others must be > 0. Notifications are emitted only with `enableNotifications: true`, at `notifications.signalk-edge-link.<instanceId>.<metric>`.
 
-| Metric                            | Warning default | Critical default | Unit    |
-| --------------------------------- | --------------- | ---------------- | ------- |
-| `rtt.warning/critical`            | `300` / `800`   | —                | ms      |
-| `packetLoss.warning/critical`     | `0.03` / `0.10` | —                | ratio   |
-| `retransmitRate.warning/critical` | `0.05` / `0.15` | —                | ratio   |
-| `jitter.warning/critical`         | `100` / `300`   | —                | ms      |
-| `queueDepth.warning/critical`     | `100` / `500`   | —                | packets |
+| Metric           | Warning default | Critical default | Unit    |
+| ---------------- | --------------- | ---------------- | ------- |
+| `rtt`            | `300`           | `800`            | ms      |
+| `packetLoss`     | `0.03`          | `0.1`            | ratio   |
+| `retransmitRate` | `0.05`          | `0.15`           | ratio   |
+| `jitter`         | `100`           | `300`            | ms      |
+| `queueDepth`     | `100`           | `500`            | packets |
 
 ---
 
 ## Server-Specific Fields
 
-| Field                        | Type    | Default | Description                                                                                                                                                                                                                      |
-| ---------------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `requestFullStatusOnRestart` | boolean | `false` | (Advanced/v3) When `true`, the server sends a FULL_STATUS_REQUEST to each client on first contact after a restart. The client replays its complete current Signal K state. Rate-limited to one replay per 10 seconds per client. |
+| Field                        | Type    | Default | Range | Notes                                                                                                                                                                                        |
+| ---------------------------- | ------- | ------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `requestFullStatusOnRestart` | boolean | `false` | —     | v3. On first contact after a server restart, the server sends each client a FULL_STATUS_REQUEST and the client replays its current Signal K state. The client replays at most once per 10 s. |
+
+Server connections reject `congestionControl`, `bonding`, `alertThresholds` and `skipOwnData`, and drop the client-only fields above when the config is loaded.
 
 ---
 
-## Fleet Sharing (Advanced/v3 Only)
+## Fleet Sharing (Advanced/v3 only)
 
-`fleetSharing` lets every client of one server receive the other clients' vessel data over the link the client already opened. The server sends to the address and port the client's packets come from, so a vessel behind NAT needs no inbound port. A client never receives its own vessel. Both ends must enable it; with either end off, the link behaves exactly as without the field. Wire format: [protocol-v3-spec.md §15](protocol-v3-spec.md).
+`fleetSharing` sends every client of one server the other clients' vessel data, over the link the client already opened. The server replies to the address and port the client's packets come from, so a vessel behind NAT needs no inbound port. A client never receives its own vessel. Both ends must enable it; with either end off, the link works as if the field were absent. Wire format: [protocol-v3-spec.md §15](protocol-v3-spec.md).
 
-| Field                 | Mode   | Type    | Default                    | Range       | Description                                                                                                                                                                                                                                                                                                                                             |
-| --------------------- | ------ | ------- | -------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`             | both   | boolean | `false`                    | —           | Server: share. Client: request.                                                                                                                                                                                                                                                                                                                         |
-| `scope`               | server | string  | `"fleet"`                  | fleet / all | `fleet`: only vessels declared by clients of this server connection. `all`: every context in the server's tree, including AIS targets; the server's own vessel still only with `includeServerVessel`.                                                                                                                                                   |
-| `includeServerVessel` | server | boolean | `false`                    | —           | Also share the server's own vessel (a hub that is itself a vessel).                                                                                                                                                                                                                                                                                     |
-| `pathFilter`          | both   | object  | —                          | —           | `{ allow, deny }` globs. Server: what is shared at all. Client: what this vessel asks for. The server applies both. `networking.edgeLink.*` is never shared. At most 32 patterns per list, 128 characters each; a client filter must also fit the encrypted HELLO field (validation says when it does not).                                             |
-| `maxBytesPerSec`      | both   | integer | server `8192`, client none | 256–1048576 | Fleet bytes per second per client. The client value is a requested ceiling; unset, the server's limit applies. The server uses the lower of the two. Over budget, only the newest value per path is sent. The server lowers a member's rate automatically while its downlink loses packets and restores it when the loss stops (`fleet.minRateFactor`). |
-| `batchIntervalMs`     | server | integer | `1000`                     | 100–10000   | How often coalesced fleet values are flushed.                                                                                                                                                                                                                                                                                                           |
+**NAT keepalive.** Fleet data reaches a vessel behind NAT only while the client's outbound packets keep its NAT mapping open. On an idle uplink those packets are the client's HEARTBEATs, so `heartbeatInterval` (default 25000 ms) must be shorter than the NAT's UDP mapping timeout. If the mapping moves to a new port, fleet data resumes after the client re-sends HELLO: after 30 s without an ACK while it has unacknowledged packets queued, or after 60 s without a fleet packet. A client with nothing outstanding to acknowledge relies on the 60 s timer.
 
-Validation rejects `enabled: true` on `protocolVersion: 1`, on a client with `bonding.enabled`, and server-only keys on a client.
+| Field                 | Mode   | Type    | Default                    | Range       | Notes                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------- | ------ | ------- | -------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`             | both   | boolean | `false`                    | —           | Server: share. Client: request.                                                                                                                                                                                                                                                                                                                           |
+| `scope`               | server | string  | `"fleet"`                  | fleet / all | `fleet`: only vessels declared by clients of this server connection. `all`: every context in the server's tree, including AIS targets; the server's own vessel still only with `includeServerVessel`.                                                                                                                                                     |
+| `includeServerVessel` | server | boolean | `false`                    | —           | Also share the server's own vessel (a hub that is itself a vessel).                                                                                                                                                                                                                                                                                       |
+| `pathFilter`          | both   | object  | —                          | —           | `{ allow, deny }`, same pattern syntax as the connection `pathFilter`. Server: what is shared at all. Client: what this vessel asks for. The server applies both. `networking.edgeLink.*` is never shared. At most 32 patterns per list, 128 characters each; a client filter must also fit the encrypted HELLO field (validation says when it does not). |
+| `maxBytesPerSec`      | both   | integer | server `8192`, client none | 256–1048576 | Fleet bytes per second per client. The client value is a requested ceiling; unset, the server's limit applies. The server uses the lower of the two. Over budget, only the newest value per path is sent. The server lowers a member's rate while its downlink loses packets and restores it when the loss stops (`fleet.minRateFactor`).                 |
+| `batchIntervalMs`     | server | integer | `1000`                     | 100–10000   | How often coalesced fleet values are flushed.                                                                                                                                                                                                                                                                                                             |
+
+Validation rejects `enabled: true` on `protocolVersion: 1`, on a client with `bonding.enabled`, and server-only keys (`scope`, `includeServerVessel`, `batchIntervalMs`) on a client.
 
 Metadata (units, zones, display names) is sent with each path the first time a vessel receives it, and again when it changes.
 
@@ -197,7 +218,7 @@ A complete pair is in [`samples/v3-fleet-sharing.json`](../samples/v3-fleet-shar
 
 **Every node must run 4.4.0 or later.** Earlier versions do not know `fleetSharing`: they drop it from the configuration when it is saved and show no Fleet card. A server without fleet sharing never answers the request, and the client reports `not-offered`.
 
-**Relays.** A relay (one instance with a server connection and a client connection, see [Relay (proxy) chain](../README.md)) has a `fleetSharing` setting on each connection, and each applies to its own hop only:
+**Relays.** A relay is one Signal K instance with a server connection and a client connection (see [Topologies](../README.md#topologies)). Each connection's `fleetSharing` applies to its own hop only:
 
 - On the relay's **server** connection it shares the vessels connected to the relay with each other. With scope `fleet` that is only those vessels (plus the relay's own with `includeServerVessel`); with scope `all` it also shares every other vessel in the relay's tree, such as vessels the relay receives from upstream.
 - On the relay's **client** connection it makes the relay a member of the upstream server's fleet, under the relay's own vessel ID. The relay receives the upstream fleet into its tree and does not send those vessels back upstream.
@@ -207,38 +228,32 @@ A complete pair is in [`samples/v3-fleet-sharing.json`](../samples/v3-fleet-shar
 
 ## Runtime Configuration Files (Hot-Reload)
 
-Three JSON files can be edited or updated via the API **without restarting the plugin**. Stored in:
+Client connections keep three JSON files that the dashboard and the API (`GET`/`POST /config/:filename`, see [api-reference.md](api-reference.md)) can change without a plugin restart. The plugin watches them (300 ms debounce) and reloads on change. Location:
 
 ```text
-<signalk-data-dir>/plugin-config-data/signalk-edge-link/<connectionName>/
+<signalk-data-dir>/plugin-config-data/signalk-edge-link/instances/<instanceId>/
 ```
 
-The plugin watches each file for changes (300 ms debounce) and reloads automatically.
+`<instanceId>` is the slug of the connection `name`. A missing file is created with the default content: `{ "deltaTimer": 1000 }`, `{ "context": "*", "subscribe": [{ "path": "*" }] }` and `{ "excludedSentences": ["GSV"] }`. The JSON blocks below are examples; the tables give the defaults.
 
 ### delta_timer.json
 
-Overrides the delta send interval. When set, bypasses congestion control.
-
 ```json
-{ "deltaTimer": 2000 }
+{ "deltaTimer": 1000 }
 ```
 
-| Field        | Type    | Default | Range        | Description                                                        |
-| ------------ | ------- | ------- | ------------ | ------------------------------------------------------------------ |
-| `deltaTimer` | integer | `1000`  | 100–10000 ms | Data batching interval. `null` or absent = use congestion control. |
+| Field        | Type   | Default | Range        | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------ | ------ | ------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deltaTimer` | number | `1000`  | 100–10000 ms | Batching and send interval. At connection start an out-of-range value is logged and 1000 is used; a missing or non-numeric value uses 1000 without a log entry. When the file changes on a running connection, an out-of-range value is logged and the current interval is kept; a missing field is ignored. `POST /config/delta_timer.json` rejects an out-of-range value with `400` and does not save it. With `congestionControl.enabled`, the controller changes the interval at runtime; `POST /delta-timer` sets a fixed value and pauses automatic adjustment. |
 
 ### subscription.json
 
-Controls which Signal K paths are transmitted, and optionally enables metadata streaming.
+Which Signal K paths are sent, and metadata streaming.
 
 ```json
 {
   "context": "*",
-  "subscribe": [
-    { "path": "navigation.*" },
-    { "path": "environment.wind.*" },
-    { "path": "electrical.batteries.*" }
-  ],
+  "subscribe": [{ "path": "navigation.*" }, { "path": "environment.wind.*" }],
   "meta": {
     "enabled": false,
     "intervalSec": 300,
@@ -248,24 +263,26 @@ Controls which Signal K paths are transmitted, and optionally enables metadata s
 }
 ```
 
-| Field                       | Type         | Default | Description                                                                                  |
-| --------------------------- | ------------ | ------- | -------------------------------------------------------------------------------------------- |
-| `context`                   | string       | `"*"`   | Signal K context filter (`"*"` = all vessels, `"vessels.self"` = own vessel only)            |
-| `subscribe`                 | array        | —       | Array of `{ "path": "..." }` objects. Supports `*` wildcard.                                 |
-| `meta.enabled`              | boolean      | `false` | Enable Signal K path metadata streaming (units, descriptions, zones).                        |
-| `meta.intervalSec`          | integer      | `300`   | Full snapshot re-broadcast interval in seconds. Range 30–86400.                              |
-| `meta.includePathsMatching` | string\|null | `null`  | Optional JavaScript regex — only matching paths are streamed. `null` = all subscribed paths. |
-| `meta.maxPathsPerPacket`    | integer      | `500`   | Chunk size for snapshot packets. Range 10–5000.                                              |
+| Field                       | Type         | Default             | Range         | Notes                                                                                                                                                                                                                                                    |
+| --------------------------- | ------------ | ------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `context`                   | string       | `"*"`               | —             | `"*"` all vessels, `"vessels.self"` own vessel only.                                                                                                                                                                                                     |
+| `subscribe`                 | array        | `[{ "path": "*" }]` | —             | `{ "path": "..." }` objects; `*` wildcards allowed.                                                                                                                                                                                                      |
+| `meta.enabled`              | boolean      | `false`             | —             | v3. Streams path metadata (units, descriptions, zones).                                                                                                                                                                                                  |
+| `meta.intervalSec`          | number       | `300`               | 30–86400 s    | Full metadata snapshot interval.                                                                                                                                                                                                                         |
+| `meta.includePathsMatching` | string\|null | `null`              | max 256 chars | JavaScript regex; only matching paths are streamed. `null` applies no filter: snapshots read the whole tree and can include paths outside `subscribe` and `pathFilter`. Patterns that do not compile or have a nested unbounded quantifier are rejected. |
+| `meta.maxPathsPerPacket`    | number       | `500`               | 10–5000       | Paths per metadata snapshot packet.                                                                                                                                                                                                                      |
 
 ### sentence_filter.json
 
-Drops deltas originating from specific NMEA sentence types before forwarding.
+Drops deltas from the listed NMEA 0183 sentence types before sending.
 
 ```json
 { "excludedSentences": ["GSV", "GSA", "VTG", "GLL"] }
 ```
 
-Common sentences to exclude: `GSV` (satellites in view — large, repetitive), `GSA` (DOP and active satellites), `VTG` (track/speed — redundant if COG/SOG forwarded separately), `GLL` (position — redundant with RMC/GGA).
+| Field               | Type     | Default   | Range | Notes                                                                                                                                                                                                                 |
+| ------------------- | -------- | --------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `excludedSentences` | string[] | `["GSV"]` | —     | Sentence IDs, matched case-insensitively. Common choices: `GSV` (satellites in view, large and repetitive), `GSA` (DOP and active satellites), `VTG` (redundant if COG/SOG are sent), `GLL` (redundant with RMC/GGA). |
 
 ---
 
@@ -280,7 +297,7 @@ Common sentences to exclude: `GSV` (satellites in view — large, repetitive), `
       "name": "shore-server",
       "serverType": "server",
       "udpPort": 4446,
-      "secretKey": "MySecretKey12345678901234567890",
+      "secretKey": "<64-char-hex-secret>",
       "protocolVersion": 1
     },
     {
@@ -288,7 +305,7 @@ Common sentences to exclude: `GSV` (satellites in view — large, repetitive), `
       "serverType": "client",
       "udpAddress": "192.168.1.100",
       "udpPort": 4446,
-      "secretKey": "MySecretKey12345678901234567890",
+      "secretKey": "<64-char-hex-secret>",
       "protocolVersion": 1,
       "testAddress": "8.8.8.8",
       "testPort": 53,
@@ -365,33 +382,39 @@ Common sentences to exclude: `GSV` (satellites in view — large, repetitive), `
 
 ## Validation Rules
 
-The configuration validator enforces:
+The validator runs on save and before a connection starts; the first violation is returned as an error. Besides the per-field ranges in the tables above:
 
-- `serverType` must be `"server"` or `"client"`
-- `udpPort` must be an integer 1024–65535
-- `secretKey` must match one of the three accepted formats
-- `protocolVersion` must be 1 or 3 (or `"basic"`/`"advanced"`)
-- Server connections must not include `congestionControl`, `bonding`, `alertThresholds`, or `skipOwnData`
-- Advanced/v3 clients must not include `testAddress`, `testPort`, or `pingIntervalTime`
-- Bonding: primary and backup must have different address:port pairs
-- Reliability values must be within documented ranges
-- Alert thresholds: `warning` ≤ `critical`; ratio metrics 0–1
+- `serverType` must be `"server"` or `"client"`.
+- `protocolVersion` must be 1 or 3 (or `"basic"` / `"advanced"`; legacy 2 becomes 3).
+- `secretKey` must be one of the three accepted formats.
+- No two server connections may share a `udpPort`.
+- Clients require `udpAddress`; v1 clients also require `testAddress` and `testPort`.
+- v3 clients must not include `testAddress`, `testPort` or `pingIntervalTime`.
+- Server connections must not include `congestionControl`, `bonding`, `alertThresholds` or `skipOwnData`.
+- `epochBoundAuth: true` requires `protocolVersion: 3` and `authenticatedHeaders` not `false`.
+- `useValueDedup: true` and `useCompactDeltas: true` require `protocolVersion: 3`; `useCompactDeltas` also requires `useMsgpack: true`.
+- `pathFilter` accepts only `allow` and `deny`; `pathThrottle` rules accept only `minIntervalMs` and `deadband`.
+- Bonding: when `primary` and `backup` are both set, they must use different address:port pairs (a link left to the `udpAddress` fallback is not compared); `mode` must be `"main-backup"`.
+- Reliability: `retransmitMinAge` ≤ `retransmitMaxAge`. Congestion control: `minDeltaTimer` ≤ `maxDeltaTimer`.
+- Alert thresholds: only the five metrics listed; `warning` ≤ `critical`; ratio metrics 0–1, others > 0.
+- Fleet sharing: see [Fleet Sharing](#fleet-sharing-advancedv3-only).
 
 ---
 
 ## Internal Constants
 
-Defined in `src/foundation/constants.ts`. Not configurable via UI; require a source rebuild.
+Defined in `src/foundation/constants.ts`. Not configurable; changing them needs a rebuild.
 
-| Constant                     | Value    | Description                                        |
-| ---------------------------- | -------- | -------------------------------------------------- |
-| `MAX_SAFE_UDP_PAYLOAD`       | 1400 B   | MTU limit for UDP packets                          |
-| `BROTLI_QUALITY_HIGH`        | 6        | Compression quality (~90% of max at ~10% CPU cost) |
-| `UDP_RETRY_MAX`              | 3        | Max UDP send retries                               |
-| `UDP_RETRY_DELAY`            | 100 ms   | Base retry delay                                   |
-| `SMART_BATCH_SAFETY_MARGIN`  | 85%      | Target % of MTU per packet                         |
-| `SMART_BATCH_MAX_DELTAS`     | 50       | Max deltas per batch                               |
-| `RATE_LIMIT_MAX_REQUESTS`    | 120      | API rate limit per minute per IP                   |
-| `BONDING_HEARTBEAT_TIMEOUT`  | 5000 ms  | Link marked DOWN after this of no response         |
-| `MONITORING_ALERT_COOLDOWN`  | 60000 ms | Alert cooldown period                              |
-| `PACKET_CAPTURE_MAX_PACKETS` | 1000     | Max packets in capture buffer                      |
+| Constant                     | Value    | Meaning                                         |
+| ---------------------------- | -------- | ----------------------------------------------- |
+| `MAX_SAFE_UDP_PAYLOAD`       | 1400 B   | UDP payload limit, to avoid fragmentation       |
+| `BROTLI_QUALITY_HIGH`        | 6        | Default Brotli quality                          |
+| `UDP_RETRY_MAX`              | 3        | Maximum UDP send retries                        |
+| `UDP_RETRY_DELAY`            | 100 ms   | Base retry delay                                |
+| `SMART_BATCH_SAFETY_MARGIN`  | 85%      | Target share of the payload limit per packet    |
+| `SMART_BATCH_MAX_DELTAS`     | 50       | Maximum deltas per batch                        |
+| `RATE_LIMIT_MAX_REQUESTS`    | 120      | Management API requests per minute per IP       |
+| `BONDING_HEARTBEAT_TIMEOUT`  | 5000 ms  | Default for `failover.heartbeatTimeout`         |
+| `MONITORING_ALERT_COOLDOWN`  | 60000 ms | Minimum time between repeated alerts            |
+| `PACKET_CAPTURE_MAX_PACKETS` | 1000     | Packet capture buffer size                      |
+| `FILE_WATCH_DEBOUNCE_DELAY`  | 300 ms   | Debounce for runtime configuration file changes |

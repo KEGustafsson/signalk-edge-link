@@ -542,6 +542,43 @@ describe("instances management route", () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(json).toHaveBeenCalledWith({ error: "limit must be a positive integer" });
   });
+  test.each([
+    ["limit", "2junk"],
+    ["limit", "1.5"],
+    ["limit", "-1"],
+    ["page", "2junk"],
+    ["page", "0"],
+    ["limit", ["2"]],
+    ["page", ["2"]]
+  ])("rejects /instances %s=%s that is not entirely a positive integer", (param, value) => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    const instanceRegistry = {
+      get: jest.fn(() => bundle),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+
+    const routes = createRoutes(app, instanceRegistry, {});
+    const router = makeRouterCollector();
+    routes.registerWithRouter(router);
+
+    const instancesRoute = router.routes.find((r) => r.method === "get" && r.path === "/instances");
+    const json = jest.fn();
+    const req = {
+      query: { limit: "2", [param]: value },
+      headers: {},
+      ip: "127.0.0.1",
+      socket: {},
+      app: { get: () => false }
+    };
+    const res = { json: jest.fn(), status: jest.fn(() => ({ json })) };
+
+    instancesRoute.handlers[1](req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ error: `${param} must be a positive integer` });
+  });
   test("registers /instances/:id and returns detailed instance status", () => {
     const app = { get: jest.fn(() => false) };
     const bundle = makeBundle();
@@ -590,6 +627,52 @@ describe("instances management route", () => {
         metrics: expect.objectContaining({ deltasSent: 0, duplicatePackets: 0 }),
         bonding: expect.objectContaining({ enabled: false })
       })
+    );
+  });
+
+  test("instance and per-connection network routes omit rtt and jitter until measured", () => {
+    const app = { get: jest.fn(() => false) };
+    const bundle = makeBundle();
+    // The registry seeds rtt and jitter with 0 before the first timed ACK.
+    Object.assign(bundle.metricsApi.metrics, { rtt: 0, jitter: 0, rttSamples: 0 });
+    const instanceRegistry = {
+      get: jest.fn((id) => (id === "test" ? bundle : null)),
+      getFirst: jest.fn(() => bundle),
+      getAll: jest.fn(() => [bundle])
+    };
+    const router = makeRouterCollector();
+    createRoutes(app, instanceRegistry, {}).registerWithRouter(router);
+    const handlerFor = (path) => {
+      const route = router.routes.find((r) => r.method === "get" && r.path === path);
+      return route.handlers[route.handlers.length - 1];
+    };
+    const call = (path) => {
+      const req = {
+        params: { id: "test" },
+        headers: {},
+        ip: "127.0.0.1",
+        socket: {},
+        app: { get: () => false }
+      };
+      const res = { json: jest.fn(), status: jest.fn(() => ({ json: jest.fn() })) };
+      handlerFor(path)(req, res);
+      // Round-trip through JSON so the assertions see what res.json sends on
+      // the wire, where a key holding undefined is dropped.
+      return JSON.parse(JSON.stringify(res.json.mock.calls[0][0]));
+    };
+
+    const unmeasuredInstance = call("/instances/:id").network;
+    expect(unmeasuredInstance).not.toHaveProperty("rtt");
+    expect(unmeasuredInstance).not.toHaveProperty("jitter");
+    const unmeasuredConnection = call("/connections/:id/network-metrics");
+    expect(unmeasuredConnection).not.toHaveProperty("rtt");
+    expect(unmeasuredConnection).not.toHaveProperty("jitter");
+
+    // After the first timed ACK the measured values are reported.
+    Object.assign(bundle.metricsApi.metrics, { rtt: 42, jitter: 3, rttSamples: 1 });
+    expect(call("/instances/:id").network).toEqual(expect.objectContaining({ rtt: 42, jitter: 3 }));
+    expect(call("/connections/:id/network-metrics")).toEqual(
+      expect.objectContaining({ rtt: 42, jitter: 3 })
     );
   });
 

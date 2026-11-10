@@ -36,7 +36,7 @@ export interface BandwidthMetrics {
   rateOut: number;
   rateIn: number;
   compressionRatio: number;
-  /** Cumulative bytes sent as METADATA packets (0x06 or v1 "SKM1"). */
+  /** Cumulative bytes sent as METADATA packets (0x06, v3 only). */
   metaBytesOut?: number;
   /** Count of METADATA packets emitted. */
   metaPacketsOut?: number;

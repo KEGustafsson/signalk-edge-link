@@ -99,7 +99,7 @@ export interface ClientPipelineApi {
   /**
    * Send a batch of metadata entries to the receiver. Handles chunking, the
    * shared compress/encrypt pipeline, and the appropriate transport envelope
-   * (packet type 0x06 on v2/v3; "SKM1" magic on a separate UDP port for v1).
+   * (METADATA packet type 0x06, Advanced/v3 only; v1 has no metadata transport).
    */
   sendMetadata?(
     entries: MetaEntry[],

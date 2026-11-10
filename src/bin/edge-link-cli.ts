@@ -22,7 +22,7 @@ Usage:
   edge-link-cli instances update <id> --patch '{"key":"value"}' [--baseUrl=<url>] [--token=<token>]
   edge-link-cli instances delete <id> [--baseUrl=<url>] [--token=<token>]
   edge-link-cli bonding status [--baseUrl=<url>] [--token=<token>] [--format=json|table]
-  edge-link-cli bonding update --patch '{"failoverThreshold":300}' [--baseUrl=<url>] [--token=<token>]
+  edge-link-cli bonding update --patch '{"rttThreshold":300}' [--baseUrl=<url>] [--token=<token>]
   edge-link-cli status [--baseUrl=<url>] [--token=<token>] [--format=json|table]
 
 Commands:

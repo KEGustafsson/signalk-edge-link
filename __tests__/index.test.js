@@ -1221,6 +1221,34 @@ describe("SignalK Data Connector Plugin", () => {
       );
     });
 
+    test("POST /plugin-config keeps a persisted string requireManagementApiToken when the body omits it", async () => {
+      diskFile.configuration.requireManagementApiToken = "true";
+      diskFile.configuration.managementApiToken = "stored-token";
+      let response;
+      const mockRes = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn((data) => {
+          response = data;
+        })
+      };
+      await runWithMiddlewares(
+        pluginConfigPostMiddlewares,
+        pluginConfigPostHandler,
+        {
+          headers: { "content-type": "application/json", "x-edge-link-token": "stored-token" },
+          body: {
+            connections: JSON.parse(JSON.stringify(diskFile.configuration.connections)),
+            managementApiToken: ""
+          }
+        },
+        mockRes
+      );
+
+      expect(response.success).toBe(true);
+      expect(diskFile.configuration.managementApiToken).toBeUndefined();
+      expect(diskFile.configuration.requireManagementApiToken).toBe("true");
+    });
+
     test("POST /plugin-config restores redacted secrets by persisted connectionId when index changes", async () => {
       const alphaSecret = "12345678901234567890123456789012";
       const betaSecret = "ZYXWVUTSRQPONMLKJIHGFEDCBA654321";

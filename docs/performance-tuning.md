@@ -1,12 +1,12 @@
 # Signal K Edge Link — Performance Tuning
 
-> Deployment tuning recommendations by hardware profile and link type.
+> Recommended settings by hardware and link type. Settings are defined in [configuration-reference.md](configuration-reference.md); metrics in [metrics.md](metrics.md).
 
 ---
 
 ## Compression and Batching
 
-Brotli compression ratio improves dramatically with batch size. Larger batches = better compression and lower per-delta bandwidth cost:
+Brotli compresses a batch better the more deltas it holds:
 
 | Batch size | Raw JSON | After Brotli | Ratio | Bytes/delta |
 | ---------- | -------- | ------------ | ----- | ----------- |
@@ -16,7 +16,7 @@ Brotli compression ratio improves dramatically with batch size. Larger batches =
 | 20 deltas  | 4.5 KB   | 341 B        | 13.6× | 17 B        |
 | 50 deltas  | 11.3 KB  | 537 B        | 21.6× | 11 B        |
 
-**Increase `deltaTimer` on bandwidth-constrained links** to collect more deltas per batch.
+Raise `deltaTimer` (`delta_timer.json`, 100–10000 ms) on bandwidth-constrained links to collect more deltas per batch. The batch size is a target derived from the average delta size, not a hard limit (limits: [internal constants](configuration-reference.md#internal-constants)). A buffer that reaches that count is sent before the timer fires (counted in `earlySends`). A packet that still exceeds the payload limit is sent whole, not split, and counted in `oversizedPackets`.
 
 ---
 
@@ -29,7 +29,7 @@ Brotli compression ratio improves dramatically with batch size. Larger batches =
 | Encrypt         | 0.013 ms | 0.027 ms | 0.102 ms |
 | Packet build    | 0.001 ms | 0.002 ms | 0.009 ms |
 
-Compression dominates processing time. On constrained hardware generating high delta rates, increase `deltaTimer` to reduce Brotli invocation frequency.
+Compression dominates. On constrained hardware, raising `deltaTimer` runs Brotli less often only while sends are timer-triggered; if batches fill before the timer fires, reduce the incoming delta rate instead (narrower `subscription.json` paths or `pathFilter`).
 
 ---
 
@@ -50,10 +50,10 @@ Compression dominates processing time. On constrained hardware generating high d
 }
 ```
 
-- `deltaTimer` ≥ 250 ms to limit Brotli frequency
-- Monitor RSS: normal 30–80 MB; investigate if > 150 MB
+- `deltaTimer` 250 ms or more, to limit Brotli frequency.
+- Normal RSS is 30–80 MB; investigate above 150 MB.
 
-### x86 / ARM64 shore server
+### x86 / ARM64 client on a LAN-speed link
 
 ```json
 {
@@ -66,9 +66,9 @@ Compression dominates processing time. On constrained hardware generating high d
 }
 ```
 
-- Low `deltaTimer` (100–250 ms) for low-latency feeds on stable LAN-speed links
+- `deltaTimer` 100–250 ms for low-latency feeds on stable LAN-speed links.
 
-### Satellite link (high-latency, low-bandwidth)
+### Satellite link (high latency, low bandwidth)
 
 ```json
 {
@@ -77,16 +77,16 @@ Compression dominates processing time. On constrained hardware generating high d
   "congestionControl": {
     "enabled": true,
     "targetRTT": 800,
-    "minDeltaTimer": 2000,
+    "minDeltaTimer": 1000,
     "maxDeltaTimer": 10000
   }
 }
 ```
 
-Also add `sentence_filter.json` excluding `GSV`, `GSA`, `VTG`, `GLL`.
-
-- High `deltaTimer` (2000–5000 ms) maximizes compression ratio
-- `targetRTT: 800` prevents constant congestion decisions on a high-RTT link
+- `deltaTimer` 2000–5000 ms for the best compression ratio.
+- `targetRTT: 800` keeps a high-RTT link out of the congested band (above 1200 ms).
+- `minDeltaTimer` accepts at most 1000 ms. The controller's timer starts at 1000 ms, not at `deltaTimer`. The `delta_timer.json` interval applies until the first adjustment (5 s after start, once an ACK has arrived); the send interval then drops to 1050 ms on a healthy link (1020 ms in the middle band) and rises 5% (2%) per 5 s step toward `nominalDeltaTimer`, which defaults to the connection's `deltaTimer`. See [congestion-control.md](congestion-control.md#algorithm).
+- Exclude `GSV`, `GSA`, `VTG` and `GLL` in `sentence_filter.json`.
 
 ---
 
@@ -100,35 +100,39 @@ Also add `sentence_filter.json` excluding `GSV`, `GSA`, `VTG`, `GLL`.
 | Satellite      | 2000–5000 ms | yes          | yes                 | 700–1000 ms |
 | Starlink       | 500–1000 ms  | yes          | yes                 | 200–400 ms  |
 
----
-
-## Memory Bounds Reference
-
-| Buffer               | Maximum                |
-| -------------------- | ---------------------- |
-| Retransmit queue     | 5000 packets           |
-| Monitoring heatmap   | 60 buckets             |
-| Path latency tracker | 200 paths × 50 samples |
-| Retransmit history   | 120 entries            |
-| Bandwidth history    | 60 entries             |
-| Delta buffer         | 1000 deltas            |
+On Basic (v1), set `useMsgpack` on the server as well; Advanced (v3) detects it per packet. `usePathDictionary` needs no server setting.
 
 ---
 
 ## Bandwidth Optimization Checklist
 
-1. **Enable `useMsgpack: true`** — saves 15–25% vs JSON
-2. **Enable `usePathDictionary: true`** — saves 10–20% on path strings
-3. **Add `sentence_filter.json`** — exclude `GSV`, `GSA`, `VTG`, `GLL` (repetitive, rarely actionable)
-4. **Increase `deltaTimer`** on slow links — 50 deltas/batch gives 21× compression vs 1× for single deltas
-5. **Enable congestion control** — prevents sender from flooding a slow link
+1. `useMsgpack: true`: 15–25% smaller than JSON.
+2. `usePathDictionary: true`: 10–20% saved on path strings.
+3. `sentence_filter.json`: exclude `GSV`, `GSA`, `VTG`, `GLL` (repetitive, rarely needed).
+4. Higher `deltaTimer` on slow links: 50 deltas per batch compress about 21×, single deltas about 1×.
+5. Congestion control: stops the sender from flooding a slow link ([congestion-control.md](congestion-control.md)).
+
+---
+
+## Memory Bounds Reference
+
+| Buffer               | Maximum                                                                      |
+| -------------------- | ---------------------------------------------------------------------------- |
+| Retransmit queue     | 5000 packets by default; `reliability.retransmitQueueSize` accepts 100–50000 |
+| Monitoring heatmap   | 60 buckets                                                                   |
+| Path latency tracker | 200 paths × 50 samples                                                       |
+| Retransmit history   | 120 entries                                                                  |
+| Bandwidth history    | 60 entries                                                                   |
+| Delta buffer         | 1000 deltas                                                                  |
+
+---
 
 ## Runtime Monitoring
 
-Monitor these metrics to assess tuning effectiveness:
-
-- `compressionRatio` < 70%: increase `deltaTimer`
-- `earlySends / (earlySends + timerSends)` > 20%: data rate exceeds current timer — increase `deltaTimer` or filter more paths
-- `rtt` consistently > `targetRTT`: increase `targetRTT` to match actual link RTT
+| Metric                                             | Action                                                                                                                                 |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `compressionRatio` below 70%                       | Raise `deltaTimer`                                                                                                                     |
+| `earlySends / (earlySends + timerSends)` above 20% | The batch fills before the timer fires: filter more paths. A longer `deltaTimer` does not help; it only trades latency for compression |
+| `rtt` consistently above `targetRTT`               | Raise `targetRTT` to the link's real RTT                                                                                               |
 
 See [metrics.md](metrics.md) for the full metrics reference.

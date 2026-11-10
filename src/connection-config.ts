@@ -628,6 +628,21 @@ export function validateConnectionConfig(connection: unknown, prefix = ""): stri
         return `${p}bonding primary and backup links must use different address:port combinations`;
       }
     }
+    // Without an explicit backup the client falls back to udpPort + 1, which
+    // does not exist when udpPort is already the highest port. A backup object
+    // replaces the fallback whole, so it must name both address and port.
+    // Basic (v1) never starts bonding, so the check does not apply there.
+    if (
+      _pv >= 2 &&
+      bonding.enabled === true &&
+      conn.udpPort === 65535 &&
+      (!backupLink ||
+        typeof backupLink.address !== "string" ||
+        backupLink.address.trim() === "" ||
+        backupLink.port === undefined)
+    ) {
+      return `${p}bonding.backup.address and bonding.backup.port are required when udpPort is 65535 (the default backup port udpPort + 1 is out of range)`;
+    }
     if (bonding.failover !== undefined) {
       if (
         !bonding.failover ||

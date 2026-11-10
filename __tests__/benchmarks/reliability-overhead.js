@@ -10,9 +10,12 @@
  * - Memory usage of retransmit queue
  */
 
-const { PacketBuilder, PacketParser, HEADER_SIZE } = require("../../lib/packet");
-const { RetransmitQueue } = require("../../lib/retransmit-queue");
+const { PacketBuilder, PacketParser, HEADER_SIZE } = require("../../lib/codec/packet-codec");
+const { RetransmitQueue } = require("../../lib/transport/reliability/retransmit-queue");
 const { NetworkSimulator } = require("../network-simulator");
+
+// Benchmark-only key: control packets and authenticated headers need one.
+const SECRET_KEY = "12345678901234567890123456789012";
 
 function formatBytes(bytes) {
   if (bytes < 1024) {
@@ -34,7 +37,7 @@ function formatRate(count, ms) {
 function benchACKNAKOverhead() {
   console.log("=== ACK/NAK Overhead ===\n");
 
-  const builder = new PacketBuilder();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 
   // Typical data packet sizes
   const dataSizes = [100, 500, 1000, 5000];
@@ -174,10 +177,12 @@ function benchLossRecovery() {
 
   const lossRates = [0.01, 0.05, 0.1, 0.2];
   const numPackets = 10000;
-  const builder = new PacketBuilder();
-  const parser = new PacketParser();
+  const parser = new PacketParser({ secretKey: SECRET_KEY });
 
   for (const lossRate of lossRates) {
+    // A fresh builder per trial restarts DATA sequences at 0, matching the
+    // 0..numPackets-1 range the recovery loop searches.
+    const builder = new PacketBuilder({ secretKey: SECRET_KEY });
     const sim = new NetworkSimulator({ packetLoss: lossRate });
     const queue = new RetransmitQueue({ maxRetransmits: 5 });
     const received = new Set();

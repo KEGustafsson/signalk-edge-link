@@ -4,15 +4,15 @@
 
 The Signal K Edge Link Protocol v3.0 is a binary UDP protocol designed for reliable, bandwidth-efficient transmission of Signal K delta data between vessels and shore servers. It operates in challenging maritime network environments including cellular edge areas, satellite links, and multi-path connections.
 
-The v3 protocol adds a comprehensive binary packet header layer to the v1 (Basic) encryption/compression pipeline, enabling:
+The v3 protocol adds a binary packet header layer to the v1 (Basic) encryption/compression pipeline, enabling:
 
 - **Sequence tracking** for packet loss detection
 - **Packet type differentiation** (DATA, ACK, NAK, HEARTBEAT, HELLO)
 - **Flag-based feature negotiation** (compression, encryption, msgpack, path dictionary)
 - **CRC16 integrity checking** at the header level
 - **HMAC-SHA256 authentication** on all control packets
-- **ACK/NAK retransmission** for reliable delivery (>99.9% at 5% loss)
-- **Dynamic congestion control** using AIMD algorithm
+- **ACK/NAK retransmission** for reliable delivery (target >99.9% at 5% loss; measured >99% in the Phase 7 tests)
+- **Dynamic congestion control** of the send interval from RTT and packet loss
 - **Connection bonding** with automatic failover between primary/backup links
 - **Backward compatibility** with the v1 (Basic) protocol (auto-detection via magic bytes)
 
@@ -82,7 +82,7 @@ Carries Signal K delta data through the processing pipeline:
 1. Delta batch collected (1-50 deltas per batch)
 2. Serialized (JSON or MessagePack)
 3. Optionally path-encoded (path dictionary)
-4. Compressed (Brotli quality 10)
+4. Compressed (Brotli, quality [`brotliQuality`](configuration-reference.md#client-only-sending-options))
 5. Encrypted (AES-256-GCM with unique IV)
 
 The resulting ciphertext is the packet payload. Wire format of the encrypted payload:
@@ -111,7 +111,7 @@ Retransmission limits:
 
 ### HEARTBEAT Packet
 
-Payload: a 16-byte HMAC-SHA256 authentication tag only. Sent periodically to indicate the connection is alive. The default heartbeat interval is 60 seconds, configurable from 10 to 3,600 seconds.
+Payload: a 16-byte HMAC-SHA256 authentication tag only. The client sends HEARTBEAT every `heartbeatInterval` (default 25,000 ms, range 5,000-120,000 ms) to keep NAT mappings on the path open. The server does not reply to it; RTT is measured from ACKs of DATA packets that were not retransmitted.
 
 ### HELLO Packet
 
@@ -286,8 +286,8 @@ which uses the METADATA packet type (`0x06`) on the main data port.
 
 > An earlier design proposed a separate metadata UDP port (`udpMetaPort`) with
 > the 4-byte ASCII magic `SKM1` prefixed inside the encrypted plaintext. It was
-> never implemented — no such option exists in the configuration schema or the
-> runtime — and the documentation that described it has been removed.
+> never implemented; no such option exists in the configuration schema or the
+> runtime.
 
 ## 4. Flags
 
@@ -442,40 +442,16 @@ Client                          Server
 
 **Delivery guarantees:**
 
-- > 99.9% delivery rate under 5% packet loss conditions
+- Designed for >99.9% delivery at 5% packet loss; the Phase 7 tests measured >99% with retransmission ([results](performance/phase-7-results.md))
 - Automatic retransmission of lost packets
 - Duplicate detection and suppression
 - Cumulative acknowledgement reduces ACK traffic
 
 ## 8. Congestion Control
 
-The protocol implements an AIMD (Additive Increase, Multiplicative Decrease) algorithm to dynamically adjust the delta timer (send interval) based on network conditions.
+The client adjusts the delta timer (send interval) from measured RTT and packet loss. Every adjustment is a multiplication; there is no additive step. The current algorithm and its bands are described in [congestion-control.md](congestion-control.md#algorithm).
 
-### Algorithm
-
-The congestion controller evaluates network conditions every 5 seconds (configurable):
-
-1. **Additive increase**: When packet loss < 1% AND RTT < target RTT, decrease the timer by 5% (increase send rate)
-2. **Multiplicative decrease**: When packet loss > 5% OR RTT > 1.5× target RTT, increase the timer by 50% (decrease send rate)
-3. **Neutral**: No change when conditions are moderate
-
-### Smoothing
-
-Network metrics (RTT and packet loss) are smoothed using an Exponential Moving Average (EMA) with alpha = 0.2:
-
-```
-avgRTT = 0.2 × currentRTT + 0.8 × previousAvgRTT
-```
-
-### Bounds
-
-| Parameter               | Default  | Range             |
-| ----------------------- | -------- | ----------------- |
-| Minimum delta timer     | 100 ms   | 50 - 1,000 ms     |
-| Maximum delta timer     | 5,000 ms | 1,000 - 30,000 ms |
-| Target RTT              | 200 ms   | 50 - 2,000 ms     |
-| Adjustment interval     | 5,000 ms | -                 |
-| Max adjustment per step | 20%      | -                 |
+The adjustment interval, RTT and loss bands, smoothing and timer bounds are not part of the wire format. They are specified in [congestion-control.md](congestion-control.md#algorithm) and the defaults in [configuration-reference.md](configuration-reference.md#congestion-control-client-advancedv3-only).
 
 ### Manual Override
 
@@ -541,7 +517,7 @@ Failback from backup to primary requires ALL conditions:
 
 ### Signal K Notifications
 
-Failover events emit Signal K notifications at `notifications.signalk-edge-link.<instanceId>.linkFailover` with state `alert` and both visual and sound methods. The source label is `signalk-edge-link:<instanceId>`.
+Failover events emit Signal K notifications at `notifications.signalk-edge-link.<instanceId>.linkFailover` with state `alert` and both visual and sound methods. The update's `$source` is `signalk-edge-link`; the provider ID passed to `handleMessage` is `signalk-edge-link:<instanceId>`. Notifications are emitted only with `enableNotifications: true`.
 
 ## 10. Security
 
@@ -559,8 +535,8 @@ All DATA payloads are encrypted with AES-256-GCM:
 
 ### Key Requirements
 
-- Exactly 32 characters (256 bits)
-- Minimum 8 unique characters (entropy check)
+- 32 ASCII characters, 64 hex characters, or base64 of 32 bytes: 44 characters with `=` padding or 43 without, standard or URL-safe alphabet (256 bits)
+- Weak keys are rejected; the rules are in [security.md — Key Formats](security.md#key-formats)
 - Must match on both client and server
 
 ### Security Properties
@@ -622,7 +598,6 @@ v1 (Basic) packets do not start with these magic bytes (they start with the rand
 - The v1 (Basic) pipeline is unchanged and fully functional
 - A pipeline factory selects v1 or v3 based on configuration
 - The server can distinguish packet versions by magic bytes
-- All v1 tests continue to pass
 - v3 is selected via `protocolVersion: 3` (or `"advanced"`); a stored `protocolVersion: 2` is accepted and coerced to `3`
 
 ## 13. Implementation Files
@@ -635,7 +610,7 @@ v1 (Basic) packets do not start with these magic bytes (they start with the rand
 | `src/transport/pipeline/factory.ts`                        | Pipeline selector (v1 or v3)                           |
 | `src/transport/pipeline/reliable-client.ts`                | Reliable client pipeline (send side)                   |
 | `src/transport/pipeline/reliable-server.ts`                | Reliable server pipeline (receive side)                |
-| `src/transport/congestion.ts`                              | CongestionControl with AIMD algorithm                  |
+| `src/transport/congestion.ts`                              | CongestionControl (delta timer adjustment)             |
 | `src/transport/bonding.ts`                                 | BondingManager with failover/failback                  |
 | `src/domain/monitoring/`                                   | PacketLossTracker, PathLatencyTracker, AlertManager    |
 | `src/domain/metrics/prometheus.ts`                         | Prometheus metrics exporter                            |
@@ -653,27 +628,13 @@ v1 (Basic) packets do not start with these magic bytes (they start with the rand
 
 ## 14. Signal K Paths Published
 
-The reliable (v3) protocol publishes the following metrics to the Signal K data model:
-
-| Path                                             | Type           | Description                        |
-| ------------------------------------------------ | -------------- | ---------------------------------- |
-| `networking.modem.rtt`                           | number (s)     | Round-trip time to test endpoint   |
-| `networking.edgeLink.rtt`                        | number (ms)    | Pipeline RTT                       |
-| `networking.edgeLink.jitter`                     | number (ms)    | RTT jitter                         |
-| `networking.edgeLink.packetLoss`                 | number (ratio) | Packet loss ratio (0-1)            |
-| `networking.edgeLink.retransmitRate`             | number (ratio) | Retransmission rate                |
-| `networking.edgeLink.linkQuality`                | number (0-100) | Composite link quality score       |
-| `networking.edgeLink.queueDepth`                 | number         | Retransmit queue depth             |
-| `networking.edgeLink.throughput.out`             | number (B/s)   | Outbound throughput                |
-| `networking.edgeLink.throughput.in`              | number (B/s)   | Inbound throughput                 |
-| `networking.edgeLink.bonding.activeLink`         | string         | Active bonding link name           |
-| `networking.edgeLink.bonding.primary.*`          | object         | Primary link health metrics        |
-| `networking.edgeLink.bonding.backup.*`           | object         | Backup link health metrics         |
-| `notifications.signalk-edge-link.<instanceId>.*` | notification   | Alert notifications (per-instance) |
+The plugin publishes link metrics under `networking.edgeLink.*` (namespaced as `networking.edgeLink.<instanceId>.*` when an instance ID is configured), the v1 ping RTT at `networking.modem.rtt` (`networking.modem.<instanceId>.rtt` with an instance ID), and alerts under `notifications.signalk-edge-link.*`. The full path list is in [metrics.md — Signal K Paths Published](metrics.md#signal-k-paths-published).
 
 ## 15. Fleet Sharing (capability `fleet-v1`)
 
 Fleet sharing lets every client of one server instance receive the other clients' vessel data over the session the client already opened. The server sends to the `address:port` the client's packets come from, so the client needs no listening socket and no inbound firewall or NAT rule. A client never receives its own vessel.
+
+FLEET_DATA reaches a client behind NAT only while the client's outbound packets keep the NAT mapping open. On an idle uplink those packets are the client's HEARTBEATs, sent every `heartbeatInterval` (default 25,000 ms), which must be shorter than the NAT's UDP mapping timeout. If the mapping moves to a new port, fleet data resumes once the client re-sends HELLO: after 30 s without an ACK while its retransmit queue holds unacknowledged packets, or after 60 s without a fleet packet once 60 s have also passed since its last HELLO. A client with nothing outstanding to acknowledge relies on the 60 s timer (§15.3).
 
 Fleet sharing is an additive extension of protocol v3: the version byte stays `0x03`, and the uplink (DATA, METADATA, ACK, NAK, HEARTBEAT, HELLO) is byte-for-byte unchanged when the feature is off on either end. It is not available on v1 or on bonded clients.
 

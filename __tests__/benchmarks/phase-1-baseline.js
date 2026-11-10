@@ -9,8 +9,11 @@
  * Run: node __tests__/benchmarks/phase-1-baseline.js
  */
 
-const { PacketBuilder, PacketParser } = require("../../lib/packet");
-const { SequenceTracker } = require("../../lib/sequence");
+const { PacketBuilder, PacketParser } = require("../../lib/codec/packet-codec");
+const { SequenceTracker } = require("../../lib/transport/reliability/sequence");
+
+// Benchmark-only key: control packets and authenticated headers need one.
+const SECRET_KEY = "12345678901234567890123456789012";
 
 const ITERATIONS = 100000;
 const PAYLOAD_SIZES = [100, 500, 1000, 1400];
@@ -47,7 +50,7 @@ console.log("PacketBuilder:");
 const results = [];
 
 for (const size of PAYLOAD_SIZES) {
-  const builder = new PacketBuilder();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
   const payload = Buffer.alloc(size, 0xab);
 
   const result = benchmark(`buildDataPacket (${size}B payload)`, () =>
@@ -56,7 +59,7 @@ for (const size of PAYLOAD_SIZES) {
   results.push(result);
 }
 
-const builder = new PacketBuilder();
+const builder = new PacketBuilder({ secretKey: SECRET_KEY });
 results.push(benchmark("buildHeartbeatPacket", () => builder.buildHeartbeatPacket()));
 results.push(benchmark("buildACKPacket", () => builder.buildACKPacket(42)));
 results.push(benchmark("buildNAKPacket([1,2,3])", () => builder.buildNAKPacket([1, 2, 3])));
@@ -66,10 +69,10 @@ console.log();
 // --- PacketParser benchmarks ---
 console.log("PacketParser:");
 
-const parser = new PacketParser();
+const parser = new PacketParser({ secretKey: SECRET_KEY });
 
 for (const size of PAYLOAD_SIZES) {
-  const b = new PacketBuilder();
+  const b = new PacketBuilder({ secretKey: SECRET_KEY });
   const packet = b.buildDataPacket(Buffer.alloc(size, 0xab), { compressed: true, encrypted: true });
 
   results.push(benchmark(`parseHeader (${size}B payload)`, () => parser.parseHeader(packet)));
@@ -77,7 +80,9 @@ for (const size of PAYLOAD_SIZES) {
 
 results.push(
   benchmark("isV2Packet", () =>
-    parser.isV2Packet(new PacketBuilder().buildDataPacket(Buffer.alloc(100)))
+    parser.isV2Packet(
+      new PacketBuilder({ secretKey: SECRET_KEY }).buildDataPacket(Buffer.alloc(100))
+    )
   )
 );
 
@@ -114,8 +119,8 @@ console.log();
 // --- Combined pipeline benchmark ---
 console.log("Combined (build + parse + track):");
 
-const pBuilder = new PacketBuilder();
-const pParser = new PacketParser();
+const pBuilder = new PacketBuilder({ secretKey: SECRET_KEY });
+const pParser = new PacketParser({ secretKey: SECRET_KEY });
 const pTracker = new SequenceTracker();
 
 for (const size of PAYLOAD_SIZES) {

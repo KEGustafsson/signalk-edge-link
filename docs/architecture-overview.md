@@ -1,228 +1,67 @@
 # Signal K Edge Link — Architecture Overview
 
-> System architecture, topology patterns, and data-flow pipelines.
-> For installation and configuration, see [GUIDE.md](GUIDE.md).
+Source modules and the client and server data flow. Installation and configuration are in [GUIDE.md](GUIDE.md); topologies (point to point, hub, bonding, relay chain, fleet sharing) are in the project [README](../README.md#topologies); wire format is in [protocol-v3-spec.md](protocol-v3-spec.md).
 
----
+One Signal K server runs any number of connections. Each connection is either a **client** (subscribes to local data and sends it) or a **server** (receives and writes it into the local Signal K tree), with its own key, port and protocol mode (Basic v1 or Advanced v3, see [protocol-v3.md](protocol-v3.md)). A relay is one Signal K server with a server connection and a client connection; each hop is an independent link.
 
-## What It Does and Why
+## Source layers
 
-Signal K Edge Link transfers vessel navigation and sensor data between two Signal K server instances over encrypted UDP. It is built specifically for network paths where **bandwidth is limited, latency is variable, and packet loss happens** — cellular, satellite, and other WAN links.
+| Layer       | Path                           | Responsibility                                                                                    |
+| ----------- | ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Foundation  | `src/foundation/`              | Types, constants, logger, config file I/O and debounced reload                                    |
+| Codec       | `src/codec/`                   | Crypto, packet codec, compression, path dictionary, value dedup, metadata and source envelopes    |
+| Transport   | `src/transport/`               | UDP socket, v1/v3 pipelines, reliability, congestion control, bonding, fleet sharing              |
+| Domain      | `src/domain/`                  | Subscription, delta batching, keepalive, metadata streaming, source registry, metrics, monitoring |
+| Application | `src/app/`                     | Connection lifecycle, connection manager, config validation, migration and file watchers          |
+| Interface   | `src/routes.ts`, `src/routes/` | REST API, management auth, rate limiting                                                          |
+| Web UI      | `src/webapp/`                  | React configuration panel and dashboard                                                           |
+| CLI         | `src/bin/edge-link-cli.ts`     | Management CLI                                                                                    |
 
-### Why not use the built-in Signal K subscriptions?
+## Key modules
 
-Standard Signal K uses TCP/WebSocket subscriptions. These work well on reliable LAN connections but are poorly suited to:
+| Module                                                             | Role                                                                                            |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `src/index.ts`                                                     | Plugin entry point and plugin schema                                                            |
+| `src/app/connection-manager.ts`                                    | Instance registry, validation, port-collision checks, server-then-client startup, status        |
+| `src/app/connection.ts`, `src/app/connection/`                     | One connection: context wiring, client/server start, delta intake, socket recovery              |
+| `src/app/lifecycle.ts`                                             | Connection state machine                                                                        |
+| `src/app/config/watcher.ts`                                        | Watchers for `delta_timer.json`, `subscription.json`, `sentence_filter.json`                    |
+| `src/connection-config.ts`, `src/shared/connection-schema.ts`      | Connection validation and normalization; schema shared with the web UI                          |
+| `src/transport/pipeline/factory.ts`                                | Selects the v1 or v3 pipeline                                                                   |
+| `src/transport/pipeline/v1.ts`                                     | Basic (v1) client and server pipeline                                                           |
+| `src/transport/pipeline/reliable-client.ts` and `reliable-client/` | v3 client: DATA send, ACK/NAK handling, HELLO, metadata, fleet receive                          |
+| `src/transport/pipeline/reliable-server.ts` and `reliable-server/` | v3 server: sessions, DATA receive, ACK/NAK send, fleet send                                     |
+| `src/transport/reliability/`                                       | `sequence.ts` (gap detection), `retransmit-queue.ts`, `replay-window.ts`, `connection-epoch.ts` |
+| `src/transport/congestion.ts`                                      | Send-rate control                                                                               |
+| `src/transport/bonding.ts`, `bonding-health.ts`                    | Dual-link failover and link health                                                              |
+| `src/transport/udp-socket-manager.ts`                              | UDP socket create, bind, send, close                                                            |
+| `src/codec/packet-codec.ts`, `src/codec/packet/`                   | v3 header build and parse, packet type constants                                                |
+| `src/codec/crypto.ts`                                              | AES-256-GCM, key normalization and checks, HMAC                                                 |
+| `src/domain/subscription-manager.ts`                               | Signal K subscription and resubscribe                                                           |
+| `src/domain/delta-batcher.ts`                                      | Outbound flush timer and batching                                                               |
+| `src/domain/metrics/`                                              | Metrics registry and Prometheus output                                                          |
+| `src/domain/monitoring/`                                           | Packet loss, path latency, retransmission tracking, alerts, packet capture                      |
 
-- **Cellular roaming** — NAT mappings expire; connections drop silently
-- **Satellite links** — High RTT and tiny bandwidth budgets; no adaptation
-- **Multi-hop relay** — No mechanism to chain instances together
-- **Bandwidth optimization** — No compression, no batching, no path deduplication
+## Client outbound (v3)
 
-Signal K Edge Link solves each of these with UDP transport, Brotli compression, AES-256-GCM encryption, and (in Advanced mode) a reliability layer with ACK/NAK retransmission, congestion control, and dual-link failover.
+Stages in order, with the module that implements each. Settings are defined in [configuration-reference.md](configuration-reference.md).
 
-### Protocol modes at a glance
+1. Intake: subscribe to the paths in `subscription.json` ([`subscription-manager.ts`](../src/domain/subscription-manager.ts)); sanitize, strip the plugin's own `networking.edgeLink.*` paths with `skipOwnData` (RTT paths are kept), and suppress an identical delta repeated within a short window ([`process-delta.ts`](../src/app/connection/process-delta.ts)).
+2. Batching: flush when a batch fills or `deltaTimer` fires, in packets sized from a rolling per-delta estimate to target the UDP payload limit (an oversized packet is logged and still sent) ([`delta-batcher.ts`](../src/domain/delta-batcher.ts)).
+3. Shaping and encoding: `pathFilter`, `pathPrecision`, `pathThrottle`, `useValueDedup`, path dictionary, JSON, MessagePack or compact tuples, Brotli, AES-256-GCM ([`delta-sender.ts`](../src/transport/pipeline/reliable-client/delta-sender.ts), [`src/codec/`](../src/codec/)).
+4. Framing and reliability: v3 header with sequence and CRC16 ([`packet-codec.ts`](../src/codec/packet-codec.ts)); a copy is kept for retransmission until it is ACKed or dropped by the queue's size, age or retry limits ([reliability settings](configuration-reference.md#reliability--client-mode-advancedv3-only), [`retransmit-queue.ts`](../src/transport/reliability/retransmit-queue.ts)).
+5. Send: UDP to `udpAddress:udpPort`, or to the active link when bonding is enabled ([`udp-socket-manager.ts`](../src/transport/udp-socket-manager.ts), [`bonding.ts`](../src/transport/bonding.ts)).
 
-| Mode         | Numeric | Best for                                       | Key features                                                                 |
-| ------------ | ------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
-| **Basic**    | v1      | Stable local links, simplest setup             | Encrypted UDP, Brotli compression. No retransmission or reliability metrics. |
-| **Advanced** | v3      | WAN links with packet loss or variable latency | ACK/NAK reliability, congestion control, bonding, HMAC authentication        |
+A v1 client skips `useValueDedup`, compact tuples, the v3 header and the retransmit queue, and sends the encrypted payload as the whole datagram ([`v1.ts`](../src/transport/pipeline/v1.ts)).
 
-**Recommendation:** Use **Advanced (v3)** for any new deployment. Fall back to **Basic (v1)** only for stable local links where simplicity matters more than reliability.
+## Server inbound (v3)
 
----
+Entry point: [`receive.ts`](../src/transport/pipeline/reliable-server/receive.ts).
 
-## System Architecture
-
-### Basic topology
-
-```text
-┌─────────────────────────────────┐           ┌─────────────────────────────────┐
-│        VESSEL (at sea)          │           │        SHORE (server room)       │
-│                                 │           │                                 │
-│  ┌─────────────────────────┐    │           │    ┌─────────────────────────┐  │
-│  │   Signal K Server       │    │           │    │   Signal K Server       │  │
-│  │                         │    │           │    │                         │  │
-│  │  ┌───────────────────┐  │    │  UDP/WAN  │    │  ┌───────────────────┐  │  │
-│  │  │  Edge Link        │  │    │           │    │  │  Edge Link        │  │  │
-│  │  │  CLIENT mode      │──┼────┼──────────►┼────┼──│  SERVER mode      │  │  │
-│  │  │                   │  │    │ encrypted │    │  │                   │  │  │
-│  │  │ • subscribes      │  │    │ compressed│    │  │ • receives        │  │  │
-│  │  │ • batches deltas  │  │    │           │    │  │ • decrypts        │  │  │
-│  │  │ • compresses      │  │    │           │    │  │ • injects deltas  │  │  │
-│  │  │ • encrypts        │  │    │           │    │  │                   │  │  │
-│  │  └───────────────────┘  │    │           │    │  └───────────────────┘  │  │
-│  └─────────────────────────┘    │           │    └─────────────────────────┘  │
-└─────────────────────────────────┘           └─────────────────────────────────┘
-```
-
-### Multi-hop / relay topology
-
-One Signal K instance can run **both** a server and a client simultaneously — acting as a relay.
-
-```text
-  [Vessel A]                 [Relay / aggregator]              [Shore HQ]
-  Client ─────UDP v3──────► Server  Client ─────UDP v3──────► Server
-                             (relay instance)
-
-  [Vessel B]
-  Client ─────UDP v3──────►
-```
-
-### Dual-link (bonding) topology
-
-```text
-  [Vessel]                                      [Shore]
-  Client                                        Server A (port 4446)
-  ├─ Primary (LTE)    ─────UDP:4446───────────► (receives primary data)
-  └─ Backup (Starlink)─────UDP:4447───────────► Server B (port 4447)
-          ↑                                     (receives backup data)
-     BondingManager
-     monitors both links,
-     switches on failure
-```
-
----
-
-## How Data Flows
-
-### Client outbound pipeline
-
-```text
- Signal K local deltas
-        │
-        ▼
- ┌──────────────────┐
- │ Subscription     │  Subscribe to configured paths (or all paths)
- │ filter           │  Drop paths not in subscription.json
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ skipOwnData      │  (optional) Strip networking.edgeLink.* metrics
- │ filter           │  to avoid feedback loops
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Deduplication    │  1500 ms window — identical (context, source,
- │                  │  values) tuples sent only once per window
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Delta buffer     │  Accumulate deltas up to maxDeltasPerBatch
- │ + smart batching │  OR until deltaTimer fires (default 1000 ms)
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Serialize        │  JSON (default) or MessagePack (useMsgpack: true)
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Path dictionary  │  (optional) Replace long path strings with 2-byte
- │ encoding         │  numeric IDs — saves 10–20% per packet
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Brotli compress  │  Quality 6 — typically 5–21× compression ratio
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ AES-256-GCM      │  12-byte random IV prepended, 16-byte auth tag
- │ encrypt          │  appended → [IV][ciphertext][auth tag]
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Packet header    │  v3 only: prepend 15-byte binary header
- │ (v3)             │  with magic, version, type, flags, seq, CRC
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Retransmit queue │  v3: store copy for possible retransmission
- │ (v3)             │  (up to 5000 entries)
- └──────────┬───────┘
-            │
-            ▼
-       UDP send ──────────────────────► remote server
-```
-
-### Server inbound pipeline
-
-```text
-       UDP receive ◄──────────────────── remote client
-            │
-            ▼
- ┌──────────────────┐
- │ Rate limit       │  v3: 200 DATA packets/sec per client IP
- │ per client       │  Prevents DoS; 5 sessions max per IP
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Parse header     │  v3: verify magic "SK", version, CRC-16
- │ (v3)             │  Silently discard on mismatch
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ AES-256-GCM      │  Verify auth tag — reject and count error
- │ decrypt          │  on authentication failure
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Brotli decompress│  Max 10 MB to prevent decompression bombs
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Path dictionary  │  (optional) Decode numeric IDs back to paths
- │ decode (v3)      │
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Deserialize      │  JSON.parse or MessagePack.decode
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Sequence check   │  v3: detect gaps, send NAK for missing seqs
- │ + ACK generation │  Send cumulative ACK every 100 ms
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ Source normalize │  Resolve $source, strip edge-link internal refs,
- │                  │  split multi-source deltas
- └──────────┬───────┘
-            │
-            ▼
- ┌──────────────────┐
- │ app.handleMessage│  Inject into local Signal K tree
- └──────────────────┘
-```
-
----
-
-## Source Layer Map
-
-The plugin is organized into a layered architecture under `src/`:
-
-| Layer           | Path              | Responsibility                                             |
-| --------------- | ----------------- | ---------------------------------------------------------- |
-| Foundation      | `src/foundation/` | Types, constants, config I/O, CircularBuffer               |
-| Codec           | `src/codec/`      | Crypto, packet codec, compression, path dictionary         |
-| Transport       | `src/transport/`  | UDP socket, pipelines (v1/v3), reliability, congestion     |
-| Domain services | `src/domain/`     | Subscription, delta batching, bonding, metrics, monitoring |
-| Application     | `src/app/`        | Connection FSM, connection manager, config watcher         |
-| Interface       | `src/routes/`     | REST API routes, auth, rate limiting                       |
-| Web UI          | `src/webapp/`     | React management dashboard                                 |
-
-For the complete source file map and key function index, see [GUIDE.md §20](GUIDE.md#20-developer-reference).
+1. Bonding probes: an `HBPROBE` is rate limited per source IP and HMAC-verified before it is echoed; it never reaches the header parser.
+2. Parse header: check magic `SK`, version and CRC16; verify the HMAC tag on control packets and, with `authenticatedHeaders`, on DATA/METADATA.
+3. Rate limit DATA and METADATA: 200 packets/s per session when the sender has a session, otherwise 200 packets/s per source IP ([`sessions.ts`](../src/transport/pipeline/reliable-server/sessions.ts)).
+4. Decrypt and decompress DATA: an AES-GCM tag failure rejects the packet; Brotli output is capped at 10 MB ([`data-handler.ts`](../src/transport/pipeline/reliable-server/data-handler.ts)).
+5. Session: created by an authenticated HELLO or by a DATA packet that decrypted; at most 5 per IP and 100 per server connection.
+6. Sequence: replay window, gap detection, NAK for missing sequences, cumulative ACK every `ackInterval`.
+7. Decode, sanitize and dispatch: MessagePack or JSON, path dictionary, value-dedup expansion, `$source` resolution, then `app.handleMessage` into the local Signal K tree.

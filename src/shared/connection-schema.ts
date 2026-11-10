@@ -77,7 +77,7 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     title: "Connection ID",
     description:
       "Internal identifier used to match this connection across saves. Assigned automatically — leave blank.",
-    maxLength: 64
+    maxLength: 80
   },
   name: {
     type: "string",
@@ -142,7 +142,8 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
   useMsgpack: {
     type: "boolean",
     title: "Use MessagePack",
-    description: "Binary serialization for smaller payloads (must match on both ends).",
+    description:
+      "Binary serialization for smaller payloads. v3 receivers detect it per packet; v1 needs the same setting on both ends.",
     default: false
   },
   useValueDedup: {
@@ -150,9 +151,10 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     title: "Deduplicate Unchanged Values",
     description:
       "Replace outbound values that are identical to the previously sent value with a small " +
-      "sentinel. The receiver restores the value from its cache before injecting into Signal K. " +
+      "sentinel. The receiving server restores the value from its cache before injecting into Signal K. " +
       "Big win on rarely-changing status paths (modes, states, enums). " +
-      "MUST MATCH on both ends — if only the sender enables this, downstream consumers will see broken values.",
+      "Client only, Advanced (v3) only: the server decodes it automatically and needs no setting, " +
+      "but a server build without value dedup support injects the sentinel as the value.",
     default: false
   },
   useCompactDeltas: {
@@ -161,7 +163,8 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
     description:
       "Encode delta arrays as positional msgpack arrays instead of named JSON objects, " +
       "eliminating 70-100 bytes of repeated field names per delta. " +
-      "Requires useMsgpack: true. MUST MATCH on both ends.",
+      "Requires useMsgpack: true. Client only, Advanced (v3) only: the server decodes it " +
+      "automatically and needs no setting.",
     default: false
   },
   pathFilter: {
@@ -235,7 +238,8 @@ export const commonConnectionProperties: Record<string, SchemaFragment> = {
   usePathDictionary: {
     type: "boolean",
     title: "Use Path Dictionary",
-    description: "Encode paths as numeric IDs for bandwidth savings (must match on both ends).",
+    description:
+      "Encode paths as numeric IDs for bandwidth savings. Sender-side; the receiver needs no matching setting.",
     default: false
   },
   protocolVersion: {
@@ -738,7 +742,7 @@ export const skipOwnDataProperty: SchemaFragment = {
   type: "boolean",
   title: "Skip Plugin's Own Data",
   description:
-    "Do not forward data this plugin publishes locally over the link. Strips entries under 'networking.edgeLink.*' and the v1 RTT path 'networking.modem.rtt' / 'networking.modem.<id>.rtt'; other 'networking.modem.*' paths from external providers are left intact. Also suppresses the reliable v3 client telemetry packet that mirrors local link metrics to the receiver.",
+    "Do not forward data this plugin publishes locally over the link: strips entries under 'networking.edgeLink.*'. This setting keeps RTT paths ('networking.modem.rtt', 'networking.edgeLink.rtt' and their per-instance forms) so both ends keep link-health visibility, leaves other 'networking.modem.*' paths intact, and does not stop the Advanced (v3) telemetry packet. A pathFilter can still remove any of them.",
   default: false
 };
 

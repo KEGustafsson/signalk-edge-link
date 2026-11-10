@@ -1,22 +1,22 @@
 # Future Security and Protocol Roadmap
 
-This note tracks future security, protocol, and scaling design work for Signal K Edge Link. It documents tradeoffs and promotion criteria only; it does not describe capabilities that exist in the current release line.
+Future security, protocol and scaling design options, with their tradeoffs and promotion criteria. None of the future options in this document are implemented in the current release line; the Current Baseline section describes released behavior.
 
 ## Current Baseline
 
-Current payloads use AES-256-GCM with a per-packet random IV. Protocol v3 authenticates ACK, NAK, HEARTBEAT, HELLO, and META_REQUEST control packets with HMAC tags, while v1 and v2 retain their existing behavior.
+DATA, METADATA and FLEET_DATA payloads use AES-256-GCM with a random per-packet IV; control-packet payloads, including HELLO's JSON apart from its encrypted fleet identity, are plaintext and authenticated, not encrypted. Protocol v3 authenticates every control packet (ACK, NAK, HEARTBEAT, HELLO, META_REQUEST, FULL_STATUS_REQUEST and the fleet control packets) with an HMAC-SHA256 tag. v1 has no control packets. v2 was removed in 3.0.0.
 
-The configured `secretKey` must normalize to the same AES key on both peers. If a 32-character ASCII key is used with `stretchAsciiKey`, both peers must set `stretchAsciiKey` the same way, because that setting changes the derived key.
+`secretKey` must normalize to the same AES key on both peers. A 32-character ASCII key with `stretchAsciiKey` derives a different key than without it, so both peers must set `stretchAsciiKey` the same way.
 
-Changing `secretKey` requires a coordinated configuration update and plugin restart on both peers. Packets encrypted or authenticated with an old key fail authentication after the peer has switched to the new key.
+Changing `secretKey` needs a coordinated configuration update and plugin restart on both peers. Once one peer has switched, packets from the other fail authentication.
 
-There is no online key agreement, online key rotation, or forward secrecy today. Current protocol-version pinning intentionally rejects mismatched reliable protocol versions rather than falling back silently.
+There is no online key agreement, online key rotation or forward secrecy. Mismatched reliable protocol versions are rejected, never silently downgraded.
 
 ## Non-Goals for the Current Release Line
 
-The current release line does not add a handshake protocol, automatic peer negotiation, dual-key receive windows, a distributed rate-limit store, database-backed metrics retention, or protocol-v4 wire behavior.
+No handshake protocol, automatic peer negotiation, dual-key receive window, distributed rate-limit store, database-backed metrics retention or protocol-v4 wire behavior.
 
-Future work must not weaken current protocol pinning. Any new security posture must be explicit, observable, and reversible by operators.
+Future work must not weaken protocol pinning. Any new security posture must be explicit, observable and reversible by operators.
 
 ## Online Key Rotation and Key Agreement Options
 
@@ -28,35 +28,35 @@ Future work must not weaken current protocol pinning. Any new security posture m
 | Authenticated ephemeral key agreement | Adds forward secrecy by authenticating an ephemeral key exchange with peer trust. | Identity model, authenticated Diffie-Hellman pattern selection, downgrade resistance, replay protection, and mixed peers. | Future design only; do not hand-roll casually.  |
 | Protocol-v4 handshake                 | Provides a versioned place for capability negotiation and future crypto upgrades. | New version-gated handshake, explicit transcript binding, migration docs, rollback, metrics, and compatibility test plan. | Future protocol phase; disabled until designed. |
 
-Future design work should consult primary protocol specifications such as TLS 1.3 and the Noise Protocol Framework before choosing any key schedule or handshake pattern.
+Consult primary specifications such as TLS 1.3 and the Noise Protocol Framework before choosing a key schedule or handshake pattern.
 
 ## Protocol Compatibility and Migration Constraints
 
-Any protocol migration must be version-gated, opt-in, disabled by default until both peers are intentionally configured, and have no silent fallback. This is required for downgrade resistance and to keep security posture understandable.
+Any protocol migration must be version-gated, opt-in, disabled by default until both peers are configured for it, and have no silent fallback, for downgrade resistance.
 
-Future designs must specify replay protection, peer authentication, mixed-version behavior, failure behavior, operator rollout steps, rollback, and observability before implementation starts.
+Before implementation, a design must specify replay protection, peer authentication, mixed-version behavior, failure behavior, operator rollout steps, rollback and observability.
 
-Peer-matching settings that can break a link must remain explicit in migration docs: `protocolVersion`, `secretKey`, `stretchAsciiKey`, `useMsgpack`, `usePathDictionary`, UDP address, and UDP port.
+Migration docs must list the peer-matching settings that can break a link: `protocolVersion`, `secretKey`, `stretchAsciiKey`, `useMsgpack` (v1 only; a v3 receiver reads the MessagePack flag in each packet), UDP address and UDP port, plus in v3 `authenticatedHeaders` (a mismatch drops DATA and METADATA) and `epochBoundAuth` (the side that requires it drops the other side's unbound packets, including control packets); see [configuration-reference.md](configuration-reference.md). `usePathDictionary` is not one: the receiver decodes numeric and plain paths alike.
 
-Protocol v3 currently reuses the v2 data packet format and adds authenticated control packets. Any protocol-v4 handshake should preserve a clear boundary between existing v1/v2/v3 behavior and new opt-in behavior.
+v3 DATA carries the same encrypted payload as v2 DATA. The v3 header has version byte `0x03`, `authenticatedHeaders` (default on) appends a 16-byte HMAC tag to DATA, and v3 added authenticated control packets. A protocol-v4 handshake must keep a clear boundary between existing v1/v3 behavior and new opt-in behavior.
 
 ## Scaling Limits and External Controls
 
-Current scaling controls are intentionally process-local:
+These controls are process-local:
 
-- process-local management API rate limiting
-- process-local management auth telemetry
+- management API rate limiting
+- management auth telemetry
 - in-memory metrics history
 - per-server `MAX_CLIENT_SESSIONS`
-- per-session `UDP_RATE_LIMIT_MAX_PACKETS`
+- per-session `UDP_RATE_LIMIT_MAX_PACKETS`, applied per source IP only to DATA and METADATA from a source with no session yet and to bonding probes (not an aggregate per-IP limit on all UDP traffic)
 
-Deployments that need global controls or longer retention should use external systems first: reverse proxy or API gateway rate limits, Signal K auth/TLS, firewall/VPN allowlists, Prometheus/Grafana, and external log aggregation.
+For global controls or longer retention, use external systems: reverse proxy or API gateway rate limits, Signal K auth/TLS, firewall/VPN allowlists, Prometheus/Grafana and external log aggregation.
 
-Database-backed metrics history, cluster-wide rate-limit state, and distributed auth telemetry aggregation are future architecture decisions. They need storage ownership, retention, cardinality, privacy, failure-mode, migration, and rollback design before implementation.
+Database-backed metrics history, cluster-wide rate-limit state and distributed auth telemetry are future architecture decisions. They need storage ownership, retention, cardinality, privacy, failure-mode, migration and rollback design first.
 
 ## Promotion Criteria for Future Work
 
-Future work should be promoted only when the active milestone needs it and the design can satisfy the compatibility and security criteria above.
+Promote an item only when the active milestone needs it and the design meets the compatibility and security criteria above.
 
 | Deferred ID   | Future backlog candidate                           | Promotion trigger                                                                                  |
 | ------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------- |

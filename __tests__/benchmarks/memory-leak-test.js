@@ -14,15 +14,19 @@
  * Run: node __tests__/benchmarks/memory-leak-test.js
  */
 
-const { PacketBuilder, PacketParser } = require("../../lib/packet");
-const { SequenceTracker } = require("../../lib/sequence");
-const { RetransmitQueue } = require("../../lib/retransmit-queue");
-const { CongestionControl } = require("../../lib/congestion");
+const { PacketBuilder, PacketParser } = require("../../lib/codec/packet-codec");
+const { SequenceTracker } = require("../../lib/transport/reliability/sequence");
+const { RetransmitQueue } = require("../../lib/transport/reliability/retransmit-queue");
+const { CongestionControl } = require("../../lib/transport/congestion");
+
 const {
   PacketLossTracker,
   PathLatencyTracker,
   RetransmissionTracker
-} = require("../../lib/monitoring");
+} = require("../../lib/domain/monitoring");
+
+// Benchmark-only key: control packets and authenticated headers need one.
+const SECRET_KEY = "12345678901234567890123456789012";
 
 function formatMB(bytes) {
   return (bytes / 1048576).toFixed(2) + " MB";
@@ -183,7 +187,7 @@ function testMonitoringTrackers() {
 function testPacketBuilder() {
   console.log("=== PacketBuilder Sequence Growth ===\n");
 
-  const builder = new PacketBuilder();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
   const payload = Buffer.alloc(200, 0xab);
 
   const heapBefore = getHeapUsed();
@@ -240,8 +244,8 @@ function testSustainedOperation() {
   console.log("=== Sustained Operation (simulated 24h) ===\n");
 
   // Simulate a condensed version of 24 hours of operation
-  const builder = new PacketBuilder();
-  const parser = new PacketParser();
+  const builder = new PacketBuilder({ secretKey: SECRET_KEY });
+  const parser = new PacketParser({ secretKey: SECRET_KEY });
   const tracker = new SequenceTracker();
   const queue = new RetransmitQueue({ maxSize: 5000, maxRetransmits: 3 });
   const lossTracker = new PacketLossTracker();

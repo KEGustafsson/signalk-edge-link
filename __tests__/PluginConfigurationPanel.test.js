@@ -502,6 +502,40 @@ describe("PluginConfigurationPanel", () => {
     expect(body.requireManagementApiToken).toBe(true);
   });
 
+  test.each([
+    ["true", true],
+    ["yes", true],
+    ["treu", true],
+    ["false", false],
+    [undefined, false]
+  ])(
+    "Save posts requireManagementApiToken %p read as the auth guard reads it (%p)",
+    async (stored, expected) => {
+      apiFetch
+        .mockResolvedValueOnce(
+          makeOk({
+            success: true,
+            configuration: {
+              connections: ONE_SERVER.configuration.connections,
+              requireManagementApiToken: stored
+            }
+          })
+        )
+        .mockResolvedValueOnce(makeOk({ success: true, message: "Saved." }));
+
+      render(React.createElement(PluginConfigurationPanel));
+      await waitFor(() => screen.getByText("shore-server"));
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Save Configuration"));
+      });
+
+      await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+      const body = JSON.parse(apiFetch.mock.calls[1][1].body);
+      expect(body.requireManagementApiToken).toBe(expected);
+    }
+  );
+
   test("shows success message after save", async () => {
     apiFetch
       .mockResolvedValueOnce(makeOk(ONE_SERVER))

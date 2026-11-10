@@ -17,6 +17,14 @@ import {
 import { RouteRequest, RouteResponse, Router, RouteContext, InstanceBundle } from "./types";
 import type { ConnectionConfig } from "../foundation/types";
 
+function parsePositiveInt(raw: unknown): number | null {
+  if (typeof raw !== "string" || !/^\d+$/.test(raw)) {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
 /**
  * Registers multi-instance connection routes:
  *   /connections, /instances, /connections/:id/metrics, /connections/:id/network-metrics,
@@ -150,18 +158,19 @@ function register(router: Router, ctx: RouteContext): void {
 
       let limit: number | null = null;
       if (limitRaw !== undefined) {
-        limit = Number.parseInt(String(limitRaw), 10);
-        if (!Number.isInteger(limit) || limit <= 0) {
+        limit = parsePositiveInt(limitRaw);
+        if (limit === null) {
           return res.status(400).json({ error: "limit must be a positive integer" });
         }
       }
 
       let page = 1;
       if (pageRaw !== undefined) {
-        page = Number.parseInt(String(pageRaw), 10);
-        if (!Number.isInteger(page) || page <= 0) {
+        const parsedPage = parsePositiveInt(pageRaw);
+        if (parsedPage === null) {
           return res.status(400).json({ error: "page must be a positive integer" });
         }
+        page = parsedPage;
       }
 
       const mapped = all.map((b: InstanceBundle) => ({
@@ -234,8 +243,9 @@ function register(router: Router, ctx: RouteContext): void {
         readyToSend: state.readyToSend,
         currentLink: bondingManager ? bondingManager.getActiveLinkName() : "primary",
         network: {
-          rtt: effectiveNetwork.rtt,
-          jitter: effectiveNetwork.jitter,
+          // A client's rtt and jitter are seed zeros before its first timed ACK.
+          rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
+          jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
           packetLoss: effectiveNetwork.packetLoss,
           retransmissions: effectiveNetwork.retransmissions,
           queueDepth: effectiveNetwork.queueDepth,
@@ -431,7 +441,13 @@ function register(router: Router, ctx: RouteContext): void {
       const { state } = bundle;
       const { metrics } = bundle.metricsApi;
       const effectiveNetwork = getEffectiveNetworkQuality(state, metrics);
-      res.json({ instanceId: req.params.id, ...effectiveNetwork, timestamp: Date.now() });
+      res.json({
+        instanceId: req.params.id,
+        ...effectiveNetwork,
+        rtt: effectiveNetwork.hasQualityBasis ? effectiveNetwork.rtt : undefined,
+        jitter: effectiveNetwork.hasQualityBasis ? effectiveNetwork.jitter : undefined,
+        timestamp: Date.now()
+      });
     }
   );
 

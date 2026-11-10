@@ -1,61 +1,43 @@
 # Signal K Edge Link — Congestion Control
 
-> AIMD automatic send-rate adaptation for variable-latency links.
+> Automatic adjustment of the client's send interval (`deltaTimer`) from measured RTT and packet loss. Client connections in Advanced (v3) mode only; on Basic (v1) the setting is ignored with the log `Congestion control requires Protocol v2 – ignoring`. Field defaults and ranges are in [configuration-reference.md](configuration-reference.md#congestion-control-client-advancedv3-only).
 
 ---
 
-## Why It's Needed
+## Algorithm
 
-UDP has no built-in congestion feedback. Without adaptation, a fixed send rate on constrained links causes packet bursts, retransmit storms, and elevated latency. Congestion control is only available in Advanced (v3) mode.
+The controller multiplies the timer by a factor chosen by band, and outside the congested band moves it toward a nominal interval. There is no additive step. Source: `src/transport/congestion.ts`.
 
----
+Inputs come from each ACK: the current loss ratio, and an RTT sample only when the acknowledged sequence is still in the retransmit queue and was never retransmitted. Other ACKs update loss but not RTT. Both are smoothed as `0.2 × new + 0.8 × previous`; the first sample is taken as is. The controller does nothing until it has a sample.
 
-## The AIMD Algorithm
+Every 5000 ms (`adjustInterval`) it compares smoothed RTT and loss with `targetRTT` and picks one of three bands:
 
-**Additive Increase, Multiplicative Decrease (AIMD)** — same class as TCP congestion control:
+| Band      | Condition                                 | Timer change                                                                 |
+| --------- | ----------------------------------------- | ---------------------------------------------------------------------------- |
+| Congested | loss > 5% or RTT > `targetRTT × 1.5`      | × 1.5 (slower sending)                                                       |
+| Healthy   | loss < 1% and 0 < RTT < `targetRTT × 0.8` | Toward nominal: × 0.95 if above it, × 1.05 if below it, unchanged at nominal |
+| Middle    | anything else                             | Toward nominal: × 0.98 if above it, × 1.02 if below it                       |
 
-```text
-Every 5 seconds, evaluate smoothed RTT and packet loss:
+Then:
 
-  ┌─────────────────────────────────────────────────────────────┐
-  │  loss < 1% AND RTT < targetRTT     → deltaTimer × 0.95     │
-  │                                      (5% faster)           │
-  │  loss > 5% OR RTT > targetRTT×1.5  → deltaTimer × 1.50     │
-  │                                      (50% slower)          │
-  │  otherwise (moderate)              → no change             │
-  │                                                             │
-  │  Cap: max ±20% per step (e.g. ×1.50 → effective ×1.20)     │
-  │  Inputs smoothed: value = 0.2 × new + 0.8 × prev (EMA)    │
-  │  Bounds: minDeltaTimer ≤ timer ≤ maxDeltaTimer              │
-  └─────────────────────────────────────────────────────────────┘
-```
+1. One step changes the timer by at most 20% (`maxAdjustment`), so × 1.5 becomes × 1.2.
+2. The result is clamped to `minDeltaTimer`–`maxDeltaTimer` and rounded to whole milliseconds. The clamp comes after the 20% cap, so a timer outside the bounds (for example a manual value below `minDeltaTimer`) jumps to the bound in one step.
 
----
+Nominal is `nominalDeltaTimer`, clamped to `minDeltaTimer`–`maxDeltaTimer`. If it is not set, nominal is the `deltaTimer` the connection started with (from `delta_timer.json`, default 1000 ms). When nominal equals `minDeltaTimer`, a healthy link always steps × 0.95, driving the timer down to the minimum. The steps are multiplicative and rounded, so the timer can alternate within a few percent of nominal instead of landing on it.
 
-## Example Timer Behavior
+The controller's timer starts at 1000 ms. When it changes, it becomes the connection's send interval. Editing `delta_timer.json` while the controller runs changes the send interval until the controller next changes its timer.
 
-```text
-deltaTimer (ms)
- 5000 ─────────────────────────────────────────────────── (max)
-                                               ╭─ congestion spike ×1.5
- 2000 ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─╯
-                                          ╭──╯
- 1000 ──────────────────────────────╮────╯
-                            ╭───────╯
-  500 ──────────────────────╯  healthy ×0.95/step
-  100 ─────────────────────────────────────────────── (min)
-       t=0   t=5s  t=10s  t=15s  t=20s  t=25s  t=30s
-```
+### Worked example
 
-### Worked example (targetRTT = 200 ms)
+`targetRTT` 200 ms (congested above 300 ms, healthy below 160 ms), nominal 1000 ms, RTT and loss already smoothed:
 
-| Step  | RTT   | Loss | Decision                | Timer  |
-| ----- | ----- | ---- | ----------------------- | ------ |
-| t=0   | 45ms  | 0%   | Healthy                 | 950ms  |
-| t=5s  | 55ms  | 0%   | Healthy                 | 903ms  |
-| t=10s | 320ms | 0%   | Congested (RTT > 300ms) | 1354ms |
-| t=15s | 280ms | 0%   | Neutral                 | 1354ms |
-| t=20s | 90ms  | 0%   | Healthy                 | 1287ms |
+| Step  | RTT    | Loss | Band      | Timer                           |
+| ----- | ------ | ---- | --------- | ------------------------------- |
+| t=0   | 45 ms  | 0%   | Healthy   | 1000 ms (at nominal, unchanged) |
+| t=5s  | 320 ms | 0%   | Congested | 1200 ms (× 1.5 capped at × 1.2) |
+| t=10s | 320 ms | 0%   | Congested | 1440 ms                         |
+| t=15s | 180 ms | 0%   | Middle    | 1411 ms (× 0.98)                |
+| t=20s | 90 ms  | 0%   | Healthy   | 1340 ms (× 0.95)                |
 
 ---
 
@@ -66,26 +48,23 @@ deltaTimer (ms)
   "congestionControl": {
     "enabled": true,
     "targetRTT": 200,
+    "nominalDeltaTimer": 1000,
     "minDeltaTimer": 100,
     "maxDeltaTimer": 5000
   }
 }
 ```
 
-| Field               | Type    | Default | Range         | Description                                                                  |
-| ------------------- | ------- | ------- | ------------- | ---------------------------------------------------------------------------- |
-| `enabled`           | boolean | `false` | —             | Enable AIMD automatic delta timer adjustment.                                |
-| `targetRTT`         | integer | `200`   | 50–2000 ms    | RTT above this level triggers rate reduction. Set to your link's normal RTT. |
-| `nominalDeltaTimer` | integer | `1000`  | 100–10000 ms  | Starting send interval when congestion control is first enabled.             |
-| `minDeltaTimer`     | integer | `100`   | 50–1000 ms    | Fastest allowed send rate.                                                   |
-| `maxDeltaTimer`     | integer | `5000`  | 1000–30000 ms | Slowest allowed send rate under congestion.                                  |
+Set `targetRTT` to the link's normal RTT. `minDeltaTimer` must not exceed `maxDeltaTimer`.
 
 ---
 
 ## Checking State at Runtime
 
+`GET /congestion` returns the state of the first client connection (404 on a server-only node; token required when one is set):
+
 ```bash
-curl http://localhost:3000/plugins/signalk-edge-link/congestion | jq .
+curl -s -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" http://localhost:3000/plugins/signalk-edge-link/congestion | jq .
 ```
 
 ```json
@@ -93,6 +72,7 @@ curl http://localhost:3000/plugins/signalk-edge-link/congestion | jq .
   "enabled": true,
   "manualMode": false,
   "currentDeltaTimer": 850,
+  "nominalDeltaTimer": 1000,
   "avgRTT": 45.32,
   "avgLoss": 0.002,
   "targetRTT": 200,
@@ -103,31 +83,31 @@ curl http://localhost:3000/plugins/signalk-edge-link/congestion | jq .
 }
 ```
 
+`avgRTT` and `avgLoss` are the smoothed inputs.
+
 ---
 
 ## Manual Override
 
-```bash
-# Lock timer to 500 ms
-curl -s -X POST -H "Content-Type: application/json" \
-  -H "X-Edge-Link-Token: $TOKEN" \
-  -d '{"value": 500}' \
-  http://localhost:3000/plugins/signalk-edge-link/delta-timer
+`POST /delta-timer` with `value` (100–10000 ms) sets the send interval and puts the controller in manual mode, where it stops adjusting. `{"mode": "auto"}` resumes automatic mode. Manual mode is held in memory only.
 
-# Re-enable automatic mode
-curl -s -X POST -H "Content-Type: application/json" \
-  -H "X-Edge-Link-Token: $TOKEN" \
-  -d '{"mode": "auto"}' \
-  http://localhost:3000/plugins/signalk-edge-link/delta-timer
+```bash
+# Lock the timer to 500 ms → {"deltaTimer": 500, "mode": "manual"}
+curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" \
+  -d '{"value": 500}' http://localhost:3000/plugins/signalk-edge-link/delta-timer
+
+# Back to automatic → {"deltaTimer": <current>, "mode": "auto"}
+curl -s -X POST -H "Content-Type: application/json" -H "X-Edge-Link-Token: $SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN" \
+  -d '{"mode": "auto"}' http://localhost:3000/plugins/signalk-edge-link/delta-timer
 ```
 
 ---
 
 ## Tuning Guide
 
-| Symptom                         | Cause                                  | Fix                                              |
-| ------------------------------- | -------------------------------------- | ------------------------------------------------ |
-| Timer always at `maxDeltaTimer` | `targetRTT` below link's actual RTT    | Increase `targetRTT` to match `avgRTT`           |
-| Timer oscillates rapidly        | RTT hovering near threshold            | Increase `targetRTT` by 20–30% above typical RTT |
-| Timer won't go below a value    | `minDeltaTimer` too high               | Lower `minDeltaTimer` (watch CPU)                |
-| Controller not adapting         | `enabled: false` or `manualMode: true` | Check `GET /congestion`                          |
+| Symptom                         | Cause                                  | Fix                                                                                                                                                        |
+| ------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Timer always at `maxDeltaTimer` | `targetRTT` below the link's real RTT  | Raise `targetRTT` to match `avgRTT`                                                                                                                        |
+| Timer oscillates                | RTT hovering near the threshold        | Raise `targetRTT` 20–30% above typical RTT                                                                                                                 |
+| Timer will not go below a value | `minDeltaTimer` or nominal too high    | Lower `minDeltaTimer` or `nominalDeltaTimer` (watch CPU)                                                                                                   |
+| Controller not adapting         | `enabled: false` or `manualMode: true` | Check `GET /congestion`. If `enabled` is `false`, set `congestionControl.enabled` in the client config; if `manualMode` is `true`, send `{"mode": "auto"}` |

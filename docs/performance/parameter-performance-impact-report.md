@@ -1,20 +1,16 @@
 # Parameter & Performance Impact Report
 
-This report captures benchmark runs performed locally to evaluate how key tunable parameters affect throughput, latency, overhead, and reliability behavior.
+Historical report: point-in-time local benchmark runs measuring how tunable parameters affected throughput, latency, overhead and reliability. It says v2 where current releases say v3 (`protocolVersion: 2` is accepted and converted to `3`). Current settings and defaults are in [configuration-reference.md](../configuration-reference.md).
 
-## Commands run
+## Source of the measurements
 
-```bash
-node test/benchmarks/bandwidth-efficiency.js
-node test/benchmarks/latency-percentiles.js
-node test/benchmarks/reliability-overhead.js
-```
+The figures came from `bandwidth-efficiency.js`, `latency-percentiles.js` and `reliability-overhead.js` in `__tests__/benchmarks/`. The scripts run on the current build (`npm run build`, then `node __tests__/benchmarks/<script>.js`), but the figures below were not re-measured and will differ on current code and hardware.
 
 ## Environment
 
 - Repository: `signalk-edge-link`
-- Runtime: Node.js benchmark scripts from `test/benchmarks`
-- Notes: Results are point-in-time measurements on this host and should be used for directional tuning guidance.
+- Runtime: Node.js benchmark scripts in `__tests__/benchmarks/`
+- Notes: point-in-time measurements on one host; use them for directional tuning only.
 
 ## Parameter reference: what each one means and how it impacts performance
 
@@ -62,12 +58,12 @@ node test/benchmarks/reliability-overhead.js
 
 ### Congestion control (client, v2)
 
-| Parameter                         | Meaning                            | Performance impact                                                                |
-| --------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------- |
-| `congestionControl.enabled`       | Enables AIMD send-rate adaptation. | Usually improves robustness under variable WAN conditions.                        |
-| `targetRTT`                       | Desired RTT threshold.             | Lower target is conservative (backs off sooner); higher target favors throughput. |
-| `nominalDeltaTimer`               | Preferred steady send interval.    | Baseline latency/bandwidth trade-off.                                             |
-| `minDeltaTimer` / `maxDeltaTimer` | Controller adjustment bounds.      | Wider range allows stronger adaptation; narrower range stabilizes behavior.       |
+| Parameter                         | Meaning                         | Performance impact                                                                |
+| --------------------------------- | ------------------------------- | --------------------------------------------------------------------------------- |
+| `congestionControl.enabled`       | Enables send-rate adaptation.   | Usually improves robustness under variable WAN conditions.                        |
+| `targetRTT`                       | Desired RTT threshold.          | Lower target is conservative (backs off sooner); higher target favors throughput. |
+| `nominalDeltaTimer`               | Preferred steady send interval. | Baseline latency/bandwidth trade-off.                                             |
+| `minDeltaTimer` / `maxDeltaTimer` | Controller adjustment bounds.   | Wider range allows stronger adaptation; narrower range stabilizes behavior.       |
 
 ### Bonding/failover (client, v2)
 
@@ -129,7 +125,7 @@ Source: `bandwidth-efficiency.js`
 
 Source: `bandwidth-efficiency.js`
 
-### Observed delta timer adaptation (AIMD)
+### Observed delta timer adaptation
 
 - **Good → congested:** timer stayed at 1000 ms initially, then rose to 1200 ms under severe congestion sample.
 - **Congested → recovery:** timer increased up to 2489 ms, then gradually stepped down to 2390 ms as network recovered.

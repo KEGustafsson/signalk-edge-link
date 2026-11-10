@@ -1,222 +1,107 @@
 # Web UI Guide
 
-Signal K Edge Link ships two browser surfaces, both built as a React component
-tree (rewritten in 3.0.0):
+Signal K Edge Link has two browser pages:
 
-| Surface                 | Where                                                            | Purpose                                  |
-| ----------------------- | ---------------------------------------------------------------- | ---------------------------------------- |
-| **Configuration panel** | Signal K Admin → **Server → Plugin Config → Signal K Edge Link** | Create and edit connections; save config |
-| **Runtime dashboard**   | `http://<signalk-host>:3000/plugins/signalk-edge-link/`          | Live metrics and per-connection controls |
+| Page                    | Where                                                            | Purpose                                                                              |
+| ----------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **Configuration panel** | Signal K Admin → **Server → Plugin Config → Signal K Edge Link** | Create and edit connections. Saving restarts the plugin when the server supports it. |
+| **Runtime dashboard**   | `http://<signalk-host>:3000/plugins/signalk-edge-link/`          | Live metrics, runtime file editors, manual bonding failover.                         |
 
-The configuration panel writes the plugin config (and restarts the plugin on
-save). The runtime dashboard is read-mostly: it polls live metrics and exposes a
-few runtime controls (delta timer, subscriptions, manual failover).
-
-> **Note.** This guide describes the UI layout and behavior to orient new users.
-> Specific field names, card titles, and which panels appear are part of an
-> evolving UI — for the current, authoritative list, consult the running UI
-> itself, [configuration-reference.md](configuration-reference.md) for config
-> fields, and [metrics.md](metrics.md) for metric names. Treat the enumerations
-> below as illustrative of the structure, not an exhaustive contract.
+Field meanings, defaults and ranges are in [configuration-reference.md](configuration-reference.md); metric definitions are in [metrics.md](metrics.md). The dashboard calls the management API and needs the management token when one is set: see [management-tools.md](management-tools.md).
 
 ---
 
 ## 1. Configuration panel (Admin → Plugin Config)
 
-This is where you define connections. The panel is embedded into the Signal K
-admin page; it is not the same surface as the runtime dashboard.
-
 ### Layout
 
-1. **Intro line** — reminds you to add one connection per link, pick Server
-   (receive) or Client (send) mode, and that **both ends must use the same
-   encryption key and protocol**.
-2. **Plugin Security Settings** — applies to the whole plugin, not a single
-   connection:
-   - **Management API Token** — shared secret protecting the management API
-     endpoints. Strongly recommended for production. Can also be set via the
-     `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` environment variable, which takes
-     precedence over this field when both are set — so a token can be rotated
-     by changing the environment and restarting. For open access, leave both
-     empty **and** leave Require Management API Token unchecked; with that box
-     checked and no token configured, every management request is refused with
-     HTTP 403.
-   - **Require Management API Token** — when checked, management requests are
-     rejected if no token is configured (fail-closed). When unchecked, requests
-     are allowed when no token is set (open access).
-3. **Connection cards** — one collapsible card per connection, each tagged with
-   a **Server** or **Client** badge. Click the header to expand/collapse.
-4. **Toolbar** — **+ Add Server**, **+ Add Client**, and **Save**, plus a live
-   count (e.g. "2 connections · 1 server, 1 client").
+1. **Intro line:** one connection per link; Server mode receives, Client mode sends; both ends must use the same key and protocol.
+2. **Plugin Security Settings:** **Management API Token** (password input; the `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` environment variable takes priority) and **Require Management API Token**. Open access needs the token empty, the box unchecked, and neither `SIGNALK_EDGE_LINK_MANAGEMENT_TOKEN` nor `SIGNALK_EDGE_LINK_REQUIRE_MANAGEMENT_TOKEN` set in the environment; with the box checked and no token, every management request gets HTTP 403. See [Top-Level Plugin Fields](configuration-reference.md#top-level-plugin-fields).
+3. **Connection cards:** one collapsible card per connection with a **Server** or **Client** badge. Click the header to expand it.
+4. **Toolbar:** **+ Add Server**, **+ Add Client**, **Save Configuration** (**Save Changes** while there are edits), and a connection count.
 
-### Server vs Client cards
+### Server and client cards
 
-Switching the **Connection Type** (`serverType`) field reshapes the form;
-shared fields (name, port, key, key-stretch, protocol, authenticated headers)
-are preserved across the switch.
+The **Operation Mode** field (`serverType`) switches the card between the server and client form. Fields common to both modes keep their values across the switch.
 
-| Field                             | Server card  | Client card    |
-| --------------------------------- | ------------ | -------------- |
-| Connection Name                   | ✓            | ✓              |
-| Server Address (`udpAddress`)     | —            | ✓              |
-| UDP Port                          | ✓            | ✓              |
-| Encryption Key                    | ✓            | ✓              |
-| Protocol (Basic v1 / Advanced v3) | ✓            | ✓              |
-| `requestFullStatusOnRestart`      | ✓ (advanced) | —              |
-| `fleetSharing`                    | ✓ (advanced) | ✓ (advanced)   |
-| v1 ping-monitor fields            | —            | ✓ (Basic only) |
+| Field                                             | Server card      | Client card      |
+| ------------------------------------------------- | ---------------- | ---------------- |
+| Connection Name, UDP Port                         | ✓                | ✓                |
+| Encryption Key (password input)                   | ✓                | ✓                |
+| Protocol Version (Basic v1 / Advanced v3)         | ✓                | ✓                |
+| Server Address (`udpAddress`)                     | —                | ✓                |
+| Client-only sending options and tuning            | —                | ✓ (advanced)     |
+| `requestFullStatusOnRestart`                      | ✓ (v3, advanced) | —                |
+| `reliability`, `fleetSharing`                     | ✓ (v3, advanced) | ✓ (v3, advanced) |
+| `congestionControl`, `bonding`, `alertThresholds` | —                | ✓ (v3, advanced) |
+| v1 ping monitor fields                            | —                | ✓ (v1, advanced) |
 
-The encryption key field is a password input; the helper text accepts a
-32-character ASCII, 64-character hex, or base64 key.
+### Advanced settings
 
-### Progressive disclosure: "Advanced settings"
+A card first shows only the essentials: name, mode, UDP port, key, protocol and, on a client, the server address. **▼ Show advanced settings** reveals the rest.
 
-By default each card shows only the essentials. A **▼ Show advanced settings**
-toggle at the bottom of the card reveals compression, reliability, bonding,
-congestion control, alert thresholds, and per-path tuning (precision, throttle,
-path filter). Notes on the behavior:
-
-- The advanced section **auto-expands on load** for any connection that already
-  uses an advanced option, so deliberately configured settings are never hidden
-  from you.
-- Collapsing advanced settings **never discards** the values underneath — only
-  the visible fields are managed; hidden advanced values are preserved on save.
-- Version-gated fields are kept consistent automatically: the v1-only ping
-  fields (`testAddress`, `testPort`, `pingIntervalTime`) are dropped when a
-  client moves to v3, and the v3-only codec flags (`useValueDedup`,
-  `useCompactDeltas`) are dropped on a downgrade to v1 — so a config edited in
-  the UI can't carry a stale flag the backend validator would reject.
+- The advanced section opens on load for a connection whose advanced fields differ from their defaults.
+- Collapsing it does not discard hidden values; they are saved unchanged.
+- Version-gated fields are removed automatically so the config passes validation: the v1 ping fields (`testAddress`, `testPort`, `pingIntervalTime`) when a client moves to v3, and `useValueDedup` / `useCompactDeltas` when a connection moves to v1.
 
 ### Saving
 
-- An **"You have unsaved changes"** banner appears while the form is dirty.
-- **Duplicate server ports** are flagged inline and block the save — each server
-  connection needs a unique UDP port.
-- On a successful save the plugin restarts to apply the new configuration.
+- **You have unsaved changes.** shows while the form has edits.
+- Two server connections on the same UDP port are flagged under the card and block the save.
+- A successful save restarts the plugin with the new configuration. If the server cannot restart it, the configuration is saved but not active, and the panel shows "Restart plugin to apply changes".
 
 ---
 
 ## 2. Runtime dashboard (`/plugins/signalk-edge-link/`)
 
-Open this on either peer to watch the link live. Metrics poll continuously and
-the connection list refreshes with them.
+Metrics poll continuously on either peer.
 
 ### Connection tabs
 
-When more than one connection is configured, a **tab bar** appears at the top.
-Each tab shows:
+With more than one connection, a tab bar shows each connection with:
 
-- a **status dot** — green (healthy / ready to send), amber (client not yet
-  ready), or red (unhealthy),
-- an **icon** — 🖥 for a server, 📱 for a client,
-- the connection **name** and **type**.
+- a status dot: green (server, or client ready to send), amber (client not ready), red (unhealthy);
+- an icon: 🖥 server, 📱 client;
+- the connection name and type.
 
-With a single connection the tab bar is hidden and that connection is shown
-directly. Selecting a tab swaps the dashboard to that connection.
+With one connection the tab bar is hidden. A connection whose startup failed keeps its tab with a red dot and is retried in the background (30 s backoff, up to 300 s); the dot turns green once it starts.
 
-A connection whose startup failed stays in the tab bar with a red dot rather
-than disappearing, and is retried in the background (30 s → 300 s backoff), so
-the dot turns green on its own once the cause clears.
+### Cards by connection type
 
-### What you see depends on type and protocol
+Cards marked _(v3)_ appear only for Advanced connections.
 
-The dashboard renders a **Server** or **Client** layout based on the active
-connection's type, and the richer cards only appear for **Advanced (v3)**
-connections. A **Basic (v1)** connection shows just the core metrics (and, on a
-client, the Status summary).
+| Section                 | Card                       | Client | Server | Shows                                                                                                |
+| ----------------------- | -------------------------- | ------ | ------ | ---------------------------------------------------------------------------------------------------- |
+| Configuration           | Delta Timer Configuration  | ✓      | —      | Edits `delta_timer.json` (send interval, ms).                                                        |
+| Configuration           | Subscription Configuration | ✓      | —      | Edits `subscription.json`: context, paths, metadata streaming, JSON editor.                          |
+| Configuration           | Sentence Filter            | ✓      | —      | Edits `sentence_filter.json` (NMEA sentences not sent).                                              |
+| Operations & Monitoring | Performance Metrics        | ✓      | ✓      | Uptime, status, delta and packet counts, error counters, smart batching (client).                    |
+| Operations & Monitoring | Network Quality _(v3)_     | ✓      | ✓      | Link Quality gauge, RTT, jitter, packet loss, retransmit rate, queue depth.                          |
+| Operations & Monitoring | Bandwidth Monitor _(v3)_   | ✓      | ✓      | Compression ratio, average packet size, throughput sparklines.                                       |
+| Operations & Monitoring | Path Analytics _(v3)_      | ✓      | ✓      | Active path count, categories, per-path table.                                                       |
+| Operations & Monitoring | Congestion Control _(v3)_  | ✓      | —      | Controller state and current delta timer.                                                            |
+| Operations & Monitoring | Connection Bonding _(v3)_  | ✓      | —      | Shown when bonding is enabled: per-link status and a manual failover button.                         |
+| Operations & Monitoring | Fleet Sharing _(v3)_       | ✓      | ✓      | Shown once fleet sharing has started on the connection. See below.                                   |
+| Operations & Monitoring | Monitoring & Alerts _(v3)_ | ✓      | ✓      | Packet loss, retransmissions, alert thresholds. On a server, only when monitoring data is available. |
+| Operations & Monitoring | Status                     | ✓      | —      | Summary of the active delta timer, subscription and sentence filter.                                 |
+| Advanced                | Full Plugin Configuration  | ✓      | ✓      | JSON editor over `/plugin-config` for settings without a dedicated card.                             |
 
-#### Client dashboard
+The three Configuration cards write the runtime files described in [Runtime Configuration Files](configuration-reference.md#runtime-configuration-files-hot-reload); changes apply without a restart.
 
-Grouped into three sections:
-
-**Configuration** (client-side transmission controls, hot-reloaded):
-
-- **Delta Timer Configuration** — how often deltas are collected and sent (ms).
-- **Subscription Configuration** — context and the list of Signal K paths to
-  subscribe to, plus metadata-streaming controls (snapshot interval, an optional
-  include-paths regex, and max paths per packet) and a JSON editor.
-- **Sentence Filter** — NMEA sentences to exclude from transmission to save
-  bandwidth.
-
-**Operations & Monitoring:**
-
-- **Performance Metrics** — deltas sent/received, packet counts, error counters
-  (always shown).
-- **Network Quality** _(v3)_ — a link-quality score gauge and health indicators.
-- **Bandwidth Monitor** _(v3)_ — compression ratio, average packet size, and
-  throughput sparklines.
-- **Path Analytics** _(v3)_ — active path count, categories, and a per-path
-  table.
-- **Congestion Control** _(v3)_ — AIMD state and delta-timer auto-adjustment.
-- **Connection Bonding** _(v3)_ — per-link status and a **manual failover**
-  button (primary ↔ backup).
-- **Fleet Sharing** _(v3, when `fleetSharing` is enabled)_ — fleet state
-  (`active`, `offered`, `declined`, `not-offered`) with a hint for each state,
-  vessels known (received in the last 24 h, kept across restarts), values
-  received, echo suppression, duplicates and rejections.
-- **Monitoring & Alerts** _(v3)_ — packet loss, retransmission tracking, and
-  alert thresholds.
-- **Status** — summarizes the active delta timer, subscription, and sentence
-  filter.
-
-**Advanced:**
-
-- **Full Plugin Configuration** — a JSON editor over `/plugin-config` for
-  parameters not surfaced as dedicated cards.
-
-#### Server dashboard
-
-Servers receive rather than transmit, so they omit the client-only transmission
-controls (delta timer, subscriptions, sentence filter) and the client-only
-congestion/bonding cards:
-
-**Operations & Monitoring:**
-
-- **Performance Metrics** (always shown).
-- **Network Quality**, **Bandwidth Monitor**, **Path Analytics** _(v3)_.
-- **Fleet Sharing** _(v3, when `fleetSharing` is enabled)_ — state (`active`,
-  or `disabled` after the connection stops), members, values and bytes sent,
-  the slowest member's loss-adaptive pacing (with an explanation when it is
-  below 100%), retransmits, relayed copies dropped, identity conflicts (a
-  vessel reconnecting from a new port counts too, so these are not flagged as
-  errors), replayed HELLOs and refused identities.
-- **Monitoring & Alerts** _(v3, when monitoring data is available)_.
-
-**Advanced:**
-
-- **Full Plugin Configuration** (JSON editor).
+**Fleet Sharing card.** On a client: state (`active`, `offered`, `declined`, `not-offered`, `disabled`) with a hint for each, vessels known (received in the last 24 h, kept across restarts), values and metadata received, echo suppressed, duplicates and rejections. On a server: state (`active`, or `disabled` after the connection stops), members, values and bytes sent, slowest member pacing (with an explanation below 100%), retransmits, relayed copies dropped, identity conflicts, replayed HELLOs ignored and refused identities. A vessel reconnecting from a new port also counts as an identity conflict, so that counter is not shown as an error. Field definitions: [metrics.md — Fleet Sharing Metrics](metrics.md#fleet-sharing-metrics).
 
 ### Reading `N/A` on the Network Quality card
 
-`N/A` means **not measured**, and it is deliberately not shown as `0`. The two
-are different states and conflating them hid real faults: an unmeasured link
-scored a perfect 100 ("Excellent") because zero RTT, zero jitter and zero loss
-look ideal to the scoring function — so a client sending into a void with a
-growing retransmit queue displayed as the healthiest link on the dashboard.
+`N/A` means not measured. A `0` RTT is a measured zero; jitter reads a seeded `0` until the second timed ACK, and packet loss and retransmit rate read `0` before a client has sent anything.
 
-- **On a client**, `RTT` and `Jitter` read `N/A` until the first ACK has been
-  timed. `N/A` beside a climbing `Queue Depth` is the signature of traffic
-  leaving and nothing coming back — check `Rejected Control Packets` next.
-- **On a server**, every network-quality figure arrives as client telemetry,
-  because a server measures no latency of its own. The card reads `N/A` until
-  the first telemetry report lands, and the gauge says which of the two reasons
-  applies rather than only showing a dash.
-- **A field can be `N/A` while its neighbours are populated.** Each is reported
-  independently, so a peer running an older build — or one field the ingest
-  validator rejected — shows as absent instead of being invented.
-- **`Link Quality` is withheld unless all four of its inputs are present**
-  (RTT, jitter, packet loss, retransmit rate), since substituting a zero for a
-  missing input can only inflate the score.
-
-A `0` on this card is a measured zero and can be trusted as one.
+- **Client:** RTT and Jitter read `N/A` until the first ACK has been timed, and the gauge says "No round trip measured yet". `N/A` with a climbing Queue Depth means traffic leaves and nothing comes back; check Rejected Control Packets next.
+- **Server:** a server measures no latency itself; all network-quality figures come from client telemetry. The card reads `N/A` until the first report arrives, and the gauge says "Awaiting client telemetry".
+- Each field is reported separately, so one field can be `N/A` while others have values, for example with a peer on an older version or a field the ingest validator rejected.
+- **Link Quality** is shown only when RTT, jitter, packet loss and retransmit rate are all present.
 
 ### Reading a relay (proxy) node
 
-A relay runs **two connections in one Signal K instance** — a server that
-receives the upstream hop and a client that forwards the downstream one — so it
-shows **two tabs**, and each dashboard describes **only its own hop**. Reading
-one tab and expecting it to describe the whole chain is the most common source
-of confusion here.
+A relay runs two connections in one Signal K instance: a server that receives hop 1 and a client that forwards hop 2. It shows two tabs, and each tab describes only its own hop.
 
 ```text
   [Vessel]  ──hop 1──►  [ Relay ]  ──hop 2──►  [Shore]
@@ -224,50 +109,29 @@ of confusion here.
                         (hop 1)      (hop 2)
 ```
 
-- The **server tab** shows the vessel's link. Its RTT, jitter and link quality
-  all arrive as **telemetry from the vessel's client** — the relay measures no
-  latency of its own on that hop — so they read `N/A` until that client reports.
-- The **client tab** shows the relay's own link to shore, measured locally from
-  its own ACKs, exactly like any other client.
-- The two hops are **independent**: separate keys, separate handshakes and
-  epochs, separate reliability settings, and separate `epochBoundAuth` values.
-  Each hop must agree with itself; the hops need not agree with each other.
-- Both ends of **each hop** must run 4.0.0+ before that hop reports RTT and
-  jitter, since a receiver never computes them — it reports what its peer sends.
+- **Server tab:** the vessel's link. RTT, jitter and Link Quality come from the vessel's client telemetry and read `N/A` until that client reports.
+- **Client tab:** the relay's own link to shore, measured from its own ACKs like any client.
+- The hops are independent: separate keys, handshakes and epochs, reliability settings and `epochBoundAuth` values. Each hop's two ends must agree; the two hops need not.
+- Both ends of a hop must run 4.0.0 or later for that hop to report RTT and jitter, because a receiver reports what its peer sends.
+- With fleet sharing, each tab has its own Fleet Sharing card: the server tab shows the fleet of vessels connected to the relay, the client tab shows the relay's membership in the upstream fleet. Which vessels cross the relay: [Relays](configuration-reference.md#fleet-sharing-advancedv3-only).
 
-With fleet sharing, each tab has its own **Fleet Sharing** card for its own
-hop: the server tab shows the fleet of vessels connected to the relay, the
-client tab shows the relay's membership in the upstream fleet. Which vessels
-cross the relay is described under
-[Relays](configuration-reference.md#fleet-sharing-advancedv3-only).
+A healthy relay shows figures on both tabs. Figures on the client tab and `N/A` on the server tab mean hop 2 works and hop 1 has not reported yet; check the vessel upstream.
 
-So a healthy relay normally shows populated figures on **both** tabs. Figures on
-the client tab with `N/A` on the server tab means hop 2 is fine and hop 1 has
-not reported yet — look upstream at the vessel, not at the relay.
-
-When a connection has an instance ID configured, its Signal K paths are
-namespaced `networking.edgeLink.<instanceId>.*`, which is how the two
-connections on a relay stay distinct. See
-[metrics.md](metrics.md) for the full path list.
+Each connection publishes its Signal K paths under `networking.edgeLink.<instanceId>.*`, where the instance ID is the slug of the connection name (when two names give the same slug, later connections get `-1`, `-2`, … in configuration order); this keeps the relay's two connections apart. Path list: [metrics.md — Signal K Paths Published](metrics.md#signal-k-paths-published).
 
 ### Verifying a healthy link
 
-On the **client**, confirm `Deltas Sent` is increasing and encryption errors
-stay at `0`; on the **server**, confirm `Deltas Received` is increasing and
-decryption errors stay at `0`. For v3 links, the Network Quality and Monitoring
-& Alerts cards give you loss, RTT, and retransmission detail.
-
-`Rejected Control Packets` on a client should read `0`. A non-zero value means
-ACKs and NAKs are being discarded before they are processed, so no RTT can be
-timed, the cumulative ACK freezes and the retransmit queue grows without bound
-— check that `udpAddress` names the host the server actually replies from.
+- **Client:** Deltas Sent increases; Encryption Errors stays at 0; on v3, Auth Failures (V3) stays at 0.
+- **Server:** Deltas Received increases; Encryption Errors and, on v3, Auth Failures (V3) stay at 0.
+- **Client, Rejected Control Packets:** should be 0. The count is cumulative; if it keeps rising, control packets from a source other than `udpAddress` (or, with bonding, the primary and backup addresses) are being dropped. When those are the server's ACKs, RTT is not timed and the retransmit queue grows, so check that `udpAddress` and the bonding addresses resolve to the address the server replies from.
+- On v3, Network Quality and Monitoring & Alerts show loss, RTT and retransmissions.
 
 ---
 
 ## Related docs
 
-- [GUIDE.md §5 Quick Start](GUIDE.md) — step-by-step server/client setup
-- [configuration-reference.md](configuration-reference.md) — every field, by role
-- [metrics.md](metrics.md) — the metrics behind the dashboard cards
-- [management-tools.md](management-tools.md) — the API the dashboard calls and
-  its token auth
+- [GUIDE.md — Quick Start](GUIDE.md#5-quick-start--minimal-setup): server and client setup
+- [configuration-reference.md](configuration-reference.md): every field
+- [metrics.md](metrics.md): the metrics behind the cards
+- [management-tools.md](management-tools.md): token setup for the dashboard's API calls
+- [troubleshooting.md](troubleshooting.md): symptoms and fixes
