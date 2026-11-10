@@ -4,7 +4,7 @@ All notable changes to signalk-edge-link are documented here.
 
 ## [Unreleased]
 
-## [4.4.0] - 2026-11-06
+## [4.4.0] - 2026-11-10
 
 Fleet sharing, released. This is 4.4.0-beta.1 (below) plus the fixes listed
 here, which came from a review of the beta and from field testing. Fleet
